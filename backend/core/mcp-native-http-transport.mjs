@@ -17,7 +17,11 @@ const absolute = (v) => text(v) && isAbsolute(v);
  * pending cancellation and global-fetch use INTERNAL to that provider remain separate gates.
  * The owner fetch MUST enforce its own destination policy (OAuth context.fetch can name an issuer).
  * Start/send/fetch entry/completion are fenced, including retries/GET opens through this fetch.
- * Already started effects and response/SSE body consumption are NOT cancelled or fully fenced.
+ * JSON/POST SSE/GET SSE synchronous message dispatch checks authority before/after each listener.
+ * Async listener work is not awaited/cancelled (SDK void-listener contract). Observed
+ * failure stops delivery, emits an immediate close to release pending SDK requests, then attempts
+ * cleanup. Throwing close listeners are isolated; unsubscribe remains usable. Previously delivered
+ * messages/callback effects and response/SSE body consumption are NOT rolled back or fully cancelled.
  * Close remains callable; only a close-origin DELETE to the fixed endpoint bypasses authority,
  * best-effort as in the SDK. This is not SSRF/DNS pinning, writer quiescence or production activation.
  * Snapshot/headers/URL/options/auth are PRIVATE, never DTOs. Reprepare after source/variable changes.
@@ -84,7 +88,7 @@ export function createBackendMcpHttpTransportFactory(options) {
           Object.defineProperty(headers, name, { value: expand(config.headers[name]), enumerable: true }); names.add(name.toLowerCase());
         }
         new Headers(headers); Object.freeze(headers); // Validate without network IO; never silently omit an invalid header.
-        let closing = 0;
+        let closing = 0, deliveryStopped = false;
         const fetch = async (input, init) => {
           const cleanup = closing && init?.method === "DELETE" && String(input) === href;
           if (!cleanup) assertOwner();
@@ -98,9 +102,26 @@ export function createBackendMcpHttpTransportFactory(options) {
           }
         };
         class OwnerHttpTransport extends StreamableHttpTransport {
+          #stopDelivery() {
+            if (deliveryStopped) return;
+            deliveryStopped = true;
+            try { this.emitError(unavailable()); } catch {} // Cleanup must survive a throwing error observer.
+            // SDK onError alone does not reject pending requests. Notify close immediately, even
+            // if auth/DELETE cleanup subsequently awaits or fails. This is not completed/drained IO.
+            try { this.emitClose(); } finally { void this.close().catch(() => undefined); }
+          }
+          onMessage(listener) {
+            return super.onMessage((message) => {
+              if (deliveryStopped) return;
+              try { assertOwner(); } catch { this.#stopDelivery(); return; }
+              try { listener(message); }
+              finally { try { assertOwner(); } catch { this.#stopDelivery(); } }
+            });
+          }
+          onClose(listener) { return super.onClose(() => { try { listener(); } catch {} }); }
           async start() { assertOwner(); try { await super.start(); assertOwner(); } catch (error) { assertOwner(); throw error; } }
           async send(message) { assertOwner(); try { await super.send(message); assertOwner(); } catch (error) { assertOwner(); throw error; } }
-          async close() { closing++; try { await super.close(); } finally { closing--; } }
+          async close() { deliveryStopped = true; closing++; try { await super.close(); } finally { closing--; } }
         }
         assertOwner();
         const transport = new OwnerHttpTransport({ url: href, headers, authProvider, fetch });

@@ -5,7 +5,7 @@ import { createServer } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
-import { StreamableHttpTransport } from "@earendil-works/pi-mcp";
+import { McpClient, McpConnectionClosedError, StreamableHttpTransport } from "@earendil-works/pi-mcp";
 import { createBackendMcpHttpTransportFactory as create } from "./mcp-native-http-transport.mjs";
 import { createBackendMcpConfigOwner } from "./mcp-native-config-owner.mjs";
 import { prepareBackendMcpExtensionsFromBinding as compose } from "./mcp-native-extensions.mjs";
@@ -130,6 +130,87 @@ test("close after revocation still sends one fixed session DELETE, even with con
   allowed = false; closing = true; const first = transport.close(); await tokenEntered.promise; const second = transport.close(); await second; tokenRelease.resolve(); await first;
   assert.deepEqual(requests.map((r) => r.method), ["POST", "DELETE"]); assert.equal(requests[1].session, "fixture-session"); assert.equal(requests[1].url, options.snapshot.servers[0].config.url);
   await assert.rejects(transport.options.fetch(new URL(options.snapshot.servers[0].config.url), { method: "DELETE" }), safe); assert.equal(requests.length, 2);
+});
+
+test("JSON body finishing after revocation drops every message and preserves unsubscription and idempotent close", async () => {
+  const options = input(), bodyEntered = deferred(), bodyRelease = deferred(); let allowed = true, messages = 0, errors = 0, closes = 0;
+  options.assertSnapshotOwner = () => { if (!allowed) throw Error("private revoked"); };
+  const response = new Response("{}", { headers: { "content-type": "application/json" } });
+  response.json = async () => { bodyEntered.resolve(); await bodyRelease.promise; return [{ jsonrpc: "2.0", id: 1, result: {} }, { jsonrpc: "2.0", id: 2, result: {} }]; };
+  options.fetch = async () => response;
+  const transport = call(create(options), options); transport.onError((error) => { assert.equal(safe(error), true); errors++; }); transport.onClose(() => { closes++; });
+  const unsubscribe = transport.onMessage(() => { messages++; }); const removed = transport.onMessage(() => { throw Error("Unsubscribed listener ran"); }); removed();
+  await transport.start(); const pending = transport.send({ jsonrpc: "2.0", id: 1, method: "fixture/request" }), rejected = assert.rejects(pending, safe);
+  await bodyEntered.promise; allowed = false; bodyRelease.resolve(); await rejected;
+  assert.equal(messages, 0); assert.equal(errors, 1); assert.equal(closes, 1); unsubscribe(); allowed = true;
+  await assert.rejects(transport.send(notification), safe); await transport.close(); await transport.close(); assert.equal(closes, 1);
+});
+
+test("valid native message callback errors are preserved without poisoning authority or unsubscription", async () => {
+  const options = input(), nativeError = Error("fixture native message observer");
+  options.fetch = async () => new Response(JSON.stringify({ jsonrpc: "2.0", id: 1, result: {} }), { headers: { "content-type": "application/json" } });
+  const factory = create(options), transport = call(factory, options), unsubscribe = transport.onMessage(() => { throw nativeError; });
+  await transport.start(); await assert.rejects(transport.send({ jsonrpc: "2.0", id: 1, method: "fixture/request" }), (error) => error === nativeError);
+  unsubscribe(); const another = call(factory, options); await another.close(); await transport.close();
+});
+
+test("loss inside one message callback cannot undo that delivery but fences later listeners and later batch items", async () => {
+  const options = input(); let allowed = true, first = 0, second = 0, closed = 0;
+  options.assertSnapshotOwner = () => { if (!allowed) throw Error("private revoked"); };
+  options.fetch = async () => new Response(JSON.stringify([{ jsonrpc: "2.0", id: 1, result: {} }, { jsonrpc: "2.0", id: 2, result: {} }]), { headers: { "content-type": "application/json" } });
+  const transport = call(create(options), options); transport.onMessage(() => { first++; allowed = false; }); transport.onMessage(() => { second++; }); transport.onClose(() => { closed++; });
+  await transport.start(); await assert.rejects(transport.send({ jsonrpc: "2.0", id: 1, method: "fixture/request" }), safe);
+  assert.equal(first, 1); assert.equal(second, 0); assert.equal(closed, 1); await transport.close();
+});
+
+const within = (promise) => Promise.race([promise, new Promise((_, reject) => {
+  const timer = setTimeout(() => reject(Error("Message fixture timeout")), 4000); timer.unref(); promise.finally(() => clearTimeout(timer));
+})]);
+
+test("late POST SSE response closes real SDK client pending calls immediately despite throwing observers and held auth cleanup", async () => {
+  const options = input(), streamed = deferred(), cleanupEntered = deferred(), cleanupRelease = deferred(), cleaned = deferred();
+  let allowed = true, holdCleanup = false, controller, requestId, deletes = 0, delivered = 0, closed = 0;
+  options.assertSnapshotOwner = () => { if (!allowed) throw Error("private revoked"); };
+  const stream = new ReadableStream({ start(value) { controller = value; } });
+  options.fetch = async (_url, init) => {
+    if (init.method === "DELETE") { deletes++; cleaned.resolve(); return new Response(null, { status: 202 }); }
+    if (init.method === "GET") return new Response(null, { status: 405 });
+    const message = JSON.parse(init.body);
+    if (message.method === "initialize") return new Response(JSON.stringify({ jsonrpc: "2.0", id: message.id, result: { protocolVersion: message.params.protocolVersion, capabilities: { tools: {} }, serverInfo: { name: "fixture", version: "1" } } }), { headers: { "content-type": "application/json", "mcp-session-id": "fixture-session" } });
+    if (message.method === "tools/call") { requestId = message.id; streamed.resolve(); return new Response(stream, { headers: { "content-type": "text/event-stream" } }); }
+    return new Response(null, { status: 202 });
+  };
+  const provider = { async token() { if (holdCleanup) { cleanupEntered.resolve(); await cleanupRelease.promise; } return "fixture-token"; } };
+  const transport = call(create(options), options, provider);
+  transport.onError(() => { throw Error("fixture throwing error observer"); }); transport.onClose(() => { throw Error("fixture throwing close observer"); });
+  transport.onClose(() => { closed++; }); transport.onMessage((message) => { if (message.id === requestId) delivered++; });
+  const client = new McpClient({ name: "fixture", version: "1", requestTimeoutMs: 60000 });
+  await client.connect(transport);
+  const pending = client.callTool("echo", {}), rejected = assert.rejects(pending, (e) => e instanceof McpConnectionClosedError);
+  try {
+    await within(streamed.promise); await new Promise((resolve) => setImmediate(resolve)); allowed = false; holdCleanup = true;
+    controller.enqueue(new TextEncoder().encode(`data: ${JSON.stringify({ jsonrpc: "2.0", id: requestId, result: { content: [{ type: "text", text: "stale private result" }] } })}\n\n`));
+    await within(rejected); await within(cleanupEntered.promise); assert.equal(client.connectionState, "closed");
+    assert.equal(delivered, 0); assert.equal(closed, 1); assert.equal(deletes, 0); // Pending released before held DELETE cleanup can finish.
+    cleanupRelease.resolve(); await within(cleaned.promise); assert.equal(deletes, 1); controller.close();
+  } finally { cleanupRelease.resolve(); await client.close(); await transport.close(); }
+});
+
+test("GET SSE valid notification is unchanged, stale notifications stop delivery/close once, and unsubscribes stay usable", async () => {
+  const options = input(), opened = deferred(), gotMessage = deferred(), closed = deferred(); let allowed = true, messages = 0, closes = 0, controller;
+  options.assertSnapshotOwner = () => { if (!allowed) throw Error("private revoked"); };
+  const stream = new ReadableStream({ start(value) { controller = value; } });
+  options.fetch = async (_url, init) => { if (init.method !== "GET") return new Response(null, { status: 202 }); opened.resolve(); return new Response(stream, { headers: { "content-type": "text/event-stream" } }); };
+  const transport = call(create(options), options), message = { jsonrpc: "2.0", method: "notifications/tools/list_changed" };
+  const unsubscribe = transport.onMessage((value) => { assert.deepEqual(value, message); messages++; gotMessage.resolve(); });
+  transport.onClose(() => { closes++; closed.resolve(); }); await transport.start();
+  try {
+    await transport.send({ jsonrpc: "2.0", method: "notifications/initialized" }); await within(opened.promise);
+    controller.enqueue(new TextEncoder().encode(`data: ${JSON.stringify(message)}\n\n`)); await within(gotMessage.promise);
+    allowed = false; controller.enqueue(new TextEncoder().encode(`data: ${JSON.stringify(message)}\n\n`)); await within(closed.promise);
+    assert.equal(messages, 1); assert.equal(closes, 1); unsubscribe(); controller.close();
+    await transport.close(); assert.equal(closes, 1);
+  } finally { await transport.close(); }
 });
 
 test("actual redirect is refused without sending configured secret headers to its destination", async (t) => {
