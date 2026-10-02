@@ -16,8 +16,10 @@ export type BackendMcpBoundOwnerServices = Omit<BackendMcpOwnerServices, "update
  * SDK fallback or implicit reprepare. Registration checks are not transactional/session activation;
  * refuse publication on any error. Registered tool/command entry, progress and async completion
  * are guarded; started effects cannot be rolled back (including saved settings before command
- * rejection). Shutdown/events remain callable. OAuth cancellation/lifecycle/nested permissions
- * remain separate gates. */
+ * rejection). session_start/mcp_servers_change/turn_start entry/completion are guarded; synchronous
+ * handlers stay synchronous. Shutdown/other events/unsubscribe remain callable. Handler completion
+ * is not background connection drain/cancellation. OAuth/full lifecycle/nested permissions remain
+ * separate gates. */
 export function prepareBackendMcpExtensionsFromBinding(options: {
   binding: BackendMcpConfigBinding;
   mcp: BackendMcpBoundOwnerServices;

@@ -67,13 +67,13 @@ function captureOwnerServices(mcp, includeUpdater) {
   return { ok: true, services };
 }
 
-// Private SDK API view: only executable registrations change. Metadata/exposure and the host's
-// normal tool pipeline remain intact. Late tool-list/resource registrations use the same guard.
-// Event handlers (especially session_shutdown) pass through unchanged: cleanup must not depend
-// on a still-valid config binding. No implicit cancellation, effect rollback or session reload.
+// Private SDK API view: executable registrations and connection-triggering lifecycle only.
+// Metadata/exposure and the host tool pipeline remain intact. Late registrations stay guarded.
+// Shutdown/other events pass through: cleanup must not depend on a valid config binding.
+// No implicit cancellation, effect rollback, background connection drain or session reload.
 function guardExecutionApi(pi, assertBound) {
-  const toolRegistration = pi.registerTool, commandRegistration = pi.registerCommand;
-  if (typeof toolRegistration !== "function" || typeof commandRegistration !== "function") throw new Error("MCP extension binding unavailable");
+  const toolRegistration = pi.registerTool, commandRegistration = pi.registerCommand, eventRegistration = pi.on;
+  if ([toolRegistration, commandRegistration, eventRegistration].some((fn) => typeof fn !== "function")) throw new Error("MCP extension binding unavailable");
   const wrap = (callback, receiver, tool) => {
     if (typeof callback !== "function") throw new Error("MCP extension binding unavailable");
     return async (...args) => {
@@ -94,11 +94,29 @@ function guardExecutionApi(pi, assertBound) {
     const captured = { ...definition };
     return Reflect.apply(commandRegistration, pi, [name, { ...captured, handler: wrap(captured.handler, definition, false) }]);
   };
+  const on = (name, callback) => {
+    if (!["session_start", "mcp_servers_change", "turn_start"].includes(name)) return Reflect.apply(eventRegistration, pi, [name, callback]);
+    if (typeof callback !== "function") throw new Error("MCP extension binding unavailable");
+    // Preserve synchronous handlers (notably session_start), return values, native errors while
+    // valid, and the original unsubscribe. Do not treat background work as handler completion.
+    const guarded = (...args) => {
+      assertBound();
+      try {
+        const result = Reflect.apply(callback, undefined, args);
+        if (result && typeof result.then === "function") return Promise.resolve(result).then(
+          (value) => { assertBound(); return value; }, (error) => { assertBound(); throw error; });
+        assertBound(); return result;
+      } catch (error) { assertBound(); throw error; }
+    };
+    const handler = types.isAsyncFunction(callback) ? async (...args) => guarded(...args) : guarded;
+    return Reflect.apply(eventRegistration, pi, [name, handler]);
+  };
   const delegates = new WeakMap();
   // Separate target also supports frozen host API properties without Proxy invariant violations.
   return new Proxy({}, { get: (_target, key) => {
     if (key === "registerTool") return registerTool;
     if (key === "registerCommand") return registerCommand;
+    if (key === "on") return on;
     const value = Reflect.get(pi, key, pi);
     if (typeof value !== "function") return value;
     if (!delegates.has(value)) delegates.set(value, value.bind(pi));
@@ -112,8 +130,10 @@ function guardExecutionApi(pi, assertBound) {
  * callers must refuse publication after any registration error and rebind explicitly. This
  * fences registered tool/command entry, progress and async completion, including existing connected
  * tools. Started callbacks can still have effects; a save can persist before command completion is
- * rejected. Shutdown/event handlers remain callable. No OAuth/connection force cancellation, full
- * lifecycle side-effect fence, writer quiescence or nested permission authorization. */
+ * rejected. session_start/mcp_servers_change/turn_start entry and completion are guarded while
+ * shutdown/other events and unsubscribe remain callable. Handler completion is NOT background
+ * connection drain/cancellation. No OAuth force cancellation, full lifecycle side-effect fence,
+ * writer quiescence or nested permission authorization. */
 export function prepareBackendMcpExtensionsFromBinding(options) {
   try {
     if (!plain(options) || !["binding", "mcp"].every((key) => Object.hasOwn(options, key))
