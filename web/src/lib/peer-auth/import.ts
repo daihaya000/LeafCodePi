@@ -1,6 +1,6 @@
 import { createRemotePeerCredentialStore } from "@backend-core/peer-auth-remote-store.mjs";
 import { normalizePeerUrl, readPeerConfig, writePeerConfig, type PeerConfig } from "@backend-core/peer-auth-config.mjs";
-import { parsePeerBearer } from "@shared/peer-auth-wire.mjs";
+import { parsePeerBearer } from "@backend-core/peer-auth-wire.mjs";
 import {
   accountDir,
   ACCOUNT_PROVIDER_IDS,
