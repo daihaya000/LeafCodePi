@@ -293,4 +293,25 @@ describe("trackThroughputEvent", () => {
     assert.equal(live.toolEndedAt.size, 1);
     assert.equal(live.toolEndedAt.get("call-1"), 2_600);
   });
+
+  it("evicts the oldest live tool timing entries instead of growing per call", () => {
+    vi.useFakeTimers();
+    const { live } = liveState();
+
+    vi.setSystemTime(0);
+    for (let index = 0; index < 600; index += 1) {
+      const callId = `call-${index}`;
+      trackThroughputEvent(live, { type: "tool_execution_start", toolCallId: callId });
+      trackThroughputEvent(live, { type: "tool_execution_end", toolCallId: callId, result: "done" });
+    }
+
+    assert.ok(live.toolStartedAt.size <= 512);
+    assert.ok(live.toolEndedAt.size <= 512);
+    // The newest call survives, and its end stamp is kept with its start stamp.
+    assert.equal(live.toolStartedAt.get("call-599"), 0);
+    assert.equal(live.toolEndedAt.get("call-599"), 0);
+    assert.equal(live.toolStartedAt.has("call-0"), false);
+    // Partial output stays bounded by the existing toolResult cleanup.
+    assert.ok(live.toolPartialOutputByCallId.size <= 600);
+  });
 });

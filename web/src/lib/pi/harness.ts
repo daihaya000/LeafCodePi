@@ -1333,6 +1333,24 @@ function trackMessageEndEvent(
   );
 }
 
+/**
+ * Live tool timing only feeds the projection of tool parts that are still on
+ * screen. Map iteration is insertion-ordered, so dropping from the front evicts
+ * the oldest calls. Throughput samples stay untouched: they are persisted to
+ * the session file and reloaded on restore.
+ */
+const LIVE_TOOL_TIMING_LIMIT = 512;
+
+function trimLiveTimingMaps(live: LiveRuntime): void {
+  const excess = live.toolStartedAt.size - LIVE_TOOL_TIMING_LIMIT;
+  if (excess <= 0) return;
+  for (const callId of live.toolStartedAt.keys()) {
+    live.toolStartedAt.delete(callId);
+    live.toolEndedAt.delete(callId);
+    if (live.toolStartedAt.size <= LIVE_TOOL_TIMING_LIMIT) break;
+  }
+}
+
 function trackToolExecutionEvent(
   live: LiveRuntime,
   event: { type: string; [key: string]: unknown },
@@ -1366,6 +1384,10 @@ function trackToolExecutionEvent(
       live.toolEndedAt.set(toolCallId, Date.now());
       const output = toolResultText(event.result);
       if (output) live.toolPartialOutputByCallId.set(toolCallId, output);
+      // A long session would otherwise keep one start/end entry per tool call for
+      // its whole life. The oldest cards are long since rendered, so evict them
+      // instead of letting the maps grow without bound.
+      trimLiveTimingMaps(live);
     }
     return true;
   }
