@@ -5,6 +5,7 @@ import Database from "better-sqlite3";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
   MAX_MEMORY_SEARCH_QUERY_LENGTH,
+  resetMemorySearchDatabaseCacheForTests,
   searchLeafCodeMemory,
 } from "@/lib/memory-search";
 
@@ -17,6 +18,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  resetMemorySearchDatabaseCacheForTests();
   rmSync(agentDir, { recursive: true, force: true });
 });
 
@@ -80,5 +82,21 @@ describe("searchLeafCodeMemory", () => {
   it("returns no results before the store exists and bounds query length", () => {
     expect(searchLeafCodeMemory("anything", env)).toEqual([]);
     expect(() => searchLeafCodeMemory("x".repeat(MAX_MEMORY_SEARCH_QUERY_LENGTH + 1), env)).toThrow(/200文字以内/);
+  });
+
+  it("reuses the read-only handle across searches and reopens after the file changes", () => {
+    seedMemories();
+    const databasePath = join(agentDir, "leafcode-memory", "sessions.db");
+
+    expect(searchLeafCodeMemory("deployment", env).length).toBeGreaterThan(0);
+    // A second search must observe a row added after the first one, which only
+    // works if the cached handle saw the new content or was reopened.
+    const writer = new Database(databasePath);
+    writer.prepare("INSERT INTO memories (project, target, category, content, created, last_referenced) VALUES (?, ?, ?, ?, ?, ?)")
+      .run(null, "memory", null, "later deployment note", "2026-05-01", "2026-05-01");
+    writer.close();
+
+    const contents = searchLeafCodeMemory("deployment", env).map((row) => row.content);
+    expect(contents).toContain("later deployment note");
   });
 });

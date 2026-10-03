@@ -64,18 +64,18 @@ afterEach(() => {
 
 describe("TaskView SSE visibility", () => {
   it("does not connect while the pane is in the background", async () => {
-    render(<TaskView taskId={task.id} task={task} active={false} />);
+    render(<TaskView taskId={task.id} mdUp={false} active={false} />);
 
     await waitFor(() => expect(mocks.getJson).toHaveBeenCalled());
     expect(opened).toBe(0);
   });
 
   it("connects once the pane becomes visible", async () => {
-    const { rerender } = render(<TaskView taskId={task.id} task={task} active={false} />);
+    const { rerender } = render(<TaskView taskId={task.id} mdUp={false} active={false} />);
     await waitFor(() => expect(mocks.getJson).toHaveBeenCalled());
     expect(opened).toBe(0);
 
-    rerender(<TaskView taskId={task.id} task={task} active />);
+    rerender(<TaskView taskId={task.id} mdUp={false} active />);
 
     await waitFor(() => expect(opened).toBe(1));
   });

@@ -159,4 +159,4 @@
 | --- | --- | --- |
 | 中 **[一部修正 2026-10-03: relay state の期限切れ envelope と孤立 claims を発行時に掃除。claim ごとの全件 parse/整形書き込みは未対応]** | `backend/core/room-relay.mjs` (~67–94)、`room-store.mjs` (~77–96) | consumed envelope / claims が TTL 後も残る。claim ごとに全件 parse＋整形書き込みで単調増加。 |
 | 中 | `web/src/app/api/bots/rooms/[id]/events/route.ts` (~137–170) | Backend 所有時、Room を開いている間 2 秒間隔で room 再読込＋pending HTTP。 |
-| 低 **[一部修正 2026-10-03: 一致語数で順位付け。OR の再現率・DB 再オープン/全表スキャンは仕様どおり未対応]** | `web/src/lib/memory-search.ts` (~38–47) | 複数語は AND ではなく `LIKE` OR。そのたびに DB 再オープン＋全表スキャン。 |
+| 低 **[一部修正 2026-10-04: read-only ハンドルを mtime+size+ino のスタンプ付きでキャッシュし、検索ごとの DB 再オープンを解消（60秒 idle・4ファイルで破棄、ファイル変更時は作り直し）。OR の再現率と LIKE 全表スキャンは仕様どおり未対応]** | `web/src/lib/memory-search.ts` (~38–47) | 複数語は AND ではなく `LIKE` OR。そのたびに DB 再オープン＋全表スキャン。 |
