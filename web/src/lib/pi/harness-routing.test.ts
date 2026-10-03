@@ -2102,7 +2102,10 @@ name: ${name}
       agent: "builder",
       goalLoop: { maxTurns: 2, autoAgent: true },
     });
-    assert.equal(await fakePi.sessions[0]?.routingContext?.prepareGoalLoopTurn("turn 2"), false);
+    const prepareTurn = fakePi.sessions[0]?.routingHooks?.prepareGoalLoopTurn as
+      ((prompt: string) => Promise<boolean | "retry">) | undefined;
+    assert.ok(prepareTurn);
+    assert.equal(await prepareTurn("turn 2"), false);
 
     // The router must receive an AbortSignal it can honour when routing is superseded.
     expect(seenSignal).toBeInstanceOf(AbortSignal);

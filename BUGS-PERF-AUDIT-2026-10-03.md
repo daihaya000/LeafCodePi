@@ -158,5 +158,5 @@
 | 重大度 | 箇所 | 内容 |
 | --- | --- | --- |
 | 中 **[一部修正 2026-10-04: issue 時の2回目の readState（参加者判定用）を廃止し同一 state を再利用。claim 経路でも prune を実行し、発行のない Room の期限切れ envelope・孤立 claims も掃除。整形書き込み（JSON indent）は未対応]** | `backend/core/room-relay.mjs` (~67–94)、`room-store.mjs` (~77–96) | consumed envelope / claims が TTL 後も残る。claim ごとに全件 parse＋整形書き込みで単調増加。 |
-| 中 | `web/src/app/api/bots/rooms/[id]/events/route.ts` (~137–170) | Backend 所有時、Room を開いている間 2 秒間隔で room 再読込＋pending HTTP。 |
+| 中 **[一部修正 2026-10-04: owner の pending map が変化した時だけ await 後の room 再読込を行う。無変化の idle Room は 2 秒ごとに disk を読まない]** | `web/src/app/api/bots/rooms/[id]/events/route.ts` (~137–170) | Backend 所有時、Room を開いている間 2 秒間隔で room 再読込＋pending HTTP。 |
 | 低 **[一部修正 2026-10-04: read-only ハンドルを mtime+size+ino のスタンプ付きでキャッシュし、検索ごとの DB 再オープンを解消（60秒 idle・4ファイルで破棄、ファイル変更時は作り直し）。OR の再現率と LIKE 全表スキャンは仕様どおり未対応]** | `web/src/lib/memory-search.ts` (~38–47) | 複数語は AND ではなく `LIKE` OR。そのたびに DB 再オープン＋全表スキャン。 |

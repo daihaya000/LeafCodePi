@@ -15,6 +15,23 @@ import type { RoomAttention, RoomDto } from "@/lib/types";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
+/** True when the owner's pending map differs from the one we last reported. */
+function pendingRequestsChanged(
+  previous: PendingRequestsByTask | null,
+  next: PendingRequestsByTask,
+): boolean {
+  if (!previous) return true;
+  const previousKeys = Object.keys(previous).sort();
+  const nextKeys = Object.keys(next).sort();
+  if (previousKeys.length !== nextKeys.length) return true;
+  return previousKeys.some((key, index) => {
+    if (key !== nextKeys[index]) return true;
+    const before = previous[key];
+    const after = next[key];
+    return JSON.stringify(before) !== JSON.stringify(after);
+  });
+}
+
 /**
  * Safety-net poll when Backend owns the room.
  * Dirty wakes already call snapshot(); getRoom() is always a fresh disk read (no cache).
@@ -44,7 +61,9 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
       let dirtyAttached = false;
       let refresh: ReturnType<typeof setInterval> | undefined;
       /** The last map the owner reported. A failed read keeps it, so an unanswered prompt stays visible. */
-      let backendPending: PendingRequestsByTask | null = null;
+      // Seeded with the empty map rather than null: the first successful read is not
+      // a change, so an idle Room does not pay one extra room re-read on connect.
+      let backendPending: PendingRequestsByTask | null = backendOwns ? {} : null;
 
       const attentionFor = (room: RoomDto): RoomAttention[] => room.members.map((botId) => {
         const taskId = roomBotTaskId(id, botId);
@@ -156,20 +175,26 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
           if (backendOwns) {
             try {
               const forwarded = await forwardPendingRequestsByTask();
+              // An unchanged pending map means the awaited round-trip told us nothing
+              // new, so the room file cannot have changed either: skipping the re-read
+              // keeps an idle Room off the disk and off the wire every 2 seconds.
+              const changed = forwarded.ok && pendingRequestsChanged(backendPending, forwarded.byTask);
               if (forwarded.ok) backendPending = forwarded.byTask;
+              if (changed) {
+                if (sse?.closed) return;
+                // Re-read after the await: another Backend write may have landed while pending was in flight.
+                room = getRoom(id);
+                if (!room) { sse?.close(); return; }
+                tasks = collectTasks(room);
+                syncLocalTaskSubs(tasks);
+                syncDirty(tasks);
+              }
             } catch {
               // Keep the previous map; the next poll retries.
             }
-            if (sse?.closed) return;
-            // Re-read after the await: another Backend write may have landed while pending was in flight.
-            room = getRoom(id);
-            if (!room) { sse?.close(); return; }
-            tasks = collectTasks(room);
-            syncLocalTaskSubs(tasks);
-            syncDirty(tasks);
           }
 
-          emitIfChanged(room, attentionFor(room));
+          if (room) emitIfChanged(room, attentionFor(room));
         } finally {
           pendingBusy = false;
           if (dirtyQueued) {

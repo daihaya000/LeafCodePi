@@ -310,4 +310,59 @@ describe("GET /api/bots/rooms/[id]/events", () => {
     expect(response.status).toBe(404);
     await response.body?.cancel();
   });
+
+  it("does not re-read the room again once the owner's pending map is settled", async () => {
+    vi.useFakeTimers();
+    mocks.localRuntimeBlocked.mockReturnValue(true);
+    mocks.forwardPendingRequestsByTask.mockResolvedValue({ ok: true, byTask: {} });
+    const response = await GET(request(), params);
+    const reader = response.body!.getReader();
+    await readEvent(reader);
+    await vi.advanceTimersByTimeAsync(0);
+    const settled = {
+      room: mocks.getRoom.mock.calls.length,
+      pending: mocks.forwardPendingRequestsByTask.mock.calls.length,
+    };
+
+    for (let poll = 0; poll < 3; poll += 1) {
+      await vi.advanceTimersByTimeAsync(2_000);
+      await vi.advanceTimersByTimeAsync(0);
+    }
+
+    // Every poll still asks the owner, but an unchanged map costs no room re-read.
+    expect(mocks.forwardPendingRequestsByTask.mock.calls.length).toBe(settled.pending + 3);
+    // Each poll reads the room once for the snapshot body; the post-pending re-read
+    // is the one this change removes.
+    expect(mocks.getRoom.mock.calls.length).toBe(settled.room + 3);
+
+    await reader.cancel();
+  });
+
+  it("re-reads the room when the owner's pending map changes", async () => {
+    vi.useFakeTimers();
+    mocks.localRuntimeBlocked.mockReturnValue(true);
+    mocks.forwardPendingRequestsByTask
+      .mockResolvedValueOnce({ ok: true, byTask: {} })
+      .mockResolvedValue({
+        ok: true,
+        byTask: { "bot:one:room:r1": { permissionRequest: { id: "p1" }, questionRequest: null } },
+      });
+    const response = await GET(request(), params);
+    const reader = response.body!.getReader();
+    // The first snapshot carries no attention yet (the owner read is still pending).
+    await readEvent(reader);
+    const readsBeforeChange = mocks.getRoom.mock.calls.length;
+
+    await vi.advanceTimersByTimeAsync(2_000);
+    await vi.advanceTimersByTimeAsync(0);
+    let event = await readEvent(reader);
+    while ((event.data.attention as unknown[]).length === 0) event = await readEvent(reader);
+    expect(event.data.attention).toEqual([
+      { botId: "one", taskId: "bot:one:room:r1", permission: { id: "p1" }, question: null },
+    ]);
+    // A changed map means the room file is read again after the await.
+    expect(mocks.getRoom.mock.calls.length).toBeGreaterThan(readsBeforeChange + 1);
+
+    await reader.cancel();
+  });
 });
