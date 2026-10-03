@@ -297,11 +297,18 @@ export function LlamaServerSettings(
             config.modelFile.trim()
               ? config.modelFile.replace(/\\/g, "/").split("/").pop()?.replace(/\.gguf$/i, "")
               : undefined;
-          const loaded = await sendJson<{ ok?: boolean; modelId?: string; error?: string }>(
+          const loaded = await sendJson<{ ok?: boolean; pending?: boolean; modelId?: string; error?: string }>(
             "/api/llama-server/ensure-loaded",
             { preferredId: preferred },
           );
-          if (loaded.ok) {
+          if (loaded.pending) {
+            // The route stops waiting after a bounded time; the model keeps loading.
+            setMessage(
+              loaded.modelId
+                ? `モデルのロード中です（${loaded.modelId}）。完了までしばらくかかります`
+                : "モデルのロード中です。完了までしばらくかかります",
+            );
+          } else if (loaded.ok) {
             setMessage(
               loaded.modelId
                 ? `llama-server を起動し、モデルをロードしました（${loaded.modelId}）`

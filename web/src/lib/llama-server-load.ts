@@ -6,7 +6,21 @@ import { llamaServerBaseUrl } from "@/lib/llama-server-settings";
  * load per server root is shared, and a caller that joins late still gets the
  * final state instead of starting a second load.
  */
-const inFlightLoads = new Map<string, Promise<{ ok: boolean; modelId?: string; error?: string }>>();
+export interface LlamaEnsureLoadedResult {
+  ok: boolean;
+  modelId?: string;
+  error?: string;
+  /** The load continues server-side; this caller stopped waiting for it. */
+  pending?: boolean;
+}
+
+const inFlightLoads = new Map<string, Promise<LlamaEnsureLoadedResult>>();
+
+/**
+ * How long the HTTP route waits before releasing the BFF worker. llama-server
+ * keeps loading in the background, so a long wait only ties up a request.
+ */
+export const LLAMA_ENSURE_LOADED_WAIT_MS = 20_000;
 
 /**
  * Ensure llama-server has at least one loaded model (router mode).
@@ -16,7 +30,9 @@ export async function ensureLlamaServerModelLoaded(options?: {
   baseUrl?: string;
   preferredId?: string;
   waitMs?: number;
-}): Promise<{ ok: boolean; modelId?: string; error?: string }> {
+  /** Caller cancellation; stops polling but leaves the server-side load running. */
+  signal?: AbortSignal;
+}): Promise<LlamaEnsureLoadedResult> {
   const root = (options?.baseUrl ?? llamaServerBaseUrl(process.env.LEAFCODE_PI_LLAMA_PORT))
     .replace(/\/$/, "")
     .replace(/\/v1$/i, "");
@@ -25,7 +41,7 @@ export async function ensureLlamaServerModelLoaded(options?: {
   const inflightKey = `${root}\u0000${preferred}`;
   const existing = inFlightLoads.get(inflightKey);
   if (existing) return existing;
-  const started = ensureLlamaServerModelLoadedInner(root, preferred, waitMs);
+  const started = ensureLlamaServerModelLoadedInner(root, preferred, waitMs, options?.signal);
   inFlightLoads.set(inflightKey, started);
   try {
     return await started;
@@ -38,7 +54,8 @@ async function ensureLlamaServerModelLoadedInner(
   root: string,
   preferred: string,
   waitMs: number,
-): Promise<{ ok: boolean; modelId?: string; error?: string }> {
+  signal?: AbortSignal,
+): Promise<LlamaEnsureLoadedResult> {
   try {
     const listRes = await fetch(`${root}/models`, {
       cache: "no-store",
@@ -92,6 +109,9 @@ async function ensureLlamaServerModelLoadedInner(
 
     const deadline = Date.now() + waitMs;
     while (Date.now() < deadline) {
+      // The caller went away or stopped caring: llama-server keeps loading, so
+      // report it as still pending rather than waiting or reporting a failure.
+      if (signal?.aborted) return { ok: true, pending: true, modelId: target };
       const again = await fetch(`${root}/models`, {
         cache: "no-store",
         signal: AbortSignal.timeout(5000),
@@ -108,7 +128,7 @@ async function ensureLlamaServerModelLoadedInner(
       }
       await new Promise((r) => setTimeout(r, 2000));
     }
-    return { ok: false, error: `timeout waiting for ${target} to load`, modelId: target };
+    return { ok: true, pending: true, modelId: target };
   } catch (err) {
     return { ok: false, error: err instanceof Error ? err.message : String(err) };
   }

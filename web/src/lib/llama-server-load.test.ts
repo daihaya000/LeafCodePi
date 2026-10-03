@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { ensureLlamaServerModelLoaded } from "./llama-server-load";
+import { ensureLlamaServerModelLoaded, LLAMA_ENSURE_LOADED_WAIT_MS } from "./llama-server-load";
 
 const catalog = (models: Array<{ id: string; status: string }>) => ({
   ok: true,
@@ -59,5 +59,28 @@ describe("ensureLlamaServerModelLoaded", () => {
     ]);
 
     expect(fetchImpl).toHaveBeenCalledTimes(2);
+  });
+});
+describe("ensureLlamaServerModelLoaded bounded wait", () => {
+  it("reports a still-pending load instead of holding the caller past its wait", async () => {
+    const root = "http://127.0.0.1:9";
+    let polls = 0;
+    vi.stubGlobal("fetch", vi.fn(async () => {
+      polls += 1;
+      const model = polls <= 1 ? "a" : "a";
+      return new Response(JSON.stringify({ data: [{ id: model, status: { value: "unloaded" } }] }), { status: 200 });
+    }));
+    const controller = new AbortController();
+    controller.abort();
+
+    const result = await ensureLlamaServerModelLoaded({ baseUrl: root, waitMs: 50, signal: controller.signal });
+
+    expect(result).toEqual({ ok: true, pending: true, modelId: "a" });
+    // The load request still went out; llama-server keeps working on it.
+    expect(polls).toBeGreaterThan(0);
+  });
+
+  it("keeps a bounded default so the route never waits minutes", () => {
+    expect(LLAMA_ENSURE_LOADED_WAIT_MS).toBeLessThanOrEqual(30_000);
   });
 });
