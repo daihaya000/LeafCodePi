@@ -104,6 +104,24 @@ test("reprepare retires the old binding and its session factories; disposed runt
   runtime.dispose(); await assert.rejects(runtime.prepare(), safe); assert.throws(() => second.binding.assertOwner());
 });
 
+test("a failed prepare says so instead of leaving MCP missing without a reason", async (t) => {
+  const root = await fixture(t, { user: { command: process.execPath } });
+  removeRoot(t, root); const runtime = create(base(root));
+  await runtime.prepare();
+  // An unreadable config makes the next prepare fail after the previous binding was retired.
+  fs.writeFileSync(join(root, "mcp.json"), "{ not json");
+  const warnings = [];
+  const original = console.warn;
+  console.warn = (message) => { warnings.push(String(message)); };
+  try { await assert.rejects(runtime.prepare(), safe); } finally { console.warn = original; }
+  assert.equal(warnings.length, 1);
+  assert.match(warnings[0], /prepare failed/);
+  // A later successful prepare recovers without any operator action.
+  fs.writeFileSync(join(root, "mcp.json"), JSON.stringify({ mcpServers: { user: { command: process.execPath, args: ["--version"] } } }));
+  const recovered = await runtime.prepare(); assert.equal(recovered.forSession(root).ok, true);
+  runtime.dispose();
+});
+
 test("preparing an OAuth server entry does no credential IO and a retired binding cannot publish", async (t) => {
   const root = await fixture(t, { remote: { url: "https://remote.example/mcp", auth: "oauth" } });
   removeRoot(t, root); const runtime = create(base(root)); t.after(() => runtime.dispose());

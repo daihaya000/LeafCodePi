@@ -50,7 +50,13 @@ export function createBackendMcpNativeRuntime(options) {
     const prepareRuntime = async () => {
       if (disposed) throw unavailable();
       let binding;
-      try { binding = await owner.prepare(); } catch { throw unavailable(); }
+      try { binding = await owner.prepare(); } catch {
+        // Retiring happens when a prepare starts, so this leaves no live MCP binding. The reason is
+        // deliberately not carried into the error, but staying silent would leave an operator with
+        // MCP missing and no way to tell a bad config from a transient write failure.
+        console.warn("[mcp-native] prepare failed; MCP stays unavailable until a reprepare succeeds");
+        throw unavailable();
+      }
       const authority = createBackendMcpCredentialAuthority({
         agentDir: captured.agentDir, bundledConfigPath: captured.bundledConfigPath,
         prepared: binding.prepared, assertRuntimeOwner: binding.assertOwner,
