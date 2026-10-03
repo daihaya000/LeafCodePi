@@ -191,6 +191,7 @@ import {
   TOOL_SEARCH_NAME,
 } from "@/lib/pi/deferred-tools";
 import { hasIdentityChanges, sessionIdentityPatch, sessionIdentitySource } from "@/lib/pi/session-identity";
+import { type LiveNestedCalls, trackNestedToolEvent } from "@/lib/pi/nested-live-calls";
 import { sessionToolSelection } from "@/lib/pi/session-tool-selection";
 import {
   bundledExtensionEntries,
@@ -513,6 +514,8 @@ type LiveRuntime = {
   toolEndedAt: Map<string, number>;
   /** toolCallId → latest cumulative partial output while a tool is running. */
   toolPartialOutputByCallId: Map<string, string>;
+  /** Parent toolCallId → calls its script made so far; created on the first nested call. */
+  nestedToolCalls?: LiveNestedCalls;
   /** Coalesce message_update snapshots onto the event loop. */
   snapshotTimer: ReturnType<typeof setTimeout> | null;
   pendingSnapshotEventType: string | null;
@@ -1290,6 +1293,8 @@ function trackMessageEndEvent(
     const toolCallId = (message as { toolCallId?: unknown }).toolCallId;
     if (typeof toolCallId === "string") {
       live.toolPartialOutputByCallId.delete(toolCallId);
+      // The finished result carries the recorded calls, so the live copy is done.
+      live.nestedToolCalls?.delete(toolCallId);
     }
     return;
   }
@@ -1320,6 +1325,12 @@ function trackToolExecutionEvent(
   live: LiveRuntime,
   event: { type: string; [key: string]: unknown },
 ): boolean {
+  // A call a tool made is not a card of its own: it must not enter the per-call maps, whose size
+  // decides how cheaply a snapshot is projected.
+  if (typeof event.parentToolCallId === "string" && event.parentToolCallId) {
+    live.nestedToolCalls ??= new Map();
+    return trackNestedToolEvent(live.nestedToolCalls, event);
+  }
   if (event.type === "tool_execution_start") {
     const toolCallId = toolCallIdFromEvent(event);
     if (toolCallId) live.toolStartedAt.set(toolCallId, Date.now());
