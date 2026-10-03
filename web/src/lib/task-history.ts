@@ -73,6 +73,24 @@ export function mergeNewerTaskMessages(
   return mergeTaskMessages(current, current, incoming);
 }
 
+/**
+ * Drop base64 image payloads from a page, keeping the id, mime and filename so the
+ * part stays identifiable. History paging calls this: those messages were already
+ * delivered in the newest page, so the client keeps its copy and re-sends nothing.
+ */
+export function stripImageDataFromMessages(messages: readonly UiMessage[]): UiMessage[] {
+  return messages.map((message) => {
+    let changed = false;
+    const parts = message.parts.map((part) => {
+      if (part.type !== "image" || !part.url.startsWith("data:")) return part;
+      changed = true;
+      const filename = part.filename ?? `${part.id}.${part.mime.split("/")[1] ?? "png"}`;
+      return { ...part, url: "", filename };
+    });
+    return changed ? { ...message, parts } : message;
+  });
+}
+
 /** Prepend an older page while retaining the current live copy at the boundary. */
 export function prependOlderTaskMessages(
   current: UiMessage[],
