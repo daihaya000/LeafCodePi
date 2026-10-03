@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
-import { accountAuthPath, deleteAccount, getAccount, patchAccount, resolvePiAgentDir } from "@/lib/accounts";
+import { removePeerConfig } from "@backend-core/peer-auth-config.mjs";
+import { accountAuthPath, accountDir, deleteAccount, getAccount, patchAccount, resolvePiAgentDir } from "@/lib/accounts";
 import { readOpenRouterManagementKey } from "@/lib/codexbar/providers/openrouter";
 import { invalidateHealthCache, jsonError } from "@/lib/pi/harness";
 
@@ -56,6 +57,8 @@ export async function DELETE(_req: NextRequest, context: Context) {
       }
     }
     deleteAccount(id);
+    // The auth directory is kept on purpose, but a peer account's token must not outlive the account.
+    removePeerConfig(accountDir(id, await resolvePiAgentDir()));
     invalidateHealthCache();
     return NextResponse.json({ ok: true });
   } catch (error) {
