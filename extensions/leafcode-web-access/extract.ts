@@ -165,43 +165,28 @@ async function resolveAuthCookieHeader(url: string | URL, profile: AuthFetchProf
 	throw new Error(`Authenticated fetch profile ${profile.name} could not build a cookie header`);
 }
 
-const REDIRECT_STATUSES = new Set([301, 302, 303, 307, 308]);
-
 async function fetchAuthenticatedRemoteUrl(
 	url: string,
 	init: RequestInit,
 	validationOptions: { ssrf: SsrfConfig; domainPolicy: DomainPolicy; lookup?: Lookup },
 	profile: AuthFetchProfile,
 ): Promise<Response> {
-	let current = await validateRemoteUrl(url, {
+	return fetchRemoteUrl(url, init, {
 		allowRanges: validationOptions.ssrf.allowRanges,
 		trustEnvProxy: validationOptions.ssrf.trustEnvProxy,
 		domainPolicy: validationOptions.domainPolicy,
 		...(validationOptions.lookup ? { lookup: validationOptions.lookup } : {}),
+		beforeRequest: async (current, requestInit) => {
+			const cookieHeader = await resolveAuthCookieHeader(current, profile);
+			const headers = new Headers(requestInit.headers);
+			headers.set("cookie", cookieHeader);
+			return { ...requestInit, headers };
+		},
+		onRedirect: ({ from, to, init: requestInit }) => {
+			authFetchRedirectGuard(profile, from, to);
+			return requestInit;
+		},
 	});
-	let requestInit = init;
-	for (let redirects = 0; redirects <= 5; redirects++) {
-		const cookieHeader = await resolveAuthCookieHeader(current, profile);
-		const headers = { ...(requestInit.headers as Record<string, string>), cookie: cookieHeader };
-		const response = await fetch(current, { ...requestInit, headers, redirect: "manual" });
-		if (!REDIRECT_STATUSES.has(response.status)) return response;
-		const location = response.headers.get("location");
-		if (!location) return response;
-		if (redirects === 5) throw new Error(`Too many redirects fetching ${current.toString()}`);
-		const from = current;
-		current = await validateRemoteUrl(new URL(location, current), {
-			allowRanges: validationOptions.ssrf.allowRanges,
-			trustEnvProxy: validationOptions.ssrf.trustEnvProxy,
-			domainPolicy: validationOptions.domainPolicy,
-			...(validationOptions.lookup ? { lookup: validationOptions.lookup } : {}),
-		});
-		authFetchRedirectGuard(profile, from, current);
-		if (response.status === 303 || ((response.status === 301 || response.status === 302) && requestInit.method?.toUpperCase() === "POST")) {
-			const { body: _body, ...nextInit } = requestInit;
-			requestInit = { ...nextInit, method: "GET" };
-		}
-	}
-	throw new Error(`Too many redirects fetching ${current.toString()}`);
 }
 
 function loadFetchRouting(): FetchRouting {

@@ -173,7 +173,8 @@ interface FetchRemoteOptions extends ValidationOptions {
 	/** Custom transport must honor the optional undici dispatcher used for DNS pinning. */
 	fetch?: Fetch;
 	maxRedirects?: number;
-	onRedirect?: (args: RedirectRequestInitArgs) => RequestInit;
+	beforeRequest?: (url: URL, init: RequestInit) => RequestInit | Promise<RequestInit>;
+	onRedirect?: (args: RedirectRequestInitArgs) => RequestInit | Promise<RequestInit>;
 }
 
 async function defaultLookup(hostname: string): Promise<LookupAddress[]> {
@@ -295,10 +296,11 @@ export async function fetchRemoteUrl(
 
 	try {
 		for (let redirects = 0; redirects <= maxRedirects; redirects++) {
+			const preparedInit = options.beforeRequest ? await options.beforeRequest(current, requestInit) : requestInit;
 			const fetchOverride = options.fetch && options.fetch !== fetch ? options.fetch : undefined;
-			const useProxyTransport = !fetchOverride && shouldUseConfiguredProxyTransport(current, requestInit);
+			const useProxyTransport = !fetchOverride && shouldUseConfiguredProxyTransport(current, preparedInit);
 			const dispatcher = currentTarget.addresses && !useProxyTransport ? getPinnedAgent() : undefined;
-			const fetchInit = { ...requestInit, redirect: "manual", ...(dispatcher ? { dispatcher } : {}) } as RequestInit & { dispatcher?: Agent };
+			const fetchInit = { ...preparedInit, redirect: "manual", ...(dispatcher ? { dispatcher } : {}) } as RequestInit & { dispatcher?: Agent };
 			const response = fetchOverride
 				? await fetchOverride(current, fetchInit)
 				: useProxyTransport
@@ -325,7 +327,7 @@ export async function fetchRemoteUrl(
 				const { body: _body, ...nextInit } = requestInit;
 				requestInit = { ...nextInit, method: "GET" };
 			}
-			if (options.onRedirect) requestInit = options.onRedirect({ from, to: current, init: requestInit, response });
+			if (options.onRedirect) requestInit = await options.onRedirect({ from, to: current, init: requestInit, response });
 		}
 
 		throw new Error(`Too many redirects fetching ${current.toString()}`);
