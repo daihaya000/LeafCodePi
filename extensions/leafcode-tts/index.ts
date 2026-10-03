@@ -14,11 +14,13 @@
 import { spawn, type ChildProcess } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
-import { dirname, join, relative, resolve, sep } from "node:path";
+import { basename, dirname, join, relative, resolve, sep } from "node:path";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 
 const SUBAGENT_CHILD_ENV = "PI_SUBAGENT_CHILD";
 const CONFIG_FILE = "tts.json";
+/** 先行合成の一時 wav の接頭辞。削除対象を自分のファイルだけに限定する。 */
+const TTS_TMP_PREFIX = "leafcode-tts-";
 /** 短すぎる読点区切りを避ける下限、句点が来ないまま伸び続けたときの上限。 */
 const MIN_CHUNK = 12;
 const MAX_CHUNK = 90;
@@ -250,6 +252,8 @@ export class Speaker {
   private queue: Job[] = [];
   private busy = false;
   private seq = 0;
+  /** 再生中の先行合成 wav。完了時に削除する。 */
+  private playingFile: string | null = null;
   private config: TtsConfig;
 
   // parameter property は Node の strip-only TypeScript で動かないため使わない。
@@ -276,9 +280,14 @@ export class Speaker {
 
   /** 未再生分を捨て、発話中なら worker ごと殺して即断する。Speak() は同期なのでキャンセルコマンドを差し込めない。 */
   stop(): void {
+    // 再生中の clip は worker と一緒に破棄されるので、消す。
+    if (this.playingFile) {
+      this.removeSynthFile(this.playingFile);
+      this.playingFile = null;
+    }
     for (const job of this.queue) {
       // 先行合成した wav は再生されないので、到着次第消す。
-      if (job.kind === "P") void job.body.then((file) => file && rmSync(file, { force: true })).catch(() => {});
+      if (job.kind === "P") void job.body.then((file) => file && this.removeSynthFile(file)).catch(() => {});
     }
     this.queue = [];
     if (!this.busy || !this.worker) return;
@@ -311,7 +320,7 @@ export class Speaker {
             return Buffer.from(await response.arrayBuffer());
           })();
       if (!wav) return null;
-      const file = join(tmpdir(), `leafcode-tts-${process.pid}-${this.seq++}.wav`);
+      const file = join(tmpdir(), `${TTS_TMP_PREFIX}${process.pid}-${this.seq++}.wav`);
       writeFileSync(file, wav);
       return file;
     } catch {
@@ -337,6 +346,7 @@ export class Speaker {
       return;
     }
     this.send(worker, job.kind, body);
+    if (job.kind === "P") this.playingFile = body;
   }
 
   private ensureWorker(): ChildProcess | null {
@@ -354,6 +364,10 @@ export class Speaker {
     worker.stdout?.setEncoding("utf8");
     worker.stdout?.on("data", (data: string) => {
       if (!data.includes("\n")) return; // 再生完了は "ok\n" の改行だけで判定する。
+      // 先行合成した wav は一度しか使わない。再生完了後に必ず削除する（ファイルは
+      // 再生中も worker が握るので、送信前に消すと再生できない）。
+      this.removeSynthFile(this.playingFile);
+      this.playingFile = null;
       this.busy = false;
       void this.pump();
     });
@@ -361,6 +375,17 @@ export class Speaker {
     if (this.config.voice) this.send(worker, "V", this.config.voice);
     if (this.config.rate) this.send(worker, "R", String(this.config.rate));
     return worker;
+  }
+
+  /** 先行合成で書いた一時 wav を削除する。既に消えていても問題なし。 */
+  private removeSynthFile(body: string): void {
+    // body は絶対パスなので、判定はファイル名で行う（tmpdir の前後は環境依存）。
+    if (!basename(body).startsWith(`${TTS_TMP_PREFIX}${process.pid}-`)) return;
+    try {
+      rmSync(body, { force: true });
+    } catch {
+      // 削除できなくても再生そのものは続行する（OS がファイルを掴んでいる場合）。
+    }
   }
 
   private send(worker: ChildProcess, kind: string, body: string): void {

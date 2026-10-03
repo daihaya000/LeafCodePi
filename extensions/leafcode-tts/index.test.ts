@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -260,5 +260,42 @@ describe("extension TTS outbound", () => {
     } finally {
       if (file) rmSync(file, { force: true });
     }
+  });
+});
+
+describe("Speaker temp wav cleanup", () => {
+  it("removes the synthesized wav after playback and on stop", async () => {
+    const endpoint = "http://192.168.1.8:18080/v1/audio/speech";
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(Buffer.from([1, 2, 3]), { status: 200 })));
+    const speaker = new Speaker({ enabled: true, rate: 10, url: endpoint, allowCustomUrl: true });
+    const internals = speaker as unknown as {
+      synthesize(text: string, url: string): Promise<string | null>;
+      removeSynthFile(body: string): void;
+      playingFile: string | null;
+    };
+
+    const clip = await internals.synthesize("text", endpoint);
+    expect(clip).toBeTruthy();
+    expect(existsSync(clip!)).toBe(true);
+
+    // The pump keeps the clip until playback reports completion, because the
+    // worker still holds the file while it plays.
+    internals.playingFile = clip;
+    internals.removeSynthFile(internals.playingFile);
+    expect(existsSync(clip!)).toBe(false);
+
+    // stop() clears a clip that is still playing.
+    const playing = await internals.synthesize("text", endpoint);
+    internals.playingFile = playing;
+    speaker.stop();
+    expect(existsSync(playing!)).toBe(false);
+
+    // A path that is not this process's temp clip is never deleted.
+    const foreign = join(tmpdir(), "not-a-tts-clip.wav");
+    writeFileSync(foreign, "x", "utf8");
+    internals.removeSynthFile(foreign);
+    expect(existsSync(foreign)).toBe(true);
+    rmSync(foreign, { force: true });
+    speaker.dispose();
   });
 });
