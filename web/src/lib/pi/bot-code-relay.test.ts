@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { createHash } from "node:crypto";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -158,7 +158,9 @@ describe("Bot ⇄ Code relay", () => {
     // A rewritten record must be re-read even when it keeps its id.
     const path = join(store.root, "bot-code-requests", `${request.id}.json`);
     const stored = JSON.parse(readFileSync(path, "utf8")) as CodeRequest;
-    writeFileSync(path, `${JSON.stringify({ ...stored, userIntervention: false, state: "queued", prompt: "差し替え" })}\n`, "utf8");
+    const temporary = `${path}.test.tmp`;
+    writeFileSync(temporary, `${JSON.stringify({ ...stored, userIntervention: false, state: "queued", prompt: "差し替え" })}\n`, "utf8");
+    renameSync(temporary, path);
     expect(listBotCodeRequests("one")[0]).toMatchObject({ state: "queued", prompt: "差し替え" });
     expect(botCodeRequestCacheStats().reads).toBe(first.reads + 1);
   });
@@ -1389,5 +1391,27 @@ describe("outbox directory listing cache", () => {
     // design; the point here is that the directory was listed again at all.
     expect(grouped.get("one")?.length).toBeGreaterThanOrEqual(1);
     __resetBotCodeRequestCacheForTests();
+  });
+});
+
+describe("outbox steady-poll cost", () => {
+  it("skips the per-record statSync sweep while the directory stamp holds", () => {
+    const code = task("code", { kind: "code", botId: "one", status: "working" });
+    store.tasks.set(code.id, code);
+    queueBotCodePrompt("one", code, "steady poll");
+
+    listBotCodeRequests("one");
+    const afterFirst = botCodeRequestCacheStats();
+    expect(afterFirst.reads).toBeGreaterThan(0);
+    expect(afterFirst.stats).toBeGreaterThan(0);
+
+    for (let i = 0; i < 5; i += 1) listBotCodeRequests("one");
+    const afterSteady = botCodeRequestCacheStats();
+
+    // Every write lands via temp+rename, so an unchanged directory stamp means no
+    // record changed and the sweep costs nothing.
+    expect(afterSteady.reads).toBe(afterFirst.reads);
+    expect(afterSteady.stats).toBe(afterFirst.stats);
+    expect(afterSteady.listingHits).toBeGreaterThan(afterFirst.listingHits);
   });
 });

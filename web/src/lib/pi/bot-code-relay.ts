@@ -302,7 +302,7 @@ function read(id: string): CodeRequest | undefined {
  */
 interface CachedCodeRequest { ino: bigint; size: bigint; mtimeNs: bigint; value: CodeRequest; }
 const codeRequestCache = new Map<string, CachedCodeRequest>();
-const codeRequestCacheStats = { reads: 0, hits: 0, listings: 0, listingHits: 0 };
+const codeRequestCacheStats = { reads: 0, hits: 0, listings: 0, listingHits: 0, stats: 0 };
 
 /**
  * The outbox directory listing changes only when a request is written or
@@ -311,14 +311,40 @@ const codeRequestCacheStats = { reads: 0, hits: 0, listings: 0, listingHits: 0 }
  * change is picked up as soon as the stamp differs.
  */
 const OUTBOX_LISTING_TTL_MS = 1_000;
-let outboxListing: { dir: string; listedAt: number; names: string[] } | null = null;
+let outboxListing: { dir: string; listedAt: number; stamp: string; names: string[] } | null = null;
 
-function outboxRequestNames(dir: string): string[] {
+/**
+ * Directory stamp. Every relay write lands via temp+rename, so the directory mtime
+ * always moves when the outbox really changes; an unchanged stamp therefore means
+ * every record is byte-identical and the per-record statSync sweep can be skipped.
+ */
+function outboxDirStamp(dir: string): string {
+  try {
+    const stats = statSync(dir, { bigint: true });
+    return `${stats.mtimeNs}:${stats.ino}`;
+  } catch {
+    return "missing";
+  }
+}
+
+/** Cached listing when the directory stamp holds, otherwise null to force a re-scan. */
+function memoizedRequestNames(dir: string): string[] | null {
   const now = Date.now();
-  if (outboxListing && outboxListing.dir === dir && now - outboxListing.listedAt < OUTBOX_LISTING_TTL_MS) {
+  if (
+    outboxListing
+    && outboxListing.dir === dir
+    && now - outboxListing.listedAt < OUTBOX_LISTING_TTL_MS
+    && outboxListing.stamp === outboxDirStamp(dir)
+  ) {
     codeRequestCacheStats.listingHits += 1;
     return outboxListing.names;
   }
+  return null;
+}
+
+function outboxRequestNames(dir: string): string[] {
+  const memoized = memoizedRequestNames(dir);
+  if (memoized) return memoized;
   let names: string[] = [];
   try {
     names = readdirSync(dir).filter((name) => /^[a-f0-9]{64}\.json$/.test(name));
@@ -327,7 +353,7 @@ function outboxRequestNames(dir: string): string[] {
     return [];
   }
   codeRequestCacheStats.listings += 1;
-  outboxListing = { dir, listedAt: now, names };
+  outboxListing = { dir, listedAt: Date.now(), stamp: outboxDirStamp(dir), names };
   return names;
 }
 
@@ -340,11 +366,27 @@ function requests(): CodeRequest[] {
   }
   const listed: CodeRequest[] = [];
   const present = new Set<string>();
+  // While the directory stamp holds, nothing inside it changed: every write lands via
+  // temp+rename, which always moves the directory mtime. That makes the whole
+  // per-record statSync sweep unnecessary on a steady poll.
+  const memoized = memoizedRequestNames(dir);
+  if (memoized) {
+    for (const name of memoized) {
+      const id = name.slice(0, -5);
+      const cached = codeRequestCache.get(id);
+      if (!cached) continue;
+      codeRequestCacheStats.hits += 1;
+      present.add(id);
+      listed.push(structuredClone(cached.value));
+    }
+    return listed;
+  }
   for (const name of outboxRequestNames(dir)) {
     const id = name.slice(0, -5);
     const path = join(dir, name);
     let stat: BigIntStats;
     try {
+      codeRequestCacheStats.stats += 1;
       stat = statSync(path, { bigint: true });
     } catch {
       codeRequestCache.delete(id);
@@ -380,9 +422,17 @@ export function __resetBotCodeRequestCacheForTests(): void {
   codeRequestCacheStats.hits = 0;
   codeRequestCacheStats.listings = 0;
   codeRequestCacheStats.listingHits = 0;
+  codeRequestCacheStats.stats = 0;
 }
 /** Test-only: how many outbox records and directory listings were re-read versus served from the cache. */
-export function botCodeRequestCacheStats(): { reads: number; hits: number; listings: number; listingHits: number } {
+export function botCodeRequestCacheStats(): {
+  reads: number;
+  hits: number;
+  listings: number;
+  listingHits: number;
+  /** Per-record statSync calls; a steady poll skips them entirely. */
+  stats: number;
+} {
   return { ...codeRequestCacheStats };
 }
 // The terminal-state rule lives in backend core.
