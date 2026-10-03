@@ -9,6 +9,33 @@ const unavailable = () => new Error("MCP HTTP transport unavailable");
 const text = (v) => typeof v === "string" && !/[\0\r\n]/.test(v);
 const absolute = (v) => text(v) && isAbsolute(v);
 
+/** Cloud metadata hostnames that are not IP literals. */
+const METADATA_HOSTNAMES = new Set(["metadata.google.internal", "metadata.goog", "instance-data.ec2.internal"]);
+
+/**
+ * Destinations an HTTPS endpoint may not name: private, link-local, carrier-grade NAT and benchmark
+ * ranges, IPv6 unique-local/link-local, and cloud metadata names. Loopback stays allowed because the
+ * HTTP rule already trusts it explicitly. A DNS name that resolves into one of these ranges is NOT
+ * covered: this transport resolves nothing and pins nothing, so a hostname can still point inward.
+ * Refusing literals only removes the destinations an endpoint can name outright.
+ */
+function isPrivateDestination(hostname) {
+  const host = hostname.startsWith("[") && hostname.endsWith("]") ? hostname.slice(1, -1) : hostname;
+  const lower = host.toLowerCase();
+  if (METADATA_HOSTNAMES.has(lower)) return true;
+  // The URL parser already folds IPv4 literals (0177.0.0.1, 2130706433) to dotted decimal.
+  const ipv4 = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/.exec(lower);
+  if (ipv4) {
+    const [first, second] = ipv4.slice(1).map(Number);
+    return first === 0 || first === 10
+      || (first === 169 && second === 254) || (first === 172 && second >= 16 && second <= 31)
+      || (first === 192 && second === 168) || (first === 100 && second >= 64 && second <= 127)
+      || (first === 198 && (second === 18 || second === 19)) || first >= 224;
+  }
+  if (!lower.includes(":")) return false;
+  return lower.startsWith("fc") || lower.startsWith("fd") || /^fe[89ab]/.test(lower);
+}
+
 /** INTERNAL inert constructor from SDK-validated private snapshot + SAME binding authority.
  * Explicit headers variables/fetch; no config/credential/browser/network IO or ambient env lookup.
  * Variable names that cannot appear in `${NAME}` templates are kept but unreferencable.
@@ -24,7 +51,8 @@ const absolute = (v) => text(v) && isAbsolute(v);
  * cleanup. Throwing close listeners are isolated; unsubscribe remains usable. Previously delivered
  * messages/callback effects and response/SSE body consumption are NOT rolled back or fully cancelled.
  * Close remains callable; only a close-origin DELETE to the fixed endpoint bypasses authority,
- * best-effort as in the SDK. This is not SSRF/DNS pinning, writer quiescence or production activation.
+ * best-effort as in the SDK. Private/link-local/metadata destinations are refused for HTTPS; this is
+ * still not DNS pinning, writer quiescence or production activation.
  * Snapshot/headers/URL/options/auth are PRIVATE, never DTOs. Reprepare after source/variable changes.
  */
 export function createBackendMcpHttpTransportFactory(options) {
@@ -83,7 +111,8 @@ export function createBackendMcpHttpTransportFactory(options) {
             || (authProvider.onUnauthorized !== undefined && typeof authProvider.onUnauthorized !== "function")))) throw unavailable();
         const url = new URL(config.url);
         if (url.username || url.password || config.url.includes("#") || !(url.protocol === "https:"
-          || (url.protocol === "http:" && ["localhost", "127.0.0.1", "[::1]"].includes(url.hostname)))) throw unavailable();
+          || (url.protocol === "http:" && ["localhost", "127.0.0.1", "[::1]"].includes(url.hostname)))
+          || (url.protocol === "https:" && isPrivateDestination(url.hostname))) throw unavailable();
         const href = url.href, headers = {}, names = new Set();
         if (!plain(config.headers ?? {})) throw unavailable();
         for (const name of Reflect.ownKeys(config.headers ?? {})) {

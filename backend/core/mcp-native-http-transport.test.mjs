@@ -61,6 +61,26 @@ test("strict contracts/selectors, transport/url/header/template refusals never i
   assert.equal(fetched, 0); const healthy = call(factory, options); await healthy.close();
 });
 
+test("an HTTPS MCP endpoint may not name a private, link-local or metadata destination", async () => {
+  for (const url of ["https://169.254.169.254/latest/meta-data", "https://metadata.google.internal/computeMetadata/v1",
+    "https://10.1.2.3/mcp", "https://172.16.0.9/mcp", "https://192.168.1.10/mcp", "https://100.64.0.1/mcp",
+    "https://198.18.0.1/mcp", "https://0.0.0.0/mcp", "https://[fd00::1]/mcp", "https://[fe80::1]/mcp"]) {
+    const changed = input(); changed.snapshot.servers[0].config.url = url;
+    assert.throws(() => call(create(changed), changed), safe, `${url} must be refused`);
+  }
+  // Folded IPv4 spellings reach the same private addresses the parser normalizes.
+  for (const url of ["https://167772161/mcp", "https://0x0a.0.0.1/mcp"]) {
+    const changed = input(); changed.snapshot.servers[0].config.url = url;
+    assert.throws(() => call(create(changed), changed), safe, `${url} must be refused`);
+  }
+  // Loopback is trusted explicitly (as for HTTP), and a public host stays reachable.
+  for (const url of ["https://127.0.0.1:8443/mcp", "https://mcp.example.test/mcp"]) {
+    const changed = input(); changed.snapshot.servers[0].config.url = url;
+    const transport = call(create(changed), changed); assert.equal(transport instanceof StreamableHttpTransport, true);
+    await transport.close();
+  }
+});
+
 test("ambient variable names are kept but unreferencable; invalid keys/values still refuse", async () => {
   const options = input(); options.variables = { ...options.variables, "ProgramFiles(x86)": "C:\\Program Files (x86)" };
   const factory = create(options); const transport = call(factory, options); assert.equal(transport instanceof StreamableHttpTransport, true); await transport.close();
