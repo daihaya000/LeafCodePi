@@ -81,7 +81,7 @@
 - `backend/core/peer-auth-grants.{mjs,d.mts}`: トークン生成（32B base64url）・SHA-256 のみ保存・timing-safe 検証・有効化トグル・作成/失効/一覧・原子的書込み
 - `backend/core/peer-auth-audit.{mjs,d.mts}`: JSONL 監査（上限 1000 行、秘密なし）とピア単位の固定窓レート制限
 - `backend/core/peer-auth-serve.{mjs,d.mts}`: 認証 → レート → allowlist（プロバイダ）→ 指定アカウントがそのプロバイダを保持するか検証 → OAuth は `getAuth(minOAuthValidityMs=10分)` で A 側 refresh 後に再読込 → 公開 credential 化 → 監査。既定アカウントのみ ambient 認証へのフォールバックを許す。エラーは不透明な 503、全応答 no-store。list は共有プロバイダを持つ全アカウントを返す
-- `backend/core/peer-auth-remote-store.{mjs,d.mts}`: B 側 CredentialStore（キャッシュ・同時 read 統合・modify で再解決・401/403 はキャッシュ破棄）と、A のアカウント一覧を返す `listAccounts()`
+- `backend/core/peer-auth-remote-store.{mjs,d.mts}`: B 側 CredentialStore（キャッシュ・同時 read 統合・modify で再解決・401/403 はキャッシュ破棄）と、A のアカウント一覧を返す `listAccounts()`。SDK は runtime 生成時に全プロバイダへ `read` を試すため、`read` は先にメタデータ一覧を確認し、配信されていないプロバイダは `undefined` を返す（403 を投げると availability refresh 全体が失敗し、モデル一覧に何も出なくなる。この不具合を実 SDK テストで固定）
 - `backend/core/peer-auth-config.{mjs,d.mts}`: peer.json の検証・0o600 での原子的書込み・除去
 - `backend/core/peer-auth-integration.test.mjs`: 実 loopback HTTP・実 auth.json での A↔B 検証（refresh 非漏洩・拒否・A 停止）
 - `backend/core/peer-auth-sdk.test.mjs`: 実 SDK（`ModelRuntime` ＋ 組み込み anthropic プロバイダ）が peer ストアを受け入れ、残 5 分未満では `modify` 経由で再解決し、ローカル auth.json を読まないことを検証
