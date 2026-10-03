@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { createServer } from "node:http";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -41,5 +42,40 @@ test("trustEnvProxy does not bypass local DNS and private-address checks", async
 			else process.env[key] = value;
 		}
 		rmSync(configDir, { recursive: true, force: true });
+	}
+});
+
+test("fetchRemoteUrl pins each redirect hop to its validated DNS result", async () => {
+	const server = createServer((request, response) => {
+		if (request.url === "/start") {
+			response.writeHead(302, { location: `http://pin-redirect.test:${server.address().port}/final` });
+			response.end("redirect");
+			return;
+		}
+		response.end("pinned");
+	});
+	await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+	const address = server.address();
+	assert.ok(address && typeof address !== "string");
+
+	let lookups = 0;
+	try {
+		const { fetchRemoteUrl } = await import("./ssrf-protection.ts");
+		const response = await fetchRemoteUrl(`http://pin-rebind.test:${address.port}/start`, {
+			signal: AbortSignal.timeout(5000),
+		}, {
+			allowRanges: ["127.0.0.0/8"],
+			fetch: globalThis.fetch,
+			lookup: async (hostname) => {
+				lookups++;
+				assert.equal(hostname, lookups === 1 ? "pin-rebind.test" : "pin-redirect.test");
+				return [{ address: "127.0.0.1", family: 4 }];
+			},
+		});
+		assert.equal(response.status, 200);
+		assert.equal(await response.text(), "pinned");
+		assert.equal(lookups, 2, "each redirect host is validated once and then connected through its pinned address");
+	} finally {
+		await new Promise((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
 	}
 });

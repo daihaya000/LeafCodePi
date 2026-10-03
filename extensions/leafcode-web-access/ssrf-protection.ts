@@ -1,7 +1,8 @@
 import { lookup as dnsLookup } from "node:dns/promises";
 import { existsSync, readFileSync, statSync } from "node:fs";
 import net from "node:net";
-import { getWebSearchConfigPath } from "./utils.ts";
+import { Agent, fetch as undiciFetch } from "undici";
+import { getActiveProxy, getWebSearchConfigPath, isProxyBypassedUrl, type ProxiedRequestInit } from "./utils.ts";
 
 const DEFAULT_MAX_REDIRECTS = 5;
 const REDIRECT_STATUSES = new Set([301, 302, 303, 307, 308]);
@@ -169,6 +170,7 @@ interface RedirectRequestInitArgs {
 }
 
 interface FetchRemoteOptions extends ValidationOptions {
+	/** Custom transport must honor the optional undici dispatcher used for DNS pinning. */
 	fetch?: Fetch;
 	maxRedirects?: number;
 	onRedirect?: (args: RedirectRequestInitArgs) => RequestInit;
@@ -178,7 +180,13 @@ async function defaultLookup(hostname: string): Promise<LookupAddress[]> {
 	return dnsLookup(hostname, { all: true, verbatim: true });
 }
 
-export async function validateRemoteUrl(rawUrl: string | URL, options: ValidationOptions = {}): Promise<URL> {
+interface ValidatedRemoteTarget {
+	url: URL;
+	/** Validated DNS answers; absent for literal IPs and explicitly allowed loopback. */
+	addresses?: LookupAddress[];
+}
+
+async function validateRemoteTarget(rawUrl: string | URL, options: ValidationOptions = {}): Promise<ValidatedRemoteTarget> {
 	const url = rawUrl instanceof URL ? rawUrl : new URL(rawUrl);
 	if (url.protocol !== "http:" && url.protocol !== "https:") {
 		throw new Error("Only HTTP and HTTPS URLs can be fetched remotely");
@@ -187,7 +195,7 @@ export async function validateRemoteUrl(rawUrl: string | URL, options: Validatio
 	const hostname = normalizeHostname(url.hostname);
 	if (!hostname) throw new Error("URL must include a hostname");
 	if (hostname === "localhost") {
-		if (options.allowLoopback === true) return url;
+		if (options.allowLoopback === true) return { url };
 		throw new Error(`Blocked internal hostname: ${hostname}`);
 	}
 	if (hostname.endsWith(".localhost")) {
@@ -202,7 +210,7 @@ export async function validateRemoteUrl(rawUrl: string | URL, options: Validatio
 			? [...allowRanges, ...parseAllowRanges(LOOPBACK_ALLOW_RANGES)]
 			: allowRanges;
 		assertPublicAddress(hostname, hostname, addressAllowRanges);
-		return url;
+		return { url };
 	}
 
 	let addresses: LookupAddress[];
@@ -214,10 +222,57 @@ export async function validateRemoteUrl(rawUrl: string | URL, options: Validatio
 	}
 
 	if (addresses.length === 0) throw new Error(`Failed to resolve ${hostname}: no addresses returned`);
-	for (const { address } of addresses) {
-		assertPublicAddress(address, hostname, allowRanges);
-	}
-	return url;
+	const validatedAddresses = addresses.map(({ address }) => {
+		const normalized = normalizeHostname(address);
+		assertPublicAddress(normalized, hostname, allowRanges);
+		return { address: normalized, family: net.isIP(normalized) };
+	});
+	return { url, addresses: validatedAddresses };
+}
+
+export async function validateRemoteUrl(rawUrl: string | URL, options: ValidationOptions = {}): Promise<URL> {
+	return (await validateRemoteTarget(rawUrl, options)).url;
+}
+
+function createPinnedAgent(pinnedAddresses: Map<string, LookupAddress[]>): Agent {
+	return new Agent({
+		connect: {
+			lookup(hostname, options, callback) {
+				const addresses = pinnedAddresses.get(normalizeHostname(hostname)) ?? [];
+				const requestedFamily = typeof options === "number" ? options : options?.family ?? 0;
+				const candidates = addresses
+					.map(({ address }) => ({ address, family: net.isIP(address) }))
+					.filter(({ family }) => requestedFamily === 0 || family === requestedFamily);
+				const all = typeof options === "object" && options !== null && options.all === true;
+				if (candidates.length === 0) {
+					const error = Object.assign(new Error(`No SSRF-validated DNS address for ${hostname}`), { code: "ENOTFOUND" });
+					if (all) callback(error, []);
+					else callback(error, "", 0);
+					return;
+				}
+				if (all) callback(null, candidates);
+				else callback(null, candidates[0].address, candidates[0].family);
+			},
+		},
+	});
+}
+
+type UndiciFetch = typeof undiciFetch;
+type ProxyAwareFetch = typeof fetch & { __piWebAccessProxyFetch?: boolean };
+
+function fetchWithPinnedDispatcher(url: URL, init: RequestInit, dispatcher?: Agent): Promise<Response> {
+	const undiciInit = { ...init, ...(dispatcher ? { dispatcher } : {}) };
+	return undiciFetch(
+		url as unknown as Parameters<UndiciFetch>[0],
+		undiciInit as unknown as Parameters<UndiciFetch>[1],
+	) as unknown as Promise<Response>;
+}
+
+function shouldUseConfiguredProxyTransport(url: URL, init: RequestInit): boolean {
+	const proxyFetch = globalThis.fetch as ProxyAwareFetch;
+	if (proxyFetch.__piWebAccessProxyFetch !== true || isProxyBypassedUrl(url)) return false;
+	const proxy = (init as ProxiedRequestInit).__proxy ?? getActiveProxy();
+	return Boolean(proxy);
 }
 
 export async function fetchRemoteUrl(
@@ -225,29 +280,59 @@ export async function fetchRemoteUrl(
 	init: RequestInit = {},
 	options: FetchRemoteOptions = {},
 ): Promise<Response> {
-	const fetchImpl = options.fetch ?? fetch;
 	const maxRedirects = options.maxRedirects ?? DEFAULT_MAX_REDIRECTS;
-	let current = await validateRemoteUrl(url, options);
+	const pinnedAddresses = new Map<string, LookupAddress[]>();
+	let agent: Agent | undefined;
+	let currentTarget = await validateRemoteTarget(url, options);
+	let current = currentTarget.url;
 	let requestInit = init;
+	if (currentTarget.addresses) pinnedAddresses.set(normalizeHostname(current.hostname), currentTarget.addresses);
 
-	for (let redirects = 0; redirects <= maxRedirects; redirects++) {
-		const response = await fetchImpl(current, { ...requestInit, redirect: "manual" });
-		if (!REDIRECT_STATUSES.has(response.status)) return response;
+	const getPinnedAgent = () => agent ??= createPinnedAgent(pinnedAddresses);
+	const closeAgent = () => {
+		if (agent) void agent.close().catch(() => {});
+	};
 
-		const location = response.headers.get("location");
-		if (!location) return response;
-		if (redirects === maxRedirects) throw new Error(`Too many redirects fetching ${current.toString()}`);
+	try {
+		for (let redirects = 0; redirects <= maxRedirects; redirects++) {
+			const fetchOverride = options.fetch && options.fetch !== fetch ? options.fetch : undefined;
+			const useProxyTransport = !fetchOverride && shouldUseConfiguredProxyTransport(current, requestInit);
+			const dispatcher = currentTarget.addresses && !useProxyTransport ? getPinnedAgent() : undefined;
+			const fetchInit = { ...requestInit, redirect: "manual", ...(dispatcher ? { dispatcher } : {}) } as RequestInit & { dispatcher?: Agent };
+			const response = fetchOverride
+				? await fetchOverride(current, fetchInit)
+				: useProxyTransport
+					? await fetch(current, fetchInit)
+					: await fetchWithPinnedDispatcher(current, fetchInit, dispatcher);
+			if (!REDIRECT_STATUSES.has(response.status)) {
+				closeAgent();
+				return response;
+			}
 
-		const from = current;
-		current = await validateRemoteUrl(new URL(location, current), options);
-		if (response.status === 303 || ((response.status === 301 || response.status === 302) && requestInit.method?.toUpperCase() === "POST")) {
-			const { body: _body, ...nextInit } = requestInit;
-			requestInit = { ...nextInit, method: "GET" };
+			const location = response.headers.get("location");
+			if (!location) {
+				closeAgent();
+				return response;
+			}
+			if (redirects === maxRedirects) throw new Error(`Too many redirects fetching ${current.toString()}`);
+			await response.body?.cancel().catch(() => {});
+
+			const from = current;
+			currentTarget = await validateRemoteTarget(new URL(location, current), options);
+			current = currentTarget.url;
+			if (currentTarget.addresses) pinnedAddresses.set(normalizeHostname(current.hostname), currentTarget.addresses);
+			if (response.status === 303 || ((response.status === 301 || response.status === 302) && requestInit.method?.toUpperCase() === "POST")) {
+				const { body: _body, ...nextInit } = requestInit;
+				requestInit = { ...nextInit, method: "GET" };
+			}
+			if (options.onRedirect) requestInit = options.onRedirect({ from, to: current, init: requestInit, response });
 		}
-		if (options.onRedirect) requestInit = options.onRedirect({ from, to: current, init: requestInit, response });
-	}
 
-	throw new Error(`Too many redirects fetching ${current.toString()}`);
+		throw new Error(`Too many redirects fetching ${current.toString()}`);
+	} catch (error) {
+		if (agent) void agent.destroy().catch(() => {});
+		throw error;
+	}
 }
 
 function normalizeHostname(hostname: string): string {
