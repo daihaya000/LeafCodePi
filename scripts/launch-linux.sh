@@ -14,9 +14,39 @@ export LEAFCODE_PI_TRAY=1
 
 LOG_ROOT=${XDG_STATE_HOME:-"$HOME/.local/state"}
 LOG_DIR="$LOG_ROOT/leafcode-pi"
+LOG_FILE="$LOG_DIR/launcher.log"
 mkdir -p "$LOG_DIR"
+: >> "$LOG_FILE"
+LOG_OFFSET=$(wc -c < "$LOG_FILE" | tr -d '[:space:]')
+printf '\n[%s] Starting LeafCodePi\n' "$(date '+%Y-%m-%d %H:%M:%S %z')" >> "$LOG_FILE"
 
-# A .desktop launcher must survive the short-lived launcher process. Detach
-# stdout/stderr as well so GNOME/Nautilus cannot close the host on exit.
+# Keep the host detached from the desktop launcher. A separate terminal tails
+# only this launch's output, so closing the log window does not stop the host.
 nohup setsid "$ROOT_DIR/start.sh" "$@" \
-  >> "$LOG_DIR/launcher.log" 2>&1 </dev/null &
+  >> "$LOG_FILE" 2>&1 </dev/null &
+
+show_startup_logs() {
+  offset=$1
+  tail_command='exec tail -c "+$1" -F "$2"'
+
+  if command -v x-terminal-emulator >/dev/null 2>&1; then
+    nohup x-terminal-emulator -e sh -c "$tail_command" sh "$offset" "$LOG_FILE" \
+      >/dev/null 2>&1 </dev/null &
+  elif command -v gnome-terminal >/dev/null 2>&1; then
+    nohup gnome-terminal --title='LeafCodePi Startup Logs' -- sh -c "$tail_command" sh "$offset" "$LOG_FILE" \
+      >/dev/null 2>&1 </dev/null &
+  elif command -v konsole >/dev/null 2>&1; then
+    nohup konsole --title 'LeafCodePi Startup Logs' -e sh -c "$tail_command" sh "$offset" "$LOG_FILE" \
+      >/dev/null 2>&1 </dev/null &
+  elif command -v xfce4-terminal >/dev/null 2>&1; then
+    nohup xfce4-terminal --title='LeafCodePi Startup Logs' --execute sh -c "$tail_command" sh "$offset" "$LOG_FILE" \
+      >/dev/null 2>&1 </dev/null &
+  elif command -v xterm >/dev/null 2>&1; then
+    nohup xterm -T 'LeafCodePi Startup Logs' -e sh -c "$tail_command" sh "$offset" "$LOG_FILE" \
+      >/dev/null 2>&1 </dev/null &
+  else
+    printf '[LeafCodePi] No supported terminal emulator found; logs: %s\n' "$LOG_FILE" >&2
+  fi
+}
+
+show_startup_logs "$((LOG_OFFSET + 1))"

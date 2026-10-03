@@ -351,7 +351,7 @@ Ubuntu / GNOME でアプリ一覧や Dock に固定できるランチャーを�
 ./scripts/create-linux-launcher.sh
 ```
 
-リポジトリ直下の `LeafCodePi.desktop` はチェックアウトから直接起動できるランチャー本体です。上記スクリプトはこれをアプリ一覧へ登録し、アイコンを配置します。アプリ一覧の `LeafCodePi` を右クリックして「お気に入りに追加」すると、Windows のタスクバー固定に相当する Dock 固定になります。ランチャーは現在のチェックアウトを起動し、GUI セッションではトレイも有効にします。
+リポジトリ直下の `LeafCodePi.desktop` はチェックアウトから直接起動できるランチャー本体です。上記スクリプトはこれをアプリ一覧へ登録し、アイコンを配置します。アプリ一覧の `LeafCodePi` を右クリックして「お気に入りに追加」すると、Windows のタスクバー固定に相当する Dock 固定になります。ランチャーは現在のチェックアウトを起動し、GUI セッションではトレイも有効にします。起動時にはログを別ターミナルへリアルタイム表示し、ウィンドウを閉じてもホストは動作を続けます。ログファイルは `~/.local/state/leafcode-pi/launcher.log`（`XDG_STATE_HOME` 設定時はその配下）です。
 
 グラフィカルなデスクトップ（Ubuntu の通常セッション、macOS のローカル端末など）では、Windows と同様にトレイアイコンが既定で出ます。`LEAFCODE_PI_TRAY=1` は不要です。Linux で `DISPLAY` / `WAYLAND_DISPLAY` がどちらも無い SSH やサーバ起動では、トレイを自動的にスキップします（失敗ログを連発しません）。macOS は Aqua が `DISPLAY` を付けないため、`SSH_CONNECTION` / `SSH_TTY` が無いローカル起動をグラフィカルとみなします。
 
