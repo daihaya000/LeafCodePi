@@ -288,12 +288,12 @@ import { resolveBotSessionOptions } from "@backend-core/bot-session-options.mjs"
 import { runSessionEventEffects } from "@backend-core/session-event-effects.mjs";
 import { isBotTask, liveSessionName, liveSessionRefusalError, liveSessionWorkspace, preflightLiveSession, resolveSessionPermissionDefaults, TASK_ARCHIVED_MESSAGE, TASK_NOT_FOUND_MESSAGE, resolveSessionAccountId, resolveSessionAccountRefusal, resolveSessionPermissionMode, resolveSessionSkillPermission, resolveSessionThinkingLevelSource, resolveStoredModelOutcome } from "@backend-core/live-session-preflight.mjs";
 import { runSerializedByKey } from "@backend-core/keyed-serializer.mjs";
+import { accountRuntimeOptions } from "@/lib/peer-auth/account-runtime-options";
 import { attachReplacementSession } from "@backend-core/live-replace.mjs";
 import { buildBotCodeReportContent } from "@backend-core/bot-code-report.mjs";
 import {
   accountAuthPath,
   accountHasProvider,
-  accountModelsStorePath,
   accountStoredProviders,
   getAccount,
   isAccountEnabled,
@@ -919,12 +919,11 @@ function accountRuntimeManager(): AccountRuntimeManager {
       await factory.load();
       const agentDir = await resolvePiAgentDir();
       const authPath = accountAuthPath(id, agentDir);
-      const runtime = await factory.createModelRuntime({
-        authPath,
-        modelsStorePath: accountModelsStorePath(id, agentDir),
-        allowModelNetwork: true,
-        modelRefreshTimeoutMs: 8_000,
-      }, registerLlamaProviders);
+      // Peer accounts (peer.json) use a remote credential store instead of authPath.
+      const runtime = await factory.createModelRuntime(
+        accountRuntimeOptions(id, agentDir),
+        registerLlamaProviders,
+      );
       await ensureOptionalProviders(runtime, {
         key: `account:${id}`,
         kind: "account",

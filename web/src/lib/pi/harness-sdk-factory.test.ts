@@ -4,7 +4,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { SdkRuntimeFactory } from "@backend-core/sdk-runtime.mjs";
-import { __resetPiAgentDirCacheForTests, accountAuthPath, accountModelsStorePath, createAccount } from "@/lib/accounts";
+import { writePeerConfig } from "@backend-core/peer-auth-config.mjs";
+import { __resetPiAgentDirCacheForTests, accountAuthPath, accountDir, accountModelsStorePath, createAccount } from "@/lib/accounts";
 import { getHealth, getRuntimeFor } from "./harness";
 
 const hooks = vi.hoisted(() => ({ register: vi.fn() }));
@@ -128,6 +129,33 @@ describe("harness SDK factory connection", () => {
       });
     }
     expect(hooks.register).toHaveBeenCalledTimes(2);
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it("gives a peer account a remote credential store and no authPath, leaving other accounts file-backed", async () => {
+    const peer = createAccount({ label: "peer", providers: ["anthropic"] });
+    const local = createAccount({ label: "local", providers: ["anthropic"] });
+    writePeerConfig(accountDir(peer.id, join(root, "agent")), {
+      peerUrl: "http://100.64.0.2:3000", peerAccountId: null, providers: ["anthropic"], token: "p".repeat(43),
+    });
+    const create = vi.fn(async (_options: Record<string, unknown> & { credentials?: object }) => runtime());
+    install(create as unknown as ReturnType<typeof vi.fn>);
+    await Promise.all([getRuntimeFor(peer.id), getRuntimeFor(local.id)]);
+    const [peerOptions] = create.mock.calls.find(([options]) => "credentials" in options)!;
+    expect(peerOptions).not.toHaveProperty("authPath");
+    expect(peerOptions).toMatchObject({
+      modelsStorePath: accountModelsStorePath(peer.id, join(root, "agent")),
+      allowModelNetwork: true,
+      modelRefreshTimeoutMs: 8_000,
+    });
+    expect(Object.keys(peerOptions.credentials!).sort()).toEqual(["delete", "list", "modify", "read"]);
+    expect(create).toHaveBeenCalledWith({
+      authPath: accountAuthPath(local.id, join(root, "agent")),
+      modelsStorePath: accountModelsStorePath(local.id, join(root, "agent")),
+      allowModelNetwork: true,
+      modelRefreshTimeoutMs: 8_000,
+    });
+    // Constructing the store must not contact the sharing LCP.
     expect(fetch).not.toHaveBeenCalled();
   });
 });
