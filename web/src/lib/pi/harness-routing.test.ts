@@ -2074,6 +2074,41 @@ describe("integrated session routing", () => {
     assert.equal(header.id, task.sessionId);
   });
 
+  it("gives the Auto router a signal so a superseded routing stops it", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "leafcode-pi-auto-agent-signal-"));
+    tempDirs.push(dir);
+    process.env.LEAFCODE_PI_DATA_DIR = dir;
+    const agentDir = join(dir, "agent");
+    process.env.PI_CODING_AGENT_DIR = agentDir;
+    __resetPiAgentDirCacheForTests();
+    mkdirSync(join(agentDir, "agents"), { recursive: true });
+    for (const name of ["builder", "reviewer"]) {
+      writeFileSync(join(agentDir, "agents", `${name}.md`), `---
+name: ${name}
+---
+`, "utf8");
+    }
+    installHarness(new Map());
+    let seenSignal: AbortSignal | undefined;
+    autoAgentMock.mockImplementation(async (options: { signal?: AbortSignal }) => {
+      seenSignal = options.signal;
+      return "reviewer";
+    });
+
+    const project = upsertProject({ name: "demo", rootPath: dir });
+    await createTask({
+      projectId: project.id,
+      prompt: "最初の確認",
+      agent: "builder",
+      goalLoop: { maxTurns: 2, autoAgent: true },
+    });
+    assert.equal(await fakePi.sessions[0]?.routingContext?.prepareGoalLoopTurn("turn 2"), false);
+
+    // The router must receive an AbortSignal it can honour when routing is superseded.
+    expect(seenSignal).toBeInstanceOf(AbortSignal);
+    expect(seenSignal?.aborted).toBe(false);
+  });
+
   it("reselects the Auto agent before every Goal Loop turn and keeps the transcript", async () => {
     const dir = mkdtempSync(join(tmpdir(), "leafcode-pi-auto-agent-goal-loop-"));
     tempDirs.push(dir);

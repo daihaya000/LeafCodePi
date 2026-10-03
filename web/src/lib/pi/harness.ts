@@ -3301,7 +3301,7 @@ function registerGoalLoopTurnRouting(taskId: string): (pi: ExtensionAPI) => void
         }
         let routed: LiveRuntime | "retry";
         try {
-          routed = await prepareAutoAgentForGoalLoop(after, task, prompt);
+          routed = await prepareAutoAgentForGoalLoop(after, task, prompt, ownsRouting);
         } catch (error) {
           releaseIdleReservation(after);
           throw error;
@@ -8874,6 +8874,7 @@ async function prepareAutoAgentForGoalLoop(
   live: LiveRuntime,
   task: TaskSummary,
   prompt: string,
+  isCurrent: () => boolean = () => true,
 ): Promise<LiveRuntime | "retry"> {
   if (isLiveBusyForReplace(live)) return "retry";
   const ids = modelId(live.session.model);
@@ -8886,15 +8887,29 @@ async function prepareAutoAgentForGoalLoop(
         }
       : undefined;
   const { resolveAutoAgent } = await import("@/lib/auto-agent");
-  const selected = await resolveAutoAgent({
-    conversation: readSessionConversation(
-      live.session.sessionFile ?? task.sessionFile,
-    ),
-    prompt,
-    ...(requestedModel ? { requestedModel } : {}),
-    ...(live.accountId ? { accountId: live.accountId } : {}),
-    ...(task.accountIdExplicit ? { accountIdExplicit: true } : {}),
-  });
+  // The router call is network-bound; a superseded routing owner (session replaced
+  // or released while the call was in flight) must not keep running it.
+  const router = new AbortController();
+  const current = setInterval(() => {
+    if (isCurrent()) return;
+    router.abort();
+  }, 200);
+  let selected: string;
+  try {
+    selected = await resolveAutoAgent({
+      conversation: readSessionConversation(
+        live.session.sessionFile ?? task.sessionFile,
+      ),
+      prompt,
+      signal: router.signal,
+      ...(requestedModel ? { requestedModel } : {}),
+      ...(live.accountId ? { accountId: live.accountId } : {}),
+      ...(task.accountIdExplicit ? { accountIdExplicit: true } : {}),
+    });
+  } finally {
+    clearInterval(current);
+  }
+  if (!isCurrent()) return "retry";
   if (selected === (task.agent?.trim() ?? "")) return live;
   return replaceLiveForAgent(live, task, selected);
 }
