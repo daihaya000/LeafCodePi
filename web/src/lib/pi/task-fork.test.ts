@@ -1,10 +1,11 @@
-import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { SessionManager } from "@earendil-works/pi-coding-agent";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { getTask, insertTask, listTasks, patchTask, upsertProject } from "@/lib/store";
 import { formatPromptWithFiles } from "@/lib/prompt-images";
+import { hasActiveTaskLease, taskRuntimeLeasePath } from "@/lib/task-runtime-lease";
 
 const control = vi.hoisted(() => ({ busy: false, compacting: false, attention: false, gate: null as Promise<void> | null, entered: null as (() => void) | null }));
 vi.mock("@/lib/pi/harness", async (original) => {
@@ -63,6 +64,7 @@ describe("forkTask", () => {
     const before = readFileSync(task.sessionFile!, "utf8");
     const leaf = manager.getLeafId();
     const result = await forkTask(task.id, next);
+    expect(hasActiveTaskLease(task.id)).toBe(false);
     expect(result.text).toBe("別の指示");
     expect(result.images).toEqual([{ uri: "data:image/png;base64,aW1hZ2U=", mime: "image/png", name: "image-2" }]);
     expect(result.files).toEqual([]);
@@ -137,6 +139,20 @@ describe("forkTask", () => {
     await expect(forkTask("missing", next)).rejects.toMatchObject({ status: 404 });
   });
 
+  it("rejects a fork while another worker owns the source task lease", async () => {
+    const { task, next } = fixture();
+    const leasePath = taskRuntimeLeasePath(task.id);
+    mkdirSync(join(root, "data", "task-leases"), { recursive: true });
+    writeFileSync(leasePath, JSON.stringify({ token: "other-worker", pid: process.pid, acquiredAt: Date.now(), heartbeatAt: Date.now() }), "utf8");
+    const sessionsBefore = readdirSync(join(root, "sessions"));
+
+    await expect(forkTask(task.id, next)).rejects.toMatchObject({ status: 409 });
+
+    expect(readdirSync(join(root, "sessions"))).toEqual(sessionsBefore);
+    expect(listTasks(true)).toHaveLength(1);
+    expect(hasActiveTaskLease(task.id)).toBe(true);
+  });
+
   it("rejects duplicate forks while the source snapshot is being read", async () => {
     const { task, next } = fixture();
     let release!: () => void;
@@ -170,6 +186,7 @@ describe("forkTask", () => {
     const store = await import("@/lib/store");
     vi.spyOn(store, "insertTask").mockImplementationOnce(() => { throw new Error("registration failed"); });
     await expect(forkTask(task.id, next)).rejects.toThrow("registration failed");
+    expect(hasActiveTaskLease(task.id)).toBe(false);
     expect(readdirSync(join(root, "sessions"))).toEqual(before);
     expect(listTasks(true)).toHaveLength(1);
   });

@@ -5,6 +5,7 @@ import { deleteTask, getProject, getTask, insertTask, patchTask } from "@/lib/st
 import { rawUserMessageText } from "@/lib/pi/messages";
 import { parsePromptFileMarkers } from "@/lib/prompt-images";
 import { readStoredPromptFileContent } from "@/lib/prompt-file-store";
+import { acquireTaskLease, hasActiveTaskLease, releaseTaskLease } from "@/lib/task-runtime-lease";
 import { filesFromEntry, getTaskDetailReadOnly, imagesFromEntry, messageEntryById, syncSessionName } from "@/lib/pi/harness";
 import { assertLocalRuntimeAllowed } from "@/lib/pi/runtime-ownership";
 import type { ForkTaskResult } from "@/lib/task-fork";
@@ -20,6 +21,7 @@ export async function forkTask(id: string, messageId: string): Promise<ForkTaskR
   assertLocalRuntimeAllowed();
   if (forkSources.has(id)) fail("分岐処理中です。完了してからお試しください", 409);
   forkSources.add(id);
+  let sourceLeaseAcquired = false;
   try {
     const sourceRecord = getTask(id);
     if (!sourceRecord) fail("タスクが見つかりません", 404);
@@ -37,6 +39,9 @@ export async function forkTask(id: string, messageId: string): Promise<ForkTaskR
       current.sessionFile !== source.sessionFile || current.directory !== source.directory || current.projectId !== source.projectId) {
       fail("セッションが変更されました。再読み込みしてお試しください", 409);
     }
+    // Exclude a prompt starting in another process between the idle snapshot and branch-file creation.
+    if (hasActiveTaskLease(id) || !acquireTaskLease(id)) fail("処理中は分岐できません。停止してからお試しください", 409);
+    sourceLeaseAcquired = true;
     // Reject stale/inactive-branch IDs, even though the append-only file still contains them.
     if (!detail.messages.some((message) => message.id === messageId && message.role === "user")) {
       fail("対象ユーザーメッセージが見つかりません", 404);
@@ -93,6 +98,7 @@ export async function forkTask(id: string, messageId: string): Promise<ForkTaskR
       throw error;
     }
   } finally {
+    if (sourceLeaseAcquired) releaseTaskLease(id);
     forkSources.delete(id);
   }
 }
