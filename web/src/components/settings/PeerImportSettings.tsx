@@ -1,10 +1,12 @@
 "use client";
 
-import { useState } from "react";
-import { Button } from "@/components/ui";
-import { sendJson } from "@/lib/client";
+import { useCallback, useEffect, useState } from "react";
+import { Badge, Button } from "@/components/ui";
+import { getJson, sendJson } from "@/lib/client";
 
 const LABEL_MAX = 100;
+
+type PeerRow = { id: string; label: string; peerUrl: string; providers: string[]; online: boolean };
 
 /** B-side import of another LCP's shared credentials (docs/plans/peer-auth-share.md). */
 export function PeerImportSettings({ onImported }: { onImported?: () => void }) {
@@ -14,6 +16,20 @@ export function PeerImportSettings({ onImported }: { onImported?: () => void }) 
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  const [peers, setPeers] = useState<PeerRow[]>([]);
+  const [peersLoading, setPeersLoading] = useState(true);
+
+  const loadPeers = useCallback(() => {
+    setPeersLoading(true);
+    void getJson<{ peers: PeerRow[] }>("/api/peer-auth/import")
+      .then((result) => setPeers(result.peers))
+      .catch(() => setPeers([]))
+      .finally(() => setPeersLoading(false));
+  }, []);
+
+  useEffect(() => {
+    loadPeers();
+  }, [loadPeers]);
 
   const ready = peerUrl.trim().length > 0 && token.trim().length > 0 && label.trim().length > 0 && label.trim().length <= LABEL_MAX;
 
@@ -33,9 +49,25 @@ export function PeerImportSettings({ onImported }: { onImported?: () => void }) 
       setPeerUrl("");
       setLabel("");
       setNotice(`「${result.account.label}」を追加しました（${result.account.providers.join("、")}）。`);
+      loadPeers();
       onImported?.();
     } catch (err) {
       setError(err instanceof Error ? err.message : "取り込みに失敗しました");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function remove(peer: PeerRow) {
+    if (busy) return;
+    setBusy(true);
+    setError(null);
+    setNotice(null);
+    try {
+      await sendJson(`/api/accounts/${encodeURIComponent(peer.id)}`, {}, "DELETE");
+      loadPeers();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "削除に失敗しました");
     } finally {
       setBusy(false);
     }
@@ -92,6 +124,29 @@ export function PeerImportSettings({ onImported }: { onImported?: () => void }) 
       </div>
       {error && <p className="mt-2 text-sm text-danger" role="alert">{error}</p>}
       {notice && <p className="mt-2 text-sm text-success" role="status">{notice}</p>}
+
+      {peersLoading ? (
+        <p className="mt-4 text-xs text-muted">接続元の状態を確認中…</p>
+      ) : peers.length > 0 ? (
+        <ul className="mt-4 divide-y divide-border rounded-xl border border-border">
+          {peers.map((peer) => (
+            <li key={peer.id} className="flex flex-wrap items-center justify-between gap-2 px-3 py-2">
+              <div className="min-w-0">
+                <p className="truncate text-sm font-medium">{peer.label}</p>
+                <p className="text-xs text-muted">{peer.peerUrl}・{peer.providers.join("、")}</p>
+              </div>
+              <div className="flex items-center gap-2">
+                <Badge tone={peer.online ? "success" : "warning"}>{peer.online ? "オンライン" : "オフライン"}</Badge>
+                <Button type="button" variant="ghost" size="sm" disabled={busy} onClick={() => void remove(peer)}>
+                  削除
+                </Button>
+              </div>
+            </li>
+          ))}
+        </ul>
+      ) : (
+        <p className="mt-4 text-xs text-muted">取り込んだアカウントはありません。</p>
+      )}
     </div>
   );
 }

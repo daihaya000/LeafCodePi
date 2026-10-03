@@ -1,10 +1,10 @@
 // @vitest-environment happy-dom
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { PeerImportSettings } from "./PeerImportSettings";
 
-const { sendJson } = vi.hoisted(() => ({ sendJson: vi.fn() }));
-vi.mock("@/lib/client", () => ({ sendJson }));
+const { getJson, sendJson } = vi.hoisted(() => ({ getJson: vi.fn(), sendJson: vi.fn() }));
+vi.mock("@/lib/client", () => ({ getJson, sendJson }));
 
 function fill(url = " http://100.64.0.2:3000 ", token = " TOKEN ", label = " main ") {
   fireEvent.change(screen.getByLabelText("共有元のURL"), { target: { value: url } });
@@ -12,8 +12,13 @@ function fill(url = " http://100.64.0.2:3000 ", token = " TOKEN ", label = " mai
   fireEvent.change(screen.getByLabelText("アカウント名"), { target: { value: label } });
 }
 
+beforeEach(() => {
+  getJson.mockResolvedValue({ peers: [] });
+});
+
 afterEach(() => {
   cleanup();
+  getJson.mockReset();
   sendJson.mockReset();
 });
 
@@ -60,5 +65,34 @@ describe("PeerImportSettings", () => {
   it("renders the token as a password field and never echoes it", () => {
     render(<PeerImportSettings />);
     expect((screen.getByLabelText("トークン") as HTMLInputElement).type).toBe("password");
+  });
+
+  it("lists imported peer accounts with their connection state and deletes with a reload", async () => {
+    getJson.mockResolvedValueOnce({ peers: [
+      { id: "p1", label: "main", peerUrl: "http://100.64.0.2:3000", providers: ["anthropic"], online: true },
+      { id: "p2", label: "old", peerUrl: "http://100.64.0.3:3000", providers: ["openrouter"], online: false },
+    ] });
+    sendJson.mockResolvedValue({ ok: true });
+    render(<PeerImportSettings />);
+
+    expect(await screen.findByText("main")).toBeTruthy();
+    expect(screen.getByText("オンライン")).toBeTruthy();
+    expect(screen.getByText("オフライン")).toBeTruthy();
+
+    fireEvent.click(screen.getAllByRole("button", { name: "削除" })[1]);
+    await waitFor(() => expect(sendJson).toHaveBeenCalledWith("/api/accounts/p2", {}, "DELETE"));
+    await waitFor(() => expect(screen.queryByText("old")).toBeNull());
+  });
+
+  it("shows an empty state when no account has been imported", async () => {
+    render(<PeerImportSettings />);
+    expect(await screen.findByText("取り込んだアカウントはありません。")).toBeTruthy();
+    expect(screen.queryByText("オンライン")).toBeNull();
+  });
+
+  it("hides the peer list when the status request fails", async () => {
+    getJson.mockRejectedValue(new Error("offline"));
+    render(<PeerImportSettings />);
+    expect(await screen.findByText("取り込んだアカウントはありません。")).toBeTruthy();
   });
 });
