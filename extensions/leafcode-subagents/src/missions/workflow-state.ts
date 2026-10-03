@@ -42,7 +42,7 @@ function linuxProcessStartKey(pid: number): string | undefined {
 	try {
 		const raw = fs.readFileSync(`/proc/${pid}/stat`, "utf-8");
 		const tail = raw.slice(raw.lastIndexOf(")") + 2).trim().split(/\s+/);
-		return tail[19] ? `linux:${tail[19]}` : undefined;
+		return tail[19] ? rememberStartKey(pid, `linux:${tail[19]}`) : undefined;
 	} catch {
 		return undefined;
 	}
@@ -51,7 +51,7 @@ function linuxProcessStartKey(pid: number): string | undefined {
 function psProcessStartKey(pid: number): string | undefined {
 	try {
 		const raw = execFileSync("ps", ["-p", String(pid), "-o", "lstart="], { encoding: "utf-8", stdio: ["ignore", "pipe", "ignore"], timeout: 1000 }).trim();
-		return raw ? `ps:${raw}` : undefined;
+		return raw ? rememberStartKey(pid, `ps:${raw}`) : undefined;
 	} catch {
 		return undefined;
 	}
@@ -60,15 +60,50 @@ function psProcessStartKey(pid: number): string | undefined {
 function windowsProcessStartKey(pid: number): string | undefined {
 	try {
 		const raw = execFileSync("powershell.exe", ["-NoProfile", "-Command", `(Get-CimInstance Win32_Process -Filter \"ProcessId=${pid}\").CreationDate`], { encoding: "utf-8", stdio: ["ignore", "pipe", "ignore"], timeout: 1000, windowsHide: true }).trim();
-		return raw ? `win:${raw}` : undefined;
+		return raw ? rememberStartKey(pid, `win:${raw}`) : undefined;
 	} catch {
 		return undefined;
 	}
 }
 
+/**
+ * A live process's start key never changes, so re-probing it only costs another
+ * synchronous PowerShell spawn (up to 1s of blocked event loop) per contender.
+ * Cache successful probes briefly; a miss is not cached, so a process that dies
+ * mid-window is re-probed rather than staying keyless for the whole window.
+ */
+const START_KEY_CACHE_TTL_MS = 30_000;
+const START_KEY_CACHE_LIMIT = 32;
+const startKeyCache = new Map<number, { resolvedAt: number; key: string }>();
+
+function cachedStartKey(pid: number): string | undefined {
+	const cached = startKeyCache.get(pid);
+	if (!cached) return undefined;
+	if (Date.now() - cached.resolvedAt >= START_KEY_CACHE_TTL_MS) {
+		startKeyCache.delete(pid);
+		return undefined;
+	}
+	return cached.key;
+}
+
+function rememberStartKey(pid: number, key: string | undefined): string | undefined {
+	if (!key) return undefined;
+	if (startKeyCache.size >= START_KEY_CACHE_LIMIT) {
+		const oldest = [...startKeyCache.entries()].sort((a, b) => a[1].resolvedAt - b[1].resolvedAt)[0];
+		if (oldest) startKeyCache.delete(oldest[0]);
+	}
+	startKeyCache.set(pid, { resolvedAt: Date.now(), key });
+	return key;
+}
+
+/** Test-only: forget memoized process start keys. */
+export function resetProcessStartKeyCacheForTests(): void {
+	startKeyCache.clear();
+}
+
 function processStartKey(pid: number): string | undefined {
-	if (process.platform === "linux") return linuxProcessStartKey(pid) ?? psProcessStartKey(pid);
-	if (process.platform === "win32") return windowsProcessStartKey(pid);
+	if (process.platform === "linux") return cachedStartKey(pid) ?? linuxProcessStartKey(pid) ?? psProcessStartKey(pid);
+	if (process.platform === "win32") return cachedStartKey(pid) ?? windowsProcessStartKey(pid);
 	return undefined;
 }
 
