@@ -54,6 +54,9 @@ vi.mock("@/components/settings/BrowserSettings", () => ({
     return <h3>ブラウザ設定</h3>;
   },
 }));
+vi.mock("@/components/settings/PeerShareSettings", () => ({
+  PeerShareSettings: () => <h3>認証情報の共有</h3>,
+}));
 vi.mock("@/components/settings/SystemSafetySettings", () => ({
   SystemSafetySettings: () => <h3>システム安全ガード</h3>,
 }));
@@ -369,6 +372,7 @@ describe("SettingsView", () => {
     expect(accessSection?.querySelector(":scope > div.grid")?.className).toContain("@4xl:grid-cols-2");
     expect(Array.from(accessSection?.querySelectorAll("h3") ?? []).map((heading) => heading.textContent)).toEqual([
       "WebUI アクセス",
+      "認証情報の共有",
       "システム安全ガード",
       "権限承認",
     ]);

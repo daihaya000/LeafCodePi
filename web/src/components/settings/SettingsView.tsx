@@ -28,6 +28,7 @@ import { McpSettings } from "@/components/settings/McpSettings";
 import { AgentsSettings } from "@/components/settings/AgentsSettings";
 import { BrowserSettings } from "@/components/settings/BrowserSettings";
 import { WebUiAuthSettings } from "@/components/settings/WebUiAuthSettings";
+import { PeerShareSettings } from "@/components/settings/PeerShareSettings";
 import { SettingsTransfer } from "@/components/settings/SettingsTransfer";
 import { PromptTransfer } from "@/components/settings/PromptTransfer";
 import { ReasoningTranslationSettings } from "@/components/settings/ReasoningTranslationSettings";
@@ -337,6 +338,7 @@ export function SettingsView() {
               >
                 <div className="grid gap-4 @4xl:grid-cols-2">
                   <WebUiAuthSettings />
+                  <PeerShareSettings />
                   <SystemSafetySettings />
                   <PermissionModeSettings />
                 </div>
