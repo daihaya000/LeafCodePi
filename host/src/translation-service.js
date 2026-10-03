@@ -443,6 +443,9 @@ export function createTranslationService({ repoRoot, dataDir, log = () => {} }) 
   }
 
   function stop() {
+    // The installer spawns pip and a model download, so it outlives a plain stop
+    // otherwise: quit() would leave it writing into the data dir.
+    stopInstall('translation service stopped');
     const oldChild = child;
     child = null;
     if (reader) {
@@ -746,6 +749,27 @@ export function createTranslationService({ repoRoot, dataDir, log = () => {} }) 
 
     await Promise.all(waiting);
     return { v: 1, id: randomUUID(), ok: true, translations, fallbacks, overridden };
+  }
+
+  /** Kill a running installer and mark it failed so status() does not report 'running'. */
+  function stopInstall(message) {
+    const oldInstall = installProc;
+    if (!oldInstall) return;
+    installProc = null;
+    oldInstall.removeAllListeners('exit');
+    oldInstall.removeAllListeners('error');
+    try {
+      if (process.platform === 'win32' && oldInstall.pid) {
+        // pip spawns its own children; taskkill /T takes the tree with it.
+        spawn('taskkill', ['/PID', String(oldInstall.pid), '/T', '/F'], { windowsHide: true, stdio: 'ignore' })
+          .on('error', () => undefined);
+      } else {
+        oldInstall.kill('SIGKILL');
+      }
+    } catch {
+      /* already gone */
+    }
+    installError = `${message}${installStderr.trim() ? `: ${installStderr.trim().slice(-500)}` : ''}`;
   }
 
   /**

@@ -4,8 +4,27 @@ import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { createHash } from 'node:crypto';
+import { execFileSync } from 'node:child_process';
 import { createTranslationService } from './translation-service.js';
 import { TRANSLATION_PIPELINE_VERSION } from './reasoning-translation-quality.js';
+
+const NL = String.fromCharCode(10);
+
+/** First available Python 3 interpreter, or undefined when this host has none. */
+function translationPython() {
+  const candidates = process.platform === 'win32' ? ['python', 'py'] : ['python3', 'python'];
+  for (const candidate of candidates) {
+    try {
+      const found = execFileSync(process.platform === 'win32' ? 'where' : 'which', [candidate], { encoding: 'utf8' })
+        .split(/\r?\n/)[0]
+        .trim();
+      if (found) return found;
+    } catch {
+      /* try the next candidate */
+    }
+  }
+  return undefined;
+}
 
 async function cleanupTempDir(path, services = []) {
   for (const service of services) {
@@ -429,5 +448,36 @@ test('install reports idle state and rejects a missing installer', () => {
     assert.throws(() => service.install(), /installer is missing/);
   } finally {
     rmSync(dataDir, { recursive: true, force: true });
+  }
+});
+
+test('stop kills a running installer instead of leaving it behind', async () => {
+  const root = join(tmpdir(), `leafcode-translation-install-stop-${process.pid}`);
+  const repoRoot = join(root, 'repo');
+  const dataDir = join(root, 'data');
+  mkdirSync(join(repoRoot, 'translation'), { recursive: true });
+  // A script that never returns: only an explicit kill can end the install.
+  writeFileSync(join(repoRoot, 'translation', 'install.py'), ['import time', 'time.sleep(600)', ''].join(NL), 'utf8');
+  const python = translationPython();
+  if (!python) {
+    // No interpreter on this machine: the kill path cannot be exercised.
+    rmSync(root, { recursive: true, force: true });
+    return;
+  }
+  const originalPython = process.env.LEAFCODE_TRANSLATION_PYTHON;
+  process.env.LEAFCODE_TRANSLATION_PYTHON = python;
+  const service = createTranslationService({ repoRoot, dataDir });
+  try {
+    assert.equal(service.install().state, 'running');
+    assert.equal(service.status().installState, 'running');
+    service.stop();
+    // The installer must not keep reporting 'running' after the service stopped.
+    assert.equal(service.status().installState, 'error');
+    assert.match(service.status().installError, /stopped/);
+  } finally {
+    if (originalPython === undefined) delete process.env.LEAFCODE_TRANSLATION_PYTHON;
+    else process.env.LEAFCODE_TRANSLATION_PYTHON = originalPython;
+    await cleanupTempDir(dataDir);
+    await cleanupTempDir(repoRoot);
   }
 });
