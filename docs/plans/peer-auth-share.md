@@ -84,6 +84,7 @@
 - `backend/core/peer-auth-remote-store.{mjs,d.mts}`: B 側 CredentialStore（キャッシュ・同時 read 統合・modify で再解決・401/403 はキャッシュ破棄）
 - `backend/core/peer-auth-config.{mjs,d.mts}`: peer.json の検証・0o600 での原子的書込み・除去
 - `backend/core/peer-auth-integration.test.mjs`: 実 loopback HTTP・実 auth.json での A↔B 検証（refresh 非漏洩・拒否・A 停止）
+- `backend/core/peer-auth-sdk.test.mjs`: 実 SDK（`ModelRuntime` ＋ 組み込み anthropic プロバイダ）が peer ストアを受け入れ、残 5 分未満では `modify` 経由で再解決し、ローカル auth.json を読まないことを検証
 - Web: `/api/peer-auth/list|resolve`（peer token、公開パスはこの 2 つのみ）と `/api/peer-auth/peers|import`（WebUI 認証下、import は GET で到達性付き peer アカウント一覧）、`lib/peer-auth/{runtime,admin,import,account-runtime-options}`
 - harness: `accountRuntimeManager` の peer 分岐（`credentials` で生成、`authPath` なし）。`accounts.ts` の `accountStoredProviders` が peer.json の providers を保存済みとして返す
 - UI: A 側 `PeerShareSettings`（共有トグル・アカウント選択・provider 選択・トークン 1 回表示・失効・平文 HTTP 警告）、B 側 `PeerImportSettings`（URL/トークン/名前 → 取込）
