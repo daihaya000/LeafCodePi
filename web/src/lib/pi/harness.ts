@@ -2507,6 +2507,18 @@ async function attachSession(
       options?.preserveTaskModel ?? existing?.preserveTaskModel === true,
   });
 
+  const appendMessage = session.sessionManager.appendMessage.bind(session.sessionManager);
+  session.sessionManager.appendMessage = (message) => {
+    if (message.role === "bashExecution") {
+      if (live.leaseLost) return "";
+      if (!ownsTaskLease(taskId)) {
+        abortTaskSessionsAfterLeaseLoss([taskId]);
+        return "";
+      }
+    }
+    return appendMessage(message);
+  };
+
   const unsubscribe = session.subscribe((event) => {
     if (live.leaseLost) return;
     if (

@@ -63,6 +63,10 @@ const fakePi = vi.hoisted(() => {
       setSessionFile: () => undefined,
       getLeafId: () => null,
       getBranch: () => [],
+      appendMessage: (message: unknown) => {
+        history.push(message);
+        return `message-${history.length}`;
+      },
       appendCustomEntry: () => undefined,
       history,
     };
@@ -1494,6 +1498,54 @@ describe("integrated session routing", () => {
     sessionEntry.emit?.({ type: "tool_execution_start" });
     await waitFor(() => sessionEntry.disposed);
 
+    expect(sessionEntry.events).toContain("abort-requested");
+    expect(harness.live.has(task.id)).toBe(false);
+    expect(getTask(task.id)?.status).toBe("working");
+    expect(JSON.parse(readFileSync(taskRuntimeLeasePath(task.id), "utf8")).token).toBe("other-worker");
+  });
+
+  it("suppresses a Bash transcript append after lease ownership changes", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "leafcode-pi-bash-lease-write-"));
+    tempDirs.push(dir);
+    process.env.LEAFCODE_PI_DATA_DIR = dir;
+    process.env.PI_CODING_AGENT_DIR = join(dir, "agent");
+    __resetPiAgentDirCacheForTests();
+    installHarness(new Map());
+    const project = upsertProject({ name: "demo", rootPath: dir });
+    const task = await createTask({ projectId: project.id, prompt: "initial" });
+    const harness = (globalThis as Record<string, unknown>)[GLOBAL_KEY] as {
+      live: Map<string, {
+        promptChain: Promise<void>;
+        session: { sessionManager: { appendMessage: (message: unknown) => string; history: unknown[] }; abort?: () => Promise<void> };
+      }>;
+    };
+    const live = harness.live.get(task.id)!;
+    await live.promptChain;
+    const { acquireTaskLease } = await import("@/lib/task-runtime-lease");
+    expect(acquireTaskLease(task.id)).toBe(true);
+    patchTask(task.id, { status: "working" });
+
+    const sessionEntry = fakePi.sessions.at(-1)!;
+    live.session.abort = async () => { sessionEntry.events.push("abort-requested"); };
+    const history = live.session.sessionManager.history;
+    const before = history.length;
+    const bashResult = {
+      role: "bashExecution",
+      command: "sleep 10",
+      output: "cancelled",
+      exitCode: undefined,
+      cancelled: true,
+      timestamp: Date.now(),
+    };
+    expect(live.session.sessionManager.appendMessage(bashResult)).not.toBe("");
+    expect(history.slice(before)).toHaveLength(1);
+    mkdirSync(dirname(taskRuntimeLeasePath(task.id)), { recursive: true });
+    writeFileSync(taskRuntimeLeasePath(task.id), JSON.stringify({ token: "other-worker", pid: process.pid, acquiredAt: Date.now(), heartbeatAt: Date.now() }), "utf8");
+    const appendResult = live.session.sessionManager.appendMessage(bashResult);
+    await waitFor(() => sessionEntry.disposed);
+
+    expect(appendResult).toBe("");
+    expect(history.slice(before)).toHaveLength(1);
     expect(sessionEntry.events).toContain("abort-requested");
     expect(harness.live.has(task.id)).toBe(false);
     expect(getTask(task.id)?.status).toBe("working");
