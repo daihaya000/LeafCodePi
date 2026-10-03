@@ -6,6 +6,8 @@
 
 ## 技術的前提（2026-10-03 実測・検証済み）
 
+- 検証対象は `@earendil-works/pi-coding-agent` / `pi-ai` 1.0.0（`web` と `backend` の package.json で exact pin、同一版）。Pi 本体は 1.0.0 で MCP と Codemode を標準搭載した（[記事](https://earendil.com/posts/you-said-no-mcp/)）。本計画は Pi provider 認証（`CredentialStore`）のみを対象とし、SDK 内蔵 MCP の認証には触れない。
+
 - SDK は `CreateModelRuntimeOptions.credentials?: CredentialStore` で認証ストアを差し替えられる（`ModelRuntime.create`）。`SdkRuntimeFactory.createModelRuntime` は options を透過する。
 - `resolveProviderAuth` は保存済み credential が最優先（env への暗黙フォールバックなし）。OAuth は残 5 分未満で `credentials.modify` 内で refresh し、ローテーション済み credential を永続化する（`pi-ai/dist/auth/resolve.js`）。
 - `readStoredCredential(providerId, authPath)` は SDK ルートから公開 export。A は refresh 後に auth.json から最新 credential を読める。
@@ -17,7 +19,7 @@
 
 ## 非対象（v1）
 
-- MCP ネイティブ OAuth（Backend の credential owner / 所有権ゲートと別設計）
+- MCP ネイティブ OAuth（Backend の credential owner / 所有権ゲートと別設計）。SDK 内蔵 MCP は `McpExtensionOptions.credentials?: McpOAuthCredentialStore`（既定 `mcp-auth.json`）を差し替え可能で、将来の v2 候補。ただし LCP は adapter→native の writer 集約移行中（`docs/plans/mcp-native-writer-cutover.md`）のため、完了までは着手しない。`backend/core/mcp-native-*` は別セッションが編集中で、本計画は一切変更しない
 - WebUI アクセストークンの共有、双方向同期、B→A 書込み、push 型
 - TLS / mTLS（信頼網限定。Tailscale 推奨）
 - env / ambient 専用・headers 専用など `Credential` へ materialize できない provider
@@ -79,6 +81,7 @@
 
 ## リスク・注意
 
+- Codemode の `models.getModelOfType` 等も `ModelRuntime` の認証を使うため、peer アカウントの runtime でもそのまま動く想定（実装時に確認）
 - 平文 HTTP（信頼網前提。TLS は v2 以降）
 - ローテーション: A の refresh は Web / Backend 間のファイルロックで直列化される既存機構に依存。machine 間は B が refresh しないため競合しない
 - peer アカウントの codexbar 利用量表示など、A 固有の付随情報は共有されない（モデル実行は可）
