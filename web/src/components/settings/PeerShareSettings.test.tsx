@@ -11,9 +11,17 @@ const providers = { providers: [
   { id: "anthropic", name: "Anthropic", authenticated: true },
   { id: "openrouter", name: "OpenRouter", authenticated: false },
 ] };
+const accounts = { accounts: [
+  { id: "acc-1", label: "仕事用", enabled: true },
+  { id: "acc-2", label: "停止中", enabled: false },
+] };
 
 function serve(snapshot: unknown) {
-  getJson.mockImplementation(async (path: string) => (path === "/api/providers" ? providers : snapshot));
+  getJson.mockImplementation(async (path: string) => {
+    if (path === "/api/providers") return providers;
+    if (path === "/api/accounts") return accounts;
+    return snapshot;
+  });
 }
 
 describe("PeerShareSettings", () => {
@@ -42,11 +50,28 @@ describe("PeerShareSettings", () => {
     expect(add.disabled).toBe(false);
     serve({ enabled: false, authRequired: true, grants: [grant] });
     fireEvent.click(add);
-    await waitFor(() => expect(sendJson).toHaveBeenCalledWith("/api/peer-auth/peers", { label: "laptop", providers: ["anthropic"] }, "POST"));
+    await waitFor(() => expect(sendJson).toHaveBeenCalledWith("/api/peer-auth/peers", { label: "laptop", providers: ["anthropic"], accountId: null }, "POST"));
     expect((await screen.findByTestId("peer-token")).textContent).toBe(token);
     fireEvent.click(screen.getByRole("button", { name: "閉じる" }));
     expect(screen.queryByText(token)).toBeNull();
     expect(screen.getByText("laptop")).toBeTruthy();
+  });
+
+  it("shares an added account when one is selected, and labels the grant with it", async () => {
+    const withAccount = { ...grant, accountId: "acc-1" };
+    sendJson.mockResolvedValue({ grant: withAccount, token: "T".repeat(43) });
+    render(<PeerShareSettings />);
+    await screen.findByLabelText("Anthropic");
+    const select = screen.getByLabelText("共有するアカウント") as HTMLSelectElement;
+    // 停止中のアカウントは選べない
+    expect(Array.from(select.options).map((option) => option.textContent)).toEqual(["既定（~/.pi/agent/auth.json）", "仕事用"]);
+    fireEvent.change(select, { target: { value: "acc-1" } });
+    fireEvent.change(screen.getByLabelText("共有先の名前"), { target: { value: "laptop" } });
+    fireEvent.click(screen.getByLabelText("Anthropic"));
+    serve({ enabled: true, authRequired: true, grants: [withAccount] });
+    fireEvent.click(screen.getByRole("button", { name: "共有先を追加" }));
+    await waitFor(() => expect(sendJson).toHaveBeenCalledWith("/api/peer-auth/peers", { label: "laptop", providers: ["anthropic"], accountId: "acc-1" }, "POST"));
+    expect((await screen.findByText("anthropic（仕事用）")).textContent).toBe("anthropic（仕事用）");
   });
 
   it("revokes a grant by id", async () => {

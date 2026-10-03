@@ -7,6 +7,7 @@ import { getJson, sendJson } from "@/lib/client";
 type Grant = { id: string; label: string; accountId: string | null; providers: string[]; createdAt: string };
 type Snapshot = { enabled: boolean; authRequired: boolean; grants: Grant[] };
 type ProviderOption = { id: string; name: string };
+type AccountOption = { id: string; label: string };
 
 const LABEL_MAX = 100;
 
@@ -14,6 +15,8 @@ const LABEL_MAX = 100;
 export function PeerShareSettings() {
   const [snapshot, setSnapshot] = useState<Snapshot | null>(null);
   const [providers, setProviders] = useState<ProviderOption[]>([]);
+  const [accounts, setAccounts] = useState<AccountOption[]>([]);
+  const [accountId, setAccountId] = useState("");
   const [label, setLabel] = useState("");
   const [selected, setSelected] = useState<string[]>([]);
   const [issued, setIssued] = useState<{ label: string; token: string } | null>(null);
@@ -26,10 +29,12 @@ export function PeerShareSettings() {
     void Promise.all([
       getJson<Snapshot>("/api/peer-auth/peers"),
       getJson<{ providers: { id: string; name: string; authenticated: boolean }[] }>("/api/providers"),
+      getJson<{ accounts: { id: string; label: string; enabled?: boolean }[] }>("/api/accounts"),
     ])
-      .then(([next, auth]) => {
+      .then(([next, auth, accountList]) => {
         setSnapshot(next);
         setProviders(auth.providers.filter((provider) => provider.authenticated).map(({ id, name }) => ({ id, name })));
+        setAccounts(accountList.accounts.filter((account) => account.enabled !== false).map(({ id, label }) => ({ id, label })));
         setError(null);
       })
       .catch((err) => setError(err instanceof Error ? err.message : "共有設定の読み込みに失敗しました"))
@@ -59,7 +64,7 @@ export function PeerShareSettings() {
 
   const create = () =>
     run(async () => {
-      const result = await sendJson<{ grant: Grant; token: string }>("/api/peer-auth/peers", { label: label.trim(), providers: selected }, "POST");
+      const result = await sendJson<{ grant: Grant; token: string }>("/api/peer-auth/peers", { label: label.trim(), providers: selected, accountId: accountId || null }, "POST");
       setIssued({ label: result.grant.label, token: result.token });
       setLabel("");
       setSelected([]);
@@ -117,6 +122,21 @@ export function PeerShareSettings() {
           />
         </label>
 
+        <label className="block text-sm">
+          <span className="mb-1.5 block text-muted">共有するアカウント</span>
+          <select
+            value={accountId}
+            disabled={disabled}
+            onChange={(event) => setAccountId(event.target.value)}
+            className="min-h-11 w-full rounded-lg border border-border bg-surface-2 px-3 text-sm outline-none focus:border-border-strong disabled:opacity-50"
+          >
+            <option value="">既定（~/.pi/agent/auth.json）</option>
+            {accounts.map((account) => (
+              <option key={account.id} value={account.id}>{account.label}</option>
+            ))}
+          </select>
+        </label>
+
         <fieldset className="text-sm" disabled={disabled}>
           <legend className="mb-1.5 text-muted">共有するプロバイダ（既定アカウントでログイン済みのもの）</legend>
           {providers.length === 0 ? (
@@ -160,7 +180,9 @@ export function PeerShareSettings() {
             <li key={grant.id} className="flex flex-wrap items-center justify-between gap-2 px-3 py-2">
               <div className="min-w-0">
                 <p className="truncate text-sm font-medium">{grant.label}</p>
-                <p className="text-xs text-muted">{grant.providers.join("、")}</p>
+                <p className="text-xs text-muted">
+                  {grant.providers.join("、")}（{grant.accountId ? accounts.find((account) => account.id === grant.accountId)?.label ?? grant.accountId : "既定"}）
+                </p>
               </div>
               <Button type="button" variant="ghost" size="sm" disabled={disabled} onClick={() => void revoke(grant)}>
                 失効
