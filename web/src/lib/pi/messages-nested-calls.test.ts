@@ -12,10 +12,14 @@ describe("nested tool calls", () => {
       {
         role: "toolResult", toolCallId: "c1", toolName: "codemode", isError: false, timestamp: 2,
         content: [{ type: "text", text: "Script completed" }],
-        nestedCalls: [
-          { id: "c1/1", name: "read", status: "ok", durationMs: 12, arguments: { path: "secret.txt" } },
-          { id: "c1/2", name: "powershell", status: "error", durationMs: 3, error: "blocked" },
-        ],
+        // The SDK's real shape: a record with the calls and whether it is complete.
+        nestedCalls: {
+          complete: true,
+          calls: [
+            { id: "c1/1", name: "read", status: "ok", durationMs: 12, arguments: { path: "secret.txt" } },
+            { id: "c1/2", name: "powershell", status: "error", durationMs: 3, error: "blocked" },
+          ],
+        },
       },
     ]);
     const part = toolPart(messages);
@@ -48,6 +52,8 @@ describe("nestedCallsFromRaw", () => {
     expect(result[0]).toEqual({ id: "b", name: "read", status: "unfinished" });
     expect(result[1]?.error).toHaveLength(500);
     expect(nestedCallsFromRaw(undefined)).toEqual([]);
+    expect(nestedCallsFromRaw({ complete: false })).toEqual([]);
+    expect(nestedCallsFromRaw({ calls: rows, complete: true }).map((row) => row.id)).toEqual(["b", "c"]);
     const many = Array.from({ length: 300 }, (_, index) => ({ id: `n${index}`, name: "read", status: "ok" }));
     expect(nestedCallsFromRaw(many)).toHaveLength(256);
   });

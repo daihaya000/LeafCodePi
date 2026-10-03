@@ -280,11 +280,15 @@ const NESTED_CALL_STATUSES = new Set(["ok", "error", "unfinished"]);
 const MAX_NESTED_CALLS = 256;
 const MAX_NESTED_ERROR_CHARS = 500;
 
-/** The SDK's `nestedCalls` record of a tool result, reduced to what the card shows (no arguments). */
+/**
+ * The SDK's `nestedCalls` record of a tool result (`{ calls, complete }`), reduced to what the card
+ * shows (no arguments). A bare array of calls is accepted too.
+ */
 export function nestedCallsFromRaw(value: unknown): NestedToolCallDto[] {
-  if (!Array.isArray(value)) return [];
+  const rows = Array.isArray(value) ? value : isRecord(value) && Array.isArray(value.calls) ? value.calls : null;
+  if (!rows) return [];
   const calls: NestedToolCallDto[] = [];
-  for (const row of value) {
+  for (const row of rows) {
     if (calls.length >= MAX_NESTED_CALLS) break;
     if (!isRecord(row)) continue;
     const id = asString(row.id);
