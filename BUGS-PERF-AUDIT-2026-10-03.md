@@ -124,7 +124,7 @@
 
 | 重大度 | 箇所 | 内容 |
 | --- | --- | --- |
-| 中 | `extensions/leafcode-memory/src/handlers/child-process-watchdog.mjs` (~12–15) | Linux で子を `detached`。watchdog SIGKILL だと孫が残る。 |
+| 中 **[一部修正 2026-10-04: watchdog が子の pid を pid ファイルへ残し、呼び出し側が finally でプロセスグループごと後始末。watchdog 自身が SIGKILL された場合も孫が残らない]** | `extensions/leafcode-memory/src/handlers/child-process-watchdog.mjs` (~12–15) | Linux で子を `detached`。watchdog SIGKILL だと孫が残る。 |
 | 中 **[一部修正 2026-10-04: Windows でも taskkill /T /F で子ツリーを停止し、親PIDの消滅をポーリングして確認。mechanism=windows-taskkill-tree を追加（sidecar検証も対応）。taskkill 不在環境と孫の捕捉漏れは残る]** | `extensions/leafcode-subagents/src/runs/background/owned-process-tree.ts`（~70–78） | Windows はプロセスグループ非対応で単一 PID に SIGTERM 相当のみし、`unknown/unsupported-platform` を返す。子プロセスが孤児になりうる（Linux の detached 孫問題とは別経路）。 |
 | 中 **[一部修正 2026-10-04: stop() が installProc を停止（Windows は taskkill /T で pip 子プロセスも含む）し、installState を error へ更新。install 自体のタイムアウトは未対応]** | `host/src/translation-service.js`（stop ~445–459, install ~755–785）、`index.js` (~1143) | 翻訳 install の `installProc` が stop／host 終了で kill されない。タイムアウトなし。 |
 | 中 **[一部修正 2026-10-04: tool_execution_end ごとに toolStartedAt/toolEndedAt を512件上限で古い順に削除（最新分は保持）。throughputByStartedAt と partial output の長期蓄積は未対応]** | `web/src/lib/pi/harness.ts`（~1334, 1381–1418） | `throughputByStartedAt` / `toolStartedAt` / `toolEndedAt` に delete 無し。partial output 全文保持。長いセッション／abort でリーク。 |

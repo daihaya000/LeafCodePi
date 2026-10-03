@@ -1,5 +1,5 @@
 import { spawn } from "node:child_process";
-import { existsSync } from "node:fs";
+import { existsSync, writeFileSync } from "node:fs";
 
 const [timeoutValue, cancellationPath, command, ...args] = process.argv.slice(2);
 const timeoutMs = Number(timeoutValue);
@@ -13,6 +13,17 @@ const child = spawn(command, args, {
   detached: process.platform !== "win32",
   stdio: ["ignore", "pipe", "pipe"],
 });
+
+// Record the tree root so the caller can still clean up when this watchdog is
+// SIGKILLed (a timeout in `pi.exec`) — signals sent from here never arrive then,
+// and the detached child would keep running with its own grandchildren.
+if (cancellationPath !== "-" && child.pid) {
+  try {
+    writeFileSync(`${cancellationPath}.pid`, String(child.pid), "utf8");
+  } catch {
+    /* the pid file only helps cleanup; a missing file is not fatal */
+  }
+}
 
 child.stdout?.pipe(process.stdout);
 child.stderr?.pipe(process.stderr);

@@ -7,9 +7,11 @@ import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import {
   buildChildPiPromptArgs,
+  childPidFileForCancellation,
   detectAuthAdapterExtensionPaths,
   execChildPrompt,
   inheritedExtensionArgs,
+  killWatchedChildTree,
   resolveChildPiInvocation,
   resolveWatchedChildPiInvocation,
 } from "../../src/handlers/pi-child-process.js";
@@ -439,6 +441,55 @@ describe("execChildPrompt", () => {
     assert.match(calls[0].args[2], /cancel$/);
     assert.deepStrictEqual(logicalChildArgs(calls[0]).slice(0, 2), ["-p", "--no-session"]);
     assert.equal(calls[0].timeout, 35000);
+  });
+
+  it("kills the watched child tree the watchdog could not clean up", async () => {
+    const dir = await fs.mkdtemp(path.join(os.tmpdir(), "pi-watchdog-pid-"));
+    const cancelPath = path.join(dir, "cancel");
+    const pidFile = childPidFileForCancellation(cancelPath);
+    assert.equal(pidFile, `${cancelPath}.pid`);
+
+    // No pid file yet: nothing to clean up, and no throw.
+    killWatchedChildTree(cancelPath);
+
+    const child = spawn(process.execPath, ["-e", "setTimeout(() => {}, 60000)"], { stdio: "ignore" });
+    await fs.writeFile(pidFile, String(child.pid), "utf8");
+
+    // A garbage pid must not turn cleanup into a crash.
+    await fs.writeFile(pidFile, "not-a-pid", "utf8");
+    killWatchedChildTree(cancelPath);
+    assert.equal(child.killed, false);
+
+    await fs.writeFile(pidFile, String(child.pid), "utf8");
+    killWatchedChildTree(cancelPath);
+    const deadline = Date.now() + 5000;
+    while (child.exitCode === null && child.signalCode === null && Date.now() < deadline) {
+      await new Promise((resolve) => setTimeout(resolve, 25));
+    }
+    assert.notEqual(child.exitCode === null && child.signalCode === null, true);
+    await fs.rm(dir, { recursive: true, force: true });
+  });
+
+  it("cleans up a leftover child after pi.exec reports completion", async () => {
+    const dir = await fs.mkdtemp(path.join(os.tmpdir(), "pi-watchdog-finally-"));
+    let cancelPath = "";
+    const child = spawn(process.execPath, ["-e", "setTimeout(() => {}, 60000)"], { stdio: "ignore" });
+    const result = await execChildPrompt({
+      exec: async (_cmd: string, args: string[]) => {
+        cancelPath = args[2];
+        // The watchdog writes the pid file; emulate that here.
+        await fs.writeFile(childPidFileForCancellation(cancelPath), String(child.pid), "utf8");
+        return { code: 1, stderr: "watchdog killed", killed: true };
+      },
+    } as any, "leftover child", {}, { timeoutMs: 30000 });
+
+    assert.equal(result.code, 1);
+    const deadline = Date.now() + 5000;
+    while (child.exitCode === null && child.signalCode === null && Date.now() < deadline) {
+      await new Promise((resolve) => setTimeout(resolve, 25));
+    }
+    assert.notEqual(child.exitCode === null && child.signalCode === null, true);
+    await fs.rm(dir, { recursive: true, force: true });
   });
 
   it("uses the watchdog marker for cancellation without aborting its process", async () => {

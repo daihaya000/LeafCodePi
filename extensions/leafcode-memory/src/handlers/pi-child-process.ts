@@ -1,3 +1,4 @@
+import { spawnSync } from "node:child_process";
 import { existsSync, readFileSync, readdirSync } from "node:fs";
 import * as fs from "node:fs/promises";
 import * as os from "node:os";
@@ -51,6 +52,38 @@ const WATCHDOG_EXIT_GRACE_MS = 5000;
 const CHILD_PROCESS_WATCHDOG_PATH = fileURLToPath(
   new URL("./child-process-watchdog.mjs", import.meta.url),
 );
+
+/**
+ * The watchdog records the detached child's pid next to the cancellation file.
+ * When `pi.exec` times out it SIGKILLs the watchdog itself, so the watchdog's
+ * own process-group signal never runs and the child (plus its own children)
+ * would outlive the request. Reading the pid file lets the caller finish the
+ * cleanup the watchdog could not.
+ */
+export function childPidFileForCancellation(cancellationPath: string): string {
+  return `${cancellationPath}.pid`;
+}
+
+/** Kill a leftover watched child tree; safe to call when it already exited. */
+export function killWatchedChildTree(cancellationPath: string, platform: NodeJS.Platform = process.platform): void {
+  let pid = 0;
+  try {
+    pid = Number(readFileSync(childPidFileForCancellation(cancellationPath), "utf8").trim());
+  } catch {
+    return;
+  }
+  if (!Number.isInteger(pid) || pid <= 0) return;
+  try {
+    if (platform === "win32") {
+      spawnSync("taskkill", ["/PID", String(pid), "/T", "/F"], { stdio: "ignore", windowsHide: true });
+    } else {
+      // The watchdog spawns the child detached, so the child leads its own group.
+      process.kill(-pid, "SIGKILL");
+    }
+  } catch {
+    try { process.kill(pid, "SIGKILL"); } catch { /* already gone */ }
+  }
+}
 export interface ChildPiInvocation {
   command: string;
   args: string[];
@@ -472,6 +505,9 @@ export async function execChildPrompt(
     return await pi.exec(retryInvocation.command, retryInvocation.args, execOptions) as PiExecResult;
   } finally {
     options.signal?.removeEventListener("abort", requestCancellation);
+    // The watchdog normally cleans up itself; this covers the case where pi.exec
+    // killed the watchdog on timeout and the detached child is still running.
+    killWatchedChildTree(cancellationPath);
     try {
       await dependencies.removeTemporaryDirectory(temporaryPrompt.dir);
     } catch {
