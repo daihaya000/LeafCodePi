@@ -105,11 +105,34 @@ export function resolveMcpDirectToolSelections(mcpDirectTools: string[] | undefi
 	try {
 		const config = loadMcpConfig(cwd);
 		const cache = loadMetadataCache();
-		if (!cache) return [];
-		return resolveDirectToolSelections(config, cache, getToolPrefix(config.settings?.toolPrefix), mcpDirectTools);
+		if (!cache) return resolveConfiguredSelections(config, mcpDirectTools);
+		return resolveDirectToolSelections(config, cache, mcpDirectTools);
 	} catch {
 		return [];
 	}
+}
+
+/**
+ * Without a metadata cache a server's tool list is unknown, so a bare server name cannot expand. An
+ * explicit `server/tool` selector still resolves: the native MCP extension registers exactly
+ * `mcp__<server>__<tool>`. A server absent from the configuration stays unresolved, which callers
+ * turn into a strict child requirement.
+ */
+function resolveConfiguredSelections(config: McpConfig, selections: string[]): ResolvedMcpDirectToolSelection[] {
+	const names: ResolvedMcpDirectToolSelection[] = [];
+	const seen = new Set<string>();
+	for (const [serverName, toolNames] of parseSelections(selections).tools) {
+		const definition = config.mcpServers[serverName];
+		if (!definition) continue;
+		for (const toolName of toolNames) {
+			if (isToolExcluded(toolName, serverName, definition.excludeTools)) continue;
+			const name = formatToolName(toolName, serverName);
+			if (BUILTIN_TOOL_NAMES.has(name) || seen.has(name)) continue;
+			seen.add(name);
+			names.push({ name, selector: `${serverName}/${toolName}` });
+		}
+	}
+	return names;
 }
 
 function loadMetadataCache(): MetadataCache | null {
@@ -225,7 +248,7 @@ function extractServers(config: unknown, kind: ImportKind): Record<string, Serve
 	return servers && typeof servers === "object" && !Array.isArray(servers) ? servers as Record<string, ServerEntry> : {};
 }
 
-function resolveDirectToolSelections(config: McpConfig, cache: MetadataCache, prefix: ToolPrefix, envOverride: string[]): ResolvedMcpDirectToolSelection[] {
+function resolveDirectToolSelections(config: McpConfig, cache: MetadataCache, envOverride: string[]): ResolvedMcpDirectToolSelection[] {
 	const names: ResolvedMcpDirectToolSelection[] = [];
 	const seenNames = new Set<string>();
 	const { servers: selectedServers, tools: selectedTools } = parseSelections(envOverride);
@@ -242,8 +265,8 @@ function resolveDirectToolSelections(config: McpConfig, cache: MetadataCache, pr
 		for (const tool of Array.isArray(serverCache.tools) ? serverCache.tools : []) {
 			if (typeof tool?.name !== "string" || !tool.name) continue;
 			if (toolFilter !== true && !toolFilter.has(tool.name)) continue;
-			if (isToolExcluded(tool.name, serverName, prefix, definition.excludeTools)) continue;
-			const prefixedName = formatToolName(tool.name, serverName, prefix);
+			if (isToolExcluded(tool.name, serverName, definition.excludeTools)) continue;
+			const prefixedName = formatToolName(tool.name, serverName);
 			if (BUILTIN_TOOL_NAMES.has(prefixedName) || seenNames.has(prefixedName)) continue;
 			seenNames.add(prefixedName);
 			names.push({ name: prefixedName, selector: `${serverName}/${tool.name}` });
@@ -254,8 +277,8 @@ function resolveDirectToolSelections(config: McpConfig, cache: MetadataCache, pr
 			if (typeof resource?.name !== "string" || !resource.name || typeof resource.uri !== "string" || !resource.uri) continue;
 			const baseName = `get_${resourceNameToToolName(resource.name)}`;
 			if (toolFilter !== true && !toolFilter.has(baseName)) continue;
-			if (isToolExcluded(baseName, serverName, prefix, definition.excludeTools)) continue;
-			const prefixedName = formatToolName(baseName, serverName, prefix);
+			if (isToolExcluded(baseName, serverName, definition.excludeTools)) continue;
+			const prefixedName = formatToolName(baseName, serverName);
 			if (BUILTIN_TOOL_NAMES.has(prefixedName) || seenNames.has(prefixedName)) continue;
 			seenNames.add(prefixedName);
 			names.push({ name: prefixedName, selector: `${serverName}/${baseName}` });
@@ -323,35 +346,23 @@ export function computeMcpServerHash(definition: ServerEntry): string {
 	return createHash("sha256").update(stableStringify(identity)).digest("hex");
 }
 
-function getToolPrefix(value: unknown): ToolPrefix {
-	return value === "none" || value === "short" || value === "server" ? value : "server";
-}
-
 function isImportKind(value: unknown): value is ImportKind {
 	return typeof value === "string" && Object.hasOwn(IMPORT_PATHS, value);
 }
 
-function getServerPrefix(serverName: string, mode: ToolPrefix): string {
-	if (mode === "none") return "";
-	if (mode === "short") {
-		const short = serverName.replace(/-?mcp$/i, "").replace(/-/g, "_");
-		return short || "mcp";
-	}
-	return serverName.replace(/-/g, "_");
+/** The name the native MCP extension registers: `mcp__<server>__<tool>`, non-word characters folded. */
+function formatToolName(toolName: string, serverName: string): string {
+	return `mcp__${serverName}__${toolName}`.replace(/[^A-Za-z0-9_]/g, "_");
 }
 
-function formatToolName(toolName: string, serverName: string, prefix: ToolPrefix): string {
-	const serverPrefix = getServerPrefix(serverName, prefix);
-	return serverPrefix ? `${serverPrefix}_${toolName}` : toolName;
-}
-
-function isToolExcluded(toolName: string, serverName: string, prefix: ToolPrefix, excludeTools: unknown): boolean {
+function isToolExcluded(toolName: string, serverName: string, excludeTools: unknown): boolean {
 	if (!Array.isArray(excludeTools) || excludeTools.length === 0) return false;
+	// Native names only, but accept a bare tool name and the old prefixed spellings from configs
+	// written before the native runtime.
 	const candidates = new Set([
 		normalizeToolName(toolName),
-		normalizeToolName(formatToolName(toolName, serverName, prefix)),
-		normalizeToolName(formatToolName(toolName, serverName, "server")),
-		normalizeToolName(formatToolName(toolName, serverName, "short")),
+		normalizeToolName(formatToolName(toolName, serverName)),
+		normalizeToolName(`${serverName.replace(/-/g, "_")}_${toolName}`),
 	]);
 	return excludeTools.some((excluded) => typeof excluded === "string" && candidates.has(normalizeToolName(excluded)));
 }

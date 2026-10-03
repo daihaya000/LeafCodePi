@@ -71,6 +71,29 @@ describe("resolvePiLaunchToolPlan", () => {
 		assert.deepEqual(plan.configuredExtensions, []);
 		assert.deepEqual(plan.extensionArgs, plan.runtimeExtensions);
 	});
+	it("names a configured MCP direct tool the way the native runtime registers it", () => {
+		const dir = mkdtempSync(join(tmpdir(), "leafcode-pi-mcp-native-name-"));
+		tempDirs.push(dir);
+		process.env.PI_CODING_AGENT_DIR = dir;
+		writeFileSync(
+			join(dir, "mcp.json"),
+			JSON.stringify({ mcpServers: { "browser-use": { command: "node" } } }),
+			"utf-8",
+		);
+
+		const plan = resolvePiLaunchToolPlan({
+			tools: ["read", "mcp"],
+			mcpDirectTools: ["browser-use/browser_navigate", "absent-server/tool"],
+			cwd: dir,
+		});
+
+		// The SDK registers `mcp__<server>__<tool>`; the old `server_tool` spelling never existed.
+		assert.deepEqual(plan.effectiveMcpTools, ["mcp__browser_use__browser_navigate"]);
+		assert.ok(!plan.requiredChildTools.includes("browser-use/browser_navigate"));
+		// A server missing from the config still fails strictly instead of launching blind.
+		assert.ok(plan.requiredChildTools.includes("absent-server/tool"));
+	});
+
 	it("keeps an unresolved server/tool selector as a strict child requirement", () => {
 		const dir = mkdtempSync(join(tmpdir(), "leafcode-pi-mcp-direct-"));
 		tempDirs.push(dir);
