@@ -52,8 +52,10 @@ function ownedPath(path, stat) {
   if (!regular(current) || current.ino !== stat.ino || current.dev !== stat.dev) throw unavailable();
 }
 
-/** INTERNAL synchronous fixed-file settings writer; constructor performs no IO/callbacks.
- * Existing native user file/server only. No creation/import/migration, ACL/mode changes,
+/** INTERNAL synchronous fixed-file settings/auth writer; constructor performs no IO/callbacks.
+ * Existing native user file/server only. Two request kinds, exactly one per call: a settings patch
+ * (`enabled`/`exposure`) or bounded `headers` entries (value null removes; names are matched
+ * case-insensitively). No creation/import/migration, ACL/mode changes,
  * SDK default writer, reference execution, credentials, session reload or publication.
  * Mandatory fresh private-storage attestor must approve existing file and directory child
  * inheritance/local filesystem. Linux additionally enforces 0700 directory/0600 file.
@@ -80,16 +82,33 @@ export function createBackendMcpConfigFileWriter(options) {
     return (input, inputScope) => {
       let lockFd, lockStat, tempFd, tempStat, tempPath;
       try {
-        const requestKeys = ["configPath", "bundledConfigPath", "expectedSha256", "expectedBundledSha256", "serverName", "patch"];
-        if (!own(input, requestKeys) || !only(input, requestKeys) || !own(inputScope, ["assertOwner"])) throw unavailable();
-        const r = Object.fromEntries(requestKeys.map((k) => [k, input[k]])), assertOwner = inputScope.assertOwner;
+        const requestKeys = ["configPath", "bundledConfigPath", "expectedSha256", "expectedBundledSha256", "serverName", "patch", "headers"];
+        const requiredKeys = requestKeys.slice(0, 5);
+        if (!own(input, requiredKeys) || !only(input, requestKeys) || !own(inputScope, ["assertOwner"])) throw unavailable();
+        const r = Object.fromEntries(requiredKeys.map((k) => [k, input[k]])), assertOwner = inputScope.assertOwner;
         if (r.configPath !== configPath || r.bundledConfigPath !== bundledConfigPath || !digest(r.expectedSha256)
           || !digest(r.expectedBundledSha256) || typeof r.serverName !== "string" || !/^[A-Za-z0-9_-]+$/.test(r.serverName)
-          || typeof assertOwner !== "function" || !plain(r.patch) || !only(r.patch, ["enabled", "exposure"])) throw unavailable();
+          || typeof assertOwner !== "function") throw unavailable();
+        const hasPatch = Object.hasOwn(input, "patch"), hasHeaders = Object.hasOwn(input, "headers");
+        if (hasPatch === hasHeaders) throw unavailable(); // exactly one operation per request
         const patch = {};
-        if (Object.hasOwn(r.patch, "enabled")) { const v = r.patch.enabled; if (typeof v !== "boolean") throw unavailable(); patch.enabled = v; }
-        if (Object.hasOwn(r.patch, "exposure")) { const v = r.patch.exposure; if (!["codemode", "deferred", "direct", "hidden"].includes(v)) throw unavailable(); patch.exposure = v; }
-        if (!Object.keys(patch).length) throw unavailable();
+        if (hasPatch) {
+          if (!plain(input.patch) || !only(input.patch, ["enabled", "exposure"])) throw unavailable();
+          if (Object.hasOwn(input.patch, "enabled")) { const v = input.patch.enabled; if (typeof v !== "boolean") throw unavailable(); patch.enabled = v; }
+          if (Object.hasOwn(input.patch, "exposure")) { const v = input.patch.exposure; if (!["codemode", "deferred", "direct", "hidden"].includes(v)) throw unavailable(); patch.exposure = v; }
+          if (!Object.keys(patch).length) throw unavailable();
+        }
+        // Auth headers: set a value, or null to remove it. Names/values are bounded and shell-free.
+        const headerName = /^[!#$%&'*+\-.^_`|~0-9A-Za-z]+$/;
+        const headers = hasHeaders ? structuredClone(input.headers) : null;
+        if (hasHeaders) {
+          if (!plain(headers) || Reflect.ownKeys(headers).length === 0) throw unavailable();
+          for (const key of Reflect.ownKeys(headers)) {
+            const value = headers[key];
+            if (typeof key !== "string" || key.length > 256 || !headerName.test(key)
+              || (value !== null && (typeof value !== "string" || value.length > 8192 || /[\0\r\n]/.test(value)))) throw unavailable();
+          }
+        }
         const guard = () => {
           ack(assertOwner()); ack(captured.assertPrivateStorage(location));
           const d = fs.lstatSync(agentDir);
@@ -111,6 +130,16 @@ export function createBackendMcpConfigFileWriter(options) {
         const target = doc.values.mcpServers[r.serverName], before = structuredClone(target);
         if (Object.hasOwn(patch, "enabled")) { if (patch.enabled) delete target.enabled; else target.enabled = false; }
         if (Object.hasOwn(patch, "exposure")) { if (patch.exposure === "codemode") delete target.exposure; else target.exposure = patch.exposure; }
+        if (headers) {
+          const existing = target.headers;
+          if (existing !== undefined && !plain(existing)) throw unavailable();
+          const map = existing ?? {};
+          for (const [name, value] of Object.entries(headers)) {
+            for (const key of Object.keys(map)) if (key.toLowerCase() === name.toLowerCase()) delete map[key];
+            if (value !== null) map[name] = value;
+          }
+          if (Object.keys(map).length === 0) delete target.headers; else target.headers = map;
+        }
         if (isDeepStrictEqual(before, target)) { check(); return undefined; }
         const output = Buffer.from(doc.bom + (JSON.stringify(doc.values, null, doc.indent) + doc.ending).replaceAll("\n", doc.newline), "utf8");
         if (output.length > MAX_BYTES) throw unavailable();

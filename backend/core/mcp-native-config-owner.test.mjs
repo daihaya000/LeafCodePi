@@ -45,6 +45,12 @@ test("real synchronous saves close all old callbacks; explicit prepare/rebind re
   next.updateConfig(next.loadConfig().servers[0], { enabled: false });
   assert.equal(JSON.parse(await readFile(f.configPath, "utf8")).mcpServers.fixture.enabled, false);
   assert.deepEqual((await readdir(f.root)).sort(), ["bundle.json", "mcp.json"]);
+  // Auth headers ride the same binding/consumption rules.
+  const auth = await owner.prepare();
+  assert.throws(() => auth.writeAuthHeaders(auth.loadConfig().servers[0], { "bad name": "v" }), safe);
+  auth.writeAuthHeaders(auth.loadConfig().servers[0], { Authorization: "Bearer private-fixture" });
+  assert.equal(JSON.parse(await readFile(f.configPath, "utf8")).mcpServers.fixture.headers.Authorization, "Bearer private-fixture");
+  assert.throws(() => auth.writeAuthHeaders(auth.loadConfig().servers[0], { Authorization: "Bearer again" }), safe, "an entered write retires the binding");
 });
 
 test("a newer preparation closes the old binding immediately and supersedes in-flight candidates", async (t) => {

@@ -10,6 +10,10 @@ export type BackendMcpConfigBinding = Readonly<{
   assertOwner: () => void;
   loadConfig: NonNullable<McpExtensionOptions["loadConfig"]>;
   updateConfig: NonNullable<McpExtensionOptions["updateConfig"]>;
+  /** Owner-only auth write (bounded header values, null removes, case-insensitive). An entered attempt
+   * consumes this binding like updateConfig: reprepare/rebind before any further load/save. */
+  writeAuthHeaders: (entry: Parameters<NonNullable<McpExtensionOptions["updateConfig"]>>[0],
+    headers: Readonly<Record<string, string | null>>) => void;
 }>;
 export type BackendMcpConfigOwner = Readonly<{
   /** Closes old bindings immediately. Fresh binding only after serialized preparation/revision checks.

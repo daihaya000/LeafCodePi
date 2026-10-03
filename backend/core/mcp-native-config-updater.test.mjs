@@ -20,6 +20,27 @@ function fixture(t, overrides = {}) {
   return { co, lease, writes, options, updater: createBackendMcpConfigUpdater(options) };
 }
 
+test("writeHeaders sends a frozen header-only request, consumes the snapshot and rejects bad names/values", async (t) => {
+  const f = fixture(t);
+  assert.equal(f.updater.writeHeaders(entry(), { Authorization: "Bearer private-token", "x-fixture": null }), undefined);
+  assert.deepEqual(f.writes[0], { configPath, bundledConfigPath, expectedSha256: "a".repeat(64), expectedBundledSha256: "b".repeat(64),
+    serverName: "fixture", headers: { Authorization: "Bearer private-token", "x-fixture": null } });
+  assert.equal(Object.isFrozen(f.writes[0].headers), true);
+  // The entered attempt consumed the snapshot: no second write without reprepare.
+  assert.throws(() => f.updater.writeHeaders(entry(), { Authorization: "Bearer other" }), safe);
+  assert.equal(f.writes.length, 1);
+  for (const headers of [{}, { "bad name": "v" }, { "": "v" }, { "x": 1 }, { "x": "bad\nvalue" }, { "x": "a".repeat(8193) }, null, "Authorization"]) {
+    const fresh = fixture(t);
+    assert.throws(() => fresh.updater.writeHeaders(entry(), headers), safe);
+    assert.equal(fresh.writes.length, 0, "invalid headers never reach the writer");
+  }
+  // Invalid selectors do not consume the snapshot.
+  const selector = fixture(t);
+  assert.throws(() => selector.updater.writeHeaders({ ...entry(), name: "unknown" }, { Authorization: "Bearer x" }), safe);
+  assert.equal(selector.updater.writeHeaders(entry(), { Authorization: "Bearer x" }), undefined);
+  assert.equal(selector.writes.length, 1);
+});
+
 test("inert construction captures options/snapshot once; fixed frozen request omits caller configs and consumes the snapshot", async (t) => {
   const f = fixture(t); let gets = 0, loads = 0, roles = 0, calls = 0, retained;
   const options = { ...f.options, prepared: { ...prepared(), loadConfig() { loads++; return { servers: [entry()], errors: [] }; } },

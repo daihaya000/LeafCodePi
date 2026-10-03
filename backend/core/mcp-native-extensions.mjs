@@ -182,11 +182,12 @@ export function prepareBackendMcpExtensionsFromBinding(options) {
     if (!plain(options) || !["binding", "mcp"].every((key) => Object.hasOwn(options, key))
       || Reflect.ownKeys(options).some((key) => !["binding", "mcp"].includes(key))) return failed("invalid-native-extension-options");
     const binding = options.binding, mcp = options.mcp;
-    const keys = ["prepared", "assertOwner", "loadConfig", "updateConfig", "logPath"];
+    const keys = ["prepared", "assertOwner", "loadConfig", "updateConfig", "writeAuthHeaders", "logPath"];
     if (!plain(binding) || !keys.every((key) => Object.hasOwn(binding, key))
       || Reflect.ownKeys(binding).some((key) => !keys.includes(key))) return failed("invalid-native-extension-binding");
     const captured = Object.fromEntries(keys.map((key) => [key, binding[key]]));
-    if ([captured.assertOwner, captured.loadConfig, captured.updateConfig].some((fn) => typeof fn !== "function" || types.isAsyncFunction(fn))
+    if ([captured.assertOwner, captured.loadConfig, captured.updateConfig, captured.writeAuthHeaders]
+      .some((fn) => typeof fn !== "function" || types.isAsyncFunction(fn))
       || typeof captured.logPath !== "string" || !isAbsolute(captured.logPath) || basename(captured.logPath) !== "mcp.log") return failed("invalid-native-extension-binding");
     let fenced = false, checking = false;
     const unavailable = () => new Error("MCP extension binding unavailable");

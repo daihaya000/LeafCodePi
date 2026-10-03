@@ -94,6 +94,12 @@ export function createBackendMcpConfigOwner(options) {
             updateConfig: (entry, patch) => {
               try { if (closed || current !== binding) throw unavailable(); updater(entry, patch); }
               catch { throw unavailable(); }
+            },
+            /** Owner-only auth write (headers, null removes). Same consumption as updateConfig: the
+             * binding is retired by an entered attempt, so reprepare/rebind before further work. */
+            writeAuthHeaders: (entry, headers) => {
+              try { if (closed || current !== binding) throw unavailable(); updater.writeHeaders(entry, headers); }
+              catch { throw unavailable(); }
             } });
           verify(); current = binding; return binding;
         }));

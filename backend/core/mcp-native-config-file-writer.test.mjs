@@ -41,6 +41,43 @@ test("inert fixed-file writer preserves BOM/CRLF/indent/other config; SDK defaul
   if (process.platform !== "win32") assert.equal(fs.statSync(f.path).mode & 0o7777, 0o600);
 });
 
+test("header writes set and remove Authorization case-insensitively without touching other config", async (t) => {
+  const text = JSON.stringify({ mcpServers: { fixture: { url: "https://example.invalid/mcp", enabled: false,
+    headers: { authorization: "Bearer old", "x-keep": "1" }, exposure: "direct" }, other: { url: "https://other.invalid/mcp" } } }, null, 2) + "\n";
+  const f = await fixture(t, text);
+  const before = await readFile(f.path);
+  const request = { ...f.request, patch: undefined, headers: { Authorization: "Bearer new", "x-keep": null, "x-new": "2" } };
+  delete request.patch;
+  assert.equal(f.writer(request, scope), undefined);
+  const value = JSON.parse(await readFile(f.path, "utf8"));
+  assert.deepEqual(value.mcpServers.fixture.headers, { Authorization: "Bearer new", "x-new": "2" });
+  assert.equal(value.mcpServers.fixture.enabled, false); assert.equal(value.mcpServers.fixture.exposure, "direct");
+  assert.deepEqual(value.mcpServers.other, { url: "https://other.invalid/mcp" });
+  assert.notDeepEqual(await readFile(f.path), before);
+  // Removing the last header drops the map; a no-op write does not touch the file.
+  const afterFirst = await readFile(f.path);
+  const removeAll = { ...request, expectedSha256: sha(afterFirst), headers: { Authorization: null, "x-new": null } };
+  assert.equal(f.writer(removeAll, scope), undefined);
+  const cleared = JSON.parse(await readFile(f.path, "utf8"));
+  assert.equal(Object.hasOwn(cleared.mcpServers.fixture, "headers"), false);
+  const bytes = await readFile(f.path);
+  assert.equal(f.writer({ ...removeAll, expectedSha256: sha(bytes) }, scope), undefined);
+  assert.deepEqual(await readFile(f.path), bytes);
+  assert.deepEqual((await readdir(f.root)).sort(), ["bundle.json", "mcp.json"]);
+});
+
+test("header writes refuse malformed names/values, mixed operations and stale revisions without touching the file", async (t) => {
+  const f = await fixture(t), before = await readFile(f.path);
+  const base = { ...f.request, patch: undefined };
+  for (const headers of [{}, { "bad name": "v" }, { "x": "bad\rvalue" }, { "x": 1 }, { "x": null, y: undefined }]) {
+    assert.throws(() => f.writer({ ...base, headers }, scope), safe);
+  }
+  assert.throws(() => f.writer({ ...f.request, headers: { Authorization: "Bearer x" } }, scope), safe, "one operation per request");
+  assert.throws(() => f.writer({ ...base, headers: { Authorization: "Bearer x" }, expectedSha256: "c".repeat(64) }, scope), safe);
+  assert.deepEqual(await readFile(f.path), before);
+  assert.deepEqual((await readdir(f.root)).sort(), ["bundle.json", "mcp.json"]);
+});
+
 test("no-op keeps exact bytes/inode; EOF style, hidden exposure and unrelated metadata are retained", async (t) => {
   const doc = native(); doc.metadata = { note: "私有データ" };
   const f = await fixture(t, JSON.stringify(doc)); const original = await readFile(f.path), stat = fs.statSync(f.path);

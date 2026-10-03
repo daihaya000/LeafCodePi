@@ -13,7 +13,12 @@ export type BackendMcpConfigWriteRequest = Readonly<{
  * Must enforce fixed paths/both revisions/native document/server, private storage and file
  * exclusion, and assert scope before atomic commit. Undefined acknowledgment, no async IO. */
 export type BackendMcpConfigWrite = (request: BackendMcpConfigWriteRequest, scope: BackendMcpWriterScope) => undefined;
-export type BackendMcpConfigUpdater = NonNullable<McpExtensionOptions["updateConfig"]>;
+export type BackendMcpConfigUpdater = NonNullable<McpExtensionOptions["updateConfig"]> & {
+  /** Owner-only auth write (not part of the SDK patch contract): bounded header values, null removes
+   * the header (case-insensitive). Consumes the same snapshot/attempt as a settings update. */
+  writeHeaders(entry: Parameters<NonNullable<McpExtensionOptions["updateConfig"]>>[0],
+    headers: Readonly<Record<string, string | null>>): void;
+};
 /** Fixed global settings-only boundary, no constructor IO/runtime calls. Successful loader
  * snapshot callback is captured once. Consumed after every entered attempt, including failure;
  * reprepare/rebind for the next attempt. No migration/reload/activation/rollback/default writer. */

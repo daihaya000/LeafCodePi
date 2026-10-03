@@ -63,19 +63,15 @@ export function createBackendMcpConfigUpdater(options) {
       names.add(entry.name); namespaces.add(namespace);
     }
     let consumed = false, checkingSnapshot = false;
-    return (entry, patch) => {
+    const run = (entry, payload) => {
       try {
         if (checkingSnapshot) { consumed = true; throw unavailable(); }
         if (consumed || !own(entry, ["name", "source", "scope", "config"])
-          || !only(entry, ["name", "source", "scope", "config"]) || !plain(patch) || !only(patch, ["enabled", "exposure"])) throw unavailable();
+          || !only(entry, ["name", "source", "scope", "config"])) throw unavailable();
         const name = entry.name, source = entry.source, scope = entry.scope;
         if (!names.has(name) || source !== configPath || scope !== "global") throw unavailable();
-        const settings = {};
-        if (Object.hasOwn(patch, "enabled")) { const enabled = patch.enabled; if (typeof enabled !== "boolean") throw unavailable(); settings.enabled = enabled; }
-        if (Object.hasOwn(patch, "exposure")) { const exposure = patch.exposure; if (!["codemode", "deferred", "direct", "hidden"].includes(exposure)) throw unavailable(); settings.exposure = exposure; }
-        if (Object.keys(settings).length === 0) throw unavailable();
         const request = Object.freeze({ configPath, bundledConfigPath, expectedSha256: prepared.sourceSha256,
-          expectedBundledSha256: prepared.bundledSha256, serverName: name, patch: Object.freeze(settings) });
+          expectedBundledSha256: prepared.bundledSha256, serverName: name, ...payload });
         try {
           checkingSnapshot = true; acknowledge(captured.assertSnapshotOwner());
           if (consumed) throw unavailable();
@@ -108,5 +104,32 @@ export function createBackendMcpConfigUpdater(options) {
         } finally { open = false; }
       } catch { throw unavailable(); }
     };
+    /** SDK contract: settings-only patches. */
+    const updater = (entry, patch) => {
+      try {
+        if (!plain(patch) || !only(patch, ["enabled", "exposure"])) throw unavailable();
+        const settings = {};
+        if (Object.hasOwn(patch, "enabled")) { const enabled = patch.enabled; if (typeof enabled !== "boolean") throw unavailable(); settings.enabled = enabled; }
+        if (Object.hasOwn(patch, "exposure")) { const exposure = patch.exposure; if (!["codemode", "deferred", "direct", "hidden"].includes(exposure)) throw unavailable(); settings.exposure = exposure; }
+        if (Object.keys(settings).length === 0) throw unavailable();
+        run(entry, { patch: Object.freeze(settings) });
+      } catch { throw unavailable(); }
+    };
+    /** Owner-only auth write: bounded header values, null removes; never the SDK settings path. */
+    updater.writeHeaders = (entry, headers) => {
+      try {
+        const headerName = /^[!#$%&'*+\-.^_`|~0-9A-Za-z]+$/;
+        if (!plain(headers) || Reflect.ownKeys(headers).length === 0) throw unavailable();
+        const copy = {};
+        for (const key of Reflect.ownKeys(headers)) {
+          const value = headers[key];
+          if (typeof key !== "string" || key.length > 256 || !headerName.test(key)
+            || (value !== null && (typeof value !== "string" || value.length > 8192 || /[\0\r\n]/.test(value)))) throw unavailable();
+          copy[key] = value;
+        }
+        run(entry, { headers: Object.freeze(copy) });
+      } catch { throw unavailable(); }
+    };
+    return updater;
   } catch { throw unavailable(); }
 }
