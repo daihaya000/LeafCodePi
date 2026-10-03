@@ -5,6 +5,7 @@ import { randomUUID } from "node:crypto";
 import { botWorkspace, getBot, listBots } from "@/lib/bots";
 import { readIntercomTriggerPolicy } from "@/lib/intercom-config";
 import { botIntercomPresence as coreBotIntercomPresence, shouldWakeIdleDelivery as coreShouldWakeIdleDelivery } from "@backend-core/bot-intercom-policy.mjs";
+import { withDirectoryLock } from "@backend-core/directory-lock.mjs";
 import { dataDir, samePath } from "@/lib/paths";
 import {
   isPromptFileText,
@@ -455,17 +456,23 @@ function asPending(value: unknown): PendingAskRecord | null {
 
 function persistMailbox(botId: string, state: InboxState): void {
   if (!isBotId(botId)) return;
-  // Read-modify-write races the other process: if the file changed after our
-  // in-memory copy was loaded, merging first keeps their messages and the later
-  // read marker instead of writing our stale copy over them. The merge re-reads
-  // on every attempt, so a writer that lands mid-merge is picked up by the next
-  // pass rather than lost.
-  const merged = mergeWithOnDiskMailbox(botId, state);
-  atomicWrite(mailboxPath(botId), {
-    v: BOT_INTERCOM_SCHEMA_VERSION,
-    lastReadAt: merged.lastReadAt,
-    messages: merged.messages,
-    pendingAsks: merged.pendingAsks,
+  const path = mailboxPath(botId);
+  // The merge above is a read-modify-write, so two processes could still interleave
+  // between the read and the rename. The lock serializes them; the stamp check stays
+  // as the fallback for a writer that does not take the lock.
+  withDirectoryLock({
+    lockPath: `${path}.lock`,
+    parentDir: dirname(path),
+    staleMs: 30_000,
+    busyMessage: "bot intercom mailbox is busy",
+  }, () => {
+    const merged = mergeWithOnDiskMailbox(botId, state);
+    atomicWrite(path, {
+      v: BOT_INTERCOM_SCHEMA_VERSION,
+      lastReadAt: merged.lastReadAt,
+      messages: merged.messages,
+      pendingAsks: merged.pendingAsks,
+    });
   });
   inboxMtimes.set(botId, mailboxMtime(botId));
   inboxStamps.set(botId, mailboxStamp(botId));

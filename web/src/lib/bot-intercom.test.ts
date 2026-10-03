@@ -865,3 +865,38 @@ describe("bot intercom Phase D contract", () => {
     expect(getBotIntercomInbox(bob.id).messages).toHaveLength(0);
   });
 });
+
+describe("bot intercom mailbox locking", () => {
+  let root = "";
+  const residents = new Set<string>();
+
+  beforeEach(() => {
+    root = mkdtempSync(join(tmpdir(), "leafcode-bot-intercom-lock-"));
+    botTestState.root = root;
+    residents.clear();
+    resetBotIntercomForTests();
+    setBotIntercomResidentLookup((id) => residents.has(id));
+  });
+
+  afterEach(() => {
+    resetBotIntercomForTests();
+    rmSync(root, { recursive: true, force: true });
+    botTestState.root = "";
+  });
+
+  it("keeps every message when two senders write the same mailbox", () => {
+    const alice = enableIntercom(createBot({ name: "Alice" }).id)!;
+    const bob = enableIntercom(createBot({ name: "Bob" }).id)!;
+    const carol = enableIntercom(createBot({ name: "Carol" }).id)!;
+    for (const id of [alice.id, bob.id, carol.id]) residents.add(id);
+
+    // Three senders race on one mailbox; the lock and merge must keep all three.
+    sendBotIntercom({ fromBotId: alice.id, to: bob.id, text: "from alice" });
+    sendBotIntercom({ fromBotId: carol.id, to: bob.id, text: "from carol" });
+    const items = getBotIntercomInbox(bob.id).messages;
+    const texts = items.map((item) => item.text);
+
+    expect(texts).toContain("from alice");
+    expect(texts).toContain("from carol");
+  });
+});
