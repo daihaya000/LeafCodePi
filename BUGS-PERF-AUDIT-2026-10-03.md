@@ -157,6 +157,6 @@
 
 | 重大度 | 箇所 | 内容 |
 | --- | --- | --- |
-| 中 **[一部修正 2026-10-04: issue 時の2回目の readState（参加者判定用）を廃止し同一 state を再利用。claim 経路でも prune を実行し、発行のない Room の期限切れ envelope・孤立 claims も掃除。relay.json は機械読取専用のためコンパクトJSONで書き、indent による約3倍の肥大を解消]** | `backend/core/room-relay.mjs` (~67–94)、`room-store.mjs` (~77–96) | 修正前: consumed envelope/claimsがTTL後も残り、claimごとに全件parseと整形書き込みで単調増加した。修正後: issue時の重複readStateを廃止しclaim経路でもpruneし、relay.jsonはコンパクトJSONで書く。残存: 全文parseのコスト自体は残る。 |
+| 中 **[一部修正 2026-10-04: issue 時の2回目の readState（参加者判定用）を廃止し同一 state を再利用。claim 経路でも prune を実行し、発行のない Room の期限切れ envelope・孤立 claims も掃除。relay.json は機械読取専用のためコンパクトJSONで書き、indent による約3倍の肥大を解消]** | `backend/core/room-relay.mjs` (~67–94)、`room-store.mjs` (~77–96) | 修正前: consumed envelope/claimsがTTL後も残り、claimごとに全件parseと整形書き込みで単調増加した。修正後: issue時の重複readStateを廃止しclaim経路でもpruneし、relay.jsonはコンパクトJSONで書き、同一内容なら書き込まずに読み込み時の内容も記憶する。残存: 変更判定のためのserializeコストは残る。 |
 | 中 **[一部修正 2026-10-04: owner の pending map が変化した時だけ await 後の room 再読込を行う。無変化の idle Room は 2 秒ごとに disk を読まない]** | `web/src/app/api/bots/rooms/[id]/events/route.ts` (~137–170) | Backend 所有時、Room を開いている間 2 秒間隔で room 再読込＋pending HTTP。 |
 | 低 **[一部修正 2026-10-04: read-only ハンドルを mtime+size+ino のスタンプ付きでキャッシュし、検索ごとの DB 再オープンを解消（60秒 idle・4ファイルで破棄、ファイル変更時は作り直し）。OR の再現率と LIKE 全表スキャンは仕様どおり未対応]** | `web/src/lib/memory-search.ts` (~38–47) | 修正前: 検索ごとにDBを再オープンしていた。修正後: read-onlyハンドルをmtime+size+inoスタンプ付きTTLでキャッシュする。残存: OR検索とLIKE全表スキャンは仕様どおり未対応。 |

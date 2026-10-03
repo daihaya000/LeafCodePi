@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
@@ -90,4 +90,21 @@ test("two rooms keep independent relay state", (t) => {
   store.writeRelayState(other, { envelopes: {}, claims: { t9: ["z"] } });
   assert.deepEqual(store.readRelayState(ID), state);
   assert.deepEqual(store.readRelayState(other), { envelopes: {}, claims: { t9: ["z"] } });
+});
+
+test("an unchanged relay state is not written again", (t) => {
+  const { store } = fixture(t);
+  const path = store.relayStatePath(ID);
+  store.writeRelayState(ID, state);
+  const firstStamp = statSync(path).mtimeMs;
+  const firstInode = statSync(path).ino;
+  // A tick that pruned nothing must not churn the file.
+  store.writeRelayState(ID, { ...state });
+  assert.equal(statSync(path).mtimeMs, firstStamp);
+  assert.equal(statSync(path).ino, firstInode);
+
+  // A real change still lands.
+  store.writeRelayState(ID, { envelopes: {}, claims: { t9: ["z"] } });
+  assert.notEqual(statSync(path).ino, firstInode);
+  assert.deepEqual(store.readRelayState(ID), { envelopes: {}, claims: { t9: ["z"] } });
 });

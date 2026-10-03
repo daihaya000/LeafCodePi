@@ -50,6 +50,8 @@ export class RoomFileStore {
     this.roomsRoot = roomsRoot;
     this.handoffStates = handoffStates;
     this.onWritten = onWritten;
+    /** Last relay.json content per room, used to skip identical writes. */
+    this.lastRelayState = new Map();
   }
 
   assertId(id) {
@@ -99,7 +101,11 @@ export class RoomFileStore {
   /** A missing, unreadable or malformed file is an empty state, never a thrown error. */
   readRelayState(roomId) {
     try {
-      const value = JSON.parse(readFileSync(this.relayStatePath(roomId), "utf8"));
+      const raw = readFileSync(this.relayStatePath(roomId), "utf8");
+      // Remember what is on disk so an identical writeRelayState() is a no-op even
+      // after another worker wrote the same content.
+      (this.lastRelayState ??= new Map()).set(roomId, raw);
+      const value = JSON.parse(raw);
       const envelopes = value.envelopes && typeof value.envelopes === "object" ? value.envelopes : {};
       const claims = value.claims && typeof value.claims === "object" ? value.claims : {};
       return { envelopes, claims };
@@ -118,9 +124,16 @@ export class RoomFileStore {
   writeRelayState(roomId, state) {
     mkdirSync(this.roomDataRoot(roomId), { recursive: true });
     const path = this.relayStatePath(roomId);
+    const serialized = `${JSON.stringify(state)}\n`;
+    // Relay ticks call this even when nothing moved. Serializing is unavoidable to
+    // know that, but writing an identical file is not: skip it so an idle room
+    // does not churn the file and its watchers.
+    const lastWritten = this.lastRelayState?.get(roomId);
+    if (lastWritten !== undefined && lastWritten === serialized) return;
     const temporary = `${path}.${process.pid}.${randomUUID()}.tmp`;
-    writeFileSync(temporary, `${JSON.stringify(state)}\n`, "utf8");
+    writeFileSync(temporary, serialized, "utf8");
     renameSync(temporary, path);
+    (this.lastRelayState ??= new Map()).set(roomId, serialized);
   }
 
   /**
