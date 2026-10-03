@@ -33,7 +33,7 @@ test("a real Backend becomes ready with native MCP and persists an ON/OFF toggle
     rmSync(root, { recursive: true, force: true });
   });
   const configPath = join(root, "mcp.json");
-  cpSync(join(fileURLToPath(new URL("../../extensions/leafcode-mcp-adapter/mcp.json", import.meta.url))), configPath);
+  cpSync(join(fileURLToPath(new URL("../core/mcp-defaults.json", import.meta.url))), configPath);
   const config = JSON.parse(readFileSync(configPath, "utf8"));
   config.mcpServers = { fixture: { command: process.execPath, args: ["--version"] } };
   await import("node:fs/promises").then(({ writeFile }) => writeFile(configPath, JSON.stringify(config)));

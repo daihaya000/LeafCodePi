@@ -14,7 +14,7 @@ import { resolveBackendMcpNativeSession, setBackendMcpNativeSessionProvider } fr
 afterEach(() => setBackendMcpNativeSessionProvider(undefined));
 
 const safe = (e) => e instanceof Error && e.message === "MCP native runtime unavailable" && e.cause === undefined;
-const realBundle = resolve("extensions/leafcode-mcp-adapter/mcp.json");
+const realBundle = resolve("backend/core/mcp-defaults.json");
 
 // node:test runs after-hooks in registration order: remove the directory only after child cleanup hooks.
 const removeRoot = (t, root) => t.after(() => rm(root, { recursive: true, force: true, maxRetries: 30, retryDelay: 100 }));

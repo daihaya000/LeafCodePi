@@ -9,7 +9,7 @@ import { runNativeMcpCheck } from "./native-mcp-check.mjs";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const SCRIPT = join(HERE, "native-mcp-check.mjs");
-const bundledConfigPath = resolve(HERE, "..", "..", "extensions", "leafcode-mcp-adapter", "mcp.json");
+const bundledConfigPath = resolve(HERE, "..", "core", "mcp-defaults.json");
 
 async function emptyAgentDir(t) {
   const root = await mkdtemp(join(tmpdir(), "leafcode-native-check-"));

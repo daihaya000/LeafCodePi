@@ -24,7 +24,7 @@ import { createBackendMcpStdioTransportFactory } from "../core/mcp-native-stdio-
 import { isNativeMcpRequested, runEnvCommand } from "./mcp-native-activation.mjs";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
-const BUNDLED_CONFIG = resolve(HERE, "..", "..", "extensions", "leafcode-mcp-adapter", "mcp.json");
+const BUNDLED_CONFIG = resolve(HERE, "..", "core", "mcp-defaults.json");
 const ADAPTER_ENTRY = resolve(HERE, "..", "..", "extensions", "leafcode-mcp-adapter", "index.ts");
 
 /** Runs the check and returns a report. Never throws for an expected refusal. */

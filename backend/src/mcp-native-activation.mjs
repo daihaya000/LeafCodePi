@@ -3,7 +3,7 @@ import { homedir, platform as osPlatform } from "node:os";
 import { fileURLToPath } from "node:url";
 
 /** Bundled default config: the same file the migration planner reads. Overridable for tests/deployments. */
-export const BUNDLED_MCP_CONFIG = new URL("../../extensions/leafcode-mcp-adapter/mcp.json", import.meta.url);
+export const BUNDLED_MCP_CONFIG = new URL("../core/mcp-defaults.json", import.meta.url);
 
 const ENABLED_VALUES = new Set(["1", "true", "yes", "on", "native"]);
 const unavailable = () => new Error("MCP native activation unavailable");

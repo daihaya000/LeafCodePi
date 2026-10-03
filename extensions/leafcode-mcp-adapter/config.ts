@@ -18,7 +18,7 @@ const AGENTS_GLOBAL_CONFIG_PATHS = [
 ] as const;
 const PROJECT_CONFIG_NAME = ".mcp.json";
 const PROJECT_PI_CONFIG_NAME = "mcp.json";
-const BUNDLED_CONFIG_PATH = join(dirname(fileURLToPath(import.meta.url)), "mcp.json");
+const BUNDLED_CONFIG_PATH = join(dirname(fileURLToPath(import.meta.url)), "..", "..", "backend", "core", "mcp-defaults.json");
 const REPOPROMPT_BINARY_CANDIDATES = [
   join(homedir(), "RepoPrompt", "repoprompt_cli"),
   "/Applications/Repo Prompt.app/Contents/MacOS/repoprompt-mcp",

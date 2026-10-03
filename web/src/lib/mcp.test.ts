@@ -71,7 +71,7 @@ describe("listMcpServers / setMcpServerEnabled", () => {
     assert.equal(byName.get("remote")?.enabled, false);
     assert.equal(byName.get("remote")?.source, "http");
     assert.equal(result.configPath, join(agentDir, "mcp.json"));
-    assert.equal(result.bundledConfigPath?.endsWith(join("extensions", "leafcode-mcp-adapter", "mcp.json")), true);
+    assert.equal(result.bundledConfigPath?.endsWith(join("backend", "core", "mcp-defaults.json")), true);
     const bearer = byName.get("bearer");
     assert.equal(bearer?.authType, "bearer");
     assert.equal(bearer?.credentialSource, "config");

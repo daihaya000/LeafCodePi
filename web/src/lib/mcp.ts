@@ -170,7 +170,8 @@ function validServerName(name: string): string {
 
 function bundledMcpConfigPath(): string | null {
   const extensionsRoot = bundledExtensionsDir();
-  return extensionsRoot ? join(extensionsRoot, "leafcode-mcp-adapter", "mcp.json") : null;
+  // Shipped MCP defaults live next to the Backend core, not inside the (removed) adapter extension.
+  return extensionsRoot ? join(dirname(extensionsRoot), "backend", "core", "mcp-defaults.json") : null;
 }
 
 function readBundledConfig(path = bundledMcpConfigPath(), strict = false): McpConfig {

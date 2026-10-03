@@ -70,7 +70,7 @@ test("initialize snapshots explicit options and installs the prepared provider w
   assert.equal(typeof options.envCommands.run, "function");
   // The runtime takes an absolute path string; a URL here made every activation refuse.
   assert.equal(typeof options.bundledConfigPath, "string");
-  assert.equal(options.bundledConfigPath.endsWith(`${sep}extensions${sep}leafcode-mcp-adapter${sep}mcp.json`), true);
+  assert.equal(options.bundledConfigPath.endsWith(`${sep}backend${sep}core${sep}mcp-defaults.json`), true);
   await assert.rejects(activation.initialize(fakeRuntime()), safe); // at most one successful attempt
   activation.dispose();
 });

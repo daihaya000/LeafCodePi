@@ -2,7 +2,7 @@ import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 
 // Migration input only: this does not load the adapter or establish MCP connections.
-const BUNDLED_CONFIG = new URL("../../extensions/leafcode-mcp-adapter/mcp.json", import.meta.url);
+const BUNDLED_CONFIG = new URL("../core/mcp-defaults.json", import.meta.url);
 const applyPolicy = { applied: false, applyAvailable: false, applyBlockedReason: "configuration-writers-not-quiesced" };
 
 /** Backend-owned dry-run. Options are internal deployment/test inputs, never request data. */
