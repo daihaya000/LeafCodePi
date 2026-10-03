@@ -117,6 +117,16 @@ describe("composer references", () => {
     expect(findComposerPromptPrefixToken(long, long.length)).toBeNull();
   });
 
+  it("stops treating a long slash token as a reference query", () => {
+    const short = "あ".repeat(64);
+    expect(findComposerReferenceToken(`/${short}`, short.length + 1)).toMatchObject({ kind: "skill" });
+    // One character over the cap: no token, so no candidate scan per keystroke.
+    const long = "あ".repeat(65);
+    expect(findComposerReferenceToken(`/${long}`, long.length + 1)).toBeNull();
+    // The skill: prefix does not buy extra budget.
+    expect(findComposerReferenceToken(`/skill:${long}`, long.length + 8)).toBeNull();
+  });
+
   it("finds and inserts body-only prompt preset tokens", () => {
     expect(findComposerReferenceToken("確認 #", 4)).toMatchObject({
       kind: "prompt",

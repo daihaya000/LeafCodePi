@@ -34,6 +34,12 @@ export type ComposerReferenceToken = {
 /** 後退ループ用: 空白・/・#・＃・@ 以外は参照名の一部として扱う（日本語クエリ対応）。 */
 const NON_REFERENCE = /[\s/#＃\u0040]/;
 
+/**
+ * 参照候補のクエリ最大長。長いトークンは先頭だけ残し、それ以降の文字で
+ * 全候補を走査しないようにする（候補名は数十文字程度）。
+ */
+const REFERENCE_MAX_QUERY_CHARS = 64;
+
 /** Return the slash/at/hash token immediately before the caret, when it is a reference. */
 export function findComposerReferenceToken(value: string, caret: number): ComposerReferenceToken | null {
   const safeCaret = Math.max(0, Math.min(value.length, caret));
@@ -52,12 +58,15 @@ export function findComposerReferenceToken(value: string, caret: number): Compos
   const raw = value.slice(start, safeCaret);
   const typedQuery = raw.slice(1);
   const kind: ComposerReferenceKind = trigger === "/" ? "skill" : trigger === "#" || trigger === "＃" ? "prompt" : "agent";
-  const query = trigger === "/" && typedQuery.toLocaleLowerCase().startsWith("skill:")
+  const bareQuery = trigger === "/" && typedQuery.toLocaleLowerCase().startsWith("skill:")
     ? typedQuery.slice("skill:".length)
     : typedQuery;
+  // A reference name is short; a longer token cannot match, so it is treated as
+  // "no token" instead of scanning every candidate on each keystroke.
+  if (bareQuery.length > REFERENCE_MAX_QUERY_CHARS) return null;
   return {
     kind,
-    query,
+    query: bareQuery,
     raw,
     start,
     end: safeCaret,
