@@ -88,7 +88,7 @@
 | 重大度 | 箇所 | 内容 |
 | --- | --- | --- |
 | 高 **[修正済 2026-10-03: onRestartHostBlocked で Goal Loop 実行中は 409]** | `host/src/llama-control-server.js` (~333–341)、`host/src/index.js` (~779–802, 1148–1149) | `POST /restart/host` は Goal Loop 拒否を見ずに `quit()`。`backendService.stop()` で実行中ループごと落とす。Backend 再起動だけガード。 |
-| 中 **[一部修正 2026-10-03: Windows 再起動スクリプトが起動15秒後にロック不在なら1回だけ再起動。Linux 経路は未対応]** | `host/src/host-restart.js` (~11–18)、`index.js` (~972–975) | ロック残存でも約 120 回待ったあと起動。旧ホスト生存なら新プロセス即終了し、202 再起動が空振り。 |
+| 中 **[一部修正 2026-10-04: Linux 経路も builder へ寄せ、ロック待ちに上限（既定1200回×100ms）と起動後のgrace 判定による1回だけの再起動を追加。POSIX 実地テストは未実施]** | `host/src/host-restart.js` (~11–18)、`index.js` (~972–975） | ロック残存でも約 120 回待ったあと起動。旧ホスト生存なら新プロセス即終了し、202 再起動が空振り。 |
 | 中 **[修正済 2026-10-03: 取得失敗は fail-closed、接続拒否のみ許可]** | `host/src/index.js` (~651–669)、`llama-control-server.js` (~301, 321) | Backend 無し WebUI 再起動は active 取得失敗でも許可（fail-open）。Backend 側は失敗時拒否。 |
 | 中 **[修正済 2026-10-03: ロック mtime が 6 時間超なら PID に関わらず放棄扱い]** | `shared/pi-dependencies.mjs`（`piDepsLockHeld` ~19–40、`assertPiDependencyVersions` ~82）、`host/src/pi-update.js`（`acquireDepsLock` ~72–79） | 依存ロックの生存判定は `kill(pid, 0)` が ESRCH のときだけ放棄。Windows の EPERM や PID 再利用は生存扱いで `.leafcode-pi-deps.lock` を消さない。残ると Pi 同期も Host 起動ゲートも「同期が未完了」で拒否し続ける。mtime による期限は無い。 |
 | 低 **[一部修正 2026-10-03: stat は初回と 64 書き込みごとの再同期のみ。世代は .1 のみ・並行書き込み握りつぶしは未対応]** | `host/src/log-file.js` (~36–52) | 追記前に毎回 `statSync`。世代は `.1` のみ。並行書き込みは握りつぶす。 |

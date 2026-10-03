@@ -28,3 +28,47 @@ export function buildHostRestartScript({ lockFile, launcherExe, startBat, maxWai
     'del "%~f0" >nul 2>&1',
   ];
 }
+
+/**
+ * Non-Windows restart waiter, kept beside the batch script so both platforms share
+ * the same two-phase contract: bound the wait for our own lock to clear (a stale
+ * lock must not wait forever), then relaunch once if no host owns the lock after a
+ * grace period. Returns the `-e` program that `spawn(process.execPath, ...)` runs.
+ * The lock, executable and entry arrive as argv, so nothing is interpolated into
+ * the program text; only the tunables below are baked in.
+ */
+export function buildHostRestartWaitProgram({
+  maxWaitAttempts = 1200,
+  relaunchGraceMs = 15_000,
+  pollMs = 100,
+}) {
+  return [
+    "const fs = require('node:fs');",
+    "const { spawn } = require('node:child_process');",
+    "const [lock, executable, entry, maxAttempts, graceMs, intervalMs] = process.argv.slice(1);",
+    `const limit = ${Number(maxWaitAttempts)};`,
+    `const grace = ${Number(relaunchGraceMs)};`,
+    `const interval = ${Number(pollMs)};`,
+    "let attempts = 0;",
+    "let relaunched = false;",
+    "const launch = () => { const child = spawn(executable, [entry], { detached: true, stdio: 'ignore', env: process.env }); child.unref(); };",
+    // Phase 1: our lock clears on quit. Bound the wait so a lock left behind by a
+    // killed host cannot strand the restart.
+    "const waitForLock = () => {",
+    "  if (!fs.existsSync(lock) || attempts >= limit) { settle(); return; }",
+    "  attempts += 1;",
+    "  setTimeout(waitForLock, interval);",
+    "};",
+    // Phase 2: if the launched host exited on a lock we never saw released, nothing
+    // is running. Relaunch exactly once so the restart is not a no-op.
+    "const settle = () => {",
+    "  launch();",
+    "  setTimeout(() => {",
+    "    if (fs.existsSync(lock) || relaunched) return;",
+    "    relaunched = true;",
+    "    launch();",
+    "  }, grace);",
+    "};",
+    "waitForLock();",
+  ].join("\n");
+}

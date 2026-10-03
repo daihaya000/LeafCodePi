@@ -16,7 +16,7 @@ import { createLogFileWriter, formatLogLine } from "./log-file.js";
 import { getListeningPids, getPortListenerStatus } from "./port-scanner.js";
 import { hardKillTree, stopProcessTreeGracefully } from "./process-stop.js";
 import { stopOrphanedWebUi } from "./stale-webui.js";
-import { buildHostRestartScript } from "./host-restart.js";
+import { buildHostRestartScript, buildHostRestartWaitProgram } from "./host-restart.js";
 import { DEFAULT_BACKEND_PORT } from "../../shared/backend-protocol.mjs";
 import { createBackendService, shouldRunBackend } from "./backend-service.js";
 import { readBackendHealth, waitForBackendReady } from "./backend-health.js";
@@ -798,16 +798,10 @@ async function restartHost() {
   log("Host restart requested; spawning replacement…");
   pullLatestSources({ repoRoot: REPO_ROOT, log, error });
   if (process.platform !== "win32") {
-    const waitScript = [
-      "const fs = require('node:fs');",
-      "const { spawn } = require('node:child_process');",
-      "const [lock, executable, entry] = process.argv.slice(1);",
-      "const wait = () => { if (fs.existsSync(lock)) setTimeout(wait, 100); else { const child = spawn(executable, [entry], { detached: true, stdio: 'ignore', env: process.env }); child.unref(); } };",
-      "wait();",
-    ].join(" ");
+    const waitProgram = buildHostRestartWaitProgram();
     const child = spawn(
       process.execPath,
-      ["-e", waitScript, LOCK_FILE, process.execPath, fileURLToPath(import.meta.url)],
+      ["-e", waitProgram, LOCK_FILE, process.execPath, fileURLToPath(import.meta.url)],
       {
         detached: true,
         stdio: "ignore",
