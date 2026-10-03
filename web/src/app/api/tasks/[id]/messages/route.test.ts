@@ -60,6 +60,36 @@ describe("/api/tasks/[id]/messages", () => {
     expect(mocks.getTaskDetail).toHaveBeenCalledWith("task-1", { offline: true });
   });
 
+  it("drops base64 image data on an older page but keeps it on the newest page", async () => {
+    const png = "A".repeat(50_000);
+    const withImage = (id: string, index: number) => ({
+      id,
+      role: "user",
+      createdAt: index,
+      parts: [
+        { id: `${id}:text`, type: "text", text: id },
+        { id: `${id}:image`, type: "image", mime: "image/png", url: `data:image/png;base64,${png}` },
+      ],
+    });
+    const messages = Array.from({ length: 52 }, (_, index) => withImage(`m${index + 1}`, index));
+    mocks.getTaskDetail.mockResolvedValue({ messages } as TaskDetail);
+
+    const older = await GET(
+      new NextRequest("http://127.0.0.1:3010/api/tasks/task-1/messages?before=m52"),
+      { params: Promise.resolve({ id: "task-1" }) },
+    );
+    const olderBody = await older.json();
+    expect(olderBody.messages[0].parts[1]).toMatchObject({ id: "m2:image", mime: "image/png", url: "" });
+
+    // The newest page is what the client has never seen, so it keeps the bytes.
+    const newest = await GET(
+      new NextRequest("http://127.0.0.1:3010/api/tasks/task-1/messages"),
+      { params: Promise.resolve({ id: "task-1" }) },
+    );
+    const newestBody = await newest.json();
+    expect(newestBody.messages.at(-1).parts[1].url).toContain("data:image/png;base64,");
+  });
+
   it("rejects an empty or unknown cursor", async () => {
     const empty = await GET(
       new NextRequest("http://127.0.0.1:3010/api/tasks/task-1/messages?before=%20"),

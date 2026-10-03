@@ -4,12 +4,23 @@ import {
   InvalidTaskMessageCursorError,
   pageTaskMessages,
   pageTaskDetailMessages,
+  stripImageDataFromMessages,
 } from "@/lib/task-history";
 import { localRuntimeBlocked } from "@/lib/pi/runtime-ownership";
 import { forwardTaskDetail } from "@/lib/backend-forward";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+
+/**
+ * Older pages drop base64 image payloads: those turns were already delivered in the
+ * newest page, so the client keeps its copy and refetches a single image on demand.
+ * A cursorless request is the newest page, which the client has never seen, so it
+ * must keep the images.
+ */
+function historyPage(page: ReturnType<typeof pageTaskMessages>, before: string | null) {
+  return before === null ? page : { ...page, messages: stripImageDataFromMessages(page.messages) };
+}
 
 export async function GET(
   req: NextRequest,
@@ -43,12 +54,11 @@ export async function GET(
           { status: 502 },
         );
       }
-      return NextResponse.json(pageTaskDetailMessages(forwarded.detail, before));
+      return NextResponse.json(historyPage(pageTaskDetailMessages(forwarded.detail, before), before));
     }
     // History paging must not block on ensureLive; transcript on disk is enough.
     const detail = await getTaskDetail(id, { offline: true });
-    const page = pageTaskMessages(detail.messages, before);
-    return NextResponse.json(page);
+    return NextResponse.json(historyPage(pageTaskMessages(detail.messages, before), before));
   } catch (error) {
     if (error instanceof InvalidTaskMessageCursorError) {
       return NextResponse.json({ error: error.message }, { status: 409 });
