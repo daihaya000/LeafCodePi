@@ -2509,6 +2509,13 @@ async function attachSession(
 
   const unsubscribe = session.subscribe((event) => {
     if (live.leaseLost) return;
+    if (
+      (event.type === "agent_start" || event.type === "tool_execution_start") &&
+      !ownsTaskLease(taskId)
+    ) {
+      abortTaskSessionsAfterLeaseLoss([taskId]);
+      return;
+    }
     // The ordered effect sequence lives in backend core; every step below is the
     // harness-owned implementation of one step in that sequence.
     runSessionEventEffects(event, {
@@ -9994,6 +10001,7 @@ export function abortTaskSessionsAfterLeaseLoss(taskIds: string[]): void {
     const live = state().live.get(taskId);
     if (!live || live.leaseLost) continue;
     live.leaseLost = true;
+    releaseTaskLease(taskId);
     invalidateTaskPreparations(taskId);
     disarmTaskHangWatch(taskId);
     clearPendingAttentionForTask(taskId);
