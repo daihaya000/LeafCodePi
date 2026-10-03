@@ -137,7 +137,7 @@
 | 重大度 | 箇所 | 内容 |
 | --- | --- | --- |
 | 中 **[修正済 2026-10-03: mtime を lstat に変更し symlink を追跡しない]** | `web/src/app/api/diff/files/route.ts`（~187–192） | untracked の読み取りは symlink を避けているが、mtime 付与は全ファイルで `statSync`（リンク追跡）。ワークツリー内の symlink が外部やパイプを指すと、mtime が外へ漏れ、同期 stat が BFF をブロックしうる。コメントの「lexical isUnder でワークスペース内」は追跡後の実体を見ていない。 |
-| 低 | `dirs/route.ts` (~108–111) | symlink／junction ディレクトリを落とすので配下が見えない。 |
+| 低 **[一部修正 2026-10-04: symlink/junction を stat で辿りディレクトリとして列挙。リンクループや到達不能リンクの扱いは従来どおり]** | `dirs/route.ts` (~108–111) | symlink／junction ディレクトリを落とすので配下が見えない。 |
 
 ---
 

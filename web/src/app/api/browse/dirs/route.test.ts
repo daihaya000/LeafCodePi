@@ -21,6 +21,9 @@ const outside = join(root, "outside");
 mkdirSync(join(drive, "Projects"), { recursive: true });
 mkdirSync(outside);
 symlinkSync(outside, join(drive, "escape"), "dir");
+// A symlinked directory inside the browse root used to be dropped: Dirent
+// reports a symlink, and isDirectory() is false without following it.
+symlinkSync(join(drive, "Projects"), join(drive, "linked"), "dir");
 
 afterAll(() => rmSync(root, { recursive: true, force: true }));
 
@@ -36,6 +39,8 @@ describe("/api/browse/dirs drives", () => {
     expect(response.status).toBe(200);
     expect(body.drives).toEqual([{ name: "External SSD", path: drive }]);
     expect(body.entries).toContainEqual({ name: "Projects", path: join(drive, "Projects") });
+    // Symlinked directories are listed; only the allowed-root check decides access.
+    expect(body.entries).toContainEqual({ name: "linked", path: join(drive, "linked") });
     expect(body.parent).toBeNull();
     expect((await GET(request(outside))).status).toBe(403);
     expect((await GET(request(join(drive, "escape")))).status).toBe(403);

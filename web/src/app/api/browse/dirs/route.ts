@@ -106,8 +106,12 @@ export async function GET(req: NextRequest) {
     const entries = await readdir(target, { withFileTypes: true });
     const dirs: DirEntry[] = [];
     for (const entry of entries) {
-      if (!entry.isDirectory()) continue;
       if (entry.name.startsWith(".") && entry.name !== ".git") continue;
+      // Dirent.isDirectory() は symlink/junction で false になるため、リンクを辿って
+      // ディレクトリか判定する。判定できない要素は従来どおり落とす。
+      const isDirectoryEntry = entry.isDirectory()
+        || (entry.isSymbolicLink() && isDirectory(join(target, entry.name)));
+      if (!isDirectoryEntry) continue;
       dirs.push({ name: entry.name, path: join(target, entry.name) });
     }
     dirs.sort((a, b) => a.name.localeCompare(b.name, "ja"));
