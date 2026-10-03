@@ -84,7 +84,7 @@
 - `backend/core/peer-auth-remote-store.{mjs,d.mts}`: B 側 CredentialStore（キャッシュ・同時 read 統合・modify で再解決・401/403 はキャッシュ破棄）
 - `backend/core/peer-auth-config.{mjs,d.mts}`: peer.json の検証・0o600 での原子的書込み・除去
 - `backend/core/peer-auth-integration.test.mjs`: 実 loopback HTTP・実 auth.json での A↔B 検証（refresh 非漏洩・拒否・A 停止）
-- Web: `/api/peer-auth/list|resolve`（peer token、公開パスはこの 2 つのみ）と `/api/peer-auth/peers|import`（WebUI 認証下）、`lib/peer-auth/{runtime,admin,import,account-runtime-options}`
+- Web: `/api/peer-auth/list|resolve`（peer token、公開パスはこの 2 つのみ）と `/api/peer-auth/peers|import`（WebUI 認証下、import は GET で到達性付き peer アカウント一覧）、`lib/peer-auth/{runtime,admin,import,account-runtime-options}`
 - harness: `accountRuntimeManager` の peer 分岐（`credentials` で生成、`authPath` なし）。`accounts.ts` の `accountStoredProviders` が peer.json の providers を保存済みとして返す
 - UI: A 側 `PeerShareSettings`（共有トグル・アカウント選択・provider 選択・トークン 1 回表示・失効・平文 HTTP 警告）、B 側 `PeerImportSettings`（URL/トークン/名前 → 取込）
 
@@ -93,7 +93,7 @@
 - prod 再ビルド・再起動による実表示確認（他セッション作業中のため保留）
 - 実機 2 台（Tailscale / LAN）での end-to-end（共有 → 取込 → モデル実行、A 停止・失効の実挙動）
 - peer アカウントでのログイン / ログアウト UI の無効化（サーバー側は `POST /api/providers/[id]/login|logout` が 409 で拒否するため、UI 無効化は表示上の残作業）
-- A 停止時の「接続元 LCP: オフライン」表示（現状は通常のエラー表示）
+- A 停止時の「接続元 LCP: オフライン」UI 表示（`GET /api/peer-auth/import` が到達性付きの一覧を返すまでは実装済み。UI 表示は未実施）
 - peer.json 変更時の runtime 再生成と、実行中タスクがある場合の 409
 
 ## 検証

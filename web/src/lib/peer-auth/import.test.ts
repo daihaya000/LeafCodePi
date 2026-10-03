@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { importPeerAccount } from "./import";
+import { importPeerAccount, listPeerAccounts } from "./import";
 
 const TOKEN = "t".repeat(43);
 const record = { id: "acc-1", label: "peer", enabled: true, providers: ["anthropic"], createdAt: "t", updatedAt: "t" };
@@ -69,5 +69,39 @@ describe("importPeerAccount", () => {
     const result = await importPeerAccount(valid, d as never);
     expect(result).toEqual({ status: 500, body: { error: "internal error" } });
     expect(d.deleteAccount).toHaveBeenCalledWith("acc-1");
+  });
+});
+
+describe("listPeerAccounts", () => {
+  const peer = { version: 1, peerUrl: "http://100.64.0.2:3000", peerAccountId: null, providers: ["anthropic", "openai-codex"], token: "s".repeat(43), createdAt: "t" };
+
+  function listDeps(overrides: Record<string, unknown> = {}) {
+    return {
+      listLocalAccounts: vi.fn(() => [
+        { id: "peer-1", label: "main", providers: ["anthropic", "openrouter"] },
+        { id: "local", label: "local", providers: ["anthropic"] },
+      ]),
+      readPeer: vi.fn((id: string) => (id === "peer-1" ? peer : null)),
+      probe: vi.fn(async () => true),
+      ...overrides,
+    } as unknown as Record<string, ReturnType<typeof vi.fn>>;
+  }
+
+  it("returns only peer accounts, intersected providers and the probe result, without tokens", async () => {
+    const d = listDeps({ probe: vi.fn(async (url: string) => url.includes("100.64.0.2")) });
+    const rows = await listPeerAccounts(d as never);
+    expect(rows).toEqual([{ id: "peer-1", label: "main", peerUrl: "http://100.64.0.2:3000", providers: ["anthropic"], online: true }]);
+    expect(JSON.stringify(rows)).not.toContain("s".repeat(43));
+    expect(d.readPeer).toHaveBeenCalledWith("local");
+  });
+
+  it("reports an unreachable sharing LCP as offline instead of failing", async () => {
+    const rows = await listPeerAccounts(listDeps({ probe: vi.fn(async () => false) }) as never);
+    expect(rows[0].online).toBe(false);
+  });
+
+  it("returns an empty list when no account is a peer account", async () => {
+    const rows = await listPeerAccounts(listDeps({ readPeer: vi.fn(() => null) }) as never);
+    expect(rows).toEqual([]);
   });
 });

@@ -1,11 +1,12 @@
 import { createRemotePeerCredentialStore } from "@backend-core/peer-auth-remote-store.mjs";
-import { normalizePeerUrl, writePeerConfig } from "@backend-core/peer-auth-config.mjs";
+import { normalizePeerUrl, readPeerConfig, writePeerConfig, type PeerConfig } from "@backend-core/peer-auth-config.mjs";
 import { parsePeerBearer } from "@shared/peer-auth-wire.mjs";
 import {
   accountDir,
   ACCOUNT_PROVIDER_IDS,
   createAccount,
   deleteAccount,
+  listAccounts,
   resolvePiAgentDir,
   type AccountProviderId,
   type AccountRecord,
@@ -41,8 +42,7 @@ const plain = (value: unknown): value is Record<string, unknown> =>
 export async function importPeerAccount(input: unknown, deps: Deps = defaultDeps): Promise<PeerImportResult> {
   if (!plain(input) || Object.keys(input).some((key) => !["peerUrl", "token", "label", "providers"].includes(key))) {
     return fail(400, "invalid request");
-  }
-  const peerUrl = normalizePeerUrl(input.peerUrl);
+  }  const peerUrl = normalizePeerUrl(input.peerUrl);
   const token = input.token;
   if (!peerUrl) return fail(400, "peerUrl is invalid");
   if (typeof token !== "string" || parsePeerBearer(`Bearer ${token}`) !== token) return fail(400, "token is invalid");
@@ -78,4 +78,49 @@ export async function importPeerAccount(input: unknown, deps: Deps = defaultDeps
     return fail(500, "internal error");
   }
   return { status: 201, body: { account } };
+}
+
+export type PeerAccountRow = {
+  id: string;
+  label: string;
+  peerUrl: string;
+  providers: string[];
+  online: boolean;
+};
+
+type ListDeps = {
+  listLocalAccounts(): AccountRecord[];
+  readPeer(accountId: string): Promise<PeerConfig | null> | PeerConfig | null;
+  probe(peerUrl: string, token: string): Promise<boolean>;
+};
+
+const defaultListDeps: ListDeps = {
+  listLocalAccounts: listAccounts,
+  readPeer: async (accountId) => readPeerConfig(accountDir(accountId, await resolvePiAgentDir())),
+  async probe(peerUrl, token) {
+    try {
+      // The same request the credential store makes, so a reachable list means usable credentials.
+      await createRemotePeerCredentialStore({ peerUrl, token, timeoutMs: 3_000 }).list();
+      return true;
+    } catch {
+      return false;
+    }
+  },
+};
+
+/** Peer accounts with a reachability probe. Never returns tokens or hashes. */
+export async function listPeerAccounts(deps: ListDeps = defaultListDeps): Promise<PeerAccountRow[]> {
+  const rows: PeerAccountRow[] = [];
+  for (const account of deps.listLocalAccounts()) {
+    const peer = await deps.readPeer(account.id);
+    if (!peer) continue;
+    rows.push({
+      id: account.id,
+      label: account.label,
+      peerUrl: peer.peerUrl,
+      providers: account.providers.filter((provider) => peer.providers.includes(provider)),
+      online: await deps.probe(peer.peerUrl, peer.token),
+    });
+  }
+  return rows;
 }
