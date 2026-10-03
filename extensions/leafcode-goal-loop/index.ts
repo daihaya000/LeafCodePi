@@ -701,9 +701,11 @@ function writeLoop(loop: GoalLoop): boolean {
             return false;
           }
         }
-        // 25+50+75+100ms = 250ms total before the overwrite fallback.
-        // writeLoopは同期API。CPUを回さず（Atomics.wait）最大250msまで待つ。
-        Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 25 * (attempt + 1));
+        // 10+10+15+15 = 50ms total before the overwrite fallback.
+        // writeLoopは同期APIなのでイベントループを止めないようCPUだけ休ませる。
+        // OneDrive等の短いロックはここで吸収し、それより長い競合は下の確実な上書き
+        // フォールバックが処理する。
+        Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 10 + 5 * attempt);
       }
     }
   } catch (error) {

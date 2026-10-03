@@ -1285,6 +1285,56 @@ test("writeLoop retries transient rename failures and cleans temp on fallback", 
   }
 });
 
+test("writeLoop gives up on a long-held lock in well under 250ms", () => {
+  const cwd = mkdtempSync(join(tmpdir(), "leafcode-goal-loop-wait-"));
+  process.env.LEAFCODE_PI_DATA_DIR = cwd;
+  const goalsDir = join(cwd, "goals-loop");
+  const loop = {
+    id: "wait-session",
+    sessionId: "wait-session",
+    cwd,
+    status: "queued",
+    goal: "demo",
+    acceptance: [],
+    maxTurns: 1,
+    cooldownSeconds: 0,
+    nextTurnAt: null,
+    forceFullRun: true,
+    turnCount: 0,
+    turnKind: "goal",
+    pauseReason: "",
+    error: "",
+    progress: [],
+    summary: "",
+    evidence: "",
+    blockedReason: "",
+    rejectedClaims: 0,
+    unreadableStreak: 0,
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+  };
+
+  try {
+    // A lock that never clears still falls back to a plain overwrite, but the
+    // retries must not stall the event loop for the old 250ms budget.
+    goalLoopTestSeams.setRenameSync(() => {
+      const err = new Error("held");
+      err.code = "EBUSY";
+      throw err;
+    });
+    const started = Date.now();
+    applyResult(loop, { time: new Date().toISOString(), status: "progress", summary: "fast fallback" });
+    const elapsed = Date.now() - started;
+
+    assert.ok(elapsed < 200, `writeLoop blocked the loop for ${elapsed}ms`);
+    assert.equal(JSON.parse(readFileSync(join(goalsDir, "wait-session.json"), "utf8")).summary, "fast fallback");
+    assert.equal(readdirSync(goalsDir).some((name) => name.endsWith(".tmp")), false);
+  } finally {
+    goalLoopTestSeams.setRenameSync();
+    rmSync(cwd, { recursive: true, force: true });
+  }
+});
+
 test("successful writeLoop removes orphan temp snapshots for the same state file", () => {
   const cwd = mkdtempSync(join(tmpdir(), "leafcode-goal-loop-orphan-tmp-"));
   process.env.LEAFCODE_PI_DATA_DIR = cwd;
