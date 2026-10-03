@@ -1504,7 +1504,7 @@ describe("integrated session routing", () => {
     expect(JSON.parse(readFileSync(taskRuntimeLeasePath(task.id), "utf8")).token).toBe("other-worker");
   });
 
-  it("suppresses a Bash transcript append after lease ownership changes", async () => {
+  it("suppresses session message appends after lease ownership changes", async () => {
     const dir = mkdtempSync(join(tmpdir(), "leafcode-pi-bash-lease-write-"));
     tempDirs.push(dir);
     process.env.LEAFCODE_PI_DATA_DIR = dir;
@@ -1541,9 +1541,14 @@ describe("integrated session routing", () => {
     expect(history.slice(before)).toHaveLength(1);
     mkdirSync(dirname(taskRuntimeLeasePath(task.id)), { recursive: true });
     writeFileSync(taskRuntimeLeasePath(task.id), JSON.stringify({ token: "other-worker", pid: process.pid, acquiredAt: Date.now(), heartbeatAt: Date.now() }), "utf8");
+    const assistantAppend = live.session.sessionManager.appendMessage({
+      role: "assistant",
+      content: [{ type: "text", text: "late result" }],
+    });
     const appendResult = live.session.sessionManager.appendMessage(bashResult);
     await waitFor(() => sessionEntry.disposed);
 
+    expect(assistantAppend).toBe("");
     expect(appendResult).toBe("");
     expect(history.slice(before)).toHaveLength(1);
     expect(sessionEntry.events).toContain("abort-requested");
