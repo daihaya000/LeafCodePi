@@ -100,3 +100,50 @@ describe("searchLeafCodeMemory", () => {
     expect(contents).toContain("later deployment note");
   });
 });
+
+describe("searchLeafCodeMemory FTS", () => {
+  function seedWithFts(): void {
+    const memoryDir = join(agentDir, "leafcode-memory");
+    mkdirSync(memoryDir, { recursive: true });
+    const database = new Database(join(memoryDir, "sessions.db"));
+    database.exec(`
+      CREATE TABLE memories (
+        id INTEGER PRIMARY KEY,
+        project TEXT,
+        target TEXT NOT NULL,
+        category TEXT,
+        content TEXT NOT NULL,
+        created TEXT NOT NULL,
+        last_referenced TEXT NOT NULL
+      );
+      CREATE VIRTUAL TABLE memory_fts USING fts5(content, content='memories', content_rowid='id', tokenize='trigram');
+    `);
+    const insert = database.prepare(
+      "INSERT INTO memories (project, target, category, content, created, last_referenced) VALUES (?, ?, ?, ?, ?, ?)",
+    );
+    insert.run(null, "memory", "convention", "deployment convention", "2026-01-01", "2026-01-01");
+    insert.run("demo", "failure", "failure", "deployment failed despite the convention", "2026-02-01", "2026-02-01");
+    insert.run(null, "memory", null, "CPU 50% threshold", "2026-03-01", "2026-03-01");
+    database.exec("INSERT INTO memory_fts(memory_fts) VALUES ('rebuild')");
+    database.close();
+  }
+
+  it("returns the same rows through the FTS index when one exists", () => {
+    seedWithFts();
+    const results = searchLeafCodeMemory("deployment convention", env);
+
+    expect(results.length).toBeGreaterThan(0);
+    expect(results.map((entry) => entry.content)).toContain("deployment convention");
+  });
+
+  it("falls back to LIKE for a query too short for a trigram", () => {
+    seedWithFts();
+    // Two characters cannot form a trigram, so the LIKE path must answer this.
+    expect(searchLeafCodeMemory("CPU", env).map((entry) => entry.content)).toEqual(["CPU 50% threshold"]);
+  });
+
+  it("falls back to LIKE when the database has no FTS table", () => {
+    seedMemories();
+    expect(searchLeafCodeMemory("deployment convention", env).length).toBeGreaterThan(0);
+  });
+});

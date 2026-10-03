@@ -18,6 +18,62 @@ type MemoryRow = {
   last_referenced: string;
 };
 
+type MemorySearchEntryDto = MemorySearchEntry;
+
+/** Trigram tokens need three characters to match, so shorter queries stay on LIKE. */
+const MIN_FTS_TERM_LENGTH = 3;
+
+function toMemoryEntry(row: MemoryRow): MemorySearchEntryDto {
+  return {
+    project: row.project,
+    target: row.target,
+    category: row.category,
+    content: row.content,
+    created: row.created,
+    lastReferenced: row.last_referenced,
+  };
+}
+
+function hasMemoryFts(database: Database.Database): boolean {
+  try {
+    return Boolean(
+      database
+        .prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'memory_fts'")
+        .get(),
+    );
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * FTS-backed search: rows come back ranked by match count, so no full-table scan.
+ * Returns null when the query cannot be expressed safely so the caller falls back.
+ */
+function searchWithFts(
+  database: Database.Database,
+  normalized: string,
+  terms: readonly string[],
+): MemoryRow[] | null {
+  const tokens = terms.filter((term) => term.length >= MIN_FTS_TERM_LENGTH);
+  if (tokens.length === 0) return null;
+  try {
+    return database
+      .prepare(
+        `SELECT m.project, m.target, m.category, m.content, m.created, m.last_referenced
+         FROM memory_fts f
+         JOIN memories m ON m.id = f.rowid
+         WHERE memory_fts MATCH ?
+         ORDER BY bm25(memory_fts), m.last_referenced DESC
+         LIMIT ?`,
+      )
+      .all(`"${tokens.map((token) => token.replaceAll('"', '""')).join('" OR "')}"`, MAX_RESULTS) as MemoryRow[];
+  } catch {
+    // A malformed MATCH expression must not break the search.
+    return null;
+  }
+}
+
 /**
  * Read-only handles are cached per database file. Every search used to reopen the
  * SQLite file, which re-reads the schema and page cache on each call. The handle is
@@ -97,6 +153,14 @@ export function searchLeafCodeMemory(
       "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'memories'",
     ).get();
     if (!hasTable) return [];
+
+    // memory_fts (fts5/trigram) already mirrors memories, so the substring scan can
+    // use it instead of evaluating LIKE over every row. Fall back to LIKE when the
+    // index is missing (older database) or a query is too short for a trigram.
+    if (terms.length > 0 && normalized.length >= MIN_FTS_TERM_LENGTH && hasMemoryFts(database)) {
+      const ftsRows = searchWithFts(database, normalized, terms);
+      if (ftsRows) return ftsRows.map(toMemoryEntry);
+    }
 
     // ponytail: a bounded LIKE scan keeps literal queries predictable; switch to the extension's FTS pipeline only if user-search latency becomes measurable.
     const matches = terms.map(() => "m.content LIKE ? ESCAPE '\\'").join(" OR ");
