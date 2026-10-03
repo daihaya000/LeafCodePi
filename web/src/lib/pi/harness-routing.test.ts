@@ -98,6 +98,11 @@ const fakePi = vi.hoisted(() => {
         history.push({ type: "branch_summary", branchFromId, summary });
         return `branch-summary-${history.length}`;
       },
+      createBranchedSession: (leafId: string) => {
+        if (leafId !== "lease-test") return undefined;
+        history.push({ type: "branched_session", leafId });
+        return `branched-session-${history.length}.jsonl`;
+      },
       history,
     };
   }
@@ -1839,6 +1844,54 @@ describe("integrated session routing", () => {
     expect(lostBranch).toBe("");
     expect(lostLabel).toBe("");
     expect(history).toHaveLength(beforeLostAppend);
+    expect(sessionEntry.events).toContain("abort-requested");
+    expect(harness.live.has(task.id)).toBe(false);
+    expect(getTask(task.id)?.status).toBe("working");
+    expect(JSON.parse(readFileSync(taskRuntimeLeasePath(task.id), "utf8")).token).toBe("other-worker");
+  });
+
+  it("suppresses branched session creation after lease ownership changes", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "leafcode-pi-branched-session-lease-"));
+    tempDirs.push(dir);
+    process.env.LEAFCODE_PI_DATA_DIR = dir;
+    process.env.PI_CODING_AGENT_DIR = join(dir, "agent");
+    __resetPiAgentDirCacheForTests();
+    installHarness(new Map());
+    const project = upsertProject({ name: "demo", rootPath: dir });
+    const task = await createTask({ projectId: project.id, prompt: "initial" });
+    const harness = (globalThis as Record<string, unknown>)[GLOBAL_KEY] as {
+      live: Map<string, {
+        promptChain: Promise<void>;
+        session: {
+          sessionManager: {
+            createBranchedSession: (leafId: string) => string | undefined;
+            history: unknown[];
+          };
+          abort?: () => Promise<void>;
+        };
+      }>;
+    };
+    const live = harness.live.get(task.id)!;
+    await live.promptChain;
+    const { acquireTaskLease, hasActiveTaskLease } = await import("@/lib/task-runtime-lease");
+    expect(hasActiveTaskLease(task.id)).toBe(false);
+    const history = live.session.sessionManager.history;
+    const idleCount = history.length;
+    expect(live.session.sessionManager.createBranchedSession("lease-test")).toBeTruthy();
+    expect(history).toHaveLength(idleCount + 1);
+    expect(acquireTaskLease(task.id)).toBe(true);
+    patchTask(task.id, { status: "working" });
+
+    const sessionEntry = fakePi.sessions.at(-1)!;
+    live.session.abort = async () => { sessionEntry.events.push("abort-requested"); };
+    mkdirSync(dirname(taskRuntimeLeasePath(task.id)), { recursive: true });
+    writeFileSync(taskRuntimeLeasePath(task.id), JSON.stringify({ token: "other-worker", pid: process.pid, acquiredAt: Date.now(), heartbeatAt: Date.now() }), "utf8");
+    const beforeLostBranch = history.length;
+    const lostBranch = live.session.sessionManager.createBranchedSession("lease-test");
+    await waitFor(() => sessionEntry.disposed);
+
+    expect(lostBranch).toBeUndefined();
+    expect(history).toHaveLength(beforeLostBranch);
     expect(sessionEntry.events).toContain("abort-requested");
     expect(harness.live.has(task.id)).toBe(false);
     expect(getTask(task.id)?.status).toBe("working");

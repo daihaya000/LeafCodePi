@@ -2607,6 +2607,19 @@ async function attachSession(
     }
     return branchWithSummary(...args);
   };
+  const createBranchedSession = session.sessionManager.createBranchedSession.bind(
+    session.sessionManager,
+  );
+  session.sessionManager.createBranchedSession = (...args) => {
+    if (live.leaseLost) return undefined;
+    const leaseRequired =
+      live.promptActive || session.isStreaming || hasActiveTaskLease(taskId);
+    if (leaseRequired && !ownsTaskLease(taskId)) {
+      abortTaskSessionsAfterLeaseLoss([taskId]);
+      return undefined;
+    }
+    return createBranchedSession(...args);
+  };
 
   const unsubscribe = session.subscribe((event) => {
     if (live.leaseLost) return;
