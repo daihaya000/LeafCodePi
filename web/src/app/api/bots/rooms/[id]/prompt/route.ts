@@ -26,6 +26,6 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     }
     return NextResponse.json(forwarded.result.body, { status: forwarded.result.status });
   }
-  const result = await handleRoomPrompt(id, body);
+  const result = await handleRoomPrompt(id, body, { signal: req.signal });
   return NextResponse.json(result.body, { status: result.status });
 }

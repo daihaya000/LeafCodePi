@@ -407,7 +407,7 @@ export function reconcileRoomRuntime(): void {
 }
 
 type Resume = { startTurn: number; maxTurns: number; nextBotId: string };
-export async function runRoomConversation(room: RoomDto, bots: BotDto[], prompt: string, userMessageId: string, resume?: Resume) {
+export async function runRoomConversation(room: RoomDto, bots: BotDto[], prompt: string, userMessageId: string, resume?: Resume, signal?: AbortSignal) {
   const maxTurns = Math.min(MAX_ROOM_CONVERSATION_TURNS, resume?.maxTurns ?? bots.length * 2);
   const prior = room.messages.filter((message) => message.conversation?.requestId === userMessageId && message.status === "done");
   const spoken = new Set(prior.flatMap((message) => message.botId ? [message.botId] : []));
@@ -422,7 +422,7 @@ export async function runRoomConversation(room: RoomDto, bots: BotDto[], prompt:
   let openerReason: RoomOpenerReason | undefined;
   let nextBotId = resume?.nextBotId;
   if (!nextBotId) {
-    const opener = await resolveRoomOpener({ prompt, bots });
+    const opener = await resolveRoomOpener({ prompt, bots, signal });
     if (opener) {
       nextBotId = opener.bot.id;
       openerReason = opener.reason;

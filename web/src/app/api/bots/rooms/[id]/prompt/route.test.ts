@@ -315,6 +315,18 @@ describe("room mention responses", () => {
     await vi.waitFor(() => expect(getRoom(room.id)?.messages.some((message) => message.status === "done")).toBe(true));
   });
 
+  it("propagates the request signal into the opener LLM call", async () => {
+    const { room, bots } = setup(["Designer", "Planner"]);
+    state.resolveRoomOpener.mockImplementationOnce(async (options: { signal?: AbortSignal }) => ({
+      bot: bots[1],
+      reason: "llm" as const,
+      // The route must hand its own AbortSignal down so a cancelled send stops the call.
+      seenSignal: options.signal,
+    }) as never);
+    await send(room.id, "残作業も進めて");
+    await vi.waitFor(() => expect(state.resolveRoomOpener).toHaveBeenCalled());
+    expect((state.resolveRoomOpener.mock.calls[0]?.[0] as { signal?: AbortSignal }).signal).toBeInstanceOf(AbortSignal);
+  });
   it("falls back to discuss rotate when LLM opener fails", async () => {
     const { room, bots, taskIds } = setup(["Designer", "Planner"]);
     rooms.appendRoomMessage(room.id, { role: "assistant", botId: bots[0].id, botName: bots[0].name, text: "前回", status: "done" });

@@ -22,7 +22,7 @@ export type RoomPromptResult = { status: number; body: unknown };
  * appending turns, consuming the relay envelope, steering and starting sessions are owner work, so
  * after the cutover the WebUI forwards the same body and replays the owner's answer unchanged.
  */
-export async function handleRoomPrompt(roomId: string, body: RoomPromptBody | null): Promise<RoomPromptResult> {
+export async function handleRoomPrompt(roomId: string, body: RoomPromptBody | null, options: { signal?: AbortSignal } = {}): Promise<RoomPromptResult> {
   try {
     const id = roomId;
     const room = getRoom(id);
@@ -98,7 +98,7 @@ export async function handleRoomPrompt(roomId: string, body: RoomPromptBody | nu
         routed = botsForRoomPrompt(room, prompt, true);
       } else {
         const members = [...botsForRoomPrompt(room, prompt, true).bots].sort((a, b) => room.members.indexOf(a.id) - room.members.indexOf(b.id));
-        const opener = await resolveRoomOpener({ prompt, bots: members });
+        const opener = await resolveRoomOpener({ prompt, bots: members, signal: options.signal });
         if (opener) {
           routed = { bots: [opener.bot], broadcast: false };
           singleOpenerReason = opener.reason;
@@ -108,7 +108,7 @@ export async function handleRoomPrompt(roomId: string, body: RoomPromptBody | nu
     const pending = routed.bots.filter((bot) => !steered.has(bot.id));
     if (conversation && pending.length > 1) {
       const participants = [...pending].sort((a, b) => room.members.indexOf(a.id) - room.members.indexOf(b.id)).slice(0, MAX_ROOM_CONVERSATION_PARTICIPANTS);
-      void runRoomConversation(room, participants, prompt, userMessage.id).catch(() => console.error("Room conversation failed"));
+      void runRoomConversation(room, participants, prompt, userMessage.id, undefined, options.signal).catch(() => console.error("Room conversation failed"));
       return { status: 200, body: { room: getRoom(id), routedBotIds: participants.map((bot) => bot.id), steeredBotIds: [...steered], broadcast: routed.broadcast } };
     }
     const responses = pending.map((bot, index) => appendRoomMessage(id, {
