@@ -116,7 +116,7 @@
 | 中 **[一部修正 2026-10-04: server root + preferredId ごとに in-flight load を1件に共有し、後続呼び出しは自分の load を始めず同じ結果を待つ。単一呼び出しの最大180秒待ち自体は残る]** | `web/src/lib/llama-server-load.ts`（~16, 69–87）、`web/src/app/api/llama-server/ensure-loaded/route.ts` | `POST /api/llama-server/ensure-loaded` がモデル load 待ちで最大約 180 秒ブロック。Next BFF ワーカーを長時間占有しうる。 |
 | 中 **[一部修正 2026-10-04: outbox を inode+size+mtime でメモ化し、未変更レコードを poll ごとの readFileSync から除外（save は temp+rename で inode も変わるため再読込は確実）。readdirSync と statSync は残る]** | `web/src/lib/pi/bot-code-relay.ts`（`requests` ~292–297、`codeTasksForOrigin` ~687–689） | Room SSE 相当で 2 秒ごとにメンバー数ぶん outbox 全 JSON を `readdir` + `readFileSync`。リレー tick / idle reaper でも同様。 |
 | 中 | `web/src/lib/pi/messages.ts` (~183–195) | UI 射影が画像 base64 を data URL のまま保持。長い画像セッションの snapshot／SSE が肥大。 |
-| 中 **[一部修正 2026-10-03: GPU 皆無の環境は2回空だったら30秒間スキップ。CPU 温度の PowerShell 再起動は未対応]** | `web/src/lib/sysmon-usage.ts` (~141–147, 625–628) | GPU 空なら `nvidia-smi` と PowerShell を即再起動。CPU 温度はキャッシュミス（~3s）ごとに `Add-Type` 付き PowerShell。 |
+| 中 **[一部修正 2026-10-04: GPU 皆無の環境は2回空だったら30秒間スキップ。CPU 温度も独立したTTL（既定30秒、LEAFCODE_SYSMON_TEMPERATURE_CACHE_MS で上書き可）と single-flight でキャッシュし、Add-Type 付き PowerShell の再起動を削減。失敗（null）は pin しない]** | `web/src/lib/sysmon-usage.ts` (~141–147, 625–628) | GPU 空なら `nvidia-smi` と PowerShell を即再起動。CPU 温度はキャッシュミス（~3s）ごとに `Add-Type` 付き PowerShell。 |
 
 ---
 

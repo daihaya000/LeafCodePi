@@ -153,6 +153,47 @@ async function collectCpuTemperatureWindows(): Promise<number | null> {
 
 async function collectCpuTemperature(): Promise<number | null> {
   if (process.env.LEAFCODE_SYSMON_THERMAL === "0") return null;
+  // The Windows probe compiles a PowerShell class (`Add-Type`) per spawn, which
+  // costs seconds on a cache miss. Temperature moves slowly, so it gets its own
+  // longer TTL and a single-flight instead of re-running on every usage cache miss.
+  const now = Date.now();
+  const cached = cpuTemperatureCache;
+  if (cached && now - cached.at < cpuTemperatureTtlMs()) return cached.value;
+  if (cpuTemperatureInflight) return cpuTemperatureInflight;
+  const started = collectCpuTemperatureOnce();
+  cpuTemperatureInflight = started;
+  try {
+    const value = await started;
+    // A failed probe must not pin a null for the whole TTL.
+    if (value !== null) cpuTemperatureCache = { value, at: Date.now() };
+    return value;
+  } finally {
+    if (cpuTemperatureInflight === started) cpuTemperatureInflight = null;
+  }
+}
+
+const CPU_TEMPERATURE_CACHE_DEFAULT_MS = 30_000;
+
+function cpuTemperatureTtlMs(): number {
+  const raw = Number(process.env.LEAFCODE_SYSMON_TEMPERATURE_CACHE_MS);
+  return Number.isFinite(raw) && raw >= 0 ? raw : CPU_TEMPERATURE_CACHE_DEFAULT_MS;
+}
+
+let cpuTemperatureCache: { value: number; at: number } | null = null;
+let cpuTemperatureInflight: Promise<number | null> | null = null;
+let cpuTemperatureProbeForTests: (() => Promise<number | null>) | null = null;
+
+/** Test helper — replace the platform probe so no real PowerShell spawn is needed. */
+export function setCpuTemperatureProbeForTests(probe: (() => Promise<number | null>) | null): void {
+  cpuTemperatureProbeForTests = probe;
+}
+
+async function collectCpuTemperatureOnce(): Promise<number | null> {
+  const probe = cpuTemperatureProbeForTests ?? collectCpuTemperaturePlatform;
+  return probe();
+}
+
+async function collectCpuTemperaturePlatform(): Promise<number | null> {
   if (process.platform === "win32") return collectCpuTemperatureWindows();
   if (process.platform === "linux") {
     try {
@@ -702,6 +743,8 @@ let usageInflight: Promise<SystemUsage> | null = null;
 export function resetSystemUsageCacheForTests(): void {
   usageCache = null;
   usageInflight = null;
+  cpuTemperatureCache = null;
+  cpuTemperatureInflight = null;
 }
 
 export async function collectSystemUsageCached(): Promise<SystemUsage> {
