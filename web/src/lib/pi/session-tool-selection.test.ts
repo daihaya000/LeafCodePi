@@ -7,15 +7,18 @@ import {
   createAgentSession,
   createCodemodeExtension,
   DefaultResourceLoader,
+  ModelRuntime,
   SessionManager,
   SettingsManager,
   type AgentSession,
   type ExtensionAPI,
 } from "@earendil-works/pi-coding-agent";
+import { fauxAssistantMessage, fauxProvider, fauxToolCall } from "@earendil-works/pi-ai";
 import { sessionToolSelection } from "./session-tool-selection";
 
 let dir = "";
 let session: AgentSession | undefined;
+let driver: ReturnType<typeof fauxProvider>;
 afterEach(() => {
   session?.dispose();
   session = undefined;
@@ -48,17 +51,17 @@ async function create(selection: ReturnType<typeof sessionToolSelection> | ((reg
   await resourceLoader.reload();
   const registered = resourceLoader.getExtensions().extensions.flatMap((extension) => [...extension.tools.keys()]);
   const picked = typeof selection === "function" ? selection(registered) : selection;
-  const model = {
-    id: "fixture", name: "Fixture", provider: "openai", api: "openai-completions", baseUrl: "https://example.invalid",
-    reasoning: false, input: ["text"], cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
-    contextWindow: 128000, maxTokens: 1024,
-  } as never;
+  driver = fauxProvider();
+  const modelRuntime = await ModelRuntime.create({ authPath: join(dir, "auth.json"), modelsPath: null, refreshOnCreate: false });
+  modelRuntime.registerNativeProvider(driver.provider);
   const created = await createAgentSession({
-    cwd: dir, agentDir: dir, model, resourceLoader, settingsManager, sessionManager: SessionManager.inMemory(dir),
+    cwd: dir, agentDir: dir, model: driver.getModel(), modelRuntime, resourceLoader, settingsManager, sessionManager: SessionManager.inMemory(dir),
     ...("tools" in picked ? { tools: picked.tools } : { excludeTools: picked.excludeTools }),
   });
   session = created.session;
-  if ("initialActive" in picked) session.setActiveToolsByName(picked.initialActive);
+  if ("initialActive" in picked) session.setActiveToolsByName(picked.preserveActive
+    ? [...new Set([...session.getActiveToolNames(), ...picked.initialActive])]
+    : picked.initialActive);
   // Like the harness: an error listener makes reload() emit session_start again.
   await session.bindExtensions({ onError: () => undefined });
   return session;
@@ -67,6 +70,12 @@ async function create(selection: ReturnType<typeof sessionToolSelection> | ((reg
 describe("sessionToolSelection", () => {
   it("keeps the SDK allowlist when native MCP is not in use", () => {
     assert.deepEqual(sessionToolSelection({ tools: ["read", "x"], dynamicMcpTools: false, registered: ["y"] }), { tools: ["read", "x"] });
+  });
+
+  it("default uses no registry snapshot or exclusion, even without native MCP", () => {
+    assert.deepEqual(sessionToolSelection({ tools: ["read", "codemode"], allTools: true, dynamicMcpTools: false, registered: ["future"] }), {
+      excludeTools: [], initialActive: ["read", "codemode"], preserveActive: true,
+    });
   });
 
   it("excludes only known tools that are not wanted and never codemode", () => {
@@ -83,11 +92,36 @@ describe("harness wiring", () => {
     const source = readFileSync(new URL("./harness.ts", import.meta.url), "utf8");
     assert.equal(source.includes("nativeMcp.active && !agentOptions?.tools && !options.botTools"), true);
     assert.equal(source.includes("{ excludeTools: toolSelection.excludeTools }"), true);
-    assert.equal(source.includes("setActiveToolsByName(toolSelection.initialActive)"), true);
+    assert.equal(source.includes("const allTools = options.agentName?.trim() === DEFAULT_AGENT && !botToolAllowlist"), true);
+    assert.equal(source.includes("...result.session.getActiveToolNames(), ...toolSelection.initialActive"), true);
   });
 });
 
 describe("real SDK session", () => {
+  it.each([false, true])("default can call unlisted and late tools and keeps them across reload (native=%s)", async (dynamicMcpTools) => {
+    const created = await create((registered) => sessionToolSelection({
+      tools: ["read", "listed", "codemode", "grep", "find", "ls"], allTools: true, dynamicMcpTools, registered,
+    }));
+    for (const reload of [false, true]) {
+      if (reload) await created.reload();
+      assert.ok(created.getActiveToolNames().includes("unlisted"), "new direct extension stays active");
+      assert.ok(created.getCallableToolNames().includes("mcp__fixture__echo"), "late deferred tool is callable");
+      assert.ok(created.getCallableToolNames().includes("grep"));
+      driver.setResponses([
+        fauxAssistantMessage([fauxToolCall("codemode", { code: 'return await Promise.all([tools.unlisted({}), tools.mcp__fixture__echo({})]);' })], { stopReason: "toolUse" }),
+        fauxAssistantMessage("done"),
+      ]);
+      await created.prompt("Call the extension tools");
+      const result = [...created.messages].reverse().find((message) => message.role === "toolResult" && message.toolName === "codemode");
+      assert.ok(result && result.role === "toolResult");
+      assert.equal(result.isError, false);
+      const text = result.content.filter((part) => part.type === "text").map((part) => part.text).join("\n");
+      assert.match(text, /Script completed/);
+      assert.match(text, /unlisted/);
+      assert.match(text, /mcp__fixture__echo/);
+    }
+  }, 30_000);
+
   it("a hard allowlist hides codemode and later-registered MCP tools", async () => {
     const created = await create({ tools: ["read", "listed"] });
     assert.deepEqual(created.getAllTools().map((tool) => tool.name).sort(), ["listed", "read"]);

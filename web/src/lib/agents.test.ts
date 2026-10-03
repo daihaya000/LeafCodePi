@@ -112,6 +112,35 @@ describe("listAgents / setAgentEnabled", () => {
     assert.equal(JSON.parse(readFileSync(settingsPath, "utf8")).subagents, undefined);
   });
 
+  it.each([false, ["read"], "inherit"])("default always inherits all tools despite legacy override %j", (tools) => {
+    fixture();
+    writeFileSync(join(agentDir, "agents", "default.md"), agentNamed("default"), "utf8");
+    const settingsPath = join(agentDir, "settings.json");
+    writeFileSync(settingsPath, JSON.stringify({
+      packages: ["npm:pi-subagents"],
+      subagents: { agentOverrides: { default: { tools, model: "openai/test" } } },
+    }), "utf8");
+    const before = readFileSync(settingsPath, "utf8");
+    const definition = loadAgentDefinition("default", agentDir)!;
+    assert.equal(definition.tools, undefined);
+    assert.equal("tools" in buildAgentResourceOptions(definition), false);
+    assert.equal(listAgents(agentDir).agents.find((agent) => agent.name === "default")?.model, "openai/test");
+    assert.throws(() => setAgentTools("default", ["read"], agentDir),
+      (error: unknown) => error instanceof AgentsError && agentsErrorStatus(error) === 403);
+    assert.equal(readFileSync(settingsPath, "utf8"), before, "discovery must not mutate shared settings");
+  });
+
+  it("bundled default ignores an old settings tool snapshot without affecting other agents", () => {
+    fixture();
+    writeFileSync(join(agentDir, "settings.json"), JSON.stringify({
+      packages: [], subagents: { agentOverrides: { default: { tools: ["read"] }, researcher: { disabled: false } } },
+    }), "utf8");
+    const definition = loadAgentDefinition("default", agentDir);
+    assert.ok(definition);
+    assert.equal(definition.tools, undefined);
+    assert.deepEqual(loadAgentDefinition("researcher", agentDir)?.tools, ["read", "grep", "find", "ls"]);
+  });
+
   it("keeps unrelated settings keys when writing an agent override", () => {
     fixture();
     const settingsPath = join(agentDir, "settings.json");

@@ -299,11 +299,15 @@ export function listAgents(agentDir = resolvePiAgentDir()): AgentListResult {
           : rawOverrideTools === false
             ? []
             : undefined;
-        const tools = source === "user"
-          ? entry.tools
-          : rawOverrideTools === "inherit"
-            ? undefined
-            : overrideTools ?? entry.tools;
+        // default is the full-capability persona: inherit the live registry, never a stale snapshot.
+        // Ignore legacy tools overrides/frontmatter; other agents retain their explicit allowlists.
+        const tools = entry.name === DEFAULT_AGENT
+          ? undefined
+          : source === "user"
+            ? entry.tools
+            : rawOverrideTools === "inherit"
+              ? undefined
+              : overrideTools ?? entry.tools;
         byName.set(entry.name, {
           id: entry.name,
           name: entry.name,
@@ -463,6 +467,9 @@ export function setAgentTools(
   agentDir = resolvePiAgentDir(),
 ): AgentListResult {
   const { name: trimmed, agent } = assertListedAgent(name, agentDir);
+  if (trimmed === DEFAULT_AGENT) {
+    throw new AgentsError("readonly", "default エージェントは常に全ツールを継承します");
+  }
   const normalized = [...new Set(tools.map((tool) => tool.trim()).filter(Boolean))];
   if (agent.source === "user") {
     const { draft } = readUserAgent(trimmed, agentDir);

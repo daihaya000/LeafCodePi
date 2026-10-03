@@ -6,8 +6,14 @@
   `defaultTools` 設定は不要。新規・再開・reload は共通のセッション作成経路で適用する。
 - `mode: "on"` で通常ツールと併用し、`models: false` でスクリプトからのモデル実行は無効。
   native MCP 有効時はその codemode を使用し、二重登録しない。MCP 自体の有効化方針は変更しない。
-- Bot・ツール許可リスト付きエージェントへは暗黙に追加しない。スクリプト内の呼び出しにも
-  既存の ToDo・権限ゲートを適用する。有効化は全操作をスクリプトに強制する意味ではない。
+- `default` は全ツールを動的に継承する。古い `default.tools` の設定・frontmatter は無視し、
+  SDK の固定許可リストも使わない。登録済み・後から追加される拡張/MCP ツールを使える。
+  新規・再開・reload で適用し、通常宣言された拡張ツールの初期有効状態も保持する。
+- Bot と `default` 以外のツール許可リスト付きエージェントには暗黙に追加しない。
+  無効化した拡張・接続していない MCP・Bot 専用ツールは別スコープのため対象外。
+  既存の subagent 許可・ToDo・権限ゲートは維持する。全操作のスクリプト強制ではない。
+- `tool_search` は native MCP が未有効でも SDK 検索へ委譲し、遅延公開された拡張ツールを検索できる。
+  `default` のツール制限変更 API は拒否し、他のエージェントを制限付き用途に使う。
 - 回帰検証: `codemode-default-sdk.test.ts`、`mcp-native-session.test.ts`、
   `codemode-gate-sdk.test.ts`、`codemode-permission-sdk.test.ts`。
 

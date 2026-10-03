@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterEach, describe, it, vi } from "vitest";
-import { createCodemodeExtension, DefaultResourceLoader, SettingsManager } from "@earendil-works/pi-coding-agent";
+import { createCodemodeExtension, createToolSearchExtension, DefaultResourceLoader, SettingsManager } from "@earendil-works/pi-coding-agent";
 import { createBackendMcpNativeRuntime } from "@backend-core/mcp-native-runtime.mjs";
 import { bundledPathsForNativeMcp, nativeMcpExtensionFactory, resolveBackendMcpNativeSession, setBackendMcpNativeSessionProvider } from "@backend-core/mcp-native-session.mjs";
 import { replacedUpstreamPackages } from "@backend-core/replaced-packages.mjs";
@@ -45,7 +45,10 @@ async function loadWith(active: boolean) {
     cwd: agentDir, agentDir,
     settingsManager: SettingsManager.inMemory({ packages: [] }),
     additionalExtensionPaths: loadedBundled.map((entry) => entry.filePath),
-    extensionFactories: [nativeMcpExtensionFactory(agentDir, createCodemodeExtension({ mode: "on", models: false }))],
+    extensionFactories: [nativeMcpExtensionFactory(agentDir, (api) => {
+      createCodemodeExtension({ mode: "on", models: false })(api);
+      createToolSearchExtension()(api);
+    })],
     extensionsOverride: sessionExtensionsOverride(index),
     noSkills: true, noPromptTemplates: true, noThemes: true, noContextFiles: true,
   });
@@ -60,6 +63,7 @@ describe("native MCP session selection", () => {
     assert.deepEqual(loaded.errors, []);
     assert.equal(loaded.extensions.some((extension) => basenameKey(extension.path) === "leafcode-mcp-adapter"), false);
     assert.equal(loaded.extensions.filter((extension) => extension.tools.has("codemode")).length, 1);
+    assert.equal(loaded.extensions.filter((extension) => extension.tools.has("tool_search")).length, 1);
   }, 30_000);
 
   it("loads native MCP/codemode/tool_search and keeps the retired MCP extensions out", async () => {
@@ -72,7 +76,8 @@ describe("native MCP session selection", () => {
     assert.equal(loaded.extensions.some((extension) => extension.tools.has("tool_search")), true);
     // The harness must resolve the provider per loader run (and per reload), not capture its factories.
     const harnessSource = readFileSync(new URL("./harness.ts", import.meta.url), "utf8");
-    assert.match(harnessSource, /nativeMcpExtensionFactory\(\s*options\.cwd, \(api\) => pi\.createCodemodeExtension\(\{ mode: "on", models: false \}\)\(api\)/);
+    assert.match(harnessSource, /nativeMcpExtensionFactory\(\s*options\.cwd, \(api\) => \{\s*pi\.createCodemodeExtension\(\{ mode: "on", models: false \}\)\(api\)/);
+    assert.ok(harnessSource.includes("pi.createToolSearchExtension()(api)"));
     assert.equal(harnessSource.includes("...nativeMcp.factories"), false);
   }, 30_000);
 });

@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { resolve } from "node:path";
 import { describe, it, vi } from "vitest";
-import { isReplacedPackageSource, keepsLoadedExtension, replacedUpstreamPackages, sessionExtensionsOverride, sessionToolNames } from "./harness";
+import { isReplacedPackageSource, keepsLoadedExtension, replacedUpstreamPackages, sessionExtensionFactories, sessionExtensionsOverride, sessionToolNames } from "./harness";
 import { COMPUTER_USE_TOOL_NAMES } from "./deferred-tools";
 
 describe("sessionToolNames", () => {
@@ -63,6 +63,33 @@ describe("sessionToolNames", () => {
     assert.ok(botTools.includes("code_session"));
     assert.ok(botTools.includes("room_handoff"));
     assert.equal(new Set(botTools).size, botTools.length);
+  });
+});
+
+describe("default tool reload policy", () => {
+  it("keeps a denied subagent disabled across reload without dropping a new tool", () => {
+    let active = ["read", "subagent"];
+    const handlers = new Map<string, () => void>();
+    const api = {
+      on: (name: string, handler: () => void) => { handlers.set(name, handler); },
+      getActiveTools: () => active,
+      setActiveTools: (tools: string[]) => { active = tools; },
+    } as never;
+    const factory = sessionExtensionFactories({ agentDir: "/fixture", hasBotSkills: false, allTools: true, getExtensions: () => [] })[0];
+    factory(api);
+    handlers.get("session_start")!();
+    assert.deepEqual(active, ["read", "subagent"]);
+    active = ["read"]; // An explicit permission update after initial binding.
+    handlers.get("session_shutdown")!();
+    active = ["read", "subagent", "future_tool"]; // SDK reload activates extension defaults.
+    factory(api);
+    handlers.get("session_start")!();
+    assert.deepEqual(active, ["read", "future_tool"]);
+    active.push("subagent"); // Re-enabling the permission is also preserved.
+    handlers.get("session_shutdown")!();
+    factory(api);
+    handlers.get("session_start")!();
+    assert.ok(active.includes("subagent"));
   });
 });
 

@@ -21,6 +21,7 @@ import { dispatchGoalLoopCommand, isGoalLoopCommandApplied } from "@/lib/pi/goal
 import { notifyPushoverCompletion, shouldNotifyPushoverCompletion } from "@/lib/pushover";
 import { BOT_DEFAULT_TOOL_NAMES, BOT_TOOL_NAMES, botPromptSources, botRuntimeContext, botSoulRevision, botTaskId, getBot, listBots, patchBot } from "@/lib/bots";
 import { AGENTS_MD_FILENAME, codeOnDemandPrompt, codePromptSources, compactSdkDocumentation, readAgentsMdFile } from "@/lib/agents-md";
+import { DEFAULT_AGENT } from "@/lib/default-agent";
 import { BOT_CODE_RESULT, BOT_CODE_TOOL, botCodeReportText, createBotCodeRelay, hasBotCodeReport, isBotCodeOriginTask, isRoomDelegatedCodeTask, queueBotCodePrompt, roomForCodeOrigin, runUserBotCodeRequest, stopBotCodeRequestForTask, truncateCodeReportRequest, type CodePromptOptions, type CodeRequest } from "@/lib/pi/bot-code-relay";
 import { catalogFromRoomUserRequest, catalogFromSessionEntries } from "@/lib/pi/bot-code-images";
 import { roomRequestImages } from "@/lib/rooms";
@@ -3694,15 +3695,26 @@ export function sessionExtensionFactories(input: {
   agentToolAllowlist?: readonly string[];
   taskId?: string;
   hasBotSkills: boolean;
+  /** default has no hard allowlist; preserve an explicit subagent disable over SDK reload. */
+  allTools?: boolean;
   botCodeTaskId?: string;
   roomHandoffTaskId?: string;
-  /** Holds the SDK's `tool_search` when native MCP is active, so `tool_search` has one owner. */
+  /** Holds the SDK search (native MCP or standalone), so `tool_search` has one owner. */
   nativeToolSearch?: NativeToolSearch;
   getExtensions: () => ResourceExtensions;
 }): SessionExtensionFactory[] {
   const botSoulBotId = input.botSoulBotId;
+  let subagentActiveBeforeReload: boolean | undefined;
   return [
     (api) => {
+      if (input.allTools) {
+        api.on("session_shutdown", () => { subagentActiveBeforeReload = api.getActiveTools().includes("subagent"); });
+        api.on("session_start", () => {
+          if (subagentActiveBeforeReload === false) {
+            api.setActiveTools(api.getActiveTools().filter((name) => name !== "subagent"));
+          }
+        });
+      }
       api.on("before_agent_start", (event) => {
         // Discover at the next turn, so creating/deleting a reference does not
         // require a costly session reload. Never grant read permission here.
@@ -4010,6 +4022,7 @@ async function createSession(options: {
     ? buildAgentResourceOptions(agentDefinition)
     : undefined;
   const botToolAllowlist = options.botTools;
+  const allTools = options.agentName?.trim() === DEFAULT_AGENT && !botToolAllowlist;
   const nativeToolSearch: NativeToolSearch = {};
   let createdSession: AgentSession | undefined = undefined;
   const resourceLoader: ResourceLoader = new pi.DefaultResourceLoader({
@@ -4023,7 +4036,11 @@ async function createSession(options: {
     // Code always has codemode, even without native MCP. Use one owner per loader run, including
     // reloads; native MCP supplies its own instance. Strict agent/Bot tool allowlists still apply.
     extensionFactories: [captureNativeToolSearch(nativeMcpExtensionFactory(
-      options.cwd, (api) => pi.createCodemodeExtension({ mode: "on", models: false })(api),
+      options.cwd, (api) => {
+        pi.createCodemodeExtension({ mode: "on", models: false })(api);
+        // The shared search owner must also find deferred extension tools without native MCP.
+        pi.createToolSearchExtension()(api);
+      },
     ), nativeToolSearch), ...sessionExtensionFactories({
       nativeToolSearch,
       agentDir,
@@ -4033,6 +4050,7 @@ async function createSession(options: {
       agentToolAllowlist: agentOptions?.tools,
       taskId: options.taskId,
       hasBotSkills: Boolean(options.botSkills),
+      allTools,
       botCodeTaskId,
       roomHandoffTaskId,
       getExtensions: () => resourceLoader.getExtensions().extensions,
@@ -4082,6 +4100,7 @@ async function createSession(options: {
   const dynamicMcpTools = nativeMcp.active && !agentOptions?.tools && !options.botTools;
   const toolSelection = sessionToolSelection({
     tools,
+    allTools,
     dynamicMcpTools,
     registered: dynamicMcpTools
       ? resourceLoader.getExtensions().extensions.flatMap((extension) => [...extension.tools.keys()])
@@ -4111,8 +4130,12 @@ async function createSession(options: {
     agentSessionStartedAt,
   );
   createdSession = result.session;
-  // Without an allowlist the SDK starts from its own defaults; restore the intended loadout.
-  if ("initialActive" in toolSelection) result.session.setActiveToolsByName(toolSelection.initialActive);
+  // Restore the Code base loadout. default also retains newly registered extension defaults.
+  if ("initialActive" in toolSelection) {
+    result.session.setActiveToolsByName(toolSelection.preserveActive
+      ? [...new Set([...result.session.getActiveToolNames(), ...toolSelection.initialActive])]
+      : toolSelection.initialActive);
+  }
   const configureStartedAt = options.onTiming ? performance.now() : 0;
   await configureCreatedSession(result.session, {
     botTools: options.botTools,

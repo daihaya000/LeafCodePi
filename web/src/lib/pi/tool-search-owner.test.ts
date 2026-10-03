@@ -31,7 +31,7 @@ const stub = (name: string, description: string, exposure?: "deferred") => (api:
     execute: async () => ({ content: [{ type: "text", text: name }], details: {} }),
   });
 
-async function create(withNative: boolean) {
+async function create(withNative: boolean, allTools = false) {
   dir = mkdtempSync(join(tmpdir(), "leafcode-tool-search-"));
   const settingsManager = SettingsManager.inMemory({ packages: [], extensions: [] });
   const nativeToolSearch: NativeToolSearch = {};
@@ -42,13 +42,14 @@ async function create(withNative: boolean) {
       ...(withNative ? [captureNativeToolSearch(createToolSearchExtension(), nativeToolSearch)] : []),
       (api) => registerDeferredTools(api, undefined, withNative ? nativeToolSearch : undefined),
       stub("web_search", "Search the web"),
+      ...(allTools ? [stub("future_ledger", "Summarize ledger balances", "deferred")] : []),
       // Native MCP registers its tools after a server connects, not while loading.
       (api) => { api.on("session_start", () => stub("mcp__issues__list", "List open issues of a repository tracker", "deferred")(api)); },
     ],
   });
   await resourceLoader.reload();
   const registered = resourceLoader.getExtensions().extensions.flatMap((extension) => [...extension.tools.keys()]);
-  const picked = sessionToolSelection({ tools: ["read", "tool_search", "web_search"], dynamicMcpTools: true, registered });
+  const picked = sessionToolSelection({ tools: ["read", "tool_search", "web_search"], allTools, dynamicMcpTools: !allTools, registered });
   const model = {
     id: "fixture", name: "Fixture", provider: "openai", api: "openai-completions", baseUrl: "https://example.invalid",
     reasoning: false, input: ["text"], cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
@@ -59,7 +60,9 @@ async function create(withNative: boolean) {
     ...("excludeTools" in picked ? { excludeTools: picked.excludeTools } : {}),
   });
   session = created.session;
-  if ("initialActive" in picked) session.setActiveToolsByName(picked.initialActive);
+  if ("initialActive" in picked) session.setActiveToolsByName(picked.preserveActive
+    ? [...new Set([...session.getActiveToolNames(), ...picked.initialActive])]
+    : picked.initialActive);
   await session.bindExtensions({});
   return { session, resourceLoader };
 }
@@ -106,7 +109,14 @@ describe("tool_search owner", () => {
     assert.equal(created.getActiveToolNames().includes("mcp__issues__list"), true);
   }, 30_000);
 
-  it("answers as before when native MCP is not in use", async () => {
+  it("default discovers future deferred extension tools without the native MCP selection", async () => {
+    const { session: created } = await create(true, true);
+    assert.equal(created.getActiveToolNames().includes("future_ledger"), false);
+    assert.match(await search(created, "ledger balances"), /future_ledger/);
+    assert.ok(created.getActiveToolNames().includes("future_ledger"));
+  }, 30_000);
+
+  it("answers as before when no SDK search owner is installed", async () => {
     const { session: created } = await create(false);
     assert.match(await search(created, "open issues tracker"), /No optional tools matched/);
   }, 30_000);

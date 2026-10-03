@@ -64,8 +64,9 @@ async function run(code: string) {
   modelRuntime.registerNativeProvider(faux.provider);
   const { session } = await createAgentSession({
     cwd: root, agentDir, resourceLoader, settingsManager, sessionManager: SessionManager.inMemory(root),
-    modelRuntime, model: faux.getModel(), tools: ["read", "probe_write", "todowrite", "codemode"],
+    modelRuntime, model: faux.getModel(), excludeTools: [],
   });
+  session.setActiveToolsByName([...session.getActiveToolNames(), "codemode"]);
   await session.bindExtensions({ onError: (error) => { throw new Error(error.error); } });
   await session.prompt("a.txt の中身を調べて");
   return { session, writes: () => writes };

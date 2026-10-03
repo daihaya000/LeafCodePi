@@ -89,9 +89,10 @@ it("keeps permitted tools directly callable through the real SDK without widenin
 });
 
 it("allows the default agent to call session_search directly and after reload", async () => {
-  const agentTools = loadAgentDefinition("default", agentDir)?.tools;
-  expect(agentTools).toContain("session_search");
-  expect(agentTools).toContain("tool_search");
+  const definition = loadAgentDefinition("default", agentDir);
+  expect(definition).toBeDefined();
+  const agentTools = definition?.tools;
+  expect(agentTools).toBeUndefined();
   const settingsManager = SettingsManager.inMemory();
   const resourceLoader = new DefaultResourceLoader({
     cwd: root, agentDir, settingsManager,
@@ -102,13 +103,13 @@ it("allows the default agent to call session_search directly and after reload", 
         parameters: Type.Object({ query: Type.String() }),
         execute: async (_id, { query }) => ({ content: [{ type: "text", text: query }], details: {} }),
       }),
-      ...sessionExtensionFactories({ agentDir, agentToolAllowlist: agentTools, hasBotSkills: false, getExtensions: () => [] }).slice(0, 2),
+      ...sessionExtensionFactories({ agentDir, agentToolAllowlist: agentTools, allTools: true, hasBotSkills: false, getExtensions: () => [] }).slice(0, 2),
     ],
   });
   await resourceLoader.reload();
   const { session } = await createAgentSession({
     cwd: root, agentDir, resourceLoader, settingsManager, sessionManager: SessionManager.inMemory(root),
-    tools: sessionToolNames({ agentTools }),
+    excludeTools: [],
   });
   try {
     await session.bindExtensions({ onError: (error) => { throw new Error(error.error); } });

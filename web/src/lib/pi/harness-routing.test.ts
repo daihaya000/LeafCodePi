@@ -118,6 +118,7 @@ const fakePi = vi.hoisted(() => {
     },
     getAgentDir: () => process.env.PI_CODING_AGENT_DIR ?? "",
     createCodemodeExtension: () => () => undefined,
+    createToolSearchExtension: () => () => undefined,
     DefaultResourceLoader: class {
       extensionFactories: FakeInlineExtension[];
       constructor(options: { extensionFactories?: FakeInlineExtension[] }) {

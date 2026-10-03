@@ -1060,7 +1060,8 @@ function applySubagentDefaults(
 }
 
 function applyToolsOverride(target: AgentConfig, toolsOverride: string[] | false | "inherit"): void {
-	if (toolsOverride === "inherit") {
+	// LCP default always inherits the runtime registry, including newly implemented tools.
+	if (target.name === "default" || toolsOverride === "inherit") {
 		delete target.tools;
 		delete target.mcpDirectTools;
 		return;
@@ -1752,8 +1753,8 @@ function loadAgentsFromDefinitionFiles(files: AgentDefinitionFile[], source: Age
 			...(packageName !== undefined ? { packageName } : {}),
 			description: frontmatter.description,
 			...(aliases !== undefined ? { aliases } : {}),
-			...(rawTools !== undefined ? { tools } : {}),
-			...(mcpDirectTools.length > 0 ? { mcpDirectTools } : {}),
+			...(runtimeName !== "default" && rawTools !== undefined ? { tools } : {}),
+			...(runtimeName !== "default" && mcpDirectTools.length > 0 ? { mcpDirectTools } : {}),
 			...(frontmatter.model !== undefined ? { model: frontmatter.model } : {}),
 			...(fallbackModels?.length ? { fallbackModels } : {}),
 			...(frontmatter.thinking !== undefined ? { thinking: frontmatter.thinking === "false" ? false : frontmatter.thinking } : {}),

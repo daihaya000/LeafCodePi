@@ -6,6 +6,7 @@
  * resource tools only after its servers connect, so those names cannot be listed up front. A
  * session that uses native MCP therefore denies by exclusion instead: every tool known at load time
  * that is not wanted is excluded, and tools registered later (MCP) stay available.
+ * The default persona has no tool-name restriction at all; execution permissions remain separate.
  */
 
 /** Tools the SDK registers itself; every other name comes from an extension. */
@@ -16,16 +17,21 @@ const NATIVE_MCP_TOOL_NAMES = ["codemode"];
 
 export type SessionToolSelection =
   | { tools: string[] }
-  | { excludeTools: string[]; initialActive: string[] };
+  | { excludeTools: string[]; initialActive: string[]; preserveActive?: boolean };
 
 export function sessionToolSelection(input: {
   tools: readonly string[];
+  /** The default Code persona inherits every registered tool, including later registrations. */
+  allTools?: boolean;
   /** Native MCP is active and the session has no agent or Bot allowlist. */
   dynamicMcpTools: boolean;
   /** Names every loaded extension registered while loading. */
   registered: Iterable<string>;
 }): SessionToolSelection {
   const tools = [...input.tools];
+  // Do not snapshot the registry into a hard allowlist: future extensions/MCP must remain reachable.
+  // Keep extension activation defaults as well as the platform-aware Code base loadout.
+  if (input.allTools) return { excludeTools: [], initialActive: tools, preserveActive: true };
   if (!input.dynamicMcpTools) return { tools };
   const allowed = new Set([...tools, ...NATIVE_MCP_TOOL_NAMES]);
   const known = new Set([...BUILTIN_TOOL_NAMES, ...input.registered]);
