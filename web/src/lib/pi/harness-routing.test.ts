@@ -67,6 +67,10 @@ const fakePi = vi.hoisted(() => {
         history.push(message);
         return `message-${history.length}`;
       },
+      appendCustomMessageEntry: (customType: string, content: unknown, display: boolean, details?: unknown) => {
+        history.push({ type: "custom_message", customType, content, display, details });
+        return `custom-message-${history.length}`;
+      },
       appendCustomEntry: () => undefined,
       history,
     };
@@ -1516,12 +1520,24 @@ describe("integrated session routing", () => {
     const harness = (globalThis as Record<string, unknown>)[GLOBAL_KEY] as {
       live: Map<string, {
         promptChain: Promise<void>;
-        session: { sessionManager: { appendMessage: (message: unknown) => string; history: unknown[] }; abort?: () => Promise<void> };
+        session: {
+          sessionManager: {
+            appendMessage: (message: unknown) => string;
+            appendCustomMessageEntry: (customType: string, content: unknown, display: boolean, details?: unknown) => string;
+            history: unknown[];
+          };
+          abort?: () => Promise<void>;
+        };
       }>;
     };
     const live = harness.live.get(task.id)!;
     await live.promptChain;
-    const { acquireTaskLease } = await import("@/lib/task-runtime-lease");
+    const { acquireTaskLease, hasActiveTaskLease } = await import("@/lib/task-runtime-lease");
+    expect(hasActiveTaskLease(task.id)).toBe(false);
+    const idleHistory = live.session.sessionManager.history;
+    const idleHistoryLength = idleHistory.length;
+    expect(live.session.sessionManager.appendCustomMessageEntry("agent-switch", "notice", false)).not.toBe("");
+    expect(idleHistory).toHaveLength(idleHistoryLength + 1);
     expect(acquireTaskLease(task.id)).toBe(true);
     patchTask(task.id, { status: "working" });
 
@@ -1546,10 +1562,12 @@ describe("integrated session routing", () => {
       content: [{ type: "text", text: "late result" }],
     });
     const appendResult = live.session.sessionManager.appendMessage(bashResult);
+    const customAppend = live.session.sessionManager.appendCustomMessageEntry("late-extension", "late", false);
     await waitFor(() => sessionEntry.disposed);
 
     expect(assistantAppend).toBe("");
     expect(appendResult).toBe("");
+    expect(customAppend).toBe("");
     expect(history.slice(before)).toHaveLength(1);
     expect(sessionEntry.events).toContain("abort-requested");
     expect(harness.live.has(task.id)).toBe(false);

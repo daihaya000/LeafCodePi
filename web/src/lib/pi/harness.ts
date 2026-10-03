@@ -2516,6 +2516,19 @@ async function attachSession(
     }
     return appendMessage(message);
   };
+  const appendCustomMessageEntry = session.sessionManager.appendCustomMessageEntry.bind(
+    session.sessionManager,
+  );
+  session.sessionManager.appendCustomMessageEntry = (customType, content, display, details) => {
+    if (live.leaseLost) return "";
+    const leaseRequired =
+      live.promptActive || session.isStreaming || hasActiveTaskLease(taskId);
+    if (leaseRequired && !ownsTaskLease(taskId)) {
+      abortTaskSessionsAfterLeaseLoss([taskId]);
+      return "";
+    }
+    return appendCustomMessageEntry(customType, content, display, details);
+  };
 
   const unsubscribe = session.subscribe((event) => {
     if (live.leaseLost) return;
