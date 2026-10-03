@@ -10008,6 +10008,11 @@ export function abortTaskSessionsAfterLeaseLoss(taskIds: string[]): void {
     cancelHarnessPrompt(live);
     clearSessionQueue(live.session);
     cancelPendingTaskSnapshot(live);
+    try {
+      live.session.abortBash?.();
+    } catch (error) {
+      console.warn(`[task-runtime-lease] local bash abort failed for ${taskId}`, error);
+    }
     const detachLostLive = () => {
       if (state().live.get(taskId) !== live) return;
       try {

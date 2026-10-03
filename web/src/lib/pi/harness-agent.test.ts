@@ -352,9 +352,11 @@ describe("abortTaskSessionsAfterLeaseLoss", () => {
     setTaskStatus(task.id, "working");
     const manualAbortBefore = getTask(task.id)?.manualAbortedAssistantId;
     let abortCount = 0;
+    let abortBashCount = 0;
     let clearQueueCount = 0;
     let disposeCount = 0;
     let unsubscribeCount = 0;
+    const stopOrder: string[] = [];
     const lostLive = {
       taskId: task.id,
       accountId: null,
@@ -362,9 +364,10 @@ describe("abortTaskSessionsAfterLeaseLoss", () => {
       promptActive: true,
       promptEpoch: 0,
       session: {
-        clearQueue: () => { clearQueueCount += 1; },
-        abort: async () => { abortCount += 1; },
-        dispose: () => { disposeCount += 1; },
+        clearQueue: () => { clearQueueCount += 1; stopOrder.push("clearQueue"); },
+        abortBash: () => { abortBashCount += 1; stopOrder.push("abortBash"); },
+        abort: async () => { abortCount += 1; stopOrder.push("abort"); },
+        dispose: () => { disposeCount += 1; stopOrder.push("dispose"); },
       },
       unsubscribe: () => { unsubscribeCount += 1; },
       snapshotTimer: null,
@@ -386,9 +389,11 @@ describe("abortTaskSessionsAfterLeaseLoss", () => {
     assert.equal(lostLive.promptActive, false);
     assert.equal(lostLive.promptEpoch, 1);
     assert.equal(clearQueueCount, 1);
+    assert.equal(abortBashCount, 1);
     assert.equal(abortCount, 1);
     assert.equal(disposeCount, 1);
     assert.equal(unsubscribeCount, 1);
+    assert.deepEqual(stopOrder, ["clearQueue", "abortBash", "abort", "dispose"]);
     assert.equal(live.has(task.id), false);
     assert.equal(getTask(task.id)?.status, "working");
     assert.equal(getTask(task.id)?.manualAbortedAssistantId, manualAbortBefore);
