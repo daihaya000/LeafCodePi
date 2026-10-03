@@ -58,6 +58,8 @@ export async function importPeerAccount(input: unknown, deps: Deps = defaultDeps
   if (input.providers !== undefined && (!Array.isArray(input.providers) || !input.providers.every((id) => typeof id === "string"))) {
     return fail(400, "providers are invalid");
   }
+  const base = typeof input.label === "string" ? input.label.trim() : "";
+  if (!base) return fail(400, "label is invalid");
 
   let shared: Awaited<ReturnType<Deps["listShared"]>>;
   try {
@@ -76,11 +78,11 @@ export async function importPeerAccount(input: unknown, deps: Deps = defaultDeps
   });
   if (plan.length === 0) return fail(400, "no shared provider can be used on this LCP");
 
-  const base = typeof input.label === "string" ? input.label.trim() : "";
   const created: AccountRecord[] = [];
   try {
     for (const entry of plan) {
-      const label = `${base}（${entry.label}）`.slice(0, 100);
+      // The source LCP name is the prefix so an imported account is never mistaken for a local one.
+      const label = `${base}:${entry.label}`.slice(0, 100);
       const account = deps.createAccount({ label, providers: entry.providers as AccountProviderId[] });
       created.push(account);
       await deps.writeConfig(account.id, { peerUrl, peerAccountId: entry.accountId, providers: entry.providers, token });

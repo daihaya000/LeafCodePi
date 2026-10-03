@@ -49,7 +49,7 @@ export function PeerImportSettings({ onImported }: { onImported?: () => void }) 
       setPeerUrl("");
       setLabel("");
       const names = result.accounts.map((account) => account.label).join("、");
-      setNotice(`「${label.trim()}」として${result.accounts.length}件追加しました（${names}）。`);
+      setNotice(`${result.accounts.length}件追加しました（${names}）。`);
       loadPeers();
       onImported?.();
     } catch (err) {
@@ -106,14 +106,14 @@ export function PeerImportSettings({ onImported }: { onImported?: () => void }) 
           />
         </label>
         <label className="block text-sm">
-          <span className="mb-1.5 block text-muted">アカウント名</span>
+          <span className="mb-1.5 block text-muted">共有元の名前</span>
           <input
             value={label}
             maxLength={LABEL_MAX}
             disabled={busy}
             onChange={(event) => setLabel(event.target.value)}
             className="min-h-11 w-full rounded-lg border border-border bg-surface-2 px-3 text-sm outline-none focus:border-border-strong disabled:opacity-50"
-            placeholder="例: メインPCの認証"
+            placeholder="例: A（アカウントは「A:名前」で表示）"
           />
         </label>
       </div>

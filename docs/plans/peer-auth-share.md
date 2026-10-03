@@ -55,7 +55,7 @@
   - A 不達時は期限内キャッシュを返し、期限切れなら auth エラー
 - ピアアカウント: `accounts.json` のスキーマは変更しない。`~/.pi/agent/accounts/<id>/peer.json` の存在で分岐し、`accountRuntimeManager` が `ModelRuntime.create({ credentials: store, modelsStorePath })` を生成（`authPath` なし）
 - `peer.json`: `{ version: 1, peerUrl, peerAccountId, providers[], token, createdAt }`（Pi 管理下の agent ディレクトリに保存）。書込みは auth.json と同じ 0o600・原子的置換とし、Windows では既存の Pi credential と同じ user ACL に従う
-- アカウント UI: A へ接続テスト → list 取得 → **A のアカウントごとに 1 つずつローカルアカウントを作成**（ラベルは `共有先名（Aのアカウント名）`、providers はそのアカウントの共有範囲 ∩ ルーティング可能）。各 `peer.json` に `peerAccountId` を保存。peer アカウントではログイン / ログアウト UI を無効化
+- アカウント UI: A へ接続テスト → list 取得 → **A のアカウントごとに 1 つずつローカルアカウントを作成**（ラベルは `共有元名:Aのアカウント名`（例: `A:daichi@mail.com`）。共有元名は B の取込フォームで入力し、既定アカウントは `A:既定` のように見える）。providers はそのアカウントの共有範囲 ∩ ルーティング可能。各 `peer.json` に `peerAccountId` を保存。peer アカウントではログイン / ログアウト UI を無効化
 - A 停止時: 該当 peer アカウントは認証エラー。UI に「接続元 LCP: オフライン」を表示
 - `peer.json` 変更時は当該アカウントの runtime を破棄して再生成する。実行中タスクが参照しているアカウントの変更は 409（既存 `deleteAccount` と同じ規則）
 

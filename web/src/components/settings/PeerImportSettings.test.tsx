@@ -9,7 +9,7 @@ vi.mock("@/lib/client", () => ({ getJson, sendJson }));
 function fill(url = " http://100.64.0.2:3000 ", token = " TOKEN ", label = " main ") {
   fireEvent.change(screen.getByLabelText("共有元のURL"), { target: { value: url } });
   fireEvent.change(screen.getByLabelText("トークン"), { target: { value: token } });
-  fireEvent.change(screen.getByLabelText("アカウント名"), { target: { value: label } });
+  fireEvent.change(screen.getByLabelText("共有元の名前"), { target: { value: label } });
 }
 
 beforeEach(() => {
@@ -29,14 +29,14 @@ describe("PeerImportSettings", () => {
     expect(button.disabled).toBe(true);
     fill();
     expect(button.disabled).toBe(false);
-    fireEvent.change(screen.getByLabelText("アカウント名"), { target: { value: "  " } });
+    fireEvent.change(screen.getByLabelText("共有元の名前"), { target: { value: "  " } });
     expect(button.disabled).toBe(true);
   });
 
   it("posts trimmed values, clears the token from the form and reports every created account", async () => {
     sendJson.mockResolvedValue({ accounts: [
-      { label: "X870（既定）", providers: ["anthropic"] },
-      { label: "X870（仕事用）", providers: ["openai-codex"] },
+      { label: "main:既定", providers: ["anthropic"] },
+      { label: "main:仕事用", providers: ["openai-codex"] },
     ] });
     const onImported = vi.fn();
     render(<PeerImportSettings onImported={onImported} />);
@@ -47,7 +47,7 @@ describe("PeerImportSettings", () => {
       { peerUrl: "http://100.64.0.2:3000", token: "TOKEN", label: "main" },
       "POST",
     ));
-    expect((await screen.findByRole("status")).textContent).toContain("「main」として2件追加しました（X870（既定）、X870（仕事用））");
+    expect((await screen.findByRole("status")).textContent).toContain("2件追加しました（main:既定、main:仕事用）");
     expect((screen.getByLabelText("トークン") as HTMLInputElement).value).toBe("");
     expect((screen.getByLabelText("共有元のURL") as HTMLInputElement).value).toBe("");
     expect(onImported).toHaveBeenCalledTimes(1);

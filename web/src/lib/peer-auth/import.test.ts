@@ -38,8 +38,8 @@ describe("importPeerAccount", () => {
     expect(d.listShared).toHaveBeenCalledWith({ peerUrl: "http://100.64.0.2:3000", token: TOKEN });
     // The third account only holds an unroutable provider, so it is skipped entirely.
     expect(d.createAccount).toHaveBeenCalledTimes(2);
-    expect(d.createAccount).toHaveBeenNthCalledWith(1, { label: "X870（既定）", providers: ["anthropic"] });
-    expect(d.createAccount).toHaveBeenNthCalledWith(2, { label: "X870（仕事用）", providers: ["openai-codex"] });
+    expect(d.createAccount).toHaveBeenNthCalledWith(1, { label: "X870:既定", providers: ["anthropic"] });
+    expect(d.createAccount).toHaveBeenNthCalledWith(2, { label: "X870:仕事用", providers: ["openai-codex"] });
     expect(d.writeConfig).toHaveBeenNthCalledWith(1, "acc-1", { peerUrl: "http://100.64.0.2:3000", peerAccountId: null, providers: ["anthropic"], token: TOKEN });
     expect(d.writeConfig).toHaveBeenNthCalledWith(2, "acc-2", { peerUrl: "http://100.64.0.2:3000", peerAccountId: "a2", providers: ["openai-codex"], token: TOKEN });
     expect((result.body as { accounts: unknown[] }).accounts).toHaveLength(2);
@@ -50,13 +50,13 @@ describe("importPeerAccount", () => {
     const d = deps();
     await importPeerAccount({ ...valid, providers: ["openai-codex", "gemini"] }, d as never);
     expect(d.createAccount).toHaveBeenCalledTimes(1);
-    expect(d.createAccount).toHaveBeenCalledWith({ label: "X870（仕事用）", providers: ["openai-codex"] });
+    expect(d.createAccount).toHaveBeenCalledWith({ label: "X870:仕事用", providers: ["openai-codex"] });
   });
 
   it("rejects bad input before contacting the peer", async () => {
     const d = deps();
     for (const input of [null, [], { ...valid, extra: 1 }, { ...valid, peerUrl: "ftp://x" }, { ...valid, token: "short" },
-      { ...valid, providers: "anthropic" }, { ...valid, providers: [1] }]) {
+      { ...valid, label: "   " }, { ...valid, providers: "anthropic" }, { ...valid, providers: [1] }]) {
       expect((await importPeerAccount(input, d as never)).status).toBe(400);
     }
     expect(d.listShared).not.toHaveBeenCalled();
