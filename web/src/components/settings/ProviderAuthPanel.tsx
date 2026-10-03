@@ -63,10 +63,21 @@ type ResetCreditsConsumeResponse = {
   message: string;
 };
 
-type ModelProviderSummary = {
-  id: string;
-  enabled: boolean;
-};
+/** プロバイダーカードは表示名の照合順（日本語は50音、英字はABC）で固定する。 */
+const providerNameCollator = new Intl.Collator("ja", {
+  numeric: true,
+  sensitivity: "base",
+});
+
+function compareProvidersByName(
+  a: { id: string; name: string },
+  b: { id: string; name: string },
+): number {
+  return (
+    providerNameCollator.compare(a.name, b.name) ||
+    providerNameCollator.compare(a.id, b.id)
+  );
+}
 
 /** アカウント別の残高取得に使う cookie / 管理キーの UI 定義。 */
 type CookieUi = {
@@ -450,7 +461,6 @@ export const ProviderAuthPanel = memo(function ProviderAuthPanel({
   const [cookieBusy, setCookieBusy] = useState<string | null>(null);
   const [cookieErrors, setCookieErrors] = useState<Record<string, string>>({});
   const [codexBarUsage, setCodexBarUsage] = useState<CodexBarUsage | null>(null);
-  const [enabledProviderOrder, setEnabledProviderOrder] = useState<string[]>([]);
   const [resetBusyKey, setResetBusyKey] = useState<string | null>(null);
   const [resetStatusByKey, setResetStatusByKey] = useState<Record<string, string>>({});
   const loadCodexBarUsage = useCallback(
@@ -480,33 +490,6 @@ export const ProviderAuthPanel = memo(function ProviderAuthPanel({
       active = false;
     };
   }, [loadCodexBarUsage, providers]);
-
-  useEffect(() => {
-    if (providers.length === 0) {
-      setEnabledProviderOrder([]);
-      return;
-    }
-
-    let active = true;
-    void getJson<{ providers?: ModelProviderSummary[] }>("/api/provider-models")
-      .then((result) => {
-        if (!active) return;
-        const order: string[] = [];
-        const seen = new Set<string>();
-        for (const provider of result.providers ?? []) {
-          if (!provider.enabled || seen.has(provider.id)) continue;
-          seen.add(provider.id);
-          order.push(provider.id);
-        }
-        setEnabledProviderOrder(order);
-      })
-      .catch(() => {
-        if (active) setEnabledProviderOrder([]);
-      });
-    return () => {
-      active = false;
-    };
-  }, [providers]);
 
   const redeemResetCredit = useCallback(
     async (provider: CodexBarProvider) => {
@@ -1971,23 +1954,13 @@ export const ProviderAuthPanel = memo(function ProviderAuthPanel({
     );
   }
 
-  const enabledProviderRanks = new Map(
-    enabledProviderOrder.map((providerId, index) => [providerId, index]),
-  );
   const visibleProviders = providers.filter(
     (provider) =>
       provider.authenticated ||
       provider.highlighted === true ||
       provider.baseUrl != null,
   );
-  const orderedProviders = [...visibleProviders].sort((a, b) => {
-    const aRank = enabledProviderRanks.get(a.id) ?? Number.MAX_SAFE_INTEGER;
-    const bRank = enabledProviderRanks.get(b.id) ?? Number.MAX_SAFE_INTEGER;
-    return (
-      aRank - bRank ||
-      Number(b.authenticated) - Number(a.authenticated)
-    );
-  });
+  const orderedProviders = [...visibleProviders].sort(compareProvidersByName);
 
   return (
     <div className="space-y-4">

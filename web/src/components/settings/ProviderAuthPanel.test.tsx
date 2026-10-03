@@ -787,16 +787,15 @@ describe("ProviderAuthPanel provider-scoped accounts", () => {
     confirmSpy.mockRestore();
   });
 
-  it("orders enabled providers like the model catalog", async () => {
+  it("orders providers by name regardless of the model catalog order", async () => {
     fetchMock.mockImplementation((input: RequestInfo | URL) => {
       const url = String(input);
       if (url.endsWith("/api/provider-models")) {
         return Promise.resolve(
           jsonResponse({
             providers: [
-              { id: "anthropic", enabled: true },
               { id: "openai-codex", enabled: true },
-              { id: "llama-server", enabled: false },
+              { id: "anthropic", enabled: true },
             ],
           }),
         );
