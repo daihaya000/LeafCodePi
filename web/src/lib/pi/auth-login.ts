@@ -298,6 +298,7 @@ export const HIGHLIGHTED_API_PROVIDER_IDS = new Set([
   "opencode-go",
   "typesafe",
   "orcarouter",
+  "experientiallabs",
 ]);
 
 export function isHighlightedProvider(providerId: string): boolean {

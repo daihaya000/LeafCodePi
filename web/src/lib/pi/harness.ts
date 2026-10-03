@@ -130,6 +130,10 @@ import {
   registerOllamaCloudProvider,
   syncOllamaCloudProvider,
 } from "@/lib/pi/ollama-cloud-provider";
+import {
+  registerExperientialLabsProvider,
+  syncExperientialLabsProvider,
+} from "@/lib/pi/experientiallabs-provider";
 import { registerTypeSafeProvider } from "@/lib/pi/typesafe-provider";
 import { isJevModel, type JevCatalogModel, type JevModelRef } from "@/lib/jev-model-catalog";
 import { clearJevDiscoveryCache, discoverJevModels } from "@/lib/pi/jev-model-discovery";
@@ -953,6 +957,7 @@ async function ensureOptionalProviders(
     registerCursorProvider(runtime, scope),
     registerCommandCodeProvider(runtime, scope),
     registerOllamaCloudProvider(runtime),
+    registerExperientialLabsProvider(runtime),
     registerRemoteProvider(runtime),
     registerTypeSafeProvider(runtime),
     registerOrcaRouterProvider(runtime, scope),
@@ -5023,6 +5028,11 @@ async function syncProvidersBestEffort(
         const message = error instanceof Error ? error.message : String(error);
         console.warn("[leafcode-pi] ollama-cloud provider sync failed:", message);
         return `ollama-cloud: ${message}`;
+      }),
+      syncExperientialLabsProvider(runtime).then(() => null).catch((error) => {
+        const message = error instanceof Error ? error.message : String(error);
+        console.warn("[leafcode-pi] experientiallabs provider sync failed:", message);
+        return `experientiallabs: ${message}`;
       }),
       syncRemoteProvider(runtime).then(() => null).catch((error) => {
         const message = error instanceof Error ? error.message : String(error);

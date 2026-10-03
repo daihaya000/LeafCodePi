@@ -97,6 +97,7 @@ describe("getRuntimeFor", () => {
       "cursor",
       "commandcode",
       "ollama-cloud",
+      "experientiallabs",
     ]);
     const runtime = {
       getProvider: (id: string) =>
@@ -168,7 +169,7 @@ describe("getRuntimeFor", () => {
       checkAuth: async () => ({ type: "api_key" }),
       getAuth: async () => ({ auth: { apiKey: "account-test-key" } }),
     };
-    const registered = new Set(["cursor", "commandcode", "ollama-cloud", "leafcodecloud", "typesafe", "orcarouter"]);
+    const registered = new Set(["cursor", "commandcode", "ollama-cloud", "leafcodecloud", "typesafe", "orcarouter", "experientiallabs"]);
     const defaultRuntime = {
       getProvider: (id: string) => registered.has(id) ? { id } : undefined,
       getProviders: () => [],
@@ -254,7 +255,7 @@ describe("getRuntimeFor", () => {
       checkAuth: async () => ({ type: "api_key" }),
     };
     const runtime = {
-      getProvider: (id: string) => ["cursor", "commandcode", "ollama-cloud", "leafcodecloud", "typesafe", "orcarouter"].includes(id) ? { id } : undefined,
+      getProvider: (id: string) => ["cursor", "commandcode", "ollama-cloud", "leafcodecloud", "typesafe", "orcarouter", "experientiallabs"].includes(id) ? { id } : undefined,
       getProviders: () => [{ id: "typesafe", name: "TypeSafe", baseUrl: "https://api.typesafe.ai/v1" }],
       getModels: () => [],
       checkAuth: async () => ({ type: "api_key" }),
@@ -352,6 +353,7 @@ describe("getRuntimeFor", () => {
       "ollama-cloud",
       "leafcodecloud",
       "typesafe",
+      "experientiallabs",
     ]);
     const defaultRuntime = {
       getProvider: (id: string) =>

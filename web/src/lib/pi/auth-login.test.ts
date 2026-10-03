@@ -117,6 +117,7 @@ describe("subscription provider ids", () => {
     assert.ok(isHighlightedProvider("commandcode"));
     assert.ok(isHighlightedProvider("typesafe"));
     assert.ok(isHighlightedProvider("orcarouter"));
+    assert.ok(isHighlightedProvider("experientiallabs"));
     assert.ok(isHighlightedProvider("anthropic"));
     assert.ok(isHighlightedProvider("meta"));
     assert.ok(isHighlightedProvider("openai"));
