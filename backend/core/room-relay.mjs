@@ -84,7 +84,9 @@ export function issueRelayEnvelope({ roomId, sourceBotId, targetBotIds, parentId
     const depth = parent ? parent.depth + 1 : 0;
     if (depth > MAX_ROOM_RELAY_DEPTH) return undefined;
     const turnId = parent?.turnId ?? deps.uuid();
-    const participants = collectRelayParticipants(deps.getRoom(roomId), deps.readState(roomId), turnId);
+    // Reuse the state we already read: a second readState() re-parses the whole
+    // relay file on every issue, and pruneRelayState may have just removed rows.
+    const participants = collectRelayParticipants(deps.getRoom(roomId), state, turnId);
     if (targets.some((id) => participants.has(id))) return undefined;
     const token = deps.uuid();
     state.envelopes[token] = {
@@ -103,6 +105,9 @@ export function consumeRelayEnvelope({ roomId, token }, deps) {
     const envelope = state.envelopes[token];
     const room = deps.getRoom(roomId);
     const nowMs = deps.now();
+    // Prune on claim too, not only on issue: a room that relays without issuing
+    // would otherwise keep expired envelopes and orphan claims forever.
+    pruneRelayState(state, nowMs);
     const participants = envelope
       ? collectRelayParticipants(room, state, envelope.turnId)
       : new Set();

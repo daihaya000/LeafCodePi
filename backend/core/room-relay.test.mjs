@@ -191,3 +191,27 @@ test("pruneRelayState drops long-expired envelopes and the claims of turns with 
   assert.deepEqual(Object.keys(state.envelopes).sort(), ["live", "recentlyExpired"]);
   assert.deepEqual(Object.keys(state.claims), ["t-live"]);
 });
+
+test("issuing reads the relay state once instead of re-parsing it for the participants", () => {
+  const w = world();
+  issueRelayEnvelope({ roomId: ROOM_ID, sourceBotId: "a", targetBotIds: ["b"] }, w.deps);
+  assert.equal(w.calls.filter((call) => call === `read:${ROOM_ID}`).length, 1);
+});
+
+test("claiming prunes expired envelopes and orphan claims, not just issuing", () => {
+  const now = 10 * RELAY_STATE_RETAIN_MS;
+  const w = world({
+    now,
+    state: {
+      envelopes: {
+        dead: { roomId: ROOM_ID, sourceBotId: "a", targetBotIds: ["b"], turnId: "t-dead", depth: 0, consumed: false, expiresAt: now - RELAY_STATE_RETAIN_MS - 1 },
+        live: { roomId: ROOM_ID, sourceBotId: "a", targetBotIds: ["b"], turnId: "t-live", depth: 0, consumed: false, expiresAt: now + 1_000 },
+      },
+      claims: { "t-dead": ["a"], "t-orphan": ["c"] },
+    },
+  });
+
+  assert.ok(consumeRelayEnvelope({ roomId: ROOM_ID, token: "live" }, w.deps));
+  assert.deepEqual(Object.keys(w.file.envelopes), ["live"]);
+  assert.deepEqual(Object.keys(w.file.claims).sort(), ["t-live"]);
+});
