@@ -299,3 +299,52 @@ describe("Speaker temp wav cleanup", () => {
     speaker.dispose();
   });
 });
+
+describe("Speaker synthesis concurrency", () => {
+  it("keeps at most four syntheses in flight and still finishes the queue", async () => {
+    const endpoint = "http://192.168.1.8:18080/v1/audio/speech";
+    let inFlight = 0;
+    let peak = 0;
+    vi.stubGlobal("fetch", vi.fn(async () => {
+      inFlight += 1;
+      peak = Math.max(peak, inFlight);
+      await new Promise((resolve) => setTimeout(resolve, 5));
+      inFlight -= 1;
+      return new Response(Buffer.from([1, 2, 3]), { status: 200 });
+    }));
+    const speaker = new Speaker({ enabled: true, rate: 10, url: endpoint, allowCustomUrl: true });
+    const internals = speaker as unknown as { synthesizeQueued(text: string, url: string): Promise<string | null> };
+
+    const files = await Promise.all(
+      Array.from({ length: 12 }, (_, index) => internals.synthesizeQueued(`chunk ${index}`, endpoint)),
+    );
+
+    expect(files.every(Boolean)).toBe(true);
+    // The queue is bounded, but nothing is dropped.
+    expect(peak).toBeLessThanOrEqual(4);
+    expect(peak).toBeGreaterThan(1);
+    for (const file of files) if (file) rmSync(file, { force: true });
+    speaker.dispose();
+  });
+
+  it("releases queued syntheses when the speaker is disposed", async () => {
+    const endpoint = "http://192.168.1.8:18080/v1/audio/speech";
+    let inFlight = 0;
+    vi.stubGlobal("fetch", vi.fn(async () => {
+      inFlight += 1;
+      await new Promise((resolve) => setTimeout(resolve, 5));
+      inFlight -= 1;
+      return new Response(Buffer.from([1, 2, 3]), { status: 200 });
+    }));
+    const speaker = new Speaker({ enabled: true, rate: 10, url: endpoint, allowCustomUrl: true });
+    const internals = speaker as unknown as { synthesizeQueued(text: string, url: string): Promise<string | null> };
+
+    const pending = Array.from({ length: 10 }, (_, index) => internals.synthesizeQueued(`chunk ${index}`, endpoint));
+    speaker.dispose();
+    const files = await Promise.all(pending);
+
+    // Disposed speakers must not hang: every waiter settles.
+    expect(files.every((file) => file === null || typeof file === "string")).toBe(true);
+    for (const file of files) if (file) rmSync(file, { force: true });
+  });
+});

@@ -21,6 +21,8 @@ const SUBAGENT_CHILD_ENV = "PI_SUBAGENT_CHILD";
 const CONFIG_FILE = "tts.json";
 /** 先行合成の一時 wav の接頭辞。削除対象を自分のファイルだけに限定する。 */
 const TTS_TMP_PREFIX = "leafcode-tts-";
+const MAX_CONCURRENT_SYNTHESIS = 4;
+
 /** 短すぎる読点区切りを避ける下限、句点が来ないまま伸び続けたときの上限。 */
 const MIN_CHUNK = 12;
 const MAX_CHUNK = 90;
@@ -254,6 +256,10 @@ export class Speaker {
   private seq = 0;
   /** 再生中の先行合成 wav。完了時に削除する。 */
   private playingFile: string | null = null;
+  /** 先行合成の同時実行数と、待つ側のための起床コールバック。 */
+  private synthInflight = 0;
+  private readonly synthWaiters: Array<() => void> = [];
+  private disposed = false;
   private config: TtsConfig;
 
   // parameter property は Node の strip-only TypeScript で動かないため使わない。
@@ -264,15 +270,19 @@ export class Speaker {
   setConfig(config: TtsConfig): void {
     this.config = config;
     this.dispose();
+    // dispose() は待機中の合成を解放するため、次回の say で使えるよう復帰させる。
+    this.disposed = false;
   }
 
   say(text: string): void {
     const clean = speakable(text);
     if (!clean) return;
     if (!this.config.url && process.platform !== "win32") return;
-    // ponytail: 合成要求は投入時に並列で走らせる。chunk は LLM の生成速度でしか増えないので上限は置かない。
+    // 合成要求は投入時に並列で走らせるが、同時実行数は制限する。chunk は LLM の
+    // 生成速度でしか増えないが、無制限だと大量 text でエンジンが同時に叩かれ、
+    // HTTP 接続とメモリを消費する。
     const job: Job = this.config.url
-      ? { kind: "P", body: this.synthesize(clean, this.config.url) }
+      ? { kind: "P", body: this.synthesizeQueued(clean, this.config.url) }
       : { kind: "S", body: Promise.resolve(clean) };
     this.queue.push(job);
     void this.pump();
@@ -298,10 +308,31 @@ export class Speaker {
   }
 
   dispose(): void {
+    this.disposed = true;
     this.stop();
     this.busy = false;
     this.worker?.stdin?.end();
     this.worker = null;
+    // 待機中の合成を起こして、止まったまま残らないようにする。
+    for (const wake of this.synthWaiters.splice(0)) wake();
+  }
+
+  /** 先行合成を上限枚数同時に走らせる。dispose 後は待たずに打ち切る。 */
+  private synthesizeQueued(text: string, url: string): Promise<string | null> {
+    const run = async (): Promise<string | null> => {
+      while (this.synthInflight >= MAX_CONCURRENT_SYNTHESIS) {
+        await new Promise<void>((resolve) => this.synthWaiters.push(resolve));
+        if (this.disposed) return null;
+      }
+      this.synthInflight += 1;
+      try {
+        return await this.synthesize(text, url);
+      } finally {
+        this.synthInflight -= 1;
+        this.synthWaiters.shift()?.();
+      }
+    };
+    return run();
   }
 
   private async synthesize(text: string, url: string): Promise<string | null> {
