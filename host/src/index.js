@@ -15,6 +15,7 @@ import { pidAlive, readLock, removeLock, writeLock } from "./lock.js";
 import { createLogFileWriter, formatLogLine } from "./log-file.js";
 import { getListeningPids, getPortListenerStatus } from "./port-scanner.js";
 import { hardKillTree, stopProcessTreeGracefully } from "./process-stop.js";
+import { stopOrphanedWebUi } from "./stale-webui.js";
 import { buildHostRestartScript } from "./host-restart.js";
 import { DEFAULT_BACKEND_PORT } from "../../shared/backend-protocol.mjs";
 import { createBackendService, shouldRunBackend } from "./backend-service.js";
@@ -573,6 +574,15 @@ async function spawnWeb({ pull = true } = {}) {
   const args = useProd
     ? [nextBin(projectDir), "start", "--hostname", WEBUI_HOST, "--port", String(WEBUI_PORT)]
     : [nextBin(projectDir), "dev", "--hostname", WEBUI_HOST, "--port", String(WEBUI_PORT)];
+  // A previous host that died without cleanup leaves its WebUI holding the port.
+  await stopOrphanedWebUi({
+    port: WEBUI_PORT,
+    projectDirs: [WEB_MIRROR_DIR, WEB_DIR],
+    getListeningPids,
+    stopProcessTreeGracefully,
+    excludePids: webProc?.pid ? [webProc.pid] : [],
+    log,
+  }).catch((err) => error(`Orphaned WebUI check failed: ${err instanceof Error ? err.message : String(err)}`));
   WEBUI_AUTH = ensureWebUiAuth(process.env, WEBUI_HOST, DATA_DIR);
   const webUiAuth = WEBUI_AUTH;
   log(`Starting LeafCodePi (${useProd ? "production" : "dev"}) on ${WEBUI_URL}`);
@@ -1208,6 +1218,12 @@ async function main() {
   });
   if (process.platform === "win32") {
     process.on("SIGBREAK", () => {
+      void quit();
+    });
+  } else {
+    // Closing the terminal that ran the host would otherwise terminate it
+    // without stopping the detached WebUI.
+    process.on("SIGHUP", () => {
       void quit();
     });
   }
