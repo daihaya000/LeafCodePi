@@ -146,7 +146,7 @@
 | 重大度 | 箇所 | 内容 |
 | --- | --- | --- |
 | 中 **[一部修正 2026-10-03: Bot 未取得時は一度取得してからミュート判定。分割ペインでの二重通知は未対応]** | `web/src/components/BotRoutineNotifier.tsx`（~22–28）、`web/src/lib/notify.ts`（`isRoutineRunHandledInline` ~71–76） | ミュート判定がサイドバーのスナップショット依存。一覧が空（取得前や失敗）だと Bot が見つからず、`notificationsEnabled: false` でも完了音とデスクトップ通知を出す。インライン抑止は pathname が `/bots/<id>` のときだけで、分割ペインで Bot を開いていても二重に鳴りうる。 |
-| 低 | `Composer.tsx` (~324–338)、`composer-references.ts` (~70–82) | キャレット末尾だと本文全体がクエリ。デバウンス無しで全候補走査。 |
+| 低 **[一部修正 2026-10-04: 先頭プレフィクス候補のクエリを64文字で打ち切り、長い本文で全候補を走査しない。参照トークンの全候補走査とデバウンス無しは未対応]** | `Composer.tsx` (~324–338)、`composer-references.ts` (~70–82) | キャレット末尾だと本文全体がクエリ。デバウンス無しで全候補走査。 |
 | 低 **[修正済 2026-10-03: light→dark→oyster→system を循環]** | `web/src/app/layout.tsx`（~36）、`web/src/components/ui.tsx`（~577–587） | `themes` に `oyster` と `system` があるのに、切替は `resolvedTheme === "dark"` だけ。oyster / system からは常に light か dark の固定値になり、元の指定へ戻れない。 |
 | 低 **[修正済 2026-10-03: アンマウント時に未保存レイアウトを flush]** | `web/src/components/shell/TaskPanesContext.tsx`（~505–517） | ペイン保存は 500ms デバウンス。アンマウント時にタイマーを消すだけで書き出さないので、分割直後に離れるとレイアウトが残らない。 |
 | 低 **[修正済 2026-10-03: 深さ6上限と一部ディレクトリ除外。symlink は Dirent で非追跡]** | `web/src/lib/agents.ts`（`discoverInDir` ~209–216） | エージェント `.md` 探索が深さ・サイクル制限なしの再帰。深い木やジャンクションで一覧が重く／スタックしうる。 |

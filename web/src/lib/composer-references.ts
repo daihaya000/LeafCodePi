@@ -64,6 +64,13 @@ export function findComposerReferenceToken(value: string, caret: number): Compos
   };
 }
 
+/**
+ * 先頭プレフィクス候補のクエリ最大長。キャレットが末尾にあるとき本文全体が
+ * query になるため、長い本文で毎キー入力ごとに全候補を走査していた。
+ * これを超える本文はプレフィクス候補を持たないものとして扱う。
+ */
+const PROMPT_PREFIX_MAX_QUERY_CHARS = 64;
+
 /** Find a prompt prefix typed from the beginning of the composer. */
 export function findComposerPromptPrefixToken(value: string, caret: number): ComposerReferenceToken | null {
   const safeCaret = Math.max(0, Math.min(value.length, caret));
@@ -71,6 +78,7 @@ export function findComposerPromptPrefixToken(value: string, caret: number): Com
   const start = value.search(/\S/);
   if (start < 0 || start >= safeCaret) return null;
   const query = value.slice(start, safeCaret);
+  if (query.length > PROMPT_PREFIX_MAX_QUERY_CHARS) return null;
   if (/^[\/@#＃]/.test(query)) return null;
   return {
     kind: "prompt",

@@ -109,6 +109,14 @@ describe("composer references", () => {
     ).map((reference) => reference.name)).toEqual(["つづけてください"]);
   });
 
+  it("stops treating a long body as a prompt prefix query", () => {
+    const short = "あ".repeat(64);
+    expect(findComposerPromptPrefixToken(short, short.length)).toMatchObject({ mode: "prefix" });
+    // 1文字超で候補を持たないため、全候補の走査が起きない。
+    const long = "あ".repeat(65);
+    expect(findComposerPromptPrefixToken(long, long.length)).toBeNull();
+  });
+
   it("finds and inserts body-only prompt preset tokens", () => {
     expect(findComposerReferenceToken("確認 #", 4)).toMatchObject({
       kind: "prompt",
