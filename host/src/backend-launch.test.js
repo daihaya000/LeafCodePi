@@ -44,6 +44,9 @@ test("the plan starts the Backend entry with the pinned generation and token", (
   assert.equal(plan.env.LEAFCODE_PI_BACKEND_TOKEN, "t".repeat(40));
   assert.equal(plan.env.LEAFCODE_PI_BACKEND_GENERATION, "gen-a");
   assert.equal(plan.env.LEAFCODE_PI_BACKEND_RUNTIME_BUNDLE, join(REPO_ROOT, RUNTIME_BUNDLE_RELATIVE_PATH));
+  // Native MCP is on by default for the Backend child, with an env opt-out for rollback.
+  assert.equal(plan.env.LEAFCODE_PI_MCP_NATIVE, "1");
+  assert.equal(backendLaunchPlan({ repoRoot: REPO_ROOT, token: "t".repeat(40), env: { LEAFCODE_PI_MCP_NATIVE: "0" } }).env.LEAFCODE_PI_MCP_NATIVE, "0");
   // The Web process still owns the SDK, so the Host must not attach the runtime by default.
   assert.equal(plan.runtime, "detached");
   assert.equal(plan.env.LEAFCODE_PI_BACKEND_RUNTIME, "");

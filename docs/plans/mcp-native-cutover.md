@@ -83,10 +83,9 @@ blendermcp は native の stdio transport で実接続し 26 の直接ツール�
 
 ## 切替ブロッカー
 
-1. **私的ストレージ ACL**（Windows・未解決）
-   上記の継承 ACE `X870\CodexSandboxUsers:(I)(OI)(CI)(RX)` が strict policy で拒否される。
-   `mcp.json` / `mcp-auth.json` も同じ継承で拒否される。
-   解除は対象 ACE の削除（要承認）。ポリシー緩和で回避しない。
+1. **私的ストレージ ACL**（Windows・解決済み 2026-10-03）
+   継承元の `~/.pi` から `X870\CodexSandboxUsers` ACEを削除した（`~/.pi/agent` と `mcp.json` は継承で追随）。
+   復旧は同グループの `/grant:r` で戻せる。
 2. ~~未解決 URL 変数~~（解決済み: 2026-10-03）
    ユーザーが URL を定義しておらず、かつ無効な同梱既定は、URL 変数が未解決なら config から落とす。
    ユーザー定義 URL と有効なエントリは従来どおり全体を拒否する（fail-closed）。
@@ -127,6 +126,15 @@ icacls <dir>\mcp.json /inheritance:r /grant:r "$env:USERNAME:F"   # inherit-only
 
 つまり実機の `~/.pi/agent` から `X870\CodexSandboxUsers` の継承ACEを外せば同じ結果が得られる見込みで、
 残る作業は ACL 変更の承認だけになる。所要時間は約1分（browser-use の起動が遅いため）。
+
+## 切替実行（2026-10-03）
+
+- ACL: `~/.pi/agent` の継承元 `~/.pi` から `X870\CodexSandboxUsers` のACEを削除（復旧: `icacls "%USERPROFILE%\.pi" /grant:r "$env:COMPUTERNAME\CodexSandboxUsers:(OI)(CI)(RX)"`）。
+  `node backend/src/native-mcp-check.mjs` → `storage attestation: ok` / `result: ok`。
+- 実機configでの実サーバー受け入れ: `--connect --timeout-ms=25000 --json` →
+  `{"ok":true,"storage":"ok","connect":{"browser-use":{"tools":16},"blendermcp":{"tools":26},"comfy-mcp":{"tools":39}},"issues":[]}`。
+- Hostの `backendLaunchPlan` が Backend 子プロセスへ `LEAFCODE_PI_MCP_NATIVE=1` を渡すように変更（`LEAFCODE_PI_MCP_NATIVE=0` でadapterへ即ロールバック）。
+- 残り: Backend/Host の再起動 → セッションでnative MCPツールが出ること・ON/OFF・再起動再現の確認 → adapter撤去。
 
 ## 実Backendでの受け入れ（2026-10-03）
 

@@ -74,6 +74,10 @@ export function backendLaunchPlan({
       // the store, leases and sessions.
       LEAFCODE_PI_BACKEND_RUNTIME: runtime ? "attach" : "",
       LEAFCODE_PI_BACKEND_RUNTIME_BUNDLE: bundle,
+      // Native MCP is the default for this Backend generation: the runtime bundle owns the session MCP
+      // factories and the bundled adapter is not loaded. Set `LEAFCODE_PI_MCP_NATIVE=0` in the Host
+      // environment to roll back to the adapter without a code change.
+      LEAFCODE_PI_MCP_NATIVE: env.LEAFCODE_PI_MCP_NATIVE ?? "1",
       ...(port ? { LEAFCODE_PI_BACKEND_PORT: port } : {}),
       // A Backend started without a generation has nothing to compare, so the Host pins only what
       // it can identify.
