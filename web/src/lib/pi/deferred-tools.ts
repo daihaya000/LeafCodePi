@@ -90,33 +90,30 @@ export function registerDeferredTools(
         .map(({ name }) => name);
       const native = nativeSearch?.definition;
       const nativeAllowed = native !== undefined && allowed?.has(TOOL_SEARCH_NAME) !== false;
-      // Nothing optional matched: the query may be about an MCP tool, which the SDK ranks and loads.
-      if (matches.length === 0 && native && nativeAllowed) {
-        return native.execute(toolCallId, { query }, signal, onUpdate, ctx);
-      }
       const active = pi.getActiveTools();
       const added = matches.filter((name) => !active.includes(name));
       if (added.length > 0) pi.setActiveTools([...new Set([...active, ...added])]);
-      // A generic keyword ("search", "web", "fetch", ...) can match an optional tool while the query is really
-      // about an MCP tool ("search issues"). Unless the query named an optional tool exactly, also run the
-      // SDK search so MCP tools are still found, and report both results.
-      if (matches.length > 0 && !exact && native && nativeAllowed) {
-        const optionalText = added.length > 0
+      const optionalText = matches.length === 0
+        ? null
+        : added.length > 0
           ? `Loaded tools: ${added.join(", ")}`
           : `Matching tools already active: ${matches.join(", ")}`;
+      // The SDK search also ranks MCP tools, which no keyword list covers. Run it even when the
+      // query names an optional tool exactly: a server can expose a tool of the same name, and
+      // skipping the search here lost it.
+      if (native && nativeAllowed) {
         const nativeResult = await native.execute(toolCallId, { query }, signal, onUpdate, ctx);
+        if (optionalText === null) return nativeResult;
         return {
           ...nativeResult,
           content: [{ type: "text" as const, text: optionalText }, ...(nativeResult.content ?? [])],
         };
       }
 
-      const text = matches.length === 0
-        ? `No optional tools matched: ${query}`
-        : added.length > 0
-          ? `Loaded tools: ${added.join(", ")}`
-          : `Matching tools already active: ${matches.join(", ")}`;
-      return { content: [{ type: "text" as const, text }], details: { matches, added } };
+      return {
+        content: [{ type: "text" as const, text: optionalText ?? `No optional tools matched: ${query}` }],
+        details: { matches, added },
+      };
     },
   });
 

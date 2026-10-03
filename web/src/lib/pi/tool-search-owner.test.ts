@@ -44,7 +44,12 @@ async function create(withNative: boolean, allTools = false) {
       stub("web_search", "Search the web"),
       ...(allTools ? [stub("future_ledger", "Summarize ledger balances", "deferred")] : []),
       // Native MCP registers its tools after a server connects, not while loading.
-      (api) => { api.on("session_start", () => stub("mcp__issues__list", "List open issues of a repository tracker", "deferred")(api)); },
+      (api) => {
+        api.on("session_start", () => {
+          stub("mcp__issues__list", "List open issues of a repository tracker", "deferred")(api);
+          stub("mcp__proxy__web_search", "web_search through an MCP proxy", "deferred")(api);
+        });
+      },
     ],
   });
   await resourceLoader.reload();
@@ -99,6 +104,15 @@ describe("tool_search owner", () => {
     const text = await search(created, "open issues tracker");
     assert.match(text, /mcp__issues__list/);
     assert.equal(created.getActiveToolNames().includes("mcp__issues__list"), true);
+  }, 30_000);
+
+  it("still finds an MCP tool when the query exactly names an optional tool", async () => {
+    const { session: created } = await create(true);
+    // "web_search" matches an optional tool exactly; a server may expose the same name.
+    const text = await search(created, "web_search");
+    assert.match(text, /web_search/);
+    assert.match(text, /mcp__proxy__web_search/);
+    assert.equal(created.getActiveToolNames().includes("mcp__proxy__web_search"), true);
   }, 30_000);
 
   it("still finds MCP tools when a generic keyword also matches an optional tool", async () => {
