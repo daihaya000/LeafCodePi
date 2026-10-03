@@ -2581,6 +2581,32 @@ async function attachSession(
     }
     return appendSessionInfo(...args);
   };
+  const appendLabelChange = session.sessionManager.appendLabelChange.bind(
+    session.sessionManager,
+  );
+  session.sessionManager.appendLabelChange = (...args) => {
+    if (live.leaseLost) return "";
+    const leaseRequired =
+      live.promptActive || session.isStreaming || hasActiveTaskLease(taskId);
+    if (leaseRequired && !ownsTaskLease(taskId)) {
+      abortTaskSessionsAfterLeaseLoss([taskId]);
+      return "";
+    }
+    return appendLabelChange(...args);
+  };
+  const branchWithSummary = session.sessionManager.branchWithSummary.bind(
+    session.sessionManager,
+  );
+  session.sessionManager.branchWithSummary = (...args) => {
+    if (live.leaseLost) return "";
+    const leaseRequired =
+      live.promptActive || session.isStreaming || hasActiveTaskLease(taskId);
+    if (leaseRequired && !ownsTaskLease(taskId)) {
+      abortTaskSessionsAfterLeaseLoss([taskId]);
+      return "";
+    }
+    return branchWithSummary(...args);
+  };
 
   const unsubscribe = session.subscribe((event) => {
     if (live.leaseLost) return;
