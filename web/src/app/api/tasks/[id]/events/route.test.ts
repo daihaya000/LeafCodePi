@@ -394,6 +394,51 @@ describe("/api/tasks/[id]/events", () => {
     }
   });
 
+  it("skips the remote poll snapshot while the foreign detail is unchanged", async () => {
+    vi.useFakeTimers();
+    try {
+      const bootstrap = task({ kind: "code", botId: "bot-1", status: "working", isStreaming: true });
+      const first = task({
+        kind: "code", botId: "bot-1", status: "idle", isStreaming: false,
+        messages: [{ id: "final", role: "assistant", createdAt: 1, parts: [] }],
+      });
+      mocks.getTaskBootstrap.mockReturnValue(bootstrap);
+      mocks.getTask.mockReturnValue(bootstrap);
+      mocks.getTaskDetail.mockResolvedValue(first);
+      mocks.isTaskRuntimeOwnedElsewhere.mockReturnValue(true);
+      mocks.subscribeTask.mockReturnValue(vi.fn());
+
+      const response = await GET(
+        new NextRequest("http://127.0.0.1:3010/api/tasks/task-1/events"),
+        { params: Promise.resolve({ id: "task-1" }) },
+      );
+      const reader = response.body!.getReader();
+      await readChunk(reader);
+      expect(eventData(await readChunk(reader)).eventType).toBe("ready");
+
+      await vi.advanceTimersByTimeAsync(2_000);
+      expect(eventData(await readChunk(reader)).eventType).toBe("remote_poll");
+
+      // Same detail again: the poll still probes ownership but sends nothing,
+      // so the next event the client sees is the later real change.
+      await vi.advanceTimersByTimeAsync(2_000);
+      expect(mocks.getTaskDetail).toHaveBeenCalledTimes(3);
+
+      mocks.getTaskDetail.mockResolvedValue({
+        ...first,
+        messages: [...first.messages, { id: "next", role: "assistant", createdAt: 2, parts: [] }],
+      });
+      await vi.advanceTimersByTimeAsync(2_000);
+      const changed = eventData(await readChunk(reader));
+      expect(changed.eventType).toBe("remote_poll");
+      expect((changed.messages as Array<{ id: string }>).at(-1)?.id).toBe("next");
+
+      await reader.cancel();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("does not reuse a matching cache while the task is working", async () => {
     const bootstrap = task({ messages: [], isStreaming: true });
     const detail = task({

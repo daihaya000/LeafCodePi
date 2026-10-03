@@ -28,6 +28,28 @@ const TASK_SSE_PERF_ENABLED = process.env.NODE_ENV === "development";
 /** Bound ready-path session opens so a hung ensureLive cannot block SSE forever. */
 const TASK_SSE_DETAIL_TIMEOUT_MS = 30_000;
 
+/**
+ * Change key for the foreign-owner poll. Task writes bump `updatedAt`, and the
+ * message count plus last message id cover sub-millisecond appends, so an
+ * unchanged remote task produces the same string and its snapshot is skipped.
+ */
+function remotePollSignature(
+  taskSummary: Record<string, unknown>,
+  detail: { isStreaming?: boolean; isCompacting?: boolean; contextUsage?: unknown; hangRetryCount?: number },
+  messageCount: number,
+): string {
+  const last = taskSummary.updatedAt ?? "";
+  return [
+    String(last),
+    messageCount,
+    String(taskSummary.status ?? ""),
+    String(detail.isStreaming ?? ""),
+    String(detail.isCompacting ?? ""),
+    JSON.stringify(detail.contextUsage ?? null),
+    String(detail.hangRetryCount ?? 0),
+  ].join(":");
+}
+
 async function getTaskDetailForReady(
   id: string,
   options?: Parameters<typeof getTaskDetail>[1],
@@ -63,6 +85,8 @@ export async function GET(
       let unsubscribe = () => {};
       let remotePollTimer: ReturnType<typeof setInterval> | undefined;
       let remotePollBusy = false;
+      /** Last remote snapshot signature, so an unchanged poll costs no send. */
+      let lastRemoteSignature: string | undefined;
       const stopRemotePoll = () => {
         if (remotePollTimer) clearInterval(remotePollTimer);
         remotePollTimer = undefined;
@@ -296,25 +320,32 @@ export async function GET(
                 delete (taskSummary as Record<string, unknown>)[key];
               }
               const messagePage = pageTaskMessages(detail.messages);
-              // offline detail always nulls permission/question. Omit them so a
-              // buffered live control event (or local pending at ready) is not
-              // wiped every 2s while another worker holds the lease.
-              writer.send("snapshot", {
-                type: "snapshot",
-                task: taskSummary,
-                messages: messagePage.messages,
-                messageHistory: messagePage.messageHistory,
-                isStreaming: detail.isStreaming,
-                isCompacting: detail.isCompacting,
-                contextUsage: detail.contextUsage,
-                compactionSuggested: detail.compactionSuggested,
-                goalLoop: detail.goalLoop,
-                todos: detail.todos,
-                manualAbortedAssistantId: detail.manualAbortedAssistantId ?? null,
-                hangRetryCount: detail.hangRetryCount ?? 0,
-                revertLeafId: detail.revertLeafId ?? null,
-                eventType: "remote_poll",
-              });
+              // The poll runs every 2s for as long as another worker owns the task, but an
+              // unchanged detail produces a byte-identical snapshot. Skip the send and keep
+              // only the ownership probe, so an idle foreign task costs no SSE traffic.
+              const signature = remotePollSignature(taskSummary, detail, messagePage.messages.length);
+              if (signature !== lastRemoteSignature) {
+                lastRemoteSignature = signature;
+                // offline detail always nulls permission/question. Omit them so a
+                // buffered live control event (or local pending at ready) is not
+                // wiped every 2s while another worker holds the lease.
+                writer.send("snapshot", {
+                  type: "snapshot",
+                  task: taskSummary,
+                  messages: messagePage.messages,
+                  messageHistory: messagePage.messageHistory,
+                  isStreaming: detail.isStreaming,
+                  isCompacting: detail.isCompacting,
+                  contextUsage: detail.contextUsage,
+                  compactionSuggested: detail.compactionSuggested,
+                  goalLoop: detail.goalLoop,
+                  todos: detail.todos,
+                  manualAbortedAssistantId: detail.manualAbortedAssistantId ?? null,
+                  hangRetryCount: detail.hangRetryCount ?? 0,
+                  revertLeafId: detail.revertLeafId ?? null,
+                  eventType: "remote_poll",
+                });
+              }
               if (!isTaskRuntimeOwnedElsewhere(getTask(id) ?? task)) stopRemotePoll();
             } catch {
               // The owner may be replacing the append-only session file; the next poll retries.

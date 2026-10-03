@@ -110,7 +110,7 @@
 | 中 **[一部修正 2026-10-04: git を1回の rev-parse にまとめ、parent と workflow の cwd が同一なら再解決しない（最大6→1〜2 spawnSync）。同期 spawn 自体は残る]** | `extensions/leafcode-subagents/src/workflows/chat-progress.ts`（~28–54, 74–78） | `resolveWorkflowChatProgress` が parent/workflow それぞれで最大 3 回の同期 `git`（合計最大 6 `spawnSync`）。ワークフロー開始のたびにイベントループを止める。 |
 | 中 **[一部修正 2026-10-04: requestsディレクトリをmtime+inoでメモ化し1秒以内の再pollはreaddirSyncを省略。ルート直下のreaddirSyncとstatSyncは残り、mtime粗いFSでも1秒上限で復帰]** | `native-supervisor-channel.ts`（~25, 328–351, 701–709） | `CHANNEL_POLL_MS`（最短 250ms）で全 channel `readdirSync`。 |
 | 中 | `scripts/web-build-mirror.mjs` (~105–114) | size+mtime 一致でも毎回フルバイト比較。 |
-| 中 | `web/src/app/api/tasks/[id]/events/route.ts` (~266–325) | ローカル runtime・別ワーカー所有時、2 秒ごとに task detail とメッセージ全ページを SSE。 |
+| 中 **[一部修正 2026-10-04: remote poll の snapshot に updatedAt+メッセージ数+状態+streaming の署名を含め、変化が無ければ送信せず所有権 probe のみ実行。detail 取得（HTTP/offline detail）自体は残る]** | `web/src/app/api/tasks/[id]/events/route.ts`（~266–325） | ローカル runtime・別ワーカー所有時、2 秒ごとに task detail とメッセージ全ページを SSE。 |
 | 中 | `web/src/lib/direct-session.ts` (~387–411)、`bots/sidebar/route.ts` (~37)、`Sidebar.tsx` (~1706–1708) | mtime 変化で Bot ごとに最大 ~4MB 読込→`buildSessionContext`→末尾1件。ストリーム中 12s poll で重い。 |
 | 中 **[緩和 2026-10-03: 上限を 128M→32M 文字へ縮小]** | `web/src/lib/git.ts`（`GIT_MAX_OUTPUT_CHARS` ~14, 87–95） | git stdout/stderr を拒否前に最大約 128MiB 文字までヒープへ連結。巨大 diff で BFF が先にメモリ圧迫される。 |
 | 中 | `web/src/lib/llama-server-load.ts`（~16, 69–87）、`web/src/app/api/llama-server/ensure-loaded/route.ts` | `POST /api/llama-server/ensure-loaded` がモデル load 待ちで最大約 180 秒ブロック。Next BFF ワーカーを長時間占有しうる。 |
