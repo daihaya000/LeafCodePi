@@ -1,6 +1,6 @@
 import { HANG_RETRY_PREFIX } from "../hang-retry";
 import { BOT_PROMPT_PREFIX, stripBotPromptPrefix, stripHangRetryPrefix } from "@backend-core/prompt-markers.mjs";
-import type { GoalLoopTurn, ToolState, UiDiagnostic, UiMessage, UiPart } from "../types";
+import type { GoalLoopTurn, NestedToolCallDto, ToolState, UiDiagnostic, UiMessage, UiPart } from "../types";
 
 /**
  * Bot（Code委譲・Botパネル）が送ったプロンプトを識別するマーカー。
@@ -276,12 +276,42 @@ export function subagentRunIdsFromDetails(details: unknown): string[] {
   return [...ids];
 }
 
+const NESTED_CALL_STATUSES = new Set(["ok", "error", "unfinished"]);
+const MAX_NESTED_CALLS = 256;
+const MAX_NESTED_ERROR_CHARS = 500;
+
+/** The SDK's `nestedCalls` record of a tool result, reduced to what the card shows (no arguments). */
+export function nestedCallsFromRaw(value: unknown): NestedToolCallDto[] {
+  if (!Array.isArray(value)) return [];
+  const calls: NestedToolCallDto[] = [];
+  for (const row of value) {
+    if (calls.length >= MAX_NESTED_CALLS) break;
+    if (!isRecord(row)) continue;
+    const id = asString(row.id);
+    const name = asString(row.name);
+    const status = asString(row.status);
+    if (!id || !name || !NESTED_CALL_STATUSES.has(status)) continue;
+    const error = asString(row.error);
+    calls.push({
+      id,
+      name,
+      status: status as NestedToolCallDto["status"],
+      ...(typeof row.durationMs === "number" && Number.isFinite(row.durationMs) && row.durationMs >= 0
+        ? { durationMs: row.durationMs }
+        : {}),
+      ...(error ? { error: error.slice(0, MAX_NESTED_ERROR_CHARS) } : {}),
+    });
+  }
+  return calls;
+}
+
 function mergeToolResult(
   messages: UiMessage[],
   toolCallId: string,
   output: string,
   isError: boolean,
   subagentRunIds: string[] = [],
+  nestedCalls: NestedToolCallDto[] = [],
 ): void {
   for (let index = messages.length - 1; index >= 0; index -= 1) {
     const message = messages[index];
@@ -297,6 +327,7 @@ function mergeToolResult(
       output,
       error: isError ? output : undefined,
       ...(subagentRunIds.length > 0 ? { subagentRunIds } : {}),
+      ...(nestedCalls.length > 0 ? { nestedCalls } : {}),
     };
     return;
   }
@@ -580,6 +611,7 @@ export function projectPiMessages(raw: unknown[], indexOffset = 0): UiMessage[] 
         output,
         item.isError === true,
         subagentRunIdsFromDetails(item.details),
+        nestedCallsFromRaw(item.nestedCalls),
       );
       return;
     }

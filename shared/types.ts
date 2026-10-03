@@ -443,6 +443,18 @@ export type TodoDto = {
   priority: TodoPriority;
 };
 
+/**
+ * One call a tool made while it ran (a codemode script calling other tools). Arguments are left out on
+ * purpose: they can carry secrets, and the card only needs what ran and how it ended.
+ */
+export type NestedToolCallDto = {
+  id: string;
+  name: string;
+  status: "ok" | "error" | "unfinished";
+  durationMs?: number;
+  error?: string;
+};
+
 export type ToolState = {
   status: "pending" | "running" | "completed" | "cancelled" | "error";
   input?: Record<string, unknown>;
@@ -455,6 +467,8 @@ export type ToolState = {
   endedAtMs?: number;
   /** pi-subagents run ids reported in the tool result details (subagent tool). */
   subagentRunIds?: string[];
+  /** Calls this tool made through the SDK (recorded on the tool result), in call order. */
+  nestedCalls?: NestedToolCallDto[];
 };
 
 /** One pi-subagents child run, projected from its transcript artifact. */

@@ -85,6 +85,7 @@ function isToolState(value: unknown): value is ToolState {
   if (value.startedAtMs !== undefined && typeof value.startedAtMs !== "number") return false;
   if (value.endedAtMs !== undefined && typeof value.endedAtMs !== "number") return false;
   if (value.subagentRunIds !== undefined && !Array.isArray(value.subagentRunIds)) return false;
+  if (value.nestedCalls !== undefined && !Array.isArray(value.nestedCalls)) return false;
   return true;
 }
 
