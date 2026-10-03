@@ -1275,7 +1275,8 @@ test("writeLoop retries transient rename failures and cleans temp on fallback", 
       throw err;
     });
     applyResult(loop, { time: new Date().toISOString(), status: "progress", summary: "fallback write" });
-    assert.equal(attempts, 5);
+    // Three transient retries, then the overwrite fallback.
+    assert.equal(attempts, 3);
     assert.equal(JSON.parse(readFileSync(join(goalsDir, "write-session.json"), "utf8")).summary, "fallback write");
     assert.equal(readdirSync(goalsDir).some((name) => name.endsWith(".tmp")), false);
     assert.equal(existsSync(join(goalsDir, "write-session.json")), true);

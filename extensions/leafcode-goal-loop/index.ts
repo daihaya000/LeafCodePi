@@ -688,7 +688,7 @@ function writeLoop(loop: GoalLoop): boolean {
       } catch (error) {
         const code = (error as NodeJS.ErrnoException | undefined)?.code;
         const transient = code === "EPERM" || code === "EACCES" || code === "EBUSY";
-        if (attempt >= 4 || !transient) {
+        if (attempt >= 2 || !transient) {
           // Keep the temp until the overwrite succeeds so a torn write can still
           // be recovered on the next readLoop.
           try {
@@ -701,10 +701,10 @@ function writeLoop(loop: GoalLoop): boolean {
             return false;
           }
         }
-        // 10+10+15+15 = 50ms total before the overwrite fallback.
+        // 10+15+20 = 45ms over the three retries this loop actually performs
+        // before the overwrite fallback (attempt 0-2); a fourth retry costs more
+        // scheduler delay than the OneDrive lock it waits for.
         // writeLoopは同期APIなのでイベントループを止めないようCPUだけ休ませる。
-        // OneDrive等の短いロックはここで吸収し、それより長い競合は下の確実な上書き
-        // フォールバックが処理する。
         Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 10 + 5 * attempt);
       }
     }
