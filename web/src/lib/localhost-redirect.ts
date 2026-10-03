@@ -17,7 +17,8 @@ const PROBE_TIMEOUT_MS = 800;
 
 /** True for a bare private IPv4 / unique-local address (RFC 1918 / RFC 4193). */
 export function isPrivateHost(value: string): boolean {
-  const v = value.trim().toLowerCase();
+  const raw = value.trim().toLowerCase();
+  const v = raw.startsWith("[") && raw.endsWith("]") ? raw.slice(1, -1) : raw;
   if (!v) return false;
   if (isLoopbackHost(v)) return true;
   if (/^10\./.test(v)) return true;
@@ -53,26 +54,16 @@ async function readProbeId(url: string): Promise<string | null> {
  */
 async function canReachLoopbackWebui(): Promise<boolean> {
   try {
-    const port = window.location.port;
+    const loopbackProbeUrl = new URL("/api/host-probe", window.location.href);
+    loopbackProbeUrl.hostname = "127.0.0.1";
     const [own, loopback] = await Promise.all([
       readProbeId(`/api/host-probe`),
-      readProbeId(`http://127.0.0.1:${port}/api/host-probe`),
+      readProbeId(loopbackProbeUrl.toString()),
     ]);
     return own !== null && own === loopback;
   } catch {
     return false;
   }
-}
-
-function extractHostname(raw: string): string {
-  const s = raw.trim().toLowerCase();
-  if (!s) return "";
-  if (s.startsWith("[")) {
-    const end = s.indexOf("]");
-    if (end !== -1) return s.slice(1, end);
-  }
-  const colon = s.indexOf(":");
-  return colon === -1 ? s : s.slice(0, colon);
 }
 
 /**
@@ -85,7 +76,7 @@ function extractHostname(raw: string): string {
  */
 export async function maybeRedirectToLocalhost(): Promise<string | null> {
   if (typeof window === "undefined") return null;
-  const hostname = extractHostname(window.location.hostname);
+  const hostname = window.location.hostname;
   if (isLoopbackHost(hostname)) return null;
   // Only redirect private-network hosts. A public hostname (e.g. a reverse
   // proxy domain) should be left alone — it may be the intended access path.

@@ -43,6 +43,7 @@ describe("isPrivateHost", () => {
   it("accepts IPv6 unique-local addresses only", () => {
     expect(isPrivateHost("fc00::1")).toBe(true);
     expect(isPrivateHost("fd12:3456:789a::1")).toBe(true);
+    expect(isPrivateHost("[fd12:3456:789a::1]")).toBe(true);
     // fc/fd で始まるだけの公開ホスト名は IPv6 アドレスではない
     expect(isPrivateHost("fcloud.com")).toBe(false);
     expect(isPrivateHost("fdm.example.com")).toBe(false);
@@ -131,5 +132,46 @@ describe("maybeRedirectToLocalhost", () => {
       "http://127.0.0.1:3000/task/abc",
     );
     expect(replace).toHaveBeenCalledWith("http://127.0.0.1:3000/task/abc");
+  });
+
+  it("handles bare IPv6 hostnames and probes the canonical loopback URL", async () => {
+    const urls: string[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string) => {
+        urls.push(url);
+        return Response.json({ id: "host-pc" });
+      }),
+    );
+    stubLocation("fd12:3456:789a::1", "http://[fd12:3456:789a::1]:3000/task", "3000");
+
+    expect(await maybeRedirectToLocalhost()).toBe("http://127.0.0.1:3000/task");
+    expect(urls).toEqual([
+      "/api/host-probe",
+      "http://127.0.0.1:3000/api/host-probe",
+    ]);
+  });
+
+  it("probes default HTTP/HTTPS ports without an empty port delimiter", async () => {
+    for (const [href, loopbackOrigin] of [
+      ["http://100.64.0.10/task", "http://127.0.0.1"],
+      ["https://100.64.0.10/task", "https://127.0.0.1"],
+    ]) {
+      const urls: string[] = [];
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(async (url: string) => {
+          urls.push(url);
+          return Response.json({ id: "host-pc" });
+        }),
+      );
+      stubLocation("100.64.0.10", href, "");
+
+      expect(await maybeRedirectToLocalhost()).toBe(`${loopbackOrigin}/task`);
+      expect(urls).toEqual([
+        "/api/host-probe",
+        `${loopbackOrigin}/api/host-probe`,
+      ]);
+    }
   });
 });
