@@ -1,5 +1,16 @@
 # codemode の効果測定（固定タスク）
 
+## LCP の既定方針（2026-10-04）
+
+- 通常 Code セッションでは codemode を常時有効化する。native MCP の opt-in や Pi の
+  `defaultTools` 設定は不要。新規・再開・reload は共通のセッション作成経路で適用する。
+- `mode: "on"` で通常ツールと併用し、`models: false` でスクリプトからのモデル実行は無効。
+  native MCP 有効時はその codemode を使用し、二重登録しない。MCP 自体の有効化方針は変更しない。
+- Bot・ツール許可リスト付きエージェントへは暗黙に追加しない。スクリプト内の呼び出しにも
+  既存の ToDo・権限ゲートを適用する。有効化は全操作をスクリプトに強制する意味ではない。
+- 回帰検証: `codemode-default-sdk.test.ts`、`mcp-native-session.test.ts`、
+  `codemode-gate-sdk.test.ts`、`codemode-permission-sdk.test.ts`。
+
 `web/src/lib/pi/codemode-effect.test.ts` が同じタスクを3通りで実行し、モデルへ渡る文字数と
 モデル要求回数を数える。モデルは台本で動かす（回答品質・料金は測らない）。実SDKセッション・
 実 `read` ツール・実 `codemode` を使う。再測定は `npx vitest run src/lib/pi/codemode-effect.test.ts`
@@ -30,4 +41,4 @@
   MCP をまたぐ連続操作は `searchTools()` → 実行 → 集計を1回にできる（E2E で確認済み）。
 - 測っていないこと: 実モデルが正しいスクリプトを書く確率、失敗時の再試行コスト、
   `mode: "on"` で既存ツールの説明に付く「スクリプトからの呼び方」の追記ぶん（ツール数に比例）。
-  既定有効化の判断前に、実モデルで少数のタスクを実測する。
+  上記の既定化はユーザー指示による方針。実モデルでの品質・料金の評価は未実施。

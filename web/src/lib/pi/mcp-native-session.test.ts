@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterEach, describe, it, vi } from "vitest";
-import { DefaultResourceLoader, SettingsManager } from "@earendil-works/pi-coding-agent";
+import { createCodemodeExtension, DefaultResourceLoader, SettingsManager } from "@earendil-works/pi-coding-agent";
 import { createBackendMcpNativeRuntime } from "@backend-core/mcp-native-runtime.mjs";
 import { bundledPathsForNativeMcp, nativeMcpExtensionFactory, resolveBackendMcpNativeSession, setBackendMcpNativeSessionProvider } from "@backend-core/mcp-native-session.mjs";
 import { replacedUpstreamPackages } from "@backend-core/replaced-packages.mjs";
@@ -45,7 +45,7 @@ async function loadWith(active: boolean) {
     cwd: agentDir, agentDir,
     settingsManager: SettingsManager.inMemory({ packages: [] }),
     additionalExtensionPaths: loadedBundled.map((entry) => entry.filePath),
-    extensionFactories: [nativeMcpExtensionFactory(agentDir)],
+    extensionFactories: [nativeMcpExtensionFactory(agentDir, createCodemodeExtension({ mode: "on", models: false }))],
     extensionsOverride: sessionExtensionsOverride(index),
     noSkills: true, noPromptTemplates: true, noThemes: true, noContextFiles: true,
   });
@@ -54,11 +54,12 @@ async function loadWith(active: boolean) {
 }
 
 describe("native MCP session selection", () => {
-  it("loads no MCP extension by default (the adapter is retired)", async () => {
+  it("loads standalone codemode by default without activating MCP (the adapter is retired)", async () => {
     const { nativeMcp, loaded } = await loadWith(false);
     assert.equal(nativeMcp.active, false);
+    assert.deepEqual(loaded.errors, []);
     assert.equal(loaded.extensions.some((extension) => basenameKey(extension.path) === "leafcode-mcp-adapter"), false);
-    assert.equal(loaded.extensions.some((extension) => extension.tools.has("codemode")), false);
+    assert.equal(loaded.extensions.filter((extension) => extension.tools.has("codemode")).length, 1);
   }, 30_000);
 
   it("loads native MCP/codemode/tool_search and keeps the retired MCP extensions out", async () => {
@@ -67,11 +68,11 @@ describe("native MCP session selection", () => {
     assert.deepEqual(loaded.errors, []);
     assert.equal(replacedUpstreamPackages(index.names).has("pi-mcp-adapter"), true);
     assert.equal(loaded.extensions.some((extension) => basenameKey(extension.path) === "leafcode-mcp-adapter"), false);
-    assert.equal(loaded.extensions.some((extension) => extension.tools.has("codemode")), true);
+    assert.equal(loaded.extensions.filter((extension) => extension.tools.has("codemode")).length, 1);
     assert.equal(loaded.extensions.some((extension) => extension.tools.has("tool_search")), true);
     // The harness must resolve the provider per loader run (and per reload), not capture its factories.
     const harnessSource = readFileSync(new URL("./harness.ts", import.meta.url), "utf8");
-    assert.equal(harnessSource.includes("nativeMcpExtensionFactory(options.cwd)"), true);
+    assert.match(harnessSource, /nativeMcpExtensionFactory\(\s*options\.cwd, \(api\) => pi\.createCodemodeExtension\(\{ mode: "on", models: false \}\)\(api\)/);
     assert.equal(harnessSource.includes("...nativeMcp.factories"), false);
   }, 30_000);
 });

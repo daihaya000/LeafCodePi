@@ -74,7 +74,7 @@ const search = async (target: AgentSession, query: string) => {
 describe("tool_search owner", () => {
   it("is wired into the harness for native MCP and every deferred-tool registration", () => {
     const source = readFileSync(new URL("./harness.ts", import.meta.url), "utf8");
-    assert.equal(source.includes("captureNativeToolSearch(nativeMcpExtensionFactory(options.cwd), nativeToolSearch)"), true);
+    assert.match(source, /captureNativeToolSearch\(nativeMcpExtensionFactory\(\s*options\.cwd,[\s\S]*?\), nativeToolSearch\)/);
     assert.equal(source.match(/registerDeferredTools\(api, [^)]*input\.nativeToolSearch\)/g)?.length, 3);
   });
 

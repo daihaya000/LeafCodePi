@@ -117,6 +117,7 @@ const fakePi = vi.hoisted(() => {
       promptGate.current = null;
     },
     getAgentDir: () => process.env.PI_CODING_AGENT_DIR ?? "",
+    createCodemodeExtension: () => () => undefined,
     DefaultResourceLoader: class {
       extensionFactories: FakeInlineExtension[];
       constructor(options: { extensionFactories?: FakeInlineExtension[] }) {

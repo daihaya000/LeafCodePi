@@ -14,6 +14,7 @@ import {
 import { fauxAssistantMessage, fauxProvider, fauxToolCall } from "@earendil-works/pi-ai";
 import { Type } from "typebox";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { nativeMcpExtensionFactory } from "@backend-core/mcp-native-session.mjs";
 import permissionGate from "../../../../extensions/leafcode-permission-gate/index";
 
 let root: string;
@@ -50,7 +51,7 @@ async function run(mode: "allow" | "deny", code: string) {
     cwd: root, agentDir, settingsManager, noExtensions: true, noSkills: true, noPromptTemplates: true,
     noThemes: true, noContextFiles: true,
     extensionFactories: [
-      createCodemodeExtension({ mode: "on", models: false }),
+      nativeMcpExtensionFactory(root, createCodemodeExtension({ mode: "on", models: false })),
       shell,
       permissionGate as unknown as ExtensionFactory,
     ],

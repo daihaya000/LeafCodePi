@@ -9,6 +9,6 @@ export function setBackendMcpNativeSessionProvider(next: BackendMcpNativeSession
 export function resolveBackendMcpNativeSession(sessionCwd: string): BackendMcpNativeSession;
 /** Bundled extension entries to load; drops leafcode-mcp-adapter when native MCP is active. */
 export function bundledPathsForNativeMcp<T extends { name: string }>(entries: readonly T[], active: boolean): T[];
-/** One loader factory that resolves the provider per invocation (and per reload), never capturing a
- * binding that a config write may have retired. */
-export function nativeMcpExtensionFactory(sessionCwd: string): ExtensionFactory;
+/** Resolve the provider per load/reload. Standalone codemode is used only when native MCP is inactive;
+ * an active but failed provider never falls back. */
+export function nativeMcpExtensionFactory(sessionCwd: string, standaloneCodemode?: ExtensionFactory): ExtensionFactory;

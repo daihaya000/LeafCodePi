@@ -14,6 +14,7 @@ import {
 import { fauxAssistantMessage, fauxProvider, fauxToolCall } from "@earendil-works/pi-ai";
 import { Type } from "typebox";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { nativeMcpExtensionFactory } from "@backend-core/mcp-native-session.mjs";
 import todowriteExtension from "../../../../extensions/leafcode-todowrite/index";
 import { registerJevNoulJudge } from "./jev-noul-judge";
 
@@ -48,7 +49,7 @@ async function run(code: string) {
     cwd: root, agentDir, settingsManager, noExtensions: true, noSkills: true, noPromptTemplates: true,
     noThemes: true, noContextFiles: true,
     extensionFactories: [
-      createCodemodeExtension({ mode: "on", models: false }),
+      nativeMcpExtensionFactory(root, createCodemodeExtension({ mode: "on", models: false })),
       workTool,
       todowriteExtension as unknown as ExtensionFactory,
     ],

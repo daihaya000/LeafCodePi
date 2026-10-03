@@ -23,15 +23,17 @@ export function resolveBackendMcpNativeSession(sessionCwd) {
   return { active: true, factories: [], issues: issues.length ? issues : [{ code: "native-session-unavailable" }] };
 }
 
-/** Extension factory for a session loader. The provider is resolved when the loader runs (and again on
- * every reload), so a reload after a config write uses the newly published binding instead of
- * re-running factories bound to a retired one. A failed preparation yields no factories. */
-export function nativeMcpExtensionFactory(sessionCwd) {
+/** Extension factory for a session loader. Resolve the provider on every load/reload, never replaying
+ * a retired binding. Without native MCP, the host may supply standalone codemode; it does not activate
+ * MCP or restore the retired adapter. An active but failed provider never uses this fallback. */
+export function nativeMcpExtensionFactory(sessionCwd, standaloneCodemode) {
   return (api) => {
+    const nativeMcp = resolveBackendMcpNativeSession(sessionCwd);
+    if (!nativeMcp.active) return standaloneCodemode?.(api);
     // Native factories are async: hand the pending result back to the loader (sequentially, in order)
     // so a failed registration is reported and finishes before later extensions (tool_search/excludeTools).
     let pending;
-    for (const factory of resolveBackendMcpNativeSession(sessionCwd).factories) {
+    for (const factory of nativeMcp.factories) {
       if (pending) { pending = pending.then(() => factory(api)); continue; }
       const result = factory(api);
       if (result && typeof result.then === "function") pending = Promise.resolve(result);

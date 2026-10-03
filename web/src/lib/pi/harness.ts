@@ -3583,6 +3583,7 @@ export function sessionToolNames(input: {
         ...(hasDesktop ? COMPUTER_USE_TOOL_NAMES : []),
         ...(input.subagentPermission === "allow" ? ["subagent"] : []),
         "todowrite",
+        "codemode",
         TOOL_SEARCH_NAME,
         JEV_TOOL_NAME,
       ];
@@ -4019,7 +4020,11 @@ async function createSession(options: {
     additionalSkillPaths: bundledSkills,
     // Resolved per loader run: a reload after a config write must pick up the newly published provider
     // instead of re-running factories bound to a binding that write already retired.
-    extensionFactories: [captureNativeToolSearch(nativeMcpExtensionFactory(options.cwd), nativeToolSearch), ...sessionExtensionFactories({
+    // Code always has codemode, even without native MCP. Use one owner per loader run, including
+    // reloads; native MCP supplies its own instance. Strict agent/Bot tool allowlists still apply.
+    extensionFactories: [captureNativeToolSearch(nativeMcpExtensionFactory(
+      options.cwd, (api) => pi.createCodemodeExtension({ mode: "on", models: false })(api),
+    ), nativeToolSearch), ...sessionExtensionFactories({
       nativeToolSearch,
       agentDir,
       botSoulBotId,

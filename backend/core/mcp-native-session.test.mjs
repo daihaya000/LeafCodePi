@@ -41,6 +41,25 @@ test("nativeMcpExtensionFactory resolves the provider on every run so a reload p
   loader({ id: 3 }); assert.deepEqual(called, ["A", "B"], "a failed preparation yields no factories");
 });
 
+test("standalone codemode is used only without native MCP, also across reloads", async () => {
+  const calls = [];
+  const standalone = async () => { calls.push("standalone"); };
+  const native = () => { calls.push("native"); };
+  const loader = nativeMcpExtensionFactory("C:/work", standalone);
+  await loader({});
+  assert.deepEqual(calls, ["standalone"]);
+  setBackendMcpNativeSessionProvider(() => ({ ok: true, factories: [native] }));
+  await loader({});
+  assert.deepEqual(calls, ["standalone", "native"], "native supplies codemode without a duplicate");
+  setBackendMcpNativeSessionProvider(() => ({ ok: false, issues: [{ code: "x" }], factories: null }));
+  await loader({});
+  assert.deepEqual(calls, ["standalone", "native"], "a failed active provider must not fall back");
+  setBackendMcpNativeSessionProvider(undefined);
+  await loader({});
+  assert.deepEqual(calls, ["standalone", "native", "standalone"]);
+  await assert.rejects(Promise.resolve(nativeMcpExtensionFactory("C:/work", async () => { throw Error("standalone failed"); })({})), /standalone failed/);
+});
+
 test("nativeMcpExtensionFactory awaits async factories in order and surfaces rejections", async () => {
   const order = [];
   const slow = async () => { await new Promise((r) => setTimeout(r, 10)); order.push("slow"); };

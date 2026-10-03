@@ -15,11 +15,14 @@ describe("sessionToolNames", () => {
     assert.ok(sessionToolNames({ platform: "linux", env: { WAYLAND_DISPLAY: "wayland-0" } }).includes("act_ui"));
     assert.equal(sessionToolNames({ platform: "darwin" }).includes("act_ui"), false);
     assert.ok(linux.includes("tool_search"));
+    assert.ok(linux.includes("codemode"));
 
     const windows = sessionToolNames({ platform: "win32" });
     assert.ok(windows.includes("powershell"));
     assert.ok(windows.includes("bash"));
     assert.ok(windows.includes("jev_judge"));
+    assert.ok(windows.includes("codemode"));
+    assert.ok(sessionToolNames({ platform: "darwin" }).includes("codemode"));
     for (const tool of COMPUTER_USE_TOOL_NAMES) {
       assert.ok(windows.includes(tool));
       assert.deepEqual(sessionToolNames({ agentTools: ["read", tool] }), ["read", tool]);
@@ -34,7 +37,7 @@ describe("sessionToolNames", () => {
     );
   });
 
-  it("keeps an agent allowlist without implicitly granting tool_search", () => {
+  it("keeps an agent allowlist without implicitly granting tool_search or codemode", () => {
     assert.deepEqual(sessionToolNames({ platform: "linux", agentTools: ["read", "grep"] }), [
       "read",
       "grep",
@@ -55,6 +58,7 @@ describe("sessionToolNames", () => {
     });
     assert.equal(botTools.includes("powershell"), false);
     assert.equal(botTools.includes("act_ui"), false);
+    assert.equal(botTools.includes("codemode"), false);
     assert.ok(botTools.includes("update_soul"));
     assert.ok(botTools.includes("code_session"));
     assert.ok(botTools.includes("room_handoff"));
