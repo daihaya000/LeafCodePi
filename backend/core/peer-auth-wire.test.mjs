@@ -1,7 +1,8 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
-  parsePeerBearer, parsePeerResolveRequest, parsePeerResolveResponse, publicPeerCredential, publicPeerList,
+  parsePeerBearer, parsePeerResolveRequest, parsePeerResolveResponse, parsePeerUsageRequest,
+  parsePeerUsageResponse, publicPeerCredential, publicPeerList, publicPeerUsage,
 } from "./peer-auth-wire.mjs";
 
 const token = "A".repeat(43);
@@ -39,6 +40,32 @@ test("resolve response requires exactly one valid credential", () => {
   assert.equal(parsePeerResolveResponse({ credential: { type: "oauth", access: "a", expires: 9 }, extra: 1 }), null);
   assert.equal(parsePeerResolveResponse({}), null);
   assert.equal(parsePeerResolveResponse(null), null);
+});
+
+test("peer usage accepts named accounts only and strips non-usage fields", () => {
+  assert.deepEqual(parsePeerUsageRequest({ accountId: "acc_1" }), { ok: true, value: { accountId: "acc_1" } });
+  for (const bad of [null, {}, { accountId: null }, { accountId: "../x" }, { accountId: "acc1", extra: true }]) {
+    assert.deepEqual(parsePeerUsageRequest(bad), { ok: false });
+  }
+  const snapshot = {
+    providerId: "openai-codex", providerName: "Codex", plan: "Plus",
+    windows: [{ id: "5h", title: "5時間", usedPercent: 25, resetsAt: new Date(1_700_000_000_000), windowDurationMs: 18_000_000, countsTowardLimit: true }],
+    creditsBalance: null, creditsLabel: null, creditsEnabled: false, creditsTitle: null, creditsUsed: null, creditsLimit: null,
+    sourceLabel: null, updatedAt: new Date(1_700_000_000_000), isStale: false, rateLimitResetCreditsAvailable: 2,
+    accountEmail: "private@example.com", access: "SECRET", extra: "drop",
+  };
+  const response = publicPeerUsage({ providers: [{ providerId: "openai-codex", snapshot }] });
+  assert.deepEqual(response.providers[0].snapshot, {
+    providerId: "openai-codex", providerName: "Codex", plan: "Plus",
+    windows: [{ id: "5h", title: "5時間", usedPercent: 25, resetsAt: "2023-11-14T22:13:20.000Z", windowDurationMs: 18_000_000, countsTowardLimit: true }],
+    creditsBalance: null, creditsLabel: null, creditsEnabled: false, creditsTitle: null, creditsUsed: null, creditsLimit: null,
+    sourceLabel: null, updatedAt: "2023-11-14T22:13:20.000Z", isStale: false, rateLimitResetCreditsAvailable: 2,
+  });
+  assert.equal(JSON.stringify(response).includes("SECRET"), false);
+  assert.equal(JSON.stringify(response).includes("private@example.com"), false);
+  assert.deepEqual(parsePeerUsageResponse(JSON.parse(JSON.stringify(response))), response);
+  assert.equal(publicPeerUsage({ providers: [{ providerId: "openai-codex", snapshot: { providerId: "openai-codex" } }] }), null);
+  assert.equal(publicPeerUsage({ providers: [{ providerId: "openrouter", snapshot }] }), null);
 });
 
 test("list is metadata only and validated", () => {

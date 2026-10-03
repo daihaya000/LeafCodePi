@@ -73,3 +73,87 @@ export function publicPeerList(value) {
   }
   return { providers, accounts };
 }
+
+/** Body of POST /api/peer-auth/usage. Default-account usage is intentionally not shared. */
+export function parsePeerUsageRequest(body) {
+  if (!plain(body) || Object.keys(body).some((key) => key !== "accountId")) return { ok: false };
+  if (typeof body.accountId !== "string" || !ACCOUNT_ID.test(body.accountId)) return { ok: false };
+  return { ok: true, value: { accountId: body.accountId } };
+}
+
+const nullableText = (value, max = 1000) => value === null ? null
+  : typeof value === "string" && value.length > 0 && value.length <= max && !/[\x00-\x1f\x7f]/.test(value) ? value : undefined;
+const nullableNumber = (value) => value === null ? null
+  : typeof value === "number" && Number.isFinite(value) ? value : undefined;
+const isoDate = (value) => {
+  const date = value instanceof Date ? value : typeof value === "string" ? new Date(value) : null;
+  return date && Number.isFinite(date.getTime()) ? date.toISOString() : undefined;
+};
+
+/** Whitelists usage-only fields; auth, account email and unknown provider fields never cross the wire. */
+export function publicPeerUsageSnapshot(value) {
+  if (!plain(value) || typeof value.providerId !== "string" || !PROVIDER_ID.test(value.providerId)) return null;
+  const providerName = nullableText(value.providerName);
+  const plan = nullableText(value.plan);
+  const sourceLabel = nullableText(value.sourceLabel);
+  const creditsLabel = nullableText(value.creditsLabel);
+  const creditsTitle = nullableText(value.creditsTitle);
+  const creditsBalance = nullableNumber(value.creditsBalance);
+  const creditsUsed = nullableNumber(value.creditsUsed);
+  const creditsLimit = nullableNumber(value.creditsLimit);
+  const rateLimitResetCreditsAvailable = nullableNumber(value.rateLimitResetCreditsAvailable);
+  const updatedAt = isoDate(value.updatedAt);
+  if (providerName === undefined || plan === undefined || sourceLabel === undefined || creditsLabel === undefined
+    || creditsTitle === undefined || creditsBalance === undefined || creditsUsed === undefined || creditsLimit === undefined
+    || rateLimitResetCreditsAvailable === undefined || !updatedAt || typeof value.creditsEnabled !== "boolean"
+    || typeof value.isStale !== "boolean" || typeof value.windows !== "object" || !Array.isArray(value.windows)) return null;
+  const windows = [];
+  for (const window of value.windows) {
+    if (!plain(window)) return null;
+    const id = nullableText(window.id);
+    const title = nullableText(window.title);
+    const usedPercent = typeof window.usedPercent === "number" && Number.isFinite(window.usedPercent)
+      ? window.usedPercent
+      : undefined;
+    const windowDurationMs = nullableNumber(window.windowDurationMs);
+    const resetsAt = window.resetsAt === null ? null : isoDate(window.resetsAt);
+    if (id === undefined || title === undefined || usedPercent === undefined || windowDurationMs === undefined
+      || (window.resetsAt !== null && !resetsAt) || typeof window.countsTowardLimit !== "boolean") return null;
+    windows.push({ id, title, usedPercent, resetsAt, windowDurationMs, countsTowardLimit: window.countsTowardLimit });
+  }
+  if (value.usageDisplayOnly !== undefined && typeof value.usageDisplayOnly !== "boolean") return null;
+  return {
+    providerId: value.providerId,
+    providerName,
+    plan,
+    windows,
+    creditsBalance,
+    creditsLabel,
+    creditsEnabled: value.creditsEnabled,
+    creditsTitle,
+    creditsUsed,
+    creditsLimit,
+    sourceLabel,
+    updatedAt,
+    isStale: value.isStale,
+    ...(value.usageDisplayOnly === undefined ? {} : { usageDisplayOnly: value.usageDisplayOnly }),
+    rateLimitResetCreditsAvailable,
+  };
+}
+
+/** Response of POST /api/peer-auth/usage. */
+export function publicPeerUsage(value) {
+  if (!plain(value) || !Array.isArray(value.providers)) return null;
+  const providers = [];
+  for (const entry of value.providers) {
+    if (!plain(entry) || typeof entry.providerId !== "string" || !PROVIDER_ID.test(entry.providerId)
+      || (entry.snapshot !== null && !plain(entry.snapshot))) return null;
+    const snapshot = entry.snapshot === null ? null : publicPeerUsageSnapshot(entry.snapshot);
+    if (entry.snapshot !== null && (!snapshot || snapshot.providerId !== entry.providerId)) return null;
+    providers.push({ providerId: entry.providerId, snapshot });
+  }
+  return { providers };
+}
+
+/** Parses the same strict, whitelisted response on the receiving LCP. */
+export const parsePeerUsageResponse = publicPeerUsage;

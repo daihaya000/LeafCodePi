@@ -9,6 +9,7 @@
 
 import {
   accountAuthPath,
+  accountDir,
   accountHasProvider,
   getAccount,
   isAccountEnabled,
@@ -42,6 +43,7 @@ import {
   type UsageProviderDefinition,
   type UsageProviderInstance,
   type UsageScope,
+  type UsageSnapshot,
   type ProviderFetchResult,
 } from "@/lib/codexbar/types";
 import { readPiApiKey, readPiOAuthTokens } from "@/lib/codexbar/pi-auth";
@@ -49,6 +51,8 @@ import { isOllamaCookieConfigured } from "@/lib/codexbar/providers/ollama-cloud"
 import { readOpenRouterManagementKey } from "@/lib/codexbar/providers/openrouter";
 import { hasAnthropicConsoleCookie } from "@/lib/codexbar/providers/anthropic";
 import { extractOpenCodeCookieHeader } from "@/lib/codexbar/browser-cookies";
+import { readPeerConfig } from "@backend-core/peer-auth-config.mjs";
+import { fetchPeerUsage, clearPeerUsageCache } from "@/lib/peer-auth/usage-client";
 
 const MAX_CONCURRENT_FETCHES = 4;
 
@@ -85,8 +89,9 @@ function instanceId(scope: UsageScope, providerId: string): string {
 function createProviderInstance(
   definition: UsageProviderDefinition,
   scope: UsageScope,
+  override?: ReturnType<UsageProviderDefinition["create"]>,
 ): UsageProviderInstance {
-  const provider = definition.create(scope);
+  const provider = override ?? definition.create(scope);
   return {
     ...provider,
     instanceId: instanceId(scope, definition.id),
@@ -100,21 +105,24 @@ function accountSummary(
   account: AccountRecord,
   agentDir: string,
   enabledIds: readonly string[],
+  peerProviders: readonly string[] | null,
 ): ExportAccountSummary {
   const providers = account.providers.filter((provider) =>
     enabledIds.includes(provider),
   );
   const authPath = accountAuthPath(account.id, agentDir);
-  const configuredProviders = providers.filter(
-    (provider) =>
-      readPiOAuthTokens(provider, { authPath }) !== null ||
-      readPiApiKey(provider, { authPath }) !== null ||
-      (provider === "openrouter" && readOpenRouterManagementKey(authPath) !== null) ||
-      (provider === "ollama-cloud" && isOllamaCookieConfigured(account.id)) ||
-      (provider === "opencode-go" &&
-        extractOpenCodeCookieHeader({ authPath }) !== null) ||
-      (provider === "anthropic" && hasAnthropicConsoleCookie(authPath)),
-  );
+  const configuredProviders = peerProviders
+    ? providers.filter((provider) => peerProviders.includes(provider))
+    : providers.filter(
+        (provider) =>
+          readPiOAuthTokens(provider, { authPath }) !== null ||
+          readPiApiKey(provider, { authPath }) !== null ||
+          (provider === "openrouter" && readOpenRouterManagementKey(authPath) !== null) ||
+          (provider === "ollama-cloud" && isOllamaCookieConfigured(account.id)) ||
+          (provider === "opencode-go" &&
+            extractOpenCodeCookieHeader({ authPath }) !== null) ||
+          (provider === "anthropic" && hasAnthropicConsoleCookie(authPath)),
+      );
   return {
     id: account.id,
     label: account.label,
@@ -129,14 +137,19 @@ function rosterKey(accounts: readonly ExportAccountSummary[]): string {
 
 async function buildFetchPlan(
   requestScope: UsageRequestScope,
+  requestedProviderIds?: readonly string[],
 ): Promise<FetchPlan> {
-  const enabledIds = resolveEnabledProviderIds();
   const definitionsById = new Map(
     NATIVE_PROVIDER_DEFINITIONS.map((definition) => [
       definition.id,
       definition,
     ]),
   );
+  // A peer grant is the authority for the usage proxy; A's local CodexBar visibility toggles must not
+  // silently turn a provider shared with B into an unavailable one.
+  const enabledIds = requestedProviderIds
+    ? [...new Set(requestedProviderIds)].filter((id) => definitionsById.has(id))
+    : resolveEnabledProviderIds();
   const definitions = enabledIds.flatMap((id) => {
     const definition = definitionsById.get(id);
     return definition ? [definition] : [];
@@ -163,7 +176,12 @@ async function buildFetchPlan(
   if (accounts.length > 0) agentDir = await resolvePiAgentDir();
 
   const summaries = agentDir
-    ? accounts.map((account) => accountSummary(account, agentDir!, enabledIds))
+    ? accounts.map((account) => accountSummary(
+        account,
+        agentDir!,
+        enabledIds,
+        readPeerConfig(accountDir(account.id, agentDir!))?.providers ?? null,
+      ))
     : [];
   const defaultScope: UsageScope = {
     key: "default",
@@ -207,7 +225,12 @@ async function buildFetchPlan(
         accountLabel: account.label,
         authPath: accountAuthPath(account.id, agentDir),
       };
-      providers.push(createProviderInstance(definition, scope));
+      const peer = readPeerConfig(accountDir(account.id, agentDir));
+      providers.push(createProviderInstance(
+        definition,
+        scope,
+        peer ? createPeerUsageProvider(definition.id, definition.name, peer) : undefined,
+      ));
     }
   }
 
@@ -377,6 +400,35 @@ function assembleFromResults(
   };
 }
 
+function createPeerUsageProvider(
+  providerId: string,
+  providerName: string,
+  peer: NonNullable<ReturnType<typeof readPeerConfig>>,
+): ReturnType<UsageProviderDefinition["create"]> {
+  return {
+    id: providerId,
+    name: providerName,
+    isConfigured: () => true,
+    async fetch(signal) {
+      const response = await fetchPeerUsage(peer, signal);
+      const entry = response.providers.find((provider) => provider.providerId === providerId);
+      if (!entry?.snapshot) {
+        throw new ProviderError("共有元から利用状況を取得できません");
+      }
+      const snapshot = entry.snapshot;
+      return {
+        ...snapshot,
+        accountEmail: null,
+        updatedAt: new Date(snapshot.updatedAt),
+        windows: snapshot.windows.map((window) => ({
+          ...window,
+          resetsAt: window.resetsAt ? new Date(window.resetsAt) : null,
+        })),
+      };
+    },
+  };
+}
+
 async function fetchNativeUsageUncached(
   plan: FetchPlan,
   options: FetchUsageOptions,
@@ -412,6 +464,7 @@ export async function fetchNativeUsage(
   options: FetchUsageOptions = {},
 ): Promise<CodexBarUsage> {
   const forceRefresh = options.forceRefresh === true;
+  if (forceRefresh) clearPeerUsageCache();
   const plan = await buildFetchPlan(options.scope ?? { kind: "all" });
 
   if (!forceRefresh) {
@@ -429,4 +482,22 @@ export async function fetchNativeUsage(
   });
   inflight.set(plan.cacheKey, promise);
   return promise;
+}
+
+/** Restricted peer endpoint helper: only this account and explicitly granted providers are fetched. */
+export async function fetchNativeProviderUsage(
+  accountId: string,
+  providerIds: readonly string[],
+): Promise<{ providerId: string; snapshot: UsageSnapshot | null }[]> {
+  const requested = new Set(providerIds);
+  const plan = await buildFetchPlan({ kind: "account", accountId }, [...requested]);
+  const providers = plan.providers.filter((provider) => requested.has(provider.id));
+  const results = await mapWithConcurrency(
+    providers,
+    MAX_CONCURRENT_FETCHES,
+    (provider) => fetchOne(provider, false),
+  );
+  return results
+    .filter((result) => result.configured)
+    .map((result) => ({ providerId: result.id, snapshot: result.snapshot }));
 }

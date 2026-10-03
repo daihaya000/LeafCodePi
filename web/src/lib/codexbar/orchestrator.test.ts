@@ -6,7 +6,7 @@ import { clearCachedUsage } from "@/lib/codexbar/cache";
 import { groupCodexBarProviders } from "@/lib/codexbar";
 import { clearProviderCache } from "@/lib/codexbar/provider-cache";
 import { __resetPiAgentDirCacheForTests } from "@/lib/accounts";
-import { fetchNativeUsage } from "./orchestrator";
+import { fetchNativeProviderUsage, fetchNativeUsage } from "./orchestrator";
 
 const enabledProviderIds = vi.hoisted(() => ["openai-codex"]);
 vi.mock("@/lib/codexbar/provider-catalog", () => ({
@@ -85,6 +85,7 @@ function setupEmptyAccounts(): { accountDir: string; dataDir: string } {
 }
 
 afterEach(() => {
+  vi.unstubAllGlobals();
   undiciFetch.mockReset();
   enabledProviderIds.splice(0, enabledProviderIds.length, "openai-codex");
   if (originalManagementKey === undefined) delete process.env.OPENROUTER_MANAGEMENT_KEY;
@@ -100,6 +101,48 @@ afterEach(() => {
 });
 
 describe("fetchNativeUsage", () => {
+  it("renders peer account usage from its sharing LCP without local auth and batches providers", async () => {
+    const { accountDir, dataDir } = setupAccounts();
+    enabledProviderIds.splice(0, enabledProviderIds.length, "openai-codex", "anthropic");
+    const accounts = [
+      {
+        id: "acc-a", label: "共有元:仕事", providers: ["openai-codex", "anthropic"],
+        createdAt: "2026-08-21T00:00:00.000Z", updatedAt: "2026-08-21T00:00:00.000Z",
+      },
+    ];
+    writeJson(join(dataDir, "accounts.json"), { version: 1, accounts });
+    rmSync(join(accountDir, "accounts", "acc-a", "auth.json"), { force: true });
+    writeJson(join(accountDir, "accounts", "acc-a", "peer.json"), {
+      version: 1, peerUrl: "http://a.test:3000", peerAccountId: "a1", providers: ["openai-codex", "anthropic"],
+      token: "A".repeat(43), createdAt: "2026-08-21T00:00:00.000Z",
+    });
+    const fetchPeer = vi.fn(async (url: string, init: RequestInit) => {
+      expect(url).toBe("http://a.test:3000/api/peer-auth/usage");
+      expect((init.headers as Record<string, string>).authorization).toBe(`Bearer ${"A".repeat(43)}`);
+      expect(JSON.parse(String(init.body))).toEqual({ accountId: "a1" });
+      return new Response(JSON.stringify({ providers: ["openai-codex", "anthropic"].map((providerId, index) => ({
+        providerId,
+        snapshot: {
+          providerId, providerName: providerId === "openai-codex" ? "OpenAI Codex" : "Anthropic", plan: "Plus",
+          windows: [{ id: "5h", title: "5時間", usedPercent: index === 0 ? 25 : 45, resetsAt: null, windowDurationMs: 18_000_000, countsTowardLimit: true }],
+          creditsBalance: null, creditsLabel: null, creditsEnabled: false, creditsTitle: null,
+          creditsUsed: null, creditsLimit: null, sourceLabel: null, updatedAt: "2026-10-03T21:00:00.000Z",
+          isStale: false, rateLimitResetCreditsAvailable: null,
+        },
+      })) }), { status: 200 });
+    });
+    vi.stubGlobal("fetch", fetchPeer);
+
+    const usage = await fetchNativeUsage({ forceRefresh: true, scope: { kind: "all" } });
+    const group = groupCodexBarProviders(usage)[0];
+    expect(usage.accounts?.[0].configuredProviders).toEqual(["openai-codex", "anthropic"]);
+    expect(group.accountRows.map((row) => row.label)).toEqual(["共有元:仕事"]);
+    expect(usage.providers.map(({ id, usedPercent }) => [id, usedPercent])).toEqual([
+      ["openai-codex", 25], ["anthropic", 45],
+    ]);
+    expect(fetchPeer).toHaveBeenCalledTimes(1);
+  });
+
   it("fetches independent account credits and keeps baseline percentage display-only", async () => {
     const { accountDir, dataDir } = setupAccounts();
     enabledProviderIds.splice(0, enabledProviderIds.length, "openrouter");
@@ -217,6 +260,28 @@ describe("fetchNativeUsage", () => {
       ["https://chatgpt.com/backend-api/wham/usage", "Bearer token-b"],
     ]);
   }, 15_000);
+
+  it("peer usage helper only fetches granted provider ids regardless of A's CodexBar visibility toggles", async () => {
+    const { accountDir, dataDir } = setupAccounts();
+    enabledProviderIds.splice(0, enabledProviderIds.length, "anthropic");
+    const accounts = JSON.parse(readFileSync(join(dataDir, "accounts.json"), "utf8")) as { accounts: Array<Record<string, unknown>> };
+    accounts.accounts[0].providers = ["openai-codex", "anthropic"];
+    writeJson(join(dataDir, "accounts.json"), accounts);
+    writeJson(join(accountDir, "accounts", "acc-a", "auth.json"), {
+      "openai-codex": { type: "oauth", access: "token-a", refresh: "r", accountId: "chat-a" },
+      anthropic: { type: "oauth", access: "anthropic-token", refresh: "r", expires: Date.now() + 60_000_000 },
+    });
+    undiciFetch.mockImplementation(async () => new Response(JSON.stringify({
+      plan_type: "pro",
+      rate_limit: { primary_window: { used_percent: 35, reset_at: 1_800_000_000, limit_window_seconds: 18_000 } },
+    }), { status: 200 }));
+
+    const results = await fetchNativeProviderUsage("acc-a", ["openai-codex"]);
+    expect(results.map(({ providerId }) => providerId)).toEqual(["openai-codex"]);
+    expect(results[0].snapshot?.windows[0].usedPercent).toBe(35);
+    expect(undiciFetch).toHaveBeenCalledTimes(1);
+    expect((undiciFetch.mock.calls[0][1] as RequestInit).method).toBeUndefined();
+  });
 
   it("does not fetch usage for paused accounts", async () => {
     const { dataDir } = setupAccounts();

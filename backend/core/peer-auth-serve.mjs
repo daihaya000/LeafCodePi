@@ -1,6 +1,6 @@
-import { parsePeerBearer, parsePeerResolveRequest, publicPeerCredential, publicPeerList } from "./peer-auth-wire.mjs";
+import { parsePeerBearer, parsePeerResolveRequest, parsePeerUsageRequest, publicPeerCredential, publicPeerList, publicPeerUsage } from "./peer-auth-wire.mjs";
 
-// Core of GET /api/peer-auth/list and POST /api/peer-auth/resolve (docs/plans/peer-auth-share.md).
+// Core of the peer-facing list, resolve and usage endpoints (docs/plans/peer-auth-share.md).
 // Pure orchestration: the runtime, credential reads, grants, audit and limiter are injected, so the
 // Web routes only adapt Request/Response. Responses never carry refresh tokens or error details.
 
@@ -24,6 +24,7 @@ const rateLimited = (taken) => failure(429, "rate-limited", {
  *   getAuth(providerId: string, accountId: string | null, options: { minOAuthValidityMs: number }): Promise<{ auth?: { apiKey?: string } } | undefined>,
  *   listStoredProviders(accountId: string | null): Promise<{ providerId: string, type: string }[]>,
  *   listAccounts(): Promise<{ accountId: string | null, label: string }[]> | { accountId: string | null, label: string }[],
+ *   fetchUsage(accountId: string, providerIds: string[]): Promise<{ providerId: string, snapshot: unknown | null }[]>,
  *   now?: () => number,
  * }} deps
  */
@@ -78,6 +79,36 @@ export function createPeerAuthService(deps) {
         return reply(200, list);
       } catch {
         await deps.audit.record({ peerId: grant.id, action: "list", result: "error" });
+        return failure(503, "unavailable");
+      }
+    },
+
+    async usage({ authorization, body }) {
+      // Usage is a provider-scoped operation, so it shares the existing resolve limiter and audit action.
+      const checked = await gate(authorization, "resolve");
+      if (checked.response) return checked.response;
+      const { grant } = checked;
+      const parsed = parsePeerUsageRequest(body);
+      if (!parsed.ok) return failure(400, "bad-request");
+      const { accountId } = parsed.value;
+      try {
+        const known = (await deps.listAccounts()).some((account) => account.accountId === accountId);
+        if (!known) {
+          await deps.audit.record({ peerId: grant.id, action: "resolve", accountId, result: "forbidden" });
+          return failure(403, "forbidden");
+        }
+        const stored = await deps.listStoredProviders(accountId);
+        const allowed = grant.providers.filter((providerId) => stored.some((entry) => entry.providerId === providerId));
+        const results = await deps.fetchUsage(accountId, allowed);
+        const permitted = new Set(allowed);
+        const response = publicPeerUsage({
+          providers: results.filter((entry) => permitted.has(entry.providerId)),
+        });
+        if (!response) throw new Error("invalid usage response");
+        await deps.audit.record({ peerId: grant.id, action: "resolve", accountId, result: "ok" });
+        return reply(200, response);
+      } catch {
+        await deps.audit.record({ peerId: grant.id, action: "resolve", accountId, result: "error" });
         return failure(503, "unavailable");
       }
     },

@@ -73,39 +73,38 @@
 4. 統合: 別 dataDir / agentDir の 2 プロセス（loopback HTTP、実 auth.json）で resolve → remote store → リクエスト認証解決を検証。A 停止・トークン失効・allowlist 外を確認
 5. prod build、実機 2 台（Tailscale）で検証、docs 更新
 
-## 実装状況（2026-10-03）
+## 実装状況（2026-10-04）
 
 **実装済み（単体・統合テストあり。prod 再ビルドと実機 2 台は未実施）**
 
-- `backend/core/peer-auth-wire.{mjs,d.mts,test.mjs}`: ベアラー解析、resolve 要求の厳格検証、公開 credential の整形（refresh 除去）、list/resolve 応答の検証。Web 側は `@backend-core/peer-auth-wire.mjs` で参照する（prod ビルドは OneDrive 外のミラーで走り、そこでは `backend-core/` と `shared/` が兄弟になるため、相対 import で `shared/` を指す経路は使わない）
+- `backend/core/peer-auth-wire.{mjs,d.mts,test.mjs}`: ベアラー解析、resolve/usage 要求の厳格検証、公開 credential の整形（refresh 除去）、list/resolve/usage 応答の検証。usage は利用状況だけを whitelist し、アカウントメール・認証情報・未知フィールドは返さない。Web 側は `@backend-core/peer-auth-wire.mjs` で参照する（prod ビルドは OneDrive 外のミラーで走り、そこでは `backend-core/` と `shared/` が兄弟になるため、相対 import で `shared/` を指す経路は使わない）
 - `backend/core/peer-auth-grants.{mjs,d.mts}`: トークン生成（32B base64url）・SHA-256 のみ保存・timing-safe 検証・有効化トグル・作成/失効/一覧・原子的書込み
 - `backend/core/peer-auth-audit.{mjs,d.mts}`: JSONL 監査（上限 1000 行、秘密なし）とピア単位の固定窓レート制限
-- `backend/core/peer-auth-serve.{mjs,d.mts}`: 認証 → レート → allowlist（プロバイダ）→ 指定アカウントがそのプロバイダを保持するか検証 → OAuth は `getAuth(minOAuthValidityMs=10分)` で A 側 refresh 後に再読込 → 公開 credential 化 → 監査。既定アカウントのみ ambient 認証へのフォールバックを許す。エラーは不透明な 503、全応答 no-store。list は共有プロバイダを持つ全アカウントを返す
+- `backend/core/peer-auth-serve.{mjs,d.mts}`: 認証 → レート → allowlist（プロバイダ）→ 指定アカウントがそのプロバイダを保持するか検証 → OAuth は `getAuth(minOAuthValidityMs=10分)` で A 側 refresh 後に再読込 → 公開 credential 化 → 監査。usage も同じグラント・レート制限でアカウントとプロバイダを照合し、利用状況だけを返す。既定アカウントのみ ambient 認証へのフォールバックを許す。エラーは不透明な 503、全応答 no-store。list は共有プロバイダを持つ全アカウントを返す
 - `backend/core/peer-auth-remote-store.{mjs,d.mts}`: B 側 CredentialStore（キャッシュ・同時 read 統合・modify で再解決・401/403 はキャッシュ破棄）と、A のアカウント一覧を返す `listAccounts()`。SDK は runtime 生成時に全プロバイダへ `read` を試すため、`read` は先にメタデータ一覧を確認し、配信されていないプロバイダは `undefined` を返す（403 を投げると availability refresh 全体が失敗し、モデル一覧に何も出なくなる。この不具合を実 SDK テストで固定）
 - `backend/core/peer-auth-config.{mjs,d.mts}`: peer.json の検証・0o600 での原子的書込み・除去
 - `backend/core/peer-auth-integration.test.mjs`: 実 loopback HTTP・実 auth.json での A↔B 検証（refresh 非漏洩・拒否・A 停止）
 - `backend/core/peer-auth-sdk.test.mjs`: 実 SDK（`ModelRuntime` ＋ 組み込み anthropic プロバイダ）が peer ストアを受け入れ、残 5 分未満では `modify` 経由で再解決し、ローカル auth.json を読まないことを検証
-- Web: `/api/peer-auth/list|resolve`（peer token、公開パスはこの 2 つのみ）と `/api/peer-auth/peers|import`（WebUI 認証下、import は GET で到達性付き peer アカウント一覧）、`lib/peer-auth/{runtime,admin,import,account-runtime-options}`
+- Web: `/api/peer-auth/list|resolve|usage`（peer token、公開パスはこれら 3 つのみ）と `/api/peer-auth/peers|import`（WebUI 認証下、import は GET で到達性付き peer アカウント一覧）、`lib/peer-auth/{runtime,admin,import,account-runtime-options}`
 - harness: `accountRuntimeManager` の peer 分岐（`credentials` で生成、`authPath` なし）。`accounts.ts` の `accountStoredProviders` が peer.json の providers を保存済みとして返す
 - UI: A 側 `PeerShareSettings`（共有トグル・プロバイダ選択（アカウント数付き・アカウント選択なし）・トークン 1 回表示・失効・平文 HTTP 警告）、B 側 `PeerImportSettings`（URL/トークン/名前 → 取込、作成されたアカウント一覧を表示）
 
-**実運用での修正（2026-10-03）**
+**実運用での修正（2026-10-03〜04）**
 
 - A は既定アカウント（`auth.json`）を共有しない（`sharedAccounts`）。アカウントルーティング対象プロバイダは A 自身も既定認証を使わないため
 - B の store は同一ピア・同一トークンで list と credential のキャッシュを共有し、runtime 再生成や複数アカウントでリクエストが倍増しない（A のレート制限回避）。offer はアカウント単位で判定し、A が一時的に応答しないときは古い list を使う
 - SDK は runtime 生成時に一度だけ credential を確認するため、peer runtime は `watchPeerAvailability` が `refresh({ allowNetwork: false })` を backoff で再試行し、復旧後にモデルキャッシュを無効化する
+- CodexBar は B の `peer.json` を「認証済み」として扱い、A の `/api/peer-auth/usage` から共有済みアカウント・許可プロバイダの利用状況を取得する。B に credential を保存せず、複数プロバイダの取得は一括応答・短期キャッシュで集約する
 
 **未実施（残）**
 
 - prod 再ビルド・再起動による実表示確認（他セッション作業中のため保留）
 - 実機 2 台（Tailscale / LAN）での end-to-end（共有 → 取込 → モデル実行、A 停止・失効の実挙動）
-- A 停止時の「接続元 LCP: オフライン」表示（`GET /api/peer-auth/import` の到達性付き一覧を B 側 UI に表示。共有元が停止中はオフラインバッジ）
-- peer アカウントのログイン UI 無効化（`auth-status` が `peer` を返し、アカウント行は「別のLCP」バッジを表示してログイン/ログアウトを出さない。サーバー側も 409 拒否）
 - peer.json 変更時の runtime 再生成と、実行中タスクがある場合の 409
 
 ## 検証
 
-- vitest: schema parse、hash / timing-safe 比較、allowlist、レート制限、監査記録、remote store のキャッシュ・失敗時挙動・refresh 委譲、peer 分岐、route tests（既存 `route.test.ts` パターン）
+- vitest: schema parse、hash / timing-safe 比較、allowlist、レート制限、監査記録、remote store のキャッシュ・失敗時挙動・refresh 委譲、peer 分岐、CodexBar peer usage のスコープ・whitelist・一括取得、route tests（既存 `route.test.ts` パターン）
 - `tsc` / eslint の対象実行、`git diff --check`
 - 実 HTTP end-to-end（2026-10-03、隔離 dev インスタンス: `next dev --port 3131` ＋ 一時 dataDir/agentDir ＋ `LEAFCODE_PI_WEBUI_AUTH=required`、稼働中の本番ミラーには触れず）: 管理ルートでグラント作成(201)→共有有効化(200)→ peer トークンで list(200・メタデータのみ) → resolve(200・シードした API キー) → 実 `RemotePeerCredentialStore` で取得。トークン無しは 401、監査ログに秘密なしで記録された。同じインスタンスで B 側取込も検証: `POST /api/peer-auth/import` 201（provider は共有∩ルーティング可能に絞られる）→ `GET /api/peer-auth/import` 200（online: true）→ `auth-status` が `peer: true` → agent ディレクトリに peer.json（トークンはここだけ）→ `DELETE /api/accounts/<id>` 200 で peer.json が消えることを確認
 - 隔離ミラーでの prod ビルド成功（`✓ Compiled successfully in 44s`・static pages 6/6）
@@ -116,5 +115,5 @@
 - Codemode の `models.getModelOfType` 等も `ModelRuntime` の認証を使うため、peer アカウントの runtime でもそのまま動く想定（実装時に確認）
 - 平文 HTTP（信頼網前提。TLS は v2 以降）
 - ローテーション: A の refresh は Web / Backend 間のファイルロックで直列化される既存機構に依存。machine 間は B が refresh しないため競合しない
-- peer アカウントの codexbar 利用量表示など、A 固有の付随情報は共有されない（モデル実行は可）。peer アカウントのログイン/ログアウト UI 無効化とオフライン表示は未実装（上記「未実施」）
+- CodexBar の peer 利用量表示は追加の peer API を使う。表示データは利用状況の whitelist のみで、credential や accountEmail は返さない。通信は平文 HTTP のため信頼ネットワーク限定
 - 他セッション WIP と分離するため、settings store / `setting-validation.ts` は変更しない

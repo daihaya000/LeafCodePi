@@ -15,6 +15,7 @@ const ACCOUNTS = [
 
 async function fixture({
   storedByAccount = { null: {} }, auths = {}, providers = ["anthropic", "openrouter"], limit = 60, accounts = ACCOUNTS,
+  usageResults,
 } = {}) {
   const root = await mkdtemp(join(tmpdir(), "leafcode-peer-serve-"));
   const grants = createPeerGrantStore({ path: join(root, "peer-auth.json") });
@@ -22,6 +23,7 @@ async function fixture({
   const { grant, token } = grants.create({ label: "b", providers });
   const auditPath = join(root, "audit.jsonl");
   const calls = [];
+  const usageCalls = [];
   const state = { storedByAccount: structuredClone(storedByAccount), auths };
   const service = createPeerAuthService({
     grants,
@@ -39,9 +41,13 @@ async function fixture({
     listStoredProviders: async (accountId) =>
       Object.entries(state.storedByAccount[accountId] ?? {}).map(([providerId, credential]) => ({ providerId, type: credential.type })),
     listAccounts: async () => accounts,
+    fetchUsage: async (accountId, providerIds) => {
+      usageCalls.push({ accountId, providerIds });
+      return typeof usageResults === "function" ? usageResults(accountId, providerIds) : usageResults ?? providerIds.map((providerId) => ({ providerId, snapshot: null }));
+    },
   });
   const audit = async () => (await readFile(auditPath, "utf8").catch(() => "")).split("\n").filter(Boolean).map((line) => JSON.parse(line));
-  return { service, token, grant, calls, state, audit, auth: `Bearer ${token}`, cleanup: () => rm(root, { recursive: true, force: true }) };
+  return { service, token, grant, calls, usageCalls, state, audit, auth: `Bearer ${token}`, cleanup: () => rm(root, { recursive: true, force: true }) };
 }
 
 test("rejects missing, malformed, wrong and disabled tokens identically with 401", async () => {
@@ -169,6 +175,51 @@ test("unauthenticated requests share a rate limit without blocking a valid peer"
     });
     assert.equal(valid.status, 200);
     assert.deepEqual((await f.audit()).map((entry) => entry.result), ["unauthorized", "ok"]);
+  } finally { await f.cleanup(); }
+});
+
+test("usage returns only providers allowed by both grant and account, with whitelisted snapshots", async () => {
+  const snapshot = {
+    providerId: "anthropic", providerName: "Claude", plan: "Pro", windows: [],
+    creditsBalance: null, creditsLabel: null, creditsEnabled: false, creditsTitle: null, creditsUsed: null, creditsLimit: null,
+    sourceLabel: null, updatedAt: new Date(NOW), isStale: false, rateLimitResetCreditsAvailable: null,
+    access: "SECRET", accountEmail: "private@example.com",
+  };
+  const f = await fixture({
+    storedByAccount: { acc1: {
+      anthropic: { type: "oauth", access: "a", refresh: "r", expires: NOW + 1_000_000 },
+      openrouter: { type: "api_key", key: "k" },
+      commandcode: { type: "api_key", key: "not-granted" },
+    } },
+    usageResults: (_accountId, providerIds) => [
+      { providerId: "anthropic", snapshot },
+      { providerId: "openrouter", snapshot: null },
+      { providerId: "commandcode", snapshot },
+      { providerId: "unrequested", snapshot },
+    ],
+  });
+  try {
+    const response = await f.service.usage({ authorization: f.auth, body: { accountId: "acc1" } });
+    assert.equal(response.status, 200);
+    assert.deepEqual(f.usageCalls, [{ accountId: "acc1", providerIds: ["anthropic", "openrouter"] }]);
+    assert.deepEqual(response.body.providers.map(({ providerId }) => providerId), ["anthropic", "openrouter"]);
+    assert.equal(response.body.providers[0].snapshot.updatedAt, new Date(NOW).toISOString());
+    assert.equal(JSON.stringify(response).includes("SECRET"), false);
+    assert.equal(JSON.stringify(response).includes("private@example.com"), false);
+    assert.equal((await f.service.usage({ authorization: f.auth, body: { accountId: null } })).status, 400);
+    assert.equal((await f.service.usage({ authorization: f.auth, body: { accountId: "missing" } })).status, 403);
+    assert.deepEqual((await f.audit()).map(({ action, result }) => [action, result]), [
+      ["resolve", "ok"], ["resolve", "forbidden"],
+    ]);
+  } finally { await f.cleanup(); }
+});
+
+test("usage shares the peer rate limit and refuses requests without a valid grant", async () => {
+  const f = await fixture({ limit: 1, storedByAccount: { acc1: { anthropic: { type: "api_key", key: "k" } } } });
+  try {
+    assert.equal((await f.service.usage({ authorization: f.auth, body: { accountId: "acc1" } })).status, 200);
+    assert.equal((await f.service.list({ authorization: f.auth })).status, 429);
+    assert.equal((await f.service.usage({ authorization: undefined, body: { accountId: "acc1" } })).status, 401);
   } finally { await f.cleanup(); }
 });
 

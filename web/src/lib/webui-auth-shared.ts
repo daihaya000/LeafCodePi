@@ -34,7 +34,11 @@ export function isPublicWebUiPath(pathname: string): boolean {
   if (pathname === "/api/health") return true;
   if (pathname === "/api/host-probe") return true;
   // Peer LCPs authenticate with their own bearer token inside these routes (docs/plans/peer-auth-share.md).
-  if (pathname === "/api/peer-auth/list" || pathname === "/api/peer-auth/resolve") return true;
+  if (
+    pathname === "/api/peer-auth/list" ||
+    pathname === "/api/peer-auth/resolve" ||
+    pathname === "/api/peer-auth/usage"
+  ) return true;
   if (pathname.startsWith("/_next/")) return true;
   if (pathname === "/favicon.ico") return true;
   return false;

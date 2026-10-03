@@ -16,10 +16,12 @@ export type PeerAuthServiceDeps = {
   listAccounts():
     | Promise<{ accountId: string | null; label: string }[]>
     | { accountId: string | null; label: string }[];
+  fetchUsage(accountId: string, providerIds: string[]): Promise<{ providerId: string; snapshot: unknown | null }[]>;
   now?: () => number;
 };
 export const PEER_MIN_OAUTH_VALIDITY_MS: number;
 export function createPeerAuthService(deps: PeerAuthServiceDeps): {
   list(input: { authorization: string | null | undefined }): Promise<PeerServiceResponse>;
+  usage(input: { authorization: string | null | undefined; body: unknown }): Promise<PeerServiceResponse>;
   resolve(input: { authorization: string | null | undefined; body: unknown }): Promise<PeerServiceResponse>;
 };

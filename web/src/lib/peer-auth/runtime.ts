@@ -64,6 +64,10 @@ function createDeps(): PeerAuthServiceDeps {
       return path ? storedProviderTypes(path) : [];
     },
     listAccounts: () => sharedAccounts(listAccounts()),
+    async fetchUsage(accountId, providerIds) {
+      const { fetchNativeProviderUsage } = await import("@/lib/codexbar/orchestrator");
+      return fetchNativeProviderUsage(accountId, providerIds);
+    },
   };
 }
 

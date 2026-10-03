@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import type { PeerServiceResponse } from "@backend-core/peer-auth-serve.mjs";
 
-/** Resolve requests are tiny ({providerId, accountId}); anything larger is not a peer. */
+/** Peer auth requests are small; anything larger is not a peer request. */
 export const PEER_BODY_MAX_BYTES = 4096;
 
 export function toNextResponse(result: PeerServiceResponse): NextResponse {

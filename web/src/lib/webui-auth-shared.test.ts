@@ -34,6 +34,7 @@ describe("isPublicWebUiPath", () => {
     expect(isPublicWebUiPath("/favicon.ico")).toBe(true);
     expect(isPublicWebUiPath("/api/peer-auth/list")).toBe(true);
     expect(isPublicWebUiPath("/api/peer-auth/resolve")).toBe(true);
+    expect(isPublicWebUiPath("/api/peer-auth/usage")).toBe(true);
   });
 
   it("keeps everything else protected", () => {

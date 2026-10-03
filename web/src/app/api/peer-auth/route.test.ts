@@ -1,10 +1,11 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const mocks = vi.hoisted(() => ({ list: vi.fn(), resolve: vi.fn() }));
+const mocks = vi.hoisted(() => ({ list: vi.fn(), resolve: vi.fn(), usage: vi.fn() }));
 vi.mock("@/lib/peer-auth/runtime", () => ({ peerAuthService: () => mocks }));
 
 import { GET as listRoute } from "./list/route";
 import { POST as resolveRoute } from "./resolve/route";
+import { POST as usageRoute } from "./usage/route";
 
 const ok = { status: 200, body: { ok: true }, headers: { "Cache-Control": "no-store" } };
 
@@ -15,6 +16,7 @@ function post(body: string, headers: Record<string, string> = {}) {
 beforeEach(() => {
   mocks.list.mockReset().mockResolvedValue(ok);
   mocks.resolve.mockReset().mockResolvedValue(ok);
+  mocks.usage.mockReset().mockResolvedValue(ok);
 });
 
 describe("GET /api/peer-auth/list", () => {
@@ -31,6 +33,14 @@ describe("GET /api/peer-auth/list", () => {
   it("passes a null authorization when the header is absent", async () => {
     await listRoute(new Request("http://lcp.test/api/peer-auth/list"));
     expect(mocks.list).toHaveBeenCalledWith({ authorization: null });
+  });
+});
+
+describe("POST /api/peer-auth/usage", () => {
+  it("passes the scoped account body and bearer header to the service", async () => {
+    const response = await usageRoute(post('{"accountId":"acc1"}', { authorization: "Bearer tok" }));
+    expect(mocks.usage).toHaveBeenCalledWith({ authorization: "Bearer tok", body: { accountId: "acc1" } });
+    expect(response.status).toBe(200);
   });
 });
 
