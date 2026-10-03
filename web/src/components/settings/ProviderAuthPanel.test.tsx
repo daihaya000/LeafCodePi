@@ -1639,3 +1639,71 @@ describe("ProviderAuthPanel provider-scoped accounts", () => {
     expect(screen.getByText(/デバイスコード/)).toBeTruthy();
   });
 });
+
+describe("ProviderAuthPanel peer accounts", () => {
+  const peerAccount = {
+    id: "acc-peer",
+    label: "メインPC",
+    providers: ["openai-codex"],
+    enabled: true,
+    createdAt: "",
+    updatedAt: "",
+  };
+
+  function mockWithPeer() {
+    fetchMock.mockImplementation(
+      (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input);
+        const method = (init?.method ?? "GET").toUpperCase();
+        if (url.endsWith("/api/accounts") && method === "GET")
+          return Promise.resolve(
+            jsonResponse({ accounts: [accounts[0], peerAccount] }),
+          );
+        if (url.endsWith("/api/peer-auth/import"))
+          return Promise.resolve(
+            jsonResponse({
+              peers: [
+                {
+                  id: "acc-peer",
+                  label: "メインPC",
+                  peerUrl: "http://100.64.0.2:3000",
+                  providers: ["openai-codex"],
+                  online: true,
+                },
+              ],
+            }),
+          );
+        if (url.includes("/auth-status"))
+          return Promise.resolve(
+            jsonResponse({
+              providers: ["openai-codex"],
+              peer: url.includes("acc-peer"),
+            }),
+          );
+        return Promise.resolve(jsonResponse({}));
+      },
+    );
+  }
+
+  it("marks an imported peer account and hides its login and logout actions", async () => {
+    mockWithPeer();
+    render(<ProviderAuthPanel providers={[providers[1]]} onChanged={() => {}} />);
+
+    const codex = await accountRegion("OpenAI Codex");
+    const peerRow = (await within(codex).findByText("メインPC")).closest("li");
+    expect(peerRow).toBeTruthy();
+    expect(within(peerRow as HTMLElement).getByText("別のLCP")).toBeTruthy();
+    expect(
+      within(peerRow as HTMLElement).queryByRole("button", { name: "再ログイン" }),
+    ).toBeNull();
+    expect(
+      within(peerRow as HTMLElement).queryByRole("button", { name: "ログアウト" }),
+    ).toBeNull();
+
+    // A local account keeps its normal actions.
+    const localRow = (await within(codex).findByText("仕事用")).closest("li");
+    expect(
+      within(localRow as HTMLElement).getByRole("button", { name: "ログアウト" }),
+    ).toBeTruthy();
+  });
+});

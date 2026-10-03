@@ -402,6 +402,8 @@ export const ProviderAuthPanel = memo(function ProviderAuthPanel({
   } : null);
   // アカウント（docs/plans/multi-account.md）。null = 未取得、[] = 取得済みで空。
   const [accounts, setAccounts] = useState<AccountRecord[] | null>(null);
+  /** 別LCPから取り込んだアカウント。このLCP側でログイン/ログアウトできない。 */
+  const [peerAccountIds, setPeerAccountIds] = useState<Set<string>>(new Set());
   const [accountsError, setAccountsError] = useState<string | null>(null);
   const accountsRequestGenerationRef = useRef(0);
   const [creatingFor, setCreatingFor] = useState<AccountProviderId | null>(
@@ -601,6 +603,7 @@ export const ProviderAuthPanel = memo(function ProviderAuthPanel({
               credentialKinds?: Partial<
                 Record<AccountProviderId, AccountCredentialKind>
               >;
+              peer?: boolean;
               anthropicCreditBaseline?: number | null;
               openrouterCreditBaseline?: number | null;
               openrouterManagementKeyConfigured?: boolean;
@@ -617,6 +620,7 @@ export const ProviderAuthPanel = memo(function ProviderAuthPanel({
                 credentialKinds: {} as Partial<
                   Record<AccountProviderId, AccountCredentialKind>
                 >,
+                peer: false,
                 anthropicCreditBaseline: null,
                 openrouterCreditBaseline: null,
                 openrouterManagementKeyConfigured: false,
@@ -629,6 +633,13 @@ export const ProviderAuthPanel = memo(function ProviderAuthPanel({
         }),
       );
       if (generation !== accountsRequestGenerationRef.current) return;
+      setPeerAccountIds(
+        new Set(
+          statuses
+            .filter(([, status]) => status.peer === true)
+            .map(([id]) => id),
+        ),
+      );
       setAuthStatuses(
         Object.fromEntries(
           statuses.map(([id, status]) => [id, status.providers]),
@@ -1437,6 +1448,7 @@ export const ProviderAuthPanel = memo(function ProviderAuthPanel({
                   const authenticated =
                     piAuthenticated ||
                     (providerId === "opencode-go" && cookieConfigured);
+                  const peerManaged = peerAccountIds.has(account.id);
                   const currentCookieKey = cookieKey(providerId, account.id);
                   const cookieEditing = cookieEditingKey === currentCookieKey;
                   const cookieAccountBusy = cookieBusy === currentCookieKey;
@@ -1577,37 +1589,43 @@ export const ProviderAuthPanel = memo(function ProviderAuthPanel({
                               />
                             </div>
                             <div className="flex flex-wrap gap-1">
-                              {accountAuthTypes.map((authType) => (
-                                <Button
-                                  key={authType}
-                                  size="sm"
-                                  disabled={Boolean(login) || accountBusy}
-                                  onClick={() =>
-                                    void beginLogin(
-                                      provider,
-                                      authType,
-                                      account.id,
-                                    )
-                                  }
-                                >
-                                  {accountLoginLabel(
-                                    authType,
-                                    accountAuthTypes.length,
-                                    authenticated,
+                              {peerManaged ? (
+                                <Badge tone="neutral">別のLCP</Badge>
+                              ) : (
+                                <>
+                                  {accountAuthTypes.map((authType) => (
+                                    <Button
+                                      key={authType}
+                                      size="sm"
+                                      disabled={Boolean(login) || accountBusy}
+                                      onClick={() =>
+                                        void beginLogin(
+                                          provider,
+                                          authType,
+                                          account.id,
+                                        )
+                                      }
+                                    >
+                                      {accountLoginLabel(
+                                        authType,
+                                        accountAuthTypes.length,
+                                        authenticated,
+                                      )}
+                                    </Button>
+                                  ))}
+                                  {piAuthenticated && (
+                                    <Button
+                                      size="sm"
+                                      variant="outline"
+                                      disabled={Boolean(login) || accountBusy}
+                                      onClick={() =>
+                                        void logoutFor(providerId, account.id)
+                                      }
+                                    >
+                                      ログアウト
+                                    </Button>
                                   )}
-                                </Button>
-                              ))}
-                              {piAuthenticated && (
-                                <Button
-                                  size="sm"
-                                  variant="outline"
-                                  disabled={Boolean(login) || accountBusy}
-                                  onClick={() =>
-                                    void logoutFor(providerId, account.id)
-                                  }
-                                >
-                                  ログアウト
-                                </Button>
+                                </>
                               )}
                               <Button
                                 size="sm"
