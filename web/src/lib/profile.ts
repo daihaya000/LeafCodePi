@@ -317,12 +317,17 @@ function applyProfile(profile: ProfileArchive, agentDir: string, leafcodeDir: st
   return { fileCount: files.length, bytes: files.reduce((total, file) => total + file.content.length, 0) };
 }
 
-function replaceProfile(profile: ProfileArchive, agentDir: string, leafcodeDir: string, previous: Buffer): ProfileSummary {
+function replaceProfile(
+  profile: ProfileArchive,
+  agentDir: string,
+  leafcodeDir: string,
+  rollback: () => ProfileArchive,
+): ProfileSummary {
   try {
     return applyProfile(profile, agentDir, leafcodeDir);
   } catch (error) {
     try {
-      applyProfile(parseProfile(previous), agentDir, leafcodeDir);
+      applyProfile(rollback(), agentDir, leafcodeDir);
     } catch {
       // The original failure is more actionable; a failed rollback is reported by the caller's recovery instructions.
     }
@@ -437,7 +442,7 @@ export function importProfile(archive: Buffer, options: ProfileRoots = {}): Prof
   const { agentDir, leafcodeDir } = roots(options);
   // Keep a validated in-memory rollback point so a full disk or permission failure cannot leave a half-imported profile.
   const previous = exportProfile({ agentDir, leafcodeDir }).archive;
-  return replaceProfile(profile, agentDir, leafcodeDir, previous);
+  return replaceProfile(profile, agentDir, leafcodeDir, () => parseProfile(previous));
 }
 
 /** Retain the current settings before replacing them with a validated profile archive. */
@@ -446,5 +451,11 @@ export function importProfileWithBackup(archive: Buffer, options: ProfileRoots =
   const { agentDir, leafcodeDir } = roots(options);
   const previous = exportProfile({ agentDir, leafcodeDir });
   const backupPath = writeProfileBackup(previous.archive, leafcodeDir);
-  return { ...replaceProfile(profile, agentDir, leafcodeDir, previous.archive), backupPath };
+  // The backup is durable on disk, so release the exported archive before replacing.
+  // Rollback re-reads that file, which keeps one profile in memory instead of two.
+  previous.archive = Buffer.alloc(0);
+  return {
+    ...replaceProfile(profile, agentDir, leafcodeDir, () => parseProfile(readFileSync(backupPath))),
+    backupPath,
+  };
 }
