@@ -40,7 +40,35 @@ function realPath(value: string): string {
 	}
 }
 
+/**
+ * Repository identity rarely changes, but `git rev-parse` is a synchronous
+ * spawn that stops the event loop for the caller. Cache it briefly per cwd so a
+ * burst of workflow starts resolves the identity once instead of per call.
+ */
+const IDENTITY_CACHE_TTL_MS = 10_000;
+const IDENTITY_CACHE_LIMIT = 32;
+const identityCache = new Map<string, { resolvedAt: number; identity: GitRepositoryIdentity | undefined }>();
+
 export function resolveGitRepositoryIdentity(cwd: string): GitRepositoryIdentity | undefined {
+	const resolvedCwd = realPath(cwd);
+	const now = Date.now();
+	const cached = identityCache.get(resolvedCwd);
+	if (cached && now - cached.resolvedAt < IDENTITY_CACHE_TTL_MS) return cached.identity;
+	const identity = probeGitRepositoryIdentity(resolvedCwd);
+	if (identityCache.size >= IDENTITY_CACHE_LIMIT) {
+		const oldest = [...identityCache.entries()].sort((a, b) => a[1].resolvedAt - b[1].resolvedAt)[0];
+		if (oldest) identityCache.delete(oldest[0]);
+	}
+	identityCache.set(resolvedCwd, { resolvedAt: now, identity });
+	return identity;
+}
+
+/** Test-only: forget memoized repository identities. */
+export function resetGitRepositoryIdentityCacheForTests(): void {
+	identityCache.clear();
+}
+
+function probeGitRepositoryIdentity(cwd: string): GitRepositoryIdentity | undefined {
 	// One spawn instead of three: output is one value per requested option, in order.
 	const [inside, root, commonDir] = (git(cwd, ["rev-parse", "--is-inside-work-tree", "--show-toplevel", "--git-common-dir"]) ?? "").split(/\r?\n/).map((line) => line.trim());
 	if (inside !== "true" || !root || !commonDir) return undefined;
