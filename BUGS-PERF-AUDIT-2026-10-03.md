@@ -108,7 +108,7 @@
 | 中 **[一部修正 2026-10-03: ドライブ列挙を 10 秒キャッシュ＋同時呼び出しの共有。Quick Access は従来どおり]** | `dirs/route.ts` (~94)、`browse-drives.ts` (~40–46) | browse GET ごとにドライブ列挙。Win は PowerShell（Quick Access のみ 10s キャッシュ）。 |
 | 中 **[一部修正 2026-10-04: 空ループのビジーウェイトを Atomics.wait に置換しCPU消費を除去。同期APIのため最大250msのブロックは残る]** | `extensions/leafcode-goal-loop/index.ts` (~681–708) | 状態 rename が EPERM/EBUSY のとき空ループで最大 ~250ms ビジーウェイト。OneDrive 掴みと重なるとスケジューラ停止。 |
 | 中 **[一部修正 2026-10-04: git を1回の rev-parse にまとめ、parent と workflow の cwd が同一なら再解決しない（最大6→1〜2 spawnSync）。同期 spawn 自体は残る]** | `extensions/leafcode-subagents/src/workflows/chat-progress.ts`（~28–54, 74–78） | `resolveWorkflowChatProgress` が parent/workflow それぞれで最大 3 回の同期 `git`（合計最大 6 `spawnSync`）。ワークフロー開始のたびにイベントループを止める。 |
-| 中 | `native-supervisor-channel.ts` (~25, 328–351, 701–709) | `CHANNEL_POLL_MS`（最短 250ms）で全 channel `readdirSync`。 |
+| 中 **[一部修正 2026-10-04: requestsディレクトリをmtime+inoでメモ化し1秒以内の再pollはreaddirSyncを省略。ルート直下のreaddirSyncとstatSyncは残り、mtime粗いFSでも1秒上限で復帰]** | `native-supervisor-channel.ts`（~25, 328–351, 701–709） | `CHANNEL_POLL_MS`（最短 250ms）で全 channel `readdirSync`。 |
 | 中 | `scripts/web-build-mirror.mjs` (~105–114) | size+mtime 一致でも毎回フルバイト比較。 |
 | 中 | `web/src/app/api/tasks/[id]/events/route.ts` (~266–325) | ローカル runtime・別ワーカー所有時、2 秒ごとに task detail とメッセージ全ページを SSE。 |
 | 中 | `web/src/lib/direct-session.ts` (~387–411)、`bots/sidebar/route.ts` (~37)、`Sidebar.tsx` (~1706–1708) | mtime 変化で Bot ごとに最大 ~4MB 読込→`buildSessionContext`→末尾1件。ストリーム中 12s poll で重い。 |

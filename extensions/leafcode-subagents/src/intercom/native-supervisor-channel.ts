@@ -325,6 +325,55 @@ function parseRequestFile(file: string, channelDir: string): PendingSupervisorRe
 	}
 }
 
+/**
+ * Per-directory listing cache. A poll runs every 250-500ms per channel, but a
+ * channel only changes when a request file appears or disappears — both of
+ * which bump the requests directory mtime. Reusing the previous listing while
+ * that stamp holds keeps idle channels off the filesystem. The age bound keeps
+ * a coarse-granularity filesystem (whole-second mtime) from hiding a new
+ * request for longer than one safety-poll window.
+ */
+const REQUEST_LISTING_MAX_AGE_MS = 1_000;
+const requestListingCache = new Map<string, { mtimeMs: number; ino: number; listedAt: number; files: string[] }>();
+
+function listRequestDir(requestDir: string): string[] {
+	let stamp: fs.Stats;
+	try {
+		stamp = fs.statSync(requestDir);
+	} catch {
+		requestListingCache.delete(requestDir);
+		return [];
+	}
+	const now = Date.now();
+	const cached = requestListingCache.get(requestDir);
+	if (cached && cached.mtimeMs === stamp.mtimeMs && cached.ino === stamp.ino && now - cached.listedAt < REQUEST_LISTING_MAX_AGE_MS) {
+		return cached.files;
+	}
+	let entries: fs.Dirent[];
+	try {
+		entries = fs.readdirSync(requestDir, { withFileTypes: true });
+	} catch {
+		requestListingCache.delete(requestDir);
+		return [];
+	}
+	const files: string[] = [];
+	for (const entry of entries) {
+		if (entry.isFile() && entry.name.endsWith(".json")) files.push(entry.name);
+	}
+	requestListingCache.set(requestDir, { mtimeMs: stamp.mtimeMs, ino: stamp.ino, listedAt: now, files });
+	return files;
+}
+
+/** Test-only: drop the memoized per-directory request listings. */
+export function __resetSupervisorRequestListingCacheForTests(): void {
+	requestListingCache.clear();
+}
+
+/** Test-only: the request files currently visible across every channel. */
+export function listSupervisorRequestFiles(): Array<{ channelDir: string; file: string }> {
+	return listRequestFiles();
+}
+
 function listRequestFiles(): Array<{ channelDir: string; file: string }> {
 	let channelEntries: fs.Dirent[];
 	try {
@@ -334,19 +383,16 @@ function listRequestFiles(): Array<{ channelDir: string; file: string }> {
 		throw error;
 	}
 	const files: Array<{ channelDir: string; file: string }> = [];
+	const liveDirs = new Set<string>();
 	for (const entry of channelEntries) {
 		if (!entry.isDirectory()) continue;
 		const channelDir = path.join(SUPERVISOR_CHANNEL_ROOT, entry.name);
 		const requestsDir = path.join(channelDir, REQUESTS_DIR);
-		let requestEntries: fs.Dirent[];
-		try {
-			requestEntries = fs.readdirSync(requestsDir, { withFileTypes: true });
-		} catch {
-			continue;
-		}
-		for (const requestEntry of requestEntries) {
-			if (requestEntry.isFile() && requestEntry.name.endsWith(".json")) files.push({ channelDir, file: path.join(requestsDir, requestEntry.name) });
-		}
+		liveDirs.add(requestsDir);
+		for (const name of listRequestDir(requestsDir)) files.push({ channelDir, file: path.join(requestsDir, name) });
+	}
+	for (const cachedDir of requestListingCache.keys()) {
+		if (!liveDirs.has(cachedDir)) requestListingCache.delete(cachedDir);
 	}
 	return files;
 }
