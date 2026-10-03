@@ -112,6 +112,26 @@ describe("listAgents / setAgentEnabled", () => {
     assert.equal(JSON.parse(readFileSync(settingsPath, "utf8")).subagents, undefined);
   });
 
+  it("keeps unrelated settings keys when writing an agent override", () => {
+    fixture();
+    const settingsPath = join(agentDir, "settings.json");
+    writeFileSync(settingsPath, JSON.stringify({
+      packages: ["npm:pi-subagents"],
+      defaultAgent: "scout",
+      subagents: { other: { keep: true }, agentOverrides: { researcher: { model: "anthropic/claude" } } },
+    }), "utf8");
+
+    setAgentEnabled("scout", false, agentDir);
+
+    const raw = JSON.parse(readFileSync(settingsPath, "utf8"));
+    // A read-modify-write must not drop keys it does not own, at either level.
+    assert.deepEqual(raw.packages, ["npm:pi-subagents"]);
+    assert.equal(raw.defaultAgent, "scout");
+    assert.deepEqual(raw.subagents.other, { keep: true });
+    assert.deepEqual(raw.subagents.agentOverrides.researcher, { model: "anthropic/claude" });
+    assert.deepEqual(raw.subagents.agentOverrides.scout, { disabled: true });
+  });
+
   it("user agents override package same-name", () => {
     fixture();
     // Add a user agent with same name as package builtin

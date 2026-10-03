@@ -62,7 +62,7 @@
 | 中 **[修正済 2026-10-03: archiveOverflow が history 末尾 256KB の既存 id をスキップ（再アーカイブで二重化しない）]** | `backend/core/room-store.mjs` (~104–110)、`web/src/lib/rooms.ts` (~169–171) | `history.jsonl` 追記後に room JSON。後段失敗で次回同じメッセージ再アーカイブ→履歴二重。 |
 | 中 **[一部修正 2026-10-04: 他プロセスの incarnation probe を 30秒 TTL でメモ化し、同期 powershell の反復起動を回避。テストは Windows の EPERM で 12/13 失敗し変更前後で同一]** | `extensions/leafcode-memory/src/store/atomic-lock-coordinator.ts`（~91–97, 161） | 競合中 `tryAcquire` が Windows で毎回同期 powershell（timeout 500ms）。 |
 | 中 **[一部修正 2026-10-03: atomic 書き込み化。プロセス間ロックは未対応]** | `web/src/lib/accounts.ts` (~227–230) | `accounts.json` が素の `writeFileSync`。並行作成／並び替えでロストアップデートしうる。 |
-| 中 **[一部修正 2026-10-03: withDirectoryLock で Web 側 RMW を排他。Pi 本体など外部書き込みはロックしない]** | `web/src/lib/agents.ts`（`updateAgentOverride` ~347–376） | `~/.pi/agent/settings.json` を read→改変→atomic rename するがプロセス間ロック無し。同時の agent override／他書き込みとロストアップデートし、`packages` 等の他キーを戻しうる。 |
+| 中 **[一部修正 2026-10-04: withDirectoryLock で Web 側 RMW を排他し、override 書き込みが packages 等の他キーを落とさない回帰テストを追加。Pi 本体など外部書き込みはロックしない]** | `web/src/lib/agents.ts`（`updateAgentOverride` ~347–376） | `~/.pi/agent/settings.json` を read→改変→atomic rename するがプロセス間ロック無し。同時の agent override／他書き込みとロストアップデートし、`packages` 等の他キーを戻しうる。 |
 | 中 **[修正済 2026-10-03: 取得から 2 時間超は PID が生きていても放棄扱い（hardStaleMs）]** | `web/src/lib/bot-code-session-lock.ts` (~49–51) | PID 生存中は古くても奪えない。固まった所有者／PID 再利用でロック残留。 |
 | 中 **[修正済 2026-10-03: ロック内の updateRoomHandoffs で重複を再判定し同一レシートを返す]** | `web/src/lib/room-runtime.ts` (~616–669) | handoff 重複判定がロック外。同時 tool call で二重登録→二重起動しうる。 |
 | 中 **[修正済 2026-10-03: withDirectoryLock で RMW を排他]** | `web/src/lib/skills.ts`（`setSkillsEnabled` ~285–291） | `skills-state.json` も RMW＋atomic のみでロック無し。並行トグルで片方の無効化が消える。 |
