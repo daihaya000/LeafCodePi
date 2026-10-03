@@ -46,10 +46,13 @@ test("non-object envelopes/claims fall back to empty objects, other fields dropp
   assert.deepEqual(store.readRelayState(ID), { envelopes: { t: envelope() }, claims: {} });
 });
 
-test("a written state is pretty-printed with a trailing newline and reads back unchanged", (t) => {
+test("a written state is compact with a trailing newline and reads back unchanged", (t) => {
   const { store } = fixture(t);
   store.writeRelayState(ID, state);
-  assert.equal(readFileSync(store.relayStatePath(ID), "utf8"), `${JSON.stringify(state, null, 2)}\n`);
+  const written = readFileSync(store.relayStatePath(ID), "utf8");
+  // Compact on purpose: relay.json is machine-read state rewritten on every tick.
+  assert.equal(written, `${JSON.stringify(state)}\n`);
+  assert.ok(written.length < JSON.stringify(state, null, 2).length);
   assert.deepEqual(store.readRelayState(ID), state);
   // Writing replaces the previous state rather than merging.
   store.writeRelayState(ID, { envelopes: {}, claims: { t2: ["a"] } });

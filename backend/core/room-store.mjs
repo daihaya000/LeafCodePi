@@ -110,12 +110,16 @@ export class RoomFileStore {
    * Replace the relay state atomically: rename is atomic on the room's local
    * filesystem, so a restart never sees a half-written claim or envelope file.
    * As before, a failed write leaves its temporary file behind.
+   *
+   * Written compact: relay.json is machine-read state, rewritten on every relay
+   * tick. Pretty-printing multiplied the bytes by roughly 3x for no reader that
+   * benefits — the state is inspected through `readRelayState`.
    */
   writeRelayState(roomId, state) {
     mkdirSync(this.roomDataRoot(roomId), { recursive: true });
     const path = this.relayStatePath(roomId);
     const temporary = `${path}.${process.pid}.${randomUUID()}.tmp`;
-    writeFileSync(temporary, `${JSON.stringify(state, null, 2)}\n`, "utf8");
+    writeFileSync(temporary, `${JSON.stringify(state)}\n`, "utf8");
     renameSync(temporary, path);
   }
 
