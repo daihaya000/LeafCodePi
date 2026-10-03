@@ -10150,6 +10150,25 @@ export async function setBotThinkingLevel(botId: string, level: string): Promise
 }
 
 /**
+ * The SDK drops its pending tool names whenever a loadout deactivates any tool, so removing one tool
+ * would silently drop MCP tools that are still connecting after a reload. Restore them around the
+ * rewrite. The field is SDK-private, so every access is guarded.
+ */
+function preservingPendingToolNames(session: AgentSession, dropped: string, apply: () => void): void {
+  const pending = (session as unknown as { _pendingToolNames?: unknown })._pendingToolNames;
+  if (!(pending instanceof Set)) {
+    apply();
+    return;
+  }
+  const saved = [...(pending as Set<string>)];
+  apply();
+  const active = new Set(session.getActiveToolNames());
+  // The tool this call removes must stay out: restoring it would let a later registry refresh
+  // declare it to the model again.
+  for (const name of saved) if (name !== dropped && !active.has(name)) pending.add(name);
+}
+
+/**
  * 既存セッションの active tools を更新し、サブエージェント許可を機械的に強制する。
  * 禁止時は `subagent` ツールを除外、許可時は追加する。
  */
@@ -10170,7 +10189,10 @@ export function applySubagentPermission(
   if (effective === "allow" && !hasSubagent) {
     session.setActiveToolsByName([...current, "subagent"]);
   } else if (effective === "deny" && hasSubagent) {
-    session.setActiveToolsByName(current.filter((tool) => tool !== "subagent"));
+    // Rewriting the loadout deactivates a tool, which the SDK answers with a pending-name reset.
+    preservingPendingToolNames(session, "subagent", () => {
+      session.setActiveToolsByName(current.filter((tool) => tool !== "subagent"));
+    });
   }
 }
 
