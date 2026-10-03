@@ -14,7 +14,7 @@ function input() {
   const entry = { name: "fixture", source: configPath, scope: "global", config: { command: process.execPath,
     args: ["--version"], env: { VALUE: "prefix ${EXPLICIT}", EMPTY: "" }, exposure: "direct" } };
   return { snapshot: { servers: [entry], errors: [] }, configPath, sessionCwd: root, homeDir: root,
-    environment: { EXPLICIT: "日本語", BASE: "captured" }, assertSnapshotOwner() {} };
+    environment: { EXPLICIT: "日本語", BASE: "captured", PATH: "/fixture/bin" }, assertSnapshotOwner() {} };
 }
 const call = (factory, options, entry = options.snapshot.servers[0]) => factory(entry, options.sessionCwd, undefined);
 
@@ -29,7 +29,7 @@ test("inert constructor, exact global selector, detached explicit env/home/cwd a
   assert.equal(assertions, 2); assert.equal(transport.options.command, process.execPath);
   assert.deepEqual(transport.options.args, [join(options.homeDir, "child"), "${LITERAL_ARG}", "!literal argument"]);
   assert.equal(transport.options.cwd, join(options.homeDir, "work")); assert.equal(transport.options.inheritEnv, false);
-  assert.deepEqual(transport.options.env, { EXPLICIT: "日本語", BASE: "captured", VALUE: "prefix 日本語", EMPTY: "" });
+  assert.deepEqual(transport.options.env, { PATH: "/fixture/bin", VALUE: "prefix 日本語", EMPTY: "" });
   assert.throws(() => { transport.options.env.VALUE = "changed"; }, TypeError);
   assert.throws(() => { transport.options.args.push("changed"); }, TypeError);
   assert.throws(() => { transport.options = {}; }, TypeError);
@@ -107,13 +107,17 @@ test("observed authority failure/restoration and reentrant/async acknowledgments
   reenter = false; assert.throws(() => call(recursive, reentrant), safe);
 });
 
-test("the base environment keeps ambient keys, while server config env still requires identifier names", async () => {
+test("only allowlisted names are inherited implicitly, while `${NAME}` still reaches the full snapshot", async () => {
   const options = input();
-  options.environment = { "ProgramFiles(x86)": "C:\\Program Files (x86)", NORMAL: "value" };
-  options.snapshot.servers[0].config.env = { VALUE: "${NORMAL}" };
+  options.environment = { "ProgramFiles(x86)": "C:\\Program Files (x86)", NORMAL: "value", SERVICE_TOKEN: "secret" };
+  options.snapshot.servers[0].config.env = { VALUE: "${NORMAL}", TOKEN: "${SERVICE_TOKEN}" };
   const transport = call(create(options), options);
   assert.equal(transport.options.env["ProgramFiles(x86)"], "C:\\Program Files (x86)");
-  assert.equal(transport.options.env.VALUE, "value"); await transport.close();
+  assert.equal(transport.options.env.VALUE, "value");
+  // Declared explicitly, so the snapshot value is passed on purpose; never inherited implicitly.
+  assert.equal(transport.options.env.TOKEN, "secret");
+  assert.equal(transport.options.env.SERVICE_TOKEN, undefined);
+  assert.equal(transport.options.env.NORMAL, undefined); await transport.close();
   const configEnv = input(); configEnv.snapshot.servers[0].config.env = { "BAD-KEY": "x" };
   assert.throws(() => call(create(configEnv), configEnv), safe);
   const emptyKey = input(); emptyKey.environment = { "": "x" };
@@ -235,7 +239,7 @@ case 'tools/list':send(message.id,{tools:[{name:'echo',inputSchema:{type:'object
 case 'tools/call':send(message.id,{content:[{type:'text',text:JSON.stringify({cwd:process.cwd(),value:process.env.VALUE,base:process.env.BASE,ambient:process.env.LEAFCODE_STDIO_PRIVATE_TEST??null})}]});break;
 default:throw Error('Unexpected fixture request');}});
 lines.on('close',()=>process.exit(0));\n`, { mode: 0o600 });
-  await writeFile(configPath, JSON.stringify({ mcpServers: { fixture: { command: process.execPath, args: [script], cwd: "work", env: { VALUE: "${EXPLICIT}" }, exposure: "direct" } } }), { mode: 0o600 });
+  await writeFile(configPath, JSON.stringify({ mcpServers: { fixture: { command: process.execPath, args: [script], cwd: "work", env: { VALUE: "${EXPLICIT}", BASE: "fixed" }, exposure: "direct" } } }), { mode: 0o600 });
   await writeFile(bundledConfigPath, "{}", { mode: 0o600 }); const bytes = await readFile(configPath);
   const owner = createBackendMcpConfigOwner({ agentDir: root, bundledConfigPath, assertProcessOwner() {}, assertPrivateStorage() {} }); t.after(() => owner.dispose());
   const binding = await owner.prepare(), snapshot = binding.loadConfig();
