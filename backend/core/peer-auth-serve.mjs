@@ -1,4 +1,4 @@
-import { parsePeerBearer, parsePeerResolveRequest, publicPeerCredential, publicPeerList } from "../../shared/peer-auth-wire.mjs";
+import { parsePeerBearer, parsePeerResolveRequest, publicPeerCredential, publicPeerList } from "./peer-auth-wire.mjs";
 
 // Core of GET /api/peer-auth/list and POST /api/peer-auth/resolve (docs/plans/peer-auth-share.md).
 // Pure orchestration: the runtime, credential reads, grants, audit and limiter are injected, so the

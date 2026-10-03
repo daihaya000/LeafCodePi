@@ -77,7 +77,7 @@
 
 **実装済み（単体・統合テストあり。prod 再ビルドと実機 2 台は未実施）**
 
-- `shared/peer-auth-wire.{mjs,d.mts,test.mjs}`: ベアラー解析、resolve 要求の厳格検証、公開 credential の整形（refresh 除去）、list/resolve 応答の検証
+- `backend/core/peer-auth-wire.{mjs,d.mts,test.mjs}`: ベアラー解析、resolve 要求の厳格検証、公開 credential の整形（refresh 除去）、list/resolve 応答の検証。`shared/peer-auth-wire.mjs` は再 export の窓口（ミラー配置では `backend-core/` と `shared/` が兄弟になるため、実装は backend/core に置く）
 - `backend/core/peer-auth-grants.{mjs,d.mts}`: トークン生成（32B base64url）・SHA-256 のみ保存・timing-safe 検証・有効化トグル・作成/失効/一覧・原子的書込み
 - `backend/core/peer-auth-audit.{mjs,d.mts}`: JSONL 監査（上限 1000 行、秘密なし）とピア単位の固定窓レート制限
 - `backend/core/peer-auth-serve.{mjs,d.mts}`: 認証 → レート → アカウント束縛/allowlist → OAuth は `getAuth(minOAuthValidityMs=10分)` で A 側 refresh 後に再読込 → 公開 credential 化 → 監査。エラーは不透明な 503、全応答 no-store

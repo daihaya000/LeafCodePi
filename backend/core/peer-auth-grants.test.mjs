@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 import { createPeerGrantStore, generatePeerToken, hashPeerToken } from "./peer-auth-grants.mjs";
-import { parsePeerBearer } from "../../shared/peer-auth-wire.mjs";
+import { parsePeerBearer } from "./peer-auth-wire.mjs";
 
 async function fixture() {
   const root = await mkdtemp(join(tmpdir(), "leafcode-peer-grants-"));

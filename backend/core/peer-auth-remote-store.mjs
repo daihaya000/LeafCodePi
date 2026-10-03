@@ -1,4 +1,4 @@
-import { parsePeerResolveResponse, publicPeerList } from "../../shared/peer-auth-wire.mjs";
+import { parsePeerResolveResponse, publicPeerList } from "./peer-auth-wire.mjs";
 
 // B-side CredentialStore for peer auth sharing (docs/plans/peer-auth-share.md).
 // It is read-only and never refreshes: the SDK refreshes inside `modify`, so `modify` re-resolves from

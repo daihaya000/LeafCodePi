@@ -1,7 +1,7 @@
 import { randomBytes } from "node:crypto";
 import { mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { parsePeerBearer } from "../../shared/peer-auth-wire.mjs";
+import { parsePeerBearer } from "./peer-auth-wire.mjs";
 
 // B-side peer account config: <agentDir>/accounts/<id>/peer.json (docs/plans/peer-auth-share.md).
 // Its presence marks an account whose credentials come from another LCP. It holds the peer token,
