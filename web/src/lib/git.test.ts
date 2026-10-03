@@ -161,3 +161,19 @@ it.each(["", ".", "src/.", "src/", "src/../secret.txt"])(
     expect(mocks.spawn.mock.calls.filter(([command]) => command === "git")).toHaveLength(0);
   },
 );
+
+it("counts stdout and stderr together against one ceiling", async () => {
+  const child = Object.assign(new EventEmitter(), {
+    stdout: new PassThrough(),
+    stderr: new PassThrough(),
+    kill: vi.fn(),
+    pid: 123,
+  });
+  mocks.spawn.mockReturnValue(child);
+  const result = runGit(".", ["diff"], 30_000, undefined, 10);
+  child.stdout.write("01234");
+  child.stderr.write("56789");
+  // The two streams share the limit, so a chunk that only fits alone must fail.
+  child.stderr.write("a");
+  await expect(result).rejects.toThrow("git output exceeded 10 characters");
+});

@@ -47,6 +47,10 @@ export function runGit(
     });
     let stdout = "";
     let stderr = "";
+    // Lengths are tracked separately: `stdout += c` builds a new rope each time, and
+    // re-concatenating both strings to compare them on every chunk is quadratic.
+    let stdoutChars = 0;
+    let stderrChars = 0;
     let settled = false;
     // If git ever blocks despite the prompt-disabling env vars, kill it and
     // reject so the awaiting HTTP handler fails fast instead of hanging.
@@ -80,6 +84,8 @@ export function runGit(
       killChild();
       stdout = "";
       stderr = "";
+      stdoutChars = 0;
+      stderrChars = 0;
       reject(new Error(`git output exceeded ${maxOutputChars} characters: git ${args.join(" ")}`));
     };
     if (typeof timer.unref === "function") timer.unref();
@@ -87,13 +93,22 @@ export function runGit(
     child.stderr.setEncoding("utf8");
     child.stdout.on("data", (c: string) => {
       if (settled) return;
+      // Refuse before appending so the buffer never exceeds the ceiling.
+      if (stdoutChars + stderrChars + c.length > maxOutputChars) {
+        overflow();
+        return;
+      }
       stdout += c;
-      if (stdout.length + stderr.length > maxOutputChars) overflow();
+      stdoutChars += c.length;
     });
     child.stderr.on("data", (c: string) => {
       if (settled) return;
+      if (stdoutChars + stderrChars + c.length > maxOutputChars) {
+        overflow();
+        return;
+      }
       stderr += c;
-      if (stdout.length + stderr.length > maxOutputChars) overflow();
+      stderrChars += c.length;
     });
     child.on("error", (err) => {
       if (settled) return;
