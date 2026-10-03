@@ -56,6 +56,8 @@ export function defaultModelDir(
 
 const MAX_DEPTH = 2;
 const MAX_MODELS = 300;
+// Bound the synchronous walk (slow shares / huge trees must not stall the BFF worker).
+const MAX_SCANNED_ENTRIES = 20_000;
 
 function isNonFirstShard(name: string): boolean {
   const match = /-(\d{5})-of-\d{5}\.gguf$/i.exec(name);
@@ -80,7 +82,9 @@ function collect(
   models: string[],
   mmprojs: string[],
   loras: string[],
+  budget: { remaining: number } = { remaining: MAX_SCANNED_ENTRIES },
 ): void {
+  if (budget.remaining <= 0) return;
   let entries: fs.Dirent[];
   try {
     entries = fs.readdirSync(path.join(root, rel), { withFileTypes: true });
@@ -88,9 +92,11 @@ function collect(
     return;
   }
   for (const entry of entries) {
+    if (budget.remaining <= 0) return;
+    budget.remaining -= 1;
     const next = rel ? path.join(rel, entry.name) : entry.name;
     if (entry.isDirectory()) {
-      if (depth < MAX_DEPTH) collect(root, next, depth + 1, models, mmprojs, loras);
+      if (depth < MAX_DEPTH) collect(root, next, depth + 1, models, mmprojs, loras, budget);
     } else if (
       entry.isFile() &&
       entry.name.toLowerCase().endsWith(".gguf") &&

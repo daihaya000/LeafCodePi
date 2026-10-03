@@ -630,13 +630,14 @@ export function registerRoomHandoff(input: {
   }
   const existing = room.handoffs ?? [];
   // Replays of the same tool call return the original receipt instead of a second registration.
-  const replayed = input.toolCallId ? existing.find((handoff) => handoff.toolCallId === input.toolCallId) : undefined;
-  if (replayed) return { handoff: replayed, duplicate: true };
   const normalized = task.replace(/\s+/g, " ");
-  const equivalent = existing.find((handoff) => handoff.requestId === input.requestId && handoff.toBotId === target.id
-    && handoff.waitForCodeRequestId === input.waitForCodeRequestId && handoff.task.replace(/\s+/g, " ") === normalized
-    && (handoff.state === "waiting" || handoff.state === "ready" || handoff.state === "running"));
-  if (equivalent) return { handoff: equivalent, duplicate: true };
+  const findDuplicate = (list: readonly RoomHandoff[]): RoomHandoff | undefined =>
+    (input.toolCallId ? list.find((handoff) => handoff.toolCallId === input.toolCallId) : undefined)
+    ?? list.find((handoff) => handoff.requestId === input.requestId && handoff.toBotId === target.id
+      && handoff.waitForCodeRequestId === input.waitForCodeRequestId && handoff.task.replace(/\s+/g, " ") === normalized
+      && (handoff.state === "waiting" || handoff.state === "ready" || handoff.state === "running"));
+  const earlier = findDuplicate(existing);
+  if (earlier) return { handoff: earlier, duplicate: true };
   // Loop prevention (df3dee2 bar): only bots that already spoke/claimed this turn are blocked.
   // Multiple pending handoffs to the same target remain allowed; delivery claims the envelope.
   const related = existing.filter((item) => item.requestId === input.requestId && item.state !== "failed" && item.state !== "cancelled");
@@ -655,7 +656,12 @@ export function registerRoomHandoff(input: {
     ...(input.implicit ? { implicit: true } : {}),
     relayDepth, createdAt: now, updatedAt: now,
   };
+  // The checks above ran outside the room lock; a concurrent identical call may have registered since.
+  // Re-check against the locked list so both calls get the same receipt instead of two registrations.
+  let raced: RoomHandoff | undefined;
   updateRoomHandoffs(input.roomId, (handoffs) => {
+    raced = findDuplicate(handoffs);
+    if (raced) return handoffs;
     // Prefer dropping settled rows without toolCallId so idempotent replays keep working.
     const evictable = (item: RoomHandoff) =>
       item.state === "done" || item.state === "failed" || item.state === "cancelled";
@@ -667,6 +673,7 @@ export function registerRoomHandoff(input: {
       : handoffs;
     return [...kept, handoff];
   });
+  if (raced) return { handoff: raced, duplicate: true };
   mirrorHandoffs(input.roomId);
   return { handoff, duplicate: false };
 }

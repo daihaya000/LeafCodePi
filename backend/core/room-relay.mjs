@@ -8,6 +8,28 @@
  */
 export const MAX_ROOM_RELAY_DEPTH = 3;
 export const RELAY_ENVELOPE_TTL_MS = 10 * 60 * 1000;
+/** Expired envelopes are kept this long past expiry (diagnostics) before being swept from relay state. */
+export const RELAY_STATE_RETAIN_MS = 60 * 60 * 1000;
+
+/**
+ * Drop envelopes long past expiry and the claims of turns that no longer have any envelope. An expired
+ * envelope can never be a parent or be consumed again, so nothing reachable depends on them; without this
+ * the state file (re-parsed and rewritten on every claim) only ever grows. Mutates and returns `state`.
+ */
+export function pruneRelayState(state, nowMs, retainMs = RELAY_STATE_RETAIN_MS) {
+  const liveTurns = new Set();
+  for (const [token, envelope] of Object.entries(state.envelopes)) {
+    if (envelope && typeof envelope.expiresAt === "number" && envelope.expiresAt + retainMs <= nowMs) {
+      delete state.envelopes[token];
+    } else if (envelope?.turnId) {
+      liveTurns.add(envelope.turnId);
+    }
+  }
+  for (const turnId of Object.keys(state.claims)) {
+    if (!liveTurns.has(turnId)) delete state.claims[turnId];
+  }
+  return state;
+}
 
 /** A relay participant must be a member of the room and currently enabled. */
 export function relayBotIsActive(room, botId, isBotEnabled) {
@@ -56,6 +78,7 @@ export function issueRelayEnvelope({ roomId, sourceBotId, targetBotIds, parentId
     const targets = [...new Set(targetBotIds)];
     if (targets.length === 0 || targets.some((id) => id === sourceBotId || !relayBotIsActive(room, id, deps.isBotEnabled))) return undefined;
     const state = deps.readState(roomId);
+    pruneRelayState(state, deps.now());
     const parent = parentId ? state.envelopes[parentId] : undefined;
     if (parentRelayEnvelopeRejection(parentId, parent, roomId, sourceBotId, deps.now())) return undefined;
     const depth = parent ? parent.depth + 1 : 0;

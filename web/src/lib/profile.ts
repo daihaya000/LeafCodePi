@@ -12,10 +12,10 @@ import {
 import { dirname, join, relative, resolve } from "node:path";
 import { resolvePiAgentDir } from "@/lib/agents-md";
 import { dataDir } from "@/lib/paths";
+import { MAX_ARCHIVE_BYTES } from "@/lib/profile-limits";
 
 const PROFILE_FORMAT = "leafcode-pi-profile";
 const PROFILE_VERSION = 1;
-const MAX_ARCHIVE_BYTES = 256 * 1024 * 1024;
 const MAX_CONTENT_BYTES = 240 * 1024 * 1024;
 const MAX_EXPANDED_BYTES = 384 * 1024 * 1024;
 // User-managed agent resources can contain many files.

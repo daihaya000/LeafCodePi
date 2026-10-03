@@ -1078,13 +1078,31 @@ function isCachedVerifyResult(value: unknown): value is AcceptanceVerifyResult {
 		&& typeof result.durationMs === "number";
 }
 
+/** Resolve a verify cwd; returns undefined when it escapes defaultCwd (lexically or via symlink). */
+export function resolveVerifyCwd(defaultCwd: string, requested: string | undefined): string | undefined {
+	if (!requested) return defaultCwd;
+	const resolved = path.resolve(defaultCwd, requested);
+	const isInside = (base: string, target: string): boolean => {
+		const relative = path.relative(base, target);
+		return relative === "" || (!relative.startsWith("..") && !path.isAbsolute(relative));
+	};
+	if (!isInside(path.resolve(defaultCwd), resolved)) return undefined;
+	try {
+		if (!isInside(fs.realpathSync(defaultCwd), fs.realpathSync(resolved))) return undefined;
+	} catch {
+		// Non-existent cwd: spawn will fail on its own.
+	}
+	return resolved;
+}
+
 async function runMemoizedVerifyCommand(command: AcceptanceVerifyCommand, defaultCwd: string, options: {
 	signal?: AbortSignal;
 	abortMessage?: string;
 	artifactsDir?: string;
 	runId?: string;
 } = {}): Promise<AcceptanceVerifyResult> {
-	const cwd = command.cwd ? path.resolve(defaultCwd, command.cwd) : defaultCwd;
+	const cwd = resolveVerifyCwd(defaultCwd, command.cwd);
+	if (cwd === undefined) return runVerifyCommand(command, defaultCwd, options);
 	let workspaceState: VerifyWorkspaceState | undefined;
 	try {
 		workspaceState = readVerifyWorkspaceState(cwd);
@@ -1186,7 +1204,20 @@ export function quoteExecutableForShell(command: string, platform: string = proc
 function runVerifyCommand(command: AcceptanceVerifyCommand, defaultCwd: string, options: { signal?: AbortSignal; abortMessage?: string } = {}): Promise<AcceptanceVerifyResult> {
 	return new Promise((resolve) => {
 		const startedAt = Date.now();
-		const cwd = command.cwd ? path.resolve(defaultCwd, command.cwd) : defaultCwd;
+		const safeCwd = resolveVerifyCwd(defaultCwd, command.cwd);
+		if (safeCwd === undefined) {
+			resolve({
+				id: command.id,
+				command: command.command,
+				cwd: path.resolve(defaultCwd, command.cwd ?? "."),
+				durationMs: 0,
+				exitCode: 1,
+				status: "failed",
+				stderr: "Acceptance verify cwd must stay inside the working directory.",
+			});
+			return;
+		}
+		const cwd = safeCwd;
 		let stdout = "";
 		let stderr = "";
 		let timedOut = false;

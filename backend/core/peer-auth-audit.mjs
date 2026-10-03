@@ -1,6 +1,7 @@
 import { appendFileSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { dataDir } from "./app-paths.mjs";
+import { withDirectoryLock } from "./directory-lock.mjs";
 
 // Audit trail and rate limiting for peer auth sharing (docs/plans/peer-auth-share.md).
 // Entries hold identifiers and outcomes only: never tokens, hashes or credentials.
@@ -38,15 +39,22 @@ export function createPeerAuditLog(options = {}) {
           at: now().toISOString(), peerId: safeId(peerId), action, providerId: safeId(providerId),
           accountId: safeId(accountId), result,
         });
-        appendFileSync(path, `${line}\n`, { encoding: "utf8", mode: 0o600 });
-        lines = (lines ?? countLines(path) - 1) + 1;
-        if (lines > maxLines) {
-          const kept = readFileSync(path, "utf8").split("\n").filter(Boolean).slice(-maxLines);
-          const temp = `${path}.tmp`;
-          writeFileSync(temp, `${kept.join("\n")}\n`, { encoding: "utf8", mode: 0o600 });
-          renameSync(temp, path);
-          lines = kept.length;
-        }
+        // Append and trim (read -> rewrite -> rename) share one lock so a concurrent process's line
+        // cannot fall between the trim's read and its rename. Short wait: auditing is best effort.
+        withDirectoryLock({
+          lockPath: `${path}.lock`, parentDir: dirname(path), staleMs: 10_000,
+          busyMessage: "peer audit log is busy", maxAttempts: 100, waitMs: 5,
+        }, () => {
+          appendFileSync(path, `${line}\n`, { encoding: "utf8", mode: 0o600 });
+          lines = (lines ?? countLines(path) - 1) + 1;
+          if (lines > maxLines) {
+            const kept = readFileSync(path, "utf8").split("\n").filter(Boolean).slice(-maxLines);
+            const temp = `${path}.tmp`;
+            writeFileSync(temp, `${kept.join("\n")}\n`, { encoding: "utf8", mode: 0o600 });
+            renameSync(temp, path);
+            lines = kept.length;
+          }
+        });
         return true;
       } catch {
         lines = null;

@@ -46,6 +46,20 @@ function seedMemories() {
 }
 
 describe("searchLeafCodeMemory", () => {
+  it("ranks rows matching more terms ahead of newer rows matching fewer", () => {
+    seedMemories();
+    const database = new Database(join(agentDir, "leafcode-memory", "sessions.db"));
+    database.prepare("INSERT INTO memories (project, target, category, content, created, last_referenced) VALUES (?, ?, ?, ?, ?, ?)")
+      .run(null, "memory", null, "failed convention note", "2026-04-01", "2026-04-01");
+    database.close();
+
+    const contents = searchLeafCodeMemory("failed deployment convention", env).map((row) => row.content);
+
+    // Row 2 has all three terms; the newer row has only two and must come after it.
+    expect(contents[0]).toBe("deployment failed despite the convention");
+    expect(contents.indexOf("failed convention note")).toBeGreaterThan(0);
+  });
+
   it("searches literal terms, ranks an exact phrase first, and preserves scope metadata", () => {
     seedMemories();
 

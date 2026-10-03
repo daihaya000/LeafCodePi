@@ -1,4 +1,4 @@
-export function buildHostRestartScript({ lockFile, launcherExe, startBat, maxWaitAttempts = 120 }) {
+export function buildHostRestartScript({ lockFile, launcherExe, startBat, maxWaitAttempts = 120, relaunchGraceSeconds = 15 }) {
   const launchLine = launcherExe
     ? `start "LeafCodePi" /min "${launcherExe}"`
     : `start "LeafCodePi" /min cmd.exe /c ""${startBat}" >nul 2>&1"`;
@@ -16,6 +16,14 @@ export function buildHostRestartScript({ lockFile, launcherExe, startBat, maxWai
     "goto :wait",
     ":launch",
     launchLine,
+    // If the old host outlived the wait, the new one exits on the held lock and the old one then quits:
+    // nothing is left running. Check once after a grace period and relaunch if no host owns the lock.
+    `ping -n ${relaunchGraceSeconds + 1} 127.0.0.1 >nul`,
+    'if exist "%LOCK%" goto :done',
+    "if defined RELAUNCHED goto :done",
+    'set "RELAUNCHED=1"',
+    "goto :launch",
+    ":done",
     "endlocal",
     'del "%~f0" >nul 2>&1',
   ];

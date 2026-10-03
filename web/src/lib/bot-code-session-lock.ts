@@ -9,11 +9,15 @@ export type BotCodeSessionLockOptions = {
   retryMs?: number;
   timeoutMs?: number;
   staleMs?: number;
+  /** A lock older than this is reclaimed even if its PID looks alive (PID reuse, a wedged owner). */
+  hardStaleMs?: number;
 };
 
 const DEFAULT_RETRY_MS = 25;
 const DEFAULT_TIMEOUT_MS = 10_000;
 const DEFAULT_STALE_MS = 60_000;
+// Launch/link of a Bot's Code session never legitimately takes this long.
+const DEFAULT_HARD_STALE_MS = 2 * 60 * 60 * 1000;
 
 function lockPath(botId: string): string {
   // Bot ids are normally UUIDs. Keep the path safe for legacy/test ids too.
@@ -41,13 +45,14 @@ function readLock(path: string): LockRecord | null {
   }
 }
 
-function isStale(path: string, now: number, staleMs: number): boolean {
+function isStale(path: string, now: number, staleMs: number, hardStaleMs: number): boolean {
   const lock = readLock(path);
   if (!lock) {
     try { return now - statSync(path).mtimeMs > staleMs; } catch { return true; }
   }
   // A live owner may legitimately hold the lock for longer than the stale
   // threshold. Age alone is not evidence that its operation was abandoned.
+  if (now - lock.acquiredAt > hardStaleMs) return true;
   return !isProcessAlive(lock.pid) && now - lock.acquiredAt > staleMs;
 }
 
@@ -66,6 +71,7 @@ export async function withBotCodeSessionLock<T>(
   const retryMs = options.retryMs ?? DEFAULT_RETRY_MS;
   const timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
   const staleMs = options.staleMs ?? DEFAULT_STALE_MS;
+  const hardStaleMs = options.hardStaleMs ?? DEFAULT_HARD_STALE_MS;
   const path = lockPath(botId);
   mkdirSync(join(dataDir(), "bots", botId.replace(/[^a-zA-Z0-9._-]/g, "_")), { recursive: true });
   const token = randomUUID();
@@ -80,7 +86,7 @@ export async function withBotCodeSessionLock<T>(
     } catch (error) {
       const code = error && typeof error === "object" && "code" in error ? (error as { code?: unknown }).code : undefined;
       if (code !== "EEXIST") throw error;
-      if (isStale(path, Date.now(), staleMs)) {
+      if (isStale(path, Date.now(), staleMs, hardStaleMs)) {
         try { unlinkSync(path); } catch { /* another worker reclaimed it */ }
         continue;
       }

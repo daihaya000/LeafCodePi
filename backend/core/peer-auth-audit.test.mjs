@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtemp, readFile, readdir, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, readdir, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -81,4 +81,20 @@ test("rate limiter refuses new keys at capacity instead of growing without bound
   assert.equal(limiter.take("a").ok, true);
   time = 1000;
   assert.equal(limiter.take("c").ok, true);
+});
+
+test("append and trim run under a lock: a held lock defers the write and a free lock is released", async () => {
+  const { root, path } = await (async () => {
+    const root = await mkdtemp(join(tmpdir(), "leafcode-peer-audit-lock-"));
+    return { root, path: join(root, "audit.jsonl") };
+  })();
+  try {
+    const log = createPeerAuditLog({ path });
+    const entry = { peerId: "p", action: "list", result: "ok" };
+    assert.equal(log.record(entry), true);
+    assert.equal((await readdir(root)).includes("audit.jsonl.lock"), false);
+    await mkdir(`${path}.lock`);
+    assert.equal(log.record(entry), false, "a fresh foreign lock makes the best-effort write give up");
+    assert.equal(log.read().length, 1);
+  } finally { await rm(root, { recursive: true, force: true }); }
 });

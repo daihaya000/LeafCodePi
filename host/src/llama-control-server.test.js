@@ -238,6 +238,33 @@ test("POST /restart/backend is refused with 409 while a Goal Loop is live", asyn
   await closeControlServer(server);
 });
 
+test("POST /restart/host is refused with 409 while a Goal Loop is live", async () => {
+  let called = false;
+  const port = await freePort();
+  const server = createLlamaControlServer({
+    controlPort: port,
+    onLlamaServerStatus: () => ({ ok: true }),
+    onLlamaServerStart: async () => ({ ok: true }),
+    onLlamaServerStop: () => {},
+    onRestartHost: () => {
+      called = true;
+    },
+    onRestartHostBlocked: () => "Goal Loop が 1 件実行中",
+  });
+  await listenControlServer(server, port);
+  const res = await fetch(`http://127.0.0.1:${port}/restart/host`, {
+    method: "POST",
+    headers: { host: `127.0.0.1:${port}` },
+  });
+  assert.equal(res.status, 409);
+  const body = await res.json();
+  assert.equal(body.target, "host");
+  assert.equal(body.blocked, true);
+  await new Promise((r) => setTimeout(r, 180));
+  assert.equal(called, false);
+  await closeControlServer(server);
+});
+
 test("POST /restart/webui is refused with 409 while a Goal Loop is live", async () => {
   let called = false;
   const port = await freePort();

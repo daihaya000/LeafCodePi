@@ -24,6 +24,7 @@ test("openProjectInExplorer resolves when the platform command succeeds", async 
   child.unref = () => {};
   const result = openProjectInExplorer("/home/me/project", {
     platform: "linux",
+    stat: () => ({ isDirectory: () => true }),
     spawn: (command, args, options) => {
       spawned.push({ command, args, options });
       queueMicrotask(() => child.emit("spawn"));
@@ -37,11 +38,24 @@ test("openProjectInExplorer resolves when the platform command succeeds", async 
   ]);
 });
 
+test("openProjectInExplorer rejects non-directories and relative paths before spawning", async () => {
+  let spawned = false;
+  const options = {
+    platform: "linux",
+    stat: () => ({ isDirectory: () => false }),
+    spawn: () => { spawned = true; },
+  };
+  assert.throws(() => openProjectInExplorer("/home/me/file.txt", options), (error) => error.status === 400);
+  assert.throws(() => openProjectInExplorer("relative/project", options), (error) => error.status === 400);
+  assert.equal(spawned, false);
+});
+
 test("openProjectInExplorer reports an xdg-open failure", async () => {
   const child = new EventEmitter();
   child.unref = () => {};
   const result = openProjectInExplorer("/home/me/project", {
     platform: "linux",
+    stat: () => ({ isDirectory: () => true }),
     spawn: () => {
       queueMicrotask(() => {
         child.emit("spawn");

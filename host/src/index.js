@@ -660,14 +660,22 @@ async function webUiRestartBlockReason() {
           ? { authorization: `Bearer ${WEBUI_AUTH.token}` }
           : {},
     });
-    if (!response.ok) return null;
+    if (!response.ok) return webUiRestartUnknownReason(`HTTP ${response.status}`);
     const body = await response.json();
     const active = Number(body?.active) || 0;
     if (active <= 0) return null;
     return `Goal Loop が ${active} 件実行中のため WebUI の再起動を拒否しました。ループを停止・完了してから再試行してください。`;
-  } catch {
-    return null;
+  } catch (err) {
+    // Nothing is listening: no live Next.js sessions to protect, recovery stays available.
+    const code = err?.cause?.code ?? err?.code;
+    if (code === "ECONNREFUSED" || code === "ECONNRESET" || code === "ENOTFOUND") return null;
+    return webUiRestartUnknownReason(err instanceof Error ? err.message : String(err));
   }
+}
+
+/** A living standalone WebUI whose Goal Loop state is unknown must fail closed (as the Backend guard does). */
+function webUiRestartUnknownReason(detail) {
+  return `Goal Loop の実行状況を確認できないため WebUI の再起動を拒否しました（${detail}）。WebUI の応答を確認してから再試行してください。`;
 }
 
 /**
@@ -1008,6 +1016,7 @@ async function startControlServer() {
     onRestartWebuiBlocked: () => webUiRestartBlockReason(),
     onRestartBackend: () => restartBackend(),
     onRestartBackendBlocked: () => backendRestartBlockReason(),
+    onRestartHostBlocked: async () => (await backendRestartBlockReason()) ?? (await webUiRestartBlockReason()),
     onRestartHost: () => restartHost(),
     onPiUpdateRead: () => ({
       defaultVersion: DEFAULT_PI_VERSION,

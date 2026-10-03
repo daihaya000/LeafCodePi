@@ -183,13 +183,15 @@ export async function GET(req: NextRequest) {
     const additions = files.reduce((n, f) => n + f.additions, 0);
     const deletions = files.reduce((n, f) => n + f.deletions, 0);
     // Last on-disk modification time per file. Deleted/unreadable files stay
-    // undefined. The lexical isUnder guard keeps the stat inside the workspace.
+    // undefined. lstat reports a symlink's own mtime and never follows it out of
+    // the workspace (or onto a slow/blocking target); the lexical isUnder guard
+    // keeps the path inside the workspace.
     for (const f of files) {
       if (f.modifiedAt) continue;
       const abs = path.resolve(dir, f.path);
       if (!isUnder(dir, abs)) continue;
       try {
-        f.modifiedAt = fs.statSync(abs).mtime.toISOString();
+        f.modifiedAt = fs.lstatSync(abs).mtime.toISOString();
       } catch {
         /* deleted or unreadable */
       }

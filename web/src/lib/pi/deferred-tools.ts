@@ -83,14 +83,28 @@ export function registerDeferredTools(
         .filter(({ name, keywords }) => allowed?.has(TOOL_SEARCH_NAME) !== false && registered.has(name) && allowed?.has(name) !== false &&
           (exact ? name === normalized : keywords.some((keyword) => normalized.includes(keyword))))
         .map(({ name }) => name);
-      // Nothing optional matched: the query may be about an MCP tool, which the SDK ranks and loads.
       const native = nativeSearch?.definition;
-      if (matches.length === 0 && native && allowed?.has(TOOL_SEARCH_NAME) !== false) {
+      const nativeAllowed = native !== undefined && allowed?.has(TOOL_SEARCH_NAME) !== false;
+      // Nothing optional matched: the query may be about an MCP tool, which the SDK ranks and loads.
+      if (matches.length === 0 && native && nativeAllowed) {
         return native.execute(toolCallId, { query }, signal, onUpdate, ctx);
       }
       const active = pi.getActiveTools();
       const added = matches.filter((name) => !active.includes(name));
       if (added.length > 0) pi.setActiveTools([...new Set([...active, ...added])]);
+      // A generic keyword ("search", "web", "fetch", ...) can match an optional tool while the query is really
+      // about an MCP tool ("search issues"). Unless the query named an optional tool exactly, also run the
+      // SDK search so MCP tools are still found, and report both results.
+      if (matches.length > 0 && !exact && native && nativeAllowed) {
+        const optionalText = added.length > 0
+          ? `Loaded tools: ${added.join(", ")}`
+          : `Matching tools already active: ${matches.join(", ")}`;
+        const nativeResult = await native.execute(toolCallId, { query }, signal, onUpdate, ctx);
+        return {
+          ...nativeResult,
+          content: [{ type: "text" as const, text: optionalText }, ...(nativeResult.content ?? [])],
+        };
+      }
 
       const text = matches.length === 0
         ? `No optional tools matched: ${query}`

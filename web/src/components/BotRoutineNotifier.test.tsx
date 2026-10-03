@@ -145,6 +145,23 @@ describe("BotRoutineNotifier", () => {
     expect(FakeNotification.instances).toEqual([]);
   });
 
+  it("loads the sidebar before deciding when the Bot is not known yet, so a muted Bot stays silent", async () => {
+    // 前のテストのスナップショットを空に戻す（購読の解除でリセットされる）。
+    const { subscribeBotSidebar } = await import("@/lib/bot-sidebar-store");
+    subscribeBotSidebar(() => undefined)();
+    mocks.getJson.mockResolvedValue({ bots: [{ id: "bot-1", notificationsEnabled: false }], rooms: [] });
+
+    render(<BotRoutineNotifier />);
+    fireRoutine(RUN);
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(mocks.getJson).toHaveBeenCalled();
+    expect(mocks.playSessionCompleteSound).not.toHaveBeenCalled();
+  });
+
   it("lets BotView handle a routine finished on the open Bot tab", async () => {
     mocks.getJson.mockResolvedValue({ bots: [{ id: "bot-1", notificationsEnabled: true }], rooms: [] });
     await refreshBotSidebar();

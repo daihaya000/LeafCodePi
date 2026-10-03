@@ -1,8 +1,9 @@
 import { randomUUID } from "node:crypto";
-import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { dirname, join } from "node:path";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { readPeerConfig } from "@backend-core/peer-auth-config.mjs";
 import { dataDir } from "./paths";
+import { atomicWriteText } from "./codexbar/utils";
 import { invalidateCachedUsage } from "./codexbar/cache";
 import { clearProviderCache } from "./codexbar/provider-cache";
 import { isGoalLoopSessionOwned, readGoalLoopState } from "./pi/goal-loop-state";
@@ -234,9 +235,8 @@ function readAccountsFile(): AccountsFile {
 }
 
 function writeAccountsFile(file: AccountsFile): void {
-  const path = accountsPath();
-  mkdirSync(dirname(path), { recursive: true });
-  writeFileSync(path, `${JSON.stringify(file, null, 2)}\n`, "utf8");
+  // tmp + rename (unique tmp name via mode) so concurrent writers never leave a torn accounts.json.
+  atomicWriteText(accountsPath(), `${JSON.stringify(file, null, 2)}\n`, 0o600);
 }
 
 function badRequest(message: string): Error {

@@ -597,6 +597,9 @@ describe("system safety classifier", () => {
     assert.equal(isLeafCodePiStopCommand("kill -- -1"), true);
     assert.equal(isLeafCodePiStopCommand("taskkill /F /PID 2468", 1357), false);
     assert.equal(isLeafCodePiStopCommand("Get-Process node"), false);
+    assert.equal(isLeafCodePiStopCommand("echo node | Stop-Process -Id 99999", 1357), false);
+    assert.equal(isLeafCodePiStopCommand("Get-Process node | Stop-Process"), true);
+    assert.equal(isLeafCodePiStopCommand("echo x | Stop-Process -Id 1357", 1357), true);
     // Regression: `node --check …` next to an unrelated process restart is not
     // a self-stop; this combo used to block and abandon the session.
     assert.equal(

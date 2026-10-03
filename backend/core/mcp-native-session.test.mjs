@@ -41,6 +41,20 @@ test("nativeMcpExtensionFactory resolves the provider on every run so a reload p
   loader({ id: 3 }); assert.deepEqual(called, ["A", "B"], "a failed preparation yields no factories");
 });
 
+test("nativeMcpExtensionFactory awaits async factories in order and surfaces rejections", async () => {
+  const order = [];
+  const slow = async () => { await new Promise((r) => setTimeout(r, 10)); order.push("slow"); };
+  const next = () => { order.push("next"); };
+  setBackendMcpNativeSessionProvider(() => ({ ok: true, factories: [slow, next] }));
+  const pending = nativeMcpExtensionFactory("C:/work")({});
+  assert.equal(typeof pending?.then, "function");
+  await pending;
+  assert.deepEqual(order, ["slow", "next"]);
+  setBackendMcpNativeSessionProvider(() => ({ ok: true, factories: [async () => { throw new Error("boom"); }] }));
+  await assert.rejects(Promise.resolve(nativeMcpExtensionFactory("C:/work")({})), /boom/);
+  setBackendMcpNativeSessionProvider(undefined);
+});
+
 test("provider must be synchronous; uninstalling restores the legacy path", () => {
   assert.throws(() => setBackendMcpNativeSessionProvider(async () => ({})), /invalid/);
   assert.throws(() => setBackendMcpNativeSessionProvider("x"), /invalid/);

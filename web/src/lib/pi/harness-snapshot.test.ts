@@ -1215,6 +1215,23 @@ describe("sessionContextUsage", () => {
     expect(sessionContextUsage(session)?.tokens).toBe(200);
     expect(getContextUsage).toHaveBeenCalledTimes(2);
   });
+
+  it("recomputes when the last message's usage grows in place", () => {
+    const assistant = { role: "assistant", content: [], usage: { input: 10, output: 1, cacheRead: 0, cacheWrite: 0, totalTokens: 11 } };
+    const getContextUsage = vi.fn().mockReturnValue({ tokens: 11, contextWindow: 10_000, percent: 0 });
+    const session = { messages: [assistant], getContextUsage } as unknown as Parameters<typeof sessionContextUsage>[0];
+
+    expect(sessionContextUsage(session)?.tokens).toBe(11);
+    expect(sessionContextUsage(session)?.tokens).toBe(11);
+    expect(getContextUsage).toHaveBeenCalledTimes(1);
+
+    // Same array, same message object: only its usage changed (streaming).
+    assistant.usage.output = 50;
+    assistant.usage.totalTokens = 60;
+    getContextUsage.mockReturnValue({ tokens: 60, contextWindow: 10_000, percent: 1 });
+    expect(sessionContextUsage(session)?.tokens).toBe(60);
+    expect(getContextUsage).toHaveBeenCalledTimes(2);
+  });
 });
 
 describe("buildTaskBootstrap", () => {

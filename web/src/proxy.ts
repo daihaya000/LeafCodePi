@@ -8,11 +8,16 @@ import {
   webUiAuthRequired,
 } from "@/lib/webui-auth-shared";
 
+/**
+ * `?token=` only exists so a link can sign a browser in once (the page request is redirected to
+ * a clean URL and a cookie is set). API routes never accept it: URLs end up in logs and referrers.
+ */
 function tokenFromRequest(req: NextRequest): string | null {
   const auth = req.headers.get("authorization");
   if (auth?.startsWith("Bearer ")) return auth.slice(7).trim();
   const cookie = req.cookies.get(WEBUI_AUTH_COOKIE)?.value;
   if (cookie) return cookie;
+  if (req.nextUrl.pathname.startsWith("/api/")) return null;
   return req.nextUrl.searchParams.get("token");
 }
 

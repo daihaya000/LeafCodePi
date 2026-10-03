@@ -1,4 +1,4 @@
-import { timingSafeEqual } from "node:crypto";
+import { createHash, timingSafeEqual } from "node:crypto";
 import { expectedWebUiToken, webUiAuthRequired } from "./webui-auth-shared";
 export {
   expectedWebUiToken,
@@ -11,9 +11,9 @@ export {
 /** Constant-time token compare for Node route handlers. */
 export function tokensMatch(given: string, expected: string): boolean {
   if (!given || !expected) return false;
-  const a = Buffer.from(given);
-  const b = Buffer.from(expected);
-  if (a.length !== b.length) return false;
+  // Hash both sides so the compared buffers always have equal length (no length leak).
+  const a = createHash("sha256").update(given).digest();
+  const b = createHash("sha256").update(expected).digest();
   return timingSafeEqual(a, b);
 }
 
@@ -27,8 +27,7 @@ export function isWebUiRequestAuthorized(req: Request): boolean {
   const authorization = req.headers.get("authorization");
   const bearer = authorization?.startsWith("Bearer ") ? authorization.slice(7).trim() : "";
   const cookie = req.headers.get("cookie")?.match(/(?:^|;\s*)leafcode-pi-token=([^;]+)/)?.[1] ?? "";
-  let queryToken = "";
-  try { queryToken = new URL(req.url).searchParams.get("token")?.trim() ?? ""; } catch { /* malformed test URL */ }
+  // No `?token=` here: route-level authorization guards API calls, which must not take URL tokens.
   const expected = expectedWebUiToken();
-  return [bearer, cookie, queryToken].some((token) => tokensMatch(token, expected));
+  return [bearer, cookie].some((token) => tokensMatch(token, expected));
 }

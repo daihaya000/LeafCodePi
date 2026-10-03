@@ -1,12 +1,12 @@
 import assert from "node:assert/strict";
 import { EventEmitter } from "node:events";
 import { spawnSync as realSpawnSync } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, renameSync, rmSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import test from "node:test";
-import { DEFAULT_PI_VERSION, PI_PACKAGES, assertPiDependencyVersions } from "../../shared/pi-dependencies.mjs";
+import { DEFAULT_PI_VERSION, PI_DEPS_LOCK_STALE_MS, PI_PACKAGES, assertPiDependencyVersions, piDepsLockHeld } from "../../shared/pi-dependencies.mjs";
 import {
   autoUpdatePi, installedPiVersion, PI_UPDATE_TIMEOUT_MS, updatePiBeforeStartup,
   consumePiUpdateRequest, readPiUpdateRequest, readPiUpdateState, requestPiUpdate, writePiUpdateState,
@@ -306,6 +306,19 @@ test("build gates ignore a dead-owner deps lock but still refuse a live or opaqu
     assert.throws(() => assertPiDependencyVersions(f.webDir, f.backendDir), /unfinished/);
     writeFileSync(join(f.webDir, ".leafcode-pi-deps.lock"), JSON.stringify({ pid: process.pid }));
     assert.throws(() => assertPiDependencyVersions(f.webDir, f.backendDir), /unfinished/);
+  } finally { f.cleanup(); }
+});
+
+test("a deps lock older than the stale limit is abandoned even when its PID looks alive", () => {
+  const f = fixture();
+  try {
+    const lock = join(f.webDir, ".leafcode-pi-deps.lock");
+    writeFileSync(lock, JSON.stringify({ pid: process.pid }));
+    assert.equal(piDepsLockHeld(lock), true);
+    const old = new Date(Date.now() - PI_DEPS_LOCK_STALE_MS - 60_000);
+    utimesSync(lock, old, old);
+    assert.equal(piDepsLockHeld(lock), false);
+    assert.doesNotThrow(() => assertPiDependencyVersions(f.webDir, f.backendDir));
   } finally { f.cleanup(); }
 });
 

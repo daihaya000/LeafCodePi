@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { linuxDrivePaths, windowsDrivePaths } from "./browse-drives";
+import { linuxDrivePaths, listBrowseDrives, resetBrowseDrivesCache, windowsDrivePaths } from "./browse-drives";
 
 describe("linuxDrivePaths", () => {
   it("lists mounted external-volume locations, including escaped names, but not system paths", () => {
@@ -22,5 +22,16 @@ describe("windowsDrivePaths", () => {
   it("accepts only local drive-letter roots", () => {
     expect(windowsDrivePaths("C:\\\r\nD:\\\r\nd:\\\r\n\\\\server\\share\r\nE:\\folder\r\n"))
       .toEqual(["C:\\", "D:\\"]);
+  });
+});
+
+describe("listBrowseDrives cache", () => {
+  it("shares one enumeration between concurrent and back-to-back calls", async () => {
+    resetBrowseDrivesCache();
+    const [a, b] = await Promise.all([listBrowseDrives(), listBrowseDrives()]);
+    expect(b).toBe(a);
+    expect(await listBrowseDrives()).toBe(a);
+    resetBrowseDrivesCache();
+    expect(await listBrowseDrives()).not.toBe(a);
   });
 });

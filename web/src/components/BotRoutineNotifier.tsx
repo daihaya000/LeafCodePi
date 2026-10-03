@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect } from "react";
-import { getBotSidebarSnapshot } from "@/lib/bot-sidebar-store";
+import { getBotSidebarSnapshot, refreshBotSidebar } from "@/lib/bot-sidebar-store";
 import { isRoutineRunHandledInline, routineRunNotificationText } from "@/lib/notify";
 import { getNotificationDeliveryEnabled } from "@/lib/notification-delivery-client";
 import { playSessionCompleteSound } from "@/lib/session-complete-sound";
@@ -21,9 +21,25 @@ let permissionRequested = false;
  */
 export function notifyRoutineRun(run: RoutineRunEventDto): void {
   if (isRoutineRunHandledInline(window.location.pathname, run.botId)) return;
-  // 通知を切っているBotは鳴らさない。サイドバー未取得のBotは既定（通知あり）に従う。
-  const bot = getBotSidebarSnapshot().bots.find((item) => item.id === run.botId);
-  if (bot && bot.notificationsEnabled === false) return;
+  const findBot = () => getBotSidebarSnapshot().bots.find((item) => item.id === run.botId);
+  const bot = findBot();
+  if (bot) {
+    deliverRoutineRunNotification(run, bot.notificationsEnabled === false);
+    return;
+  }
+  // サイドバー未取得（取得前・失敗）の間にミュート中の Bot が鳴らないよう、一度だけ取得してから判定する。
+  // 取得に失敗した場合のみ既定（通知あり）に従う。
+  void refreshBotSidebar()
+    .catch(() => undefined)
+    .then(() => {
+      if (isRoutineRunHandledInline(window.location.pathname, run.botId)) return;
+      deliverRoutineRunNotification(run, findBot()?.notificationsEnabled === false);
+    });
+}
+
+function deliverRoutineRunNotification(run: RoutineRunEventDto, muted: boolean): void {
+  // 通知を切っているBotは鳴らさない。
+  if (muted) return;
 
   playSessionCompleteSound("bot");
 

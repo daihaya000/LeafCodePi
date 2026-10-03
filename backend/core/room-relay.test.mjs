@@ -3,6 +3,7 @@ import { test } from "node:test";
 import {
   collectRelayParticipants, consumeRelayEnvelope, issueRelayEnvelope, MAX_ROOM_RELAY_DEPTH,
   parentRelayEnvelopeRejection, relayBotIsActive, relayEnvelopeRejection, RELAY_ENVELOPE_TTL_MS,
+  pruneRelayState, RELAY_STATE_RETAIN_MS,
 } from "./room-relay.mjs";
 
 const ROOM_ID = "0f0f0f0f-aaaa-bbbb-cccc-000000000001";
@@ -125,7 +126,8 @@ test("issuing from a consumed parent increments depth, reuses the turn and stops
 });
 
 test("issuing refuses targets that already took part in the turn", () => {
-  const w = world({ state: { envelopes: {}, claims: { "id-1": ["c"] } } });
+  // A live envelope keeps its turn's claims from being swept as orphaned.
+  const w = world({ state: { envelopes: { keep: { roomId: ROOM_ID, turnId: "id-1", expiresAt: Number.MAX_SAFE_INTEGER } }, claims: { "id-1": ["c"] } } });
   assert.equal(issueRelayEnvelope({ roomId: ROOM_ID, sourceBotId: "a", targetBotIds: ["b", "c"] }, w.deps), undefined);
   const viaMessage = world({ rooms: { [ROOM_ID]: room({ messages: [{ relayTurnId: "id-1", botId: "b" }] }) } });
   assert.equal(issueRelayEnvelope({ roomId: ROOM_ID, sourceBotId: "a", targetBotIds: ["b"] }, viaMessage.deps), undefined);
@@ -173,4 +175,19 @@ test("a room with relay turned off loses both issuing and consuming, with no wri
   assert.equal(issueRelayEnvelope({ roomId: ROOM_ID, sourceBotId: "a", targetBotIds: ["b"] }, w.deps), undefined);
   assert.equal(consumeRelayEnvelope({ roomId: ROOM_ID, token: "tok" }, w.deps), undefined);
   assert.equal(w.calls.some((call) => call.startsWith("write:")), false);
+});
+
+test("pruneRelayState drops long-expired envelopes and the claims of turns with no envelope left", () => {
+  const now = 10 * RELAY_STATE_RETAIN_MS;
+  const state = {
+    envelopes: {
+      old: { turnId: "t-old", expiresAt: now - RELAY_STATE_RETAIN_MS - 1 },
+      recentlyExpired: { turnId: "t-live", expiresAt: now - 1 },
+      live: { turnId: "t-live", expiresAt: now + 1000 },
+    },
+    claims: { "t-old": ["a"], "t-live": ["b"], "t-orphan": ["c"] },
+  };
+  pruneRelayState(state, now);
+  assert.deepEqual(Object.keys(state.envelopes).sort(), ["live", "recentlyExpired"]);
+  assert.deepEqual(Object.keys(state.claims), ["t-live"]);
 });

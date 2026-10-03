@@ -279,6 +279,7 @@ export async function POST(req: NextRequest) {
             conversation: [],
             prompt,
             hasImages: Boolean(body.images?.length),
+            signal: req.signal,
           })
         : undefined;
     // Model routing may reject first; keep this rejection handled either way.
@@ -322,6 +323,7 @@ export async function POST(req: NextRequest) {
           conversation: [],
           prompt,
           hasImages: Boolean(body.images?.length),
+          signal: req.signal,
           ...(selectionModel ? { requestedModel: selectionModel } : {}),
           ...(accountId ? { accountId } : {}),
           // Pinned create (non-auto) must not silently pick another account for agent selection.

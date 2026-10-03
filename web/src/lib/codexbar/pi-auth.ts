@@ -1,9 +1,10 @@
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync } from "node:fs";
 import { mkdir, rmdir, stat } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { homedir } from "node:os";
 import { setTimeout as delay } from "node:timers/promises";
 import { accountAuthPath } from "@/lib/accounts";
+import { atomicWriteText } from "@/lib/codexbar/utils";
 
 /**
  * CodexBar 利用量表示を Pi の認証ストレージへ接続する読み書き層
@@ -186,6 +187,16 @@ export async function writeBackPiOAuthTokens(
 ): Promise<void> {
   const path = options?.authPath ?? piAuthPathFor(providerId);
   await withAuthFileLock(path, async () => {
+    // An existing but unparseable auth.json must not be replaced by a file holding only this provider
+    // (that would drop every other provider's login). A missing file is fine: it is created below.
+    if (existsSync(path)) {
+      let valid = false;
+      try {
+        const existing = JSON.parse(readFileSync(/* turbopackIgnore: true */ path, "utf8")) as unknown;
+        valid = Boolean(existing) && typeof existing === "object" && !Array.isArray(existing);
+      } catch { /* invalid */ }
+      if (!valid) throw new Error("Pi auth.json is unreadable; refusing to overwrite it");
+    }
     let root: Record<string, unknown> = {};
     try {
       const parsed = JSON.parse(
@@ -206,6 +217,7 @@ export async function writeBackPiOAuthTokens(
       expires: tokens.expires ?? Date.now() + 3_600_000,
     };
     mkdirSync(dirname(path), { recursive: true });
-    writeFileSync(path, `${JSON.stringify(root, null, 2)}\n`, "utf8");
+    // tmp + rename so a crash never leaves a truncated file holding every provider's credentials.
+    atomicWriteText(path, `${JSON.stringify(root, null, 2)}\n`, 0o600);
   });
 }

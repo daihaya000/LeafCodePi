@@ -106,3 +106,14 @@ test("writes leave no temp files behind", async () => {
     assert.deepEqual(await readdir(root), ["peer-auth.json"]);
   } finally { await cleanup(); }
 });
+
+test("updates refuse to overwrite a corrupt store and leave no lock behind", async () => {
+  const { root, path, store, cleanup } = await fixture();
+  try {
+    await writeFile(path, "{not json", "utf8");
+    assert.throws(() => store.create({ label: "x", providers: ["a"] }), /corrupted/);
+    assert.throws(() => store.setEnabled(true), /corrupted/);
+    assert.equal(await readFile(path, "utf8"), "{not json");
+    assert.equal((await readdir(root)).some((name) => name.endsWith(".lock")), false);
+  } finally { await cleanup(); }
+});

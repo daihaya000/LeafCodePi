@@ -41,6 +41,15 @@ describe("durable Bot Code session lock", () => {
     expect(entered).toBe(false);
   });
 
+  it("reclaims a lock past the hard limit even when its PID looks alive", async () => {
+    const dir = join(tmpdir(), `leafcode-hard-lock-${Date.now()}-${Math.random()}`);
+    dirs.push(dir);
+    mkdirSync(join(dir, "bots", "bot-hard"), { recursive: true });
+    process.env.LEAFCODE_PI_DATA_DIR = dir;
+    writeFileSync(botCodeSessionLockPath("bot-hard"), JSON.stringify({ token: "old", pid: process.pid, acquiredAt: Date.now() - 120_000 }));
+    await expect(withBotCodeSessionLock("bot-hard", async () => "reclaimed", { retryMs: 1, staleMs: 10, hardStaleMs: 60_000 })).resolves.toBe("reclaimed");
+  });
+
   it("recovers a dead stale lock through the file protocol", async () => {
     const dir = join(tmpdir(), `leafcode-stale-lock-${Date.now()}-${Math.random()}`);
     dirs.push(dir);

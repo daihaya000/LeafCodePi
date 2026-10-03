@@ -109,6 +109,8 @@ function maskGitMessageBodies(command: string): string {
 function splitShellCommandSegments(command: string): string[] {
   return command
     .replace(/\\\r?\n|`\r?\n/g, " ")
+    // `echo node | Stop-Process …`: the echoed text is data, not a process target.
+    .replace(/(?:^|(?<=[;&\r\n]))(\s*)(?:echo|printf|Write-Output|Write-Host)\b[^|;&\r\n]*\|(?!\|)/gi, "$1")
     .split(/\r?\n|;|&&?|\|\|/);
 }
 

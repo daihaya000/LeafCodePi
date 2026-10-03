@@ -9,9 +9,10 @@ export const GIT_TIMEOUT_MS = 30_000;
 /**
  * Ceiling on buffered stdout+stderr (UTF-16 chars). A diff of huge generated or
  * binary files would otherwise be concatenated into one string and exhaust the
- * BFF heap, taking every task down with it.
+ * BFF heap, taking every task down with it. 32M chars (~64MB of heap) is far above any
+ * reviewable diff while keeping the worst case before rejection bounded.
  */
-export const GIT_MAX_OUTPUT_CHARS = 128 * 1024 * 1024;
+export const GIT_MAX_OUTPUT_CHARS = 32 * 1024 * 1024;
 
 /** Reject absolute paths outside home / OneDrive / registered projects. */
 export function gitDirectoryError(directory: string | null | undefined): string | null {

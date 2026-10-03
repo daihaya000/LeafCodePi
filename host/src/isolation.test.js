@@ -230,6 +230,7 @@ test("host restart launcher gives up waiting for a stale lock", { skip: process.
       launcherExe: join(dir, "fake-launcher.exe"),
       startBat: join(dir, "start-webui.bat"),
       maxWaitAttempts: 1,
+      relaunchGraceSeconds: 1,
     });
     // Replace the windowed launch with a marker: the bound of the wait loop is
     // what this test exercises, not spawning another process.

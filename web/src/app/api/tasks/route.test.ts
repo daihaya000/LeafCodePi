@@ -214,6 +214,7 @@ describe("POST /api/tasks", () => {
       conversation: [],
       prompt: "差分をレビューして",
       hasImages: false,
+      signal: expect.any(AbortSignal),
     });
     expect(mocks.createTask).toHaveBeenCalledWith(
       expect.objectContaining({ agent: "reviewer" }),
@@ -344,6 +345,7 @@ describe("POST /api/tasks", () => {
       conversation: [],
       prompt: "なぜこうなるの",
       hasImages: false,
+      signal: expect.any(AbortSignal),
       requestedModel: {
         providerID: "openai-codex",
         modelID: "gpt-5.6-sol",

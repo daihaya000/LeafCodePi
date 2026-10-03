@@ -20,9 +20,11 @@ import {
   decodeJwtPayload,
   fetchText,
   flexibleNumber,
+  singleFlight,
   windowTitle,
 } from "@/lib/codexbar/utils";
 import {
+  piAuthPathFor,
   readPiOAuthTokens,
   writeBackPiOAuthTokens,
 } from "@/lib/codexbar/pi-auth";
@@ -139,7 +141,16 @@ function persistTokens(
   }
 }
 
-async function tryRefreshTokens(
+function tryRefreshTokens(
+  auth: CodexAuth,
+  signal?: AbortSignal,
+): Promise<CodexAuth | null> {
+  if (!auth.refreshToken) return Promise.resolve(null);
+  // The IdP rotates refresh tokens: share one refresh per auth file among concurrent pollers.
+  return singleFlight(`codex-cli:${authPath()}`, () => refreshTokensOnce(auth, signal));
+}
+
+async function refreshTokensOnce(
   auth: CodexAuth,
   signal?: AbortSignal,
 ): Promise<CodexAuth | null> {
@@ -358,7 +369,17 @@ function loadAuthFromPi(path?: string): CodexAuth | null {
 }
 
 /** Pi ストア向けトークンリフレッシュ。成功時は Pi auth.json へマージ書き戻しする。 */
-async function tryRefreshTokensInPi(
+function tryRefreshTokensInPi(
+  auth: CodexAuth,
+  signal?: AbortSignal,
+  authPathOverride?: string,
+): Promise<CodexAuth | null> {
+  if (!auth.refreshToken) return Promise.resolve(null);
+  const key = `codex-pi:${authPathOverride ?? piAuthPathFor("openai-codex")}`;
+  return singleFlight(key, () => refreshTokensInPiOnce(auth, signal, authPathOverride));
+}
+
+async function refreshTokensInPiOnce(
   auth: CodexAuth,
   signal?: AbortSignal,
   authPathOverride?: string,

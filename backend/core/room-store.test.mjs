@@ -165,3 +165,13 @@ test("the data directory is the room file's sibling directory named after the ro
   assert.equal(store.roomDataRoot(id(1)), join(roomsRoot, id(1)));
   assert.equal(store.roomDataRoot("not-a-uuid"), join(roomsRoot, "not-a-uuid"));
 });
+
+test("re-archiving messages that already reached history does not duplicate them", (t) => {
+  const { store, roomsRoot } = fixture(t);
+  const make = () => roomAt(1, { messages: [1, 2, 3, 4, 5].map(message) });
+  assert.equal(store.archiveOverflow(make(), 3), 2);
+  // The room file write failed after the first archive: the same overflow comes back.
+  assert.equal(store.archiveOverflow(make(), 3), 2);
+  const history = join(roomsRoot, id(1), "history.jsonl");
+  assert.deepEqual(readFileSync(history, "utf8").trim().split("\n").map((line) => JSON.parse(line).id), ["m-1", "m-2"]);
+});

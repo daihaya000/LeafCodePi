@@ -188,6 +188,19 @@ export function atomicWriteText(filePath: string, content: string, mode?: number
   if (mode !== undefined && process.platform !== "win32") chmodSync(filePath, mode);
 }
 
+const singleFlights = new Map<string, Promise<unknown>>();
+
+/** Share one in-flight run per key (e.g. a rotating OAuth refresh token must not be spent twice concurrently). */
+export function singleFlight<T>(key: string, run: () => Promise<T>): Promise<T> {
+  const pending = singleFlights.get(key);
+  if (pending) return pending as Promise<T>;
+  const started: Promise<T> = run().finally(() => {
+    if (singleFlights.get(key) === started) singleFlights.delete(key);
+  });
+  singleFlights.set(key, started);
+  return started;
+}
+
 export function cleanApiKey(raw: string | null | undefined): string | null {
   if (!raw || !raw.trim()) return null;
   let value = raw.trim();

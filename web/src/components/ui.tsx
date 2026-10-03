@@ -574,8 +574,11 @@ export function DiffStat({
   );
 }
 
+/** Same set as ThemeProvider in app/layout.tsx; cycling keeps oyster/system reachable and restorable. */
+const THEME_CYCLE = ["light", "dark", "oyster", "system"] as const;
+
 export function ThemeToggle() {
-  const { resolvedTheme, setTheme } = useTheme();
+  const { theme, resolvedTheme, setTheme } = useTheme();
   const [mounted, setMounted] = useState(false);
   useEffect(() => setMounted(true), []);
   if (!mounted) return <div className="h-9 w-9" />;
@@ -584,7 +587,11 @@ export function ThemeToggle() {
       variant="ghost"
       size="icon"
       aria-label="テーマ切替"
-      onClick={() => setTheme(resolvedTheme === "dark" ? "light" : "dark")}
+      title={`テーマ: ${theme ?? "light"}`}
+      onClick={() => {
+        const index = THEME_CYCLE.indexOf((theme ?? "light") as (typeof THEME_CYCLE)[number]);
+        setTheme(THEME_CYCLE[(index + 1) % THEME_CYCLE.length]);
+      }}
     >
       {resolvedTheme === "dark" ? <Sun className="h-4.5 w-4.5" /> : <Moon className="h-4.5 w-4.5" />}
     </Button>

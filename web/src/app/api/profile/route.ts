@@ -1,5 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createProfileBackup, exportProfile, importProfileWithBackup, listProfileBackups, resetProfile, restoreProfile, restoreProfilePackages } from "@/lib/profile";
+import { MAX_ARCHIVE_BYTES } from "@/lib/profile-limits";
+
+/** multipart framing slack on top of the archive limit */
+const MULTIPART_OVERHEAD_BYTES = 1024 * 1024;
+
+function archiveTooLarge() {
+  return NextResponse.json({ error: "設定ファイルが大きすぎます" }, { status: 413 });
+}
 
 import { localRuntimeBlocked } from "@/lib/pi/runtime-ownership";
 
@@ -43,11 +51,15 @@ export async function GET(request: NextRequest) {
 export async function POST(request: NextRequest) {
   if (localRuntimeBlocked()) return profileMutationUnavailable();
   try {
+    // Refuse before the multipart body is buffered whenever the size is declared.
+    const declared = Number(request.headers.get("content-length"));
+    if (Number.isFinite(declared) && declared > MAX_ARCHIVE_BYTES + MULTIPART_OVERHEAD_BYTES) return archiveTooLarge();
     const form = await request.formData();
     const file = form.get("profile");
     if (!(file instanceof File)) {
       return NextResponse.json({ error: "設定ファイルを指定してください" }, { status: 400 });
     }
+    if (file.size > MAX_ARCHIVE_BYTES) return archiveTooLarge();
     const summary = importProfileWithBackup(Buffer.from(await file.arrayBuffer()));
     return NextResponse.json({ ok: true, ...summary });
   } catch (error) {

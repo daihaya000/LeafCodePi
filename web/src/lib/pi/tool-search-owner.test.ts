@@ -98,6 +98,14 @@ describe("tool_search owner", () => {
     assert.equal(created.getActiveToolNames().includes("mcp__issues__list"), true);
   }, 30_000);
 
+  it("still finds MCP tools when a generic keyword also matches an optional tool", async () => {
+    const { session: created } = await create(true);
+    const text = await search(created, "search open issues tracker");
+    assert.match(text, /web_search/);
+    assert.match(text, /mcp__issues__list/);
+    assert.equal(created.getActiveToolNames().includes("mcp__issues__list"), true);
+  }, 30_000);
+
   it("answers as before when native MCP is not in use", async () => {
     const { session: created } = await create(false);
     assert.match(await search(created, "open issues tracker"), /No optional tools matched/);

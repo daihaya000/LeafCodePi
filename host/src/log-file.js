@@ -33,13 +33,23 @@ export function createLogFileWriter(dir, deps = {}) {
     }
   }
 
+  // Track the size in memory and re-sync with the disk occasionally, instead of a stat per line.
+  const RESYNC_EVERY_WRITES = 64;
+  let knownSize = null;
+  let writesSinceSync = 0;
+
   function rotateIfNeeded() {
     try {
-      if (!exists(file)) return;
-      if (stat(file).size < maxBytes) return;
+      if (knownSize === null || writesSinceSync >= RESYNC_EVERY_WRITES) {
+        knownSize = exists(file) ? stat(file).size : 0;
+        writesSinceSync = 0;
+      }
+      if (knownSize < maxBytes) return;
       const rotated = `${file}.1`;
       if (exists(rotated)) unlink(rotated);
       rename(file, rotated);
+      knownSize = 0;
+      writesSinceSync = 0;
     } catch {
       /* ignore */
     }
@@ -49,7 +59,10 @@ export function createLogFileWriter(dir, deps = {}) {
     write(entry) {
       try {
         rotateIfNeeded();
-        append(file, `${formatLogLine(entry)}\n`, { encoding: "utf8", mode: 0o600 });
+        const line = `${formatLogLine(entry)}\n`;
+        append(file, line, { encoding: "utf8", mode: 0o600 });
+        if (knownSize !== null) knownSize += Buffer.byteLength(line, "utf8");
+        writesSinceSync += 1;
       } catch {
         /* never take the host down */
       }

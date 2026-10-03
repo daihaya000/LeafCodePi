@@ -1,4 +1,4 @@
-import { existsSync, readFileSync, unlinkSync } from "node:fs";
+import { existsSync, readFileSync, statSync, unlinkSync } from "node:fs";
 import { join } from "node:path";
 
 export const PI_SDK_PACKAGE = "@earendil-works/pi-coding-agent";
@@ -11,14 +11,22 @@ export const STABLE_PI_VERSION = /^\d+\.\d+\.\d+$/;
  */
 export const DEFAULT_PI_VERSION = "1.0.0";
 export const PI_DEPS_LOCK_NAME = ".leafcode-pi-deps.lock";
+/** A synchronization finishes in minutes; a lock this old is abandoned even if its PID looks alive (PID reuse, Windows EPERM). */
+export const PI_DEPS_LOCK_STALE_MS = 6 * 60 * 60 * 1000;
 
 /**
  * True when a live synchronizer still owns the checkout lock.
  * Unknown lock formats are treated as held so we never steal a foreign writer's file.
  * A dead PID (ESRCH) is not held — crash/restart must not brick Host startup forever.
+ * A lock older than PI_DEPS_LOCK_STALE_MS is not held either, whatever its PID says.
  */
-export function piDepsLockHeld(lockPath, { kill = process.kill.bind(process) } = {}) {
+export function piDepsLockHeld(lockPath, { kill = process.kill.bind(process), now = Date.now, staleMs = PI_DEPS_LOCK_STALE_MS } = {}) {
   if (!existsSync(lockPath)) return false;
+  try {
+    if (now() - statSync(lockPath).mtimeMs > staleMs) return false;
+  } catch {
+    // Cannot stat: fall through to the owner check.
+  }
   let pid;
   try {
     const raw = readFileSync(lockPath, "utf8").trim();

@@ -34,7 +34,32 @@ export function windowsDrivePaths(output: string): string[] {
     .map((path) => win32.normalize(path.toUpperCase())))];
 }
 
+const DRIVES_CACHE_MS = 10_000;
+let drivesCache: { expiresAt: number; drives: BrowseDrive[] } | null = null;
+let drivesLoad: Promise<BrowseDrive[]> | null = null;
+
+/** Every browse request lists drives (PowerShell on Windows); share one result for a few seconds. */
 export async function listBrowseDrives(): Promise<BrowseDrive[]> {
+  if (drivesCache && drivesCache.expiresAt > Date.now()) return drivesCache.drives;
+  if (!drivesLoad) {
+    const load = loadBrowseDrives().then((drives) => {
+      drivesCache = { expiresAt: Date.now() + DRIVES_CACHE_MS, drives };
+      return drives;
+    }).finally(() => {
+      if (drivesLoad === load) drivesLoad = null;
+    });
+    drivesLoad = load;
+  }
+  return drivesLoad;
+}
+
+/** Test hook: forget cached drives. */
+export function resetBrowseDrivesCache(): void {
+  drivesCache = null;
+  drivesLoad = null;
+}
+
+async function loadBrowseDrives(): Promise<BrowseDrive[]> {
   let paths: string[] = [];
   try {
     if (process.platform === "win32") {

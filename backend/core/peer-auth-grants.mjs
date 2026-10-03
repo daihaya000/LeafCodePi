@@ -2,10 +2,13 @@ import { createHash, randomBytes, randomUUID, timingSafeEqual } from "node:crypt
 import { mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { dataDir } from "./app-paths.mjs";
+import { withDirectoryLock } from "./directory-lock.mjs";
 
 // Grant store for peer auth sharing (docs/plans/peer-auth-share.md).
 // Only the SHA-256 of a peer token is persisted; the token itself is returned once at creation.
-// Writers are the Web process only, so the read-modify-write below is not cross-process locked.
+// Read-modify-write sequences run under a lock directory so concurrent web workers cannot lose grants,
+// and they refuse to overwrite a store file that exists but cannot be parsed (verify still fails closed).
+const LOCK_STALE_MS = 30_000;
 
 const PROVIDER_ID = /^[A-Za-z0-9._-]{1,64}$/;
 const HASH = /^[0-9a-f]{64}$/;
@@ -52,6 +55,31 @@ export function createPeerGrantStore(options = {}) {
     }
   };
 
+  /** Like read(), but a present-yet-unreadable store aborts the update instead of being replaced by an empty one. */
+  const readForUpdate = () => {
+    let text;
+    try {
+      text = readFileSync(file(), "utf8");
+    } catch (error) {
+      if (error?.code === "ENOENT") return read();
+      throw Object.assign(new Error("peer auth store is unreadable"), { status: 500 });
+    }
+    try {
+      const parsed = JSON.parse(text);
+      if (!parsed || parsed.version !== 1 || !Array.isArray(parsed.grants)) throw new Error("shape");
+    } catch {
+      throw Object.assign(new Error("peer auth store is corrupted; fix or remove peer-auth.json"), { status: 500 });
+    }
+    return read();
+  };
+
+  const locked = (action) => {
+    const path = file();
+    return withDirectoryLock({
+      lockPath: `${path}.lock`, parentDir: dirname(path), staleMs: LOCK_STALE_MS, busyMessage: "peer auth store is busy",
+    }, action);
+  };
+
   const write = (data) => {
     const path = file();
     mkdirSync(dirname(path), { recursive: true });
@@ -69,9 +97,11 @@ export function createPeerGrantStore(options = {}) {
     isEnabled: () => read().enabled,
     setEnabled(enabled) {
       if (typeof enabled !== "boolean") throw badRequest("enabled must be a boolean");
-      const data = read();
-      data.enabled = enabled;
-      write(data);
+      locked(() => {
+        const data = readForUpdate();
+        data.enabled = enabled;
+        write(data);
+      });
     },
     list: () => read().grants.map(publicGrant),
     /** @returns {{ grant: object, token: string }} The token is never retrievable again. */
@@ -79,23 +109,27 @@ export function createPeerGrantStore(options = {}) {
       if (typeof label !== "string" || !label.trim() || label.trim().length > LABEL_MAX) throw badRequest("label is invalid");
       if (!Array.isArray(providers) || providers.length === 0 || providers.length > MAX_PROVIDERS
         || !providers.every((id) => typeof id === "string" && PROVIDER_ID.test(id))) throw badRequest("providers are invalid");
-      const data = read();
-      if (data.grants.length >= MAX_GRANTS) throw badRequest("too many grants");
-      const token = generatePeerToken();
-      const grant = {
-        id: randomUUID(), label: label.trim(), tokenSha256: hashPeerToken(token),
-        providers: [...new Set(providers)], createdAt: now().toISOString(),
-      };
-      data.grants.push(grant);
-      write(data);
-      return { grant: publicGrant(grant), token };
+      return locked(() => {
+        const data = readForUpdate();
+        if (data.grants.length >= MAX_GRANTS) throw badRequest("too many grants");
+        const token = generatePeerToken();
+        const grant = {
+          id: randomUUID(), label: label.trim(), tokenSha256: hashPeerToken(token),
+          providers: [...new Set(providers)], createdAt: now().toISOString(),
+        };
+        data.grants.push(grant);
+        write(data);
+        return { grant: publicGrant(grant), token };
+      });
     },
     revoke(id) {
-      const data = read();
-      const grants = data.grants.filter((grant) => grant.id !== id);
-      if (grants.length === data.grants.length) return false;
-      write({ ...data, grants });
-      return true;
+      return locked(() => {
+        const data = readForUpdate();
+        const grants = data.grants.filter((grant) => grant.id !== id);
+        if (grants.length === data.grants.length) return false;
+        write({ ...data, grants });
+        return true;
+      });
     },
     /** Constant-time over every stored grant; returns the matching public grant only when sharing is enabled. */
     verify(token) {

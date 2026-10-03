@@ -97,6 +97,14 @@ describe("/api/profile ownership", () => {
     expect(profile.resetProfile).not.toHaveBeenCalled(); expect(profile.restoreProfilePackages).not.toHaveBeenCalled();
   });
 
+  it("rejects an upload whose declared size exceeds the archive limit before parsing it", async () => {
+    vi.stubEnv("NODE_ENV", "test");
+    const request = new NextRequest(url, { method: "POST", headers: { "content-length": String(300 * 1024 * 1024) }, body: new FormData() });
+    const form = vi.spyOn(request, "formData");
+    expect((await POST(request)).status).toBe(413);
+    expect(form).not.toHaveBeenCalled(); expectNoProfileWork();
+  });
+
   it("local owner validation still rejects missing upload and invalid backup selector", async () => {
     vi.stubEnv("NODE_ENV", "test");
     expect((await POST(new NextRequest(url, { method: "POST", body: new FormData() }))).status).toBe(400);

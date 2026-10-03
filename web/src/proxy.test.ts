@@ -40,6 +40,15 @@ describe("WebUI device authentication", () => {
       .toBe("http://localhost:3010/");
   });
 
+  it("signs a page link in once and strips the query token, but never accepts it on API routes", () => {
+    const page = proxy(new NextRequest(`http://127.0.0.1:3000/settings?token=${token}`));
+    expect(page.status).toBe(307);
+    expect(new URL(page.headers.get("location") ?? "").pathname + new URL(page.headers.get("location") ?? "").search).toBe("/settings");
+    expect(page.cookies.get("leafcode-pi-token")?.value).toBe(token);
+    const api = proxy(new NextRequest(`http://127.0.0.1:3000/api/tasks?token=${token}`));
+    expect(api.status).toBe(401);
+  });
+
   it("requires the new token after a rotation and does not renew the stale cookie", () => {
     const response = proxy(request("/settings", "old-token"));
     expect(response.status).toBe(307);

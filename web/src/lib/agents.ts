@@ -13,6 +13,7 @@
 import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import YAML from "yaml";
+import { withDirectoryLock } from "@backend-core/directory-lock.mjs";
 import { resolvePiAgentDir } from "@/lib/agents-md";
 import { readPiSettings } from "@/lib/extensions";
 import { bundledExtensionsDir, resolvePackageDir } from "@/lib/extensions";
@@ -206,13 +207,19 @@ type DiscoveredAgent = {
   filePath: string;
 };
 
-function discoverInDir(dir: string, source: AgentDto["source"]): DiscoveredAgent[] {
+/** Agent .md trees are shallow; cap recursion so a deep tree cannot stall the listing. */
+const MAX_AGENT_DISCOVERY_DEPTH = 6;
+const SKIPPED_AGENT_DIRS = new Set(["node_modules", ".git"]);
+
+function discoverInDir(dir: string, source: AgentDto["source"], depth = 0): DiscoveredAgent[] {
   const entries: DiscoveredAgent[] = [];
   if (!existsSync(dir)) return entries;
   for (const entry of readdirSync(dir, { withFileTypes: true })) {
     const full = join(dir, entry.name);
+    // Dirent.isDirectory() is false for symlinks/junctions, so link cycles are never followed.
     if (entry.isDirectory()) {
-      entries.push(...discoverInDir(full, source));
+      if (depth >= MAX_AGENT_DISCOVERY_DEPTH || SKIPPED_AGENT_DIRS.has(entry.name)) continue;
+      entries.push(...discoverInDir(full, source, depth + 1));
       continue;
     }
     if (!/\.md$/.test(entry.name)) continue;
@@ -351,6 +358,13 @@ function updateAgentOverride(
 ): AgentListResult {
   const { name: trimmed } = assertListedAgent(name, agentDir);
   const settingsPath = join(agentDir, "settings.json");
+  // Read-modify-write under a cross-process lock so concurrent overrides cannot drop each other's keys.
+  withDirectoryLock({
+    lockPath: `${settingsPath}.lock`,
+    parentDir: agentDir,
+    staleMs: 30_000,
+    busyMessage: "agent settings are busy",
+  }, () => {
   const settings = readSettings(agentDir);
   const subagents = settings.subagents && typeof settings.subagents === "object"
     ? { ...settings.subagents }
@@ -374,6 +388,7 @@ function updateAgentOverride(
   else delete settings.subagents;
 
   atomicWrite(settingsPath, `${JSON.stringify(settings, null, 2)}\n`);
+  });
   return listAgents(agentDir);
 }
 

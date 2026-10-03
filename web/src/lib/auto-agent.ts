@@ -61,6 +61,8 @@ export type AutoAgentOptions = {
   accountId?: string | null;
   /** When true, refuse fallback away from the requested account. */
   accountIdExplicit?: boolean;
+  /** Caller cancellation (e.g. the HTTP request went away); stops the router LLM call. */
+  signal?: AbortSignal;
 };
 
 export type AutoAgentCandidate = {
@@ -356,6 +358,9 @@ export async function resolveAutoAgent(options: AutoAgentOptions): Promise<strin
 
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), AUTO_AGENT_TIMEOUT_MS);
+  const onCallerAbort = () => controller.abort();
+  if (options.signal?.aborted) controller.abort();
+  else options.signal?.addEventListener("abort", onCallerAbort, { once: true });
   try {
     const generated = await generateDirectTextWithFallbackResult({
       candidates: directCandidates,
@@ -373,5 +378,6 @@ export async function resolveAutoAgent(options: AutoAgentOptions): Promise<strin
     return fallback;
   } finally {
     clearTimeout(timeout);
+    options.signal?.removeEventListener("abort", onCallerAbort);
   }
 }

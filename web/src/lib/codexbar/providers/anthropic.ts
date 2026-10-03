@@ -121,7 +121,25 @@ function persistTokens(
   }
 }
 
-async function tryRefreshTokens(
+/** One refresh per credentials file at a time: the IdP rotates refresh tokens, so a second concurrent use of the same one would invalidate the first result. */
+const refreshInFlight = new Map<string, Promise<ClaudeCredentials | null>>();
+
+function tryRefreshTokens(
+  creds: ClaudeCredentials,
+  signal?: AbortSignal,
+  credentialsPathOverride?: string,
+): Promise<ClaudeCredentials | null> {
+  const key = credentialsPathOverride ?? credentialsPath();
+  const pending = refreshInFlight.get(key);
+  if (pending) return pending;
+  const run = refreshTokensOnce(creds, signal, credentialsPathOverride).finally(() => {
+    if (refreshInFlight.get(key) === run) refreshInFlight.delete(key);
+  });
+  refreshInFlight.set(key, run);
+  return run;
+}
+
+async function refreshTokensOnce(
   creds: ClaudeCredentials,
   signal?: AbortSignal,
   credentialsPathOverride?: string,
@@ -156,7 +174,11 @@ async function tryRefreshTokens(
       expiresAt,
       credentialsPathOverride ?? credentialsPath(),
     );
-    return loadCredentials(credentialsPathOverride ?? credentialsPath());
+    const loaded = loadCredentials(credentialsPathOverride ?? credentialsPath());
+    // persistTokens is best effort: if the write failed, the file still holds the old (now rotated-away)
+    // refresh token. Use the tokens just received for this call instead of re-reading the stale file.
+    if (loaded?.refreshToken === refreshToken) return loaded;
+    return { accessToken, refreshToken, expiresAt, subscriptionType: creds.subscriptionType };
   } catch {
     return null;
   }

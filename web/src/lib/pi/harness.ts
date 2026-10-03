@@ -669,8 +669,16 @@ type ContextUsageCacheEntry = {
   source: readonly unknown[];
   length: number;
   last: unknown;
+  /** The last message's usage numbers: the same object is mutated in place while it streams. */
+  lastUsageKey: string;
   value: ContextUsageDto | undefined;
 };
+
+function lastMessageUsageKey(message: unknown): string {
+  const usage = (message as { usage?: Record<string, unknown> } | null | undefined)?.usage;
+  if (!usage || typeof usage !== "object") return "";
+  return [usage.input, usage.output, usage.cacheRead, usage.cacheWrite, usage.totalTokens].join(",");
+}
 
 /** getContextUsage() estimates tokens over all messages; skip it while messages are unchanged. */
 const contextUsageCache = new WeakMap<object, ContextUsageCacheEntry>();
@@ -1432,10 +1440,12 @@ export function sessionContextUsage(
     : [];
   const last = stored[stored.length - 1];
   const cached = contextUsageCache.get(session);
+  const lastUsageKey = lastMessageUsageKey(last);
   if (
     cached?.source === stored &&
     cached.length === stored.length &&
-    cached.last === last
+    cached.last === last &&
+    cached.lastUsageKey === lastUsageKey
   ) {
     return cached.value;
   }
@@ -1449,6 +1459,7 @@ export function sessionContextUsage(
     source: stored,
     length: stored.length,
     last,
+    lastUsageKey,
     value,
   });
   return value;
@@ -6750,6 +6761,8 @@ export async function startProviderLogin(
   current.loginSession = session;
   // Let the SSE client attach before the OAuth flow emits prompts.
   queueMicrotask(() => {
+    // Superseded or cancelled before it started: running it would race the newer login's loopback listener.
+    if (current.loginSession !== session) return;
     void session.run(runtime, {
       // New ChatGPT OAuth registers this installation; keep its identity stable
       // across account logins without copying legacy Codex credentials.

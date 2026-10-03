@@ -1,5 +1,5 @@
 import { EventEmitter } from "node:events";
-import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, renameSync, statSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { randomUUID } from "node:crypto";
 import { botWorkspace, getBot, listBots } from "@/lib/bots";
@@ -155,6 +155,12 @@ const inboxEvents = new EventEmitter();
 inboxEvents.setMaxListeners(0);
 
 const inboxes = new Map<string, InboxState>();
+/** mailbox.json mtime the cached inbox was loaded from / last written to; a different mtime means another process wrote it. */
+const inboxMtimes = new Map<string, number>();
+
+function mailboxMtime(botId: string): number {
+  try { return statSync(mailboxPath(botId)).mtimeMs; } catch { return -1; }
+}
 const threads = new Map<string, PairThread>();
 const pendingAsks = new Map<string, PendingAskRecord>();
 const waiters = new Map<string, AskWaiter>();
@@ -435,6 +441,7 @@ function persistMailbox(botId: string, state: InboxState): void {
     messages: state.messages,
     pendingAsks: state.pendingAsks,
   });
+  inboxMtimes.set(botId, mailboxMtime(botId));
 }
 
 function persistThreads(): void {
@@ -507,9 +514,13 @@ function pairKey(a: string, b: string): string {
 
 function inboxState(botId: string): InboxState {
   const existing = inboxes.get(botId);
-  if (existing) return existing;
-  const created = existsSync(mailboxPath(botId)) ? loadMailbox(botId) : { messages: [], lastReadAt: 0, pendingAsks: [] };
+  const mtime = mailboxMtime(botId);
+  // The Backend tools and the Next routes each cache the mailbox; reload when the file changed behind
+  // this process so a later persist cannot write back a stale copy over the other process's update.
+  if (existing && inboxMtimes.get(botId) === mtime) return existing;
+  const created = mtime >= 0 ? loadMailbox(botId) : { messages: [], lastReadAt: 0, pendingAsks: [] };
   inboxes.set(botId, created);
+  inboxMtimes.set(botId, mtime);
   return created;
 }
 

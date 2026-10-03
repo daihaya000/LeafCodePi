@@ -44,6 +44,8 @@ export type ResolveRoomOpenerOptions = {
   prompt: string;
   bots: readonly BotDto[];
   accountId?: string | null;
+  /** Caller cancellation (send cancelled / Room stopped); stops the router LLM call. */
+  signal?: AbortSignal;
 };
 
 function truncate(text: string, max: number): string {
@@ -143,6 +145,9 @@ export async function resolveRoomOpener(
 
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), ROOM_OPENER_TIMEOUT_MS);
+  const onCallerAbort = () => controller.abort();
+  if (options.signal?.aborted) controller.abort();
+  else options.signal?.addEventListener("abort", onCallerAbort, { once: true });
   try {
     const generated = await generateDirectTextWithFallbackResult({
       candidates: directCandidates,
@@ -164,6 +169,7 @@ export async function resolveRoomOpener(
     return undefined;
   } finally {
     clearTimeout(timeout);
+    options.signal?.removeEventListener("abort", onCallerAbort);
   }
 }
 

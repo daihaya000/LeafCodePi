@@ -41,11 +41,43 @@ function buildBody(url: string, text: string, voice: string): string {
   return JSON.stringify(voice ? { text, voice } : { text });
 }
 
+/** A hung engine must not pin a BFF worker; the signal also covers reading the body. */
+export const TTS_SYNTHESIZE_TIMEOUT_MS = 60_000;
+/** Upper bound for one synthesized clip held in memory. */
+export const TTS_MAX_AUDIO_BYTES = 64 * 1024 * 1024;
+
+const timeoutSignal = () => AbortSignal.timeout(TTS_SYNTHESIZE_TIMEOUT_MS);
+
 async function readAudio(res: Response): Promise<{ audio: Buffer; contentType: string }> {
   if (!res.ok) throw new TtsSynthesizeError(`合成エンジンが ${res.status} を返しました`);
   const type = res.headers.get("content-type")?.split(";")[0]?.trim();
   const contentType = type && (type.startsWith("audio/") || type === "application/octet-stream") ? type : "audio/wav";
-  return { audio: Buffer.from(await res.arrayBuffer()), contentType };
+  const tooLarge = () => new TtsSynthesizeError("合成結果が大きすぎます");
+  const declared = Number(res.headers.get("content-length"));
+  if (Number.isFinite(declared) && declared > TTS_MAX_AUDIO_BYTES) {
+    await res.body?.cancel().catch(() => undefined);
+    throw tooLarge();
+  }
+  const reader = res.body?.getReader();
+  if (!reader) return { audio: Buffer.alloc(0), contentType };
+  const chunks: Uint8Array[] = [];
+  let total = 0;
+  try {
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      total += value.byteLength;
+      if (total > TTS_MAX_AUDIO_BYTES) {
+        await reader.cancel().catch(() => undefined);
+        throw tooLarge();
+      }
+      chunks.push(value);
+    }
+  } catch (error) {
+    if (error instanceof TtsSynthesizeError) throw error;
+    throw new TtsSynthesizeError("合成エンジンの応答を読み取れませんでした（タイムアウト？）");
+  }
+  return { audio: Buffer.concat(chunks), contentType };
 }
 
 /** AivisSpeech / VOICEVOX エンジン: audio_query → synthesis。voice は style id。 */
@@ -54,7 +86,7 @@ async function synthesizeVoicevox(baseUrl: string, text: string, voice: string):
   const root = baseUrl.replace(/\/+$/, "");
   let queryRes: Response;
   try {
-    queryRes = await fetch(`${root}/audio_query?text=${encodeURIComponent(text)}&speaker=${speaker}`, { method: "POST" });
+    queryRes = await fetch(`${root}/audio_query?text=${encodeURIComponent(text)}&speaker=${speaker}`, { method: "POST", signal: timeoutSignal() });
   } catch {
     throw new TtsSynthesizeError("合成エンジンに接続できません（停止中？）");
   }
@@ -65,6 +97,7 @@ async function synthesizeVoicevox(baseUrl: string, text: string, voice: string):
       method: "POST",
       headers: { "content-type": "application/json" },
       body: await queryRes.text(),
+      signal: timeoutSignal(),
     });
   } catch {
     throw new TtsSynthesizeError("合成エンジンに接続できません（停止中？）");
@@ -83,6 +116,7 @@ export async function synthesizeTts(text: string, url: string, voice: string): P
       method: "POST",
       headers: { "content-type": "application/json" },
       body: buildBody(url, clean, voice.trim()),
+      signal: timeoutSignal(),
     });
   } catch {
     throw new TtsSynthesizeError("合成エンジンに接続できません（停止中？）");

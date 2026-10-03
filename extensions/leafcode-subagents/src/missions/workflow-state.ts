@@ -108,8 +108,9 @@ function stateLockIsStale(lockPath: string, now = Date.now()): boolean {
 		if (!isProcessAlive(owner.pid)) return true;
 		if (owner.processKey) {
 			const currentProcessKey = owner.pid === process.pid ? currentProcessKeyFor() : processStartKey(owner.pid);
-			// Fail closed when the start-key probe itself fails; PID reuse must not keep a lock.
-			if (!currentProcessKey) return true;
+			// The owner's pid is alive. A failed/timed-out start-key probe (slow PowerShell under load) says nothing
+			// about reuse, so it must not steal a live owner's lock: fall back to ageing it out instead.
+			if (!currentProcessKey) return now - owner.createdAt > STATE_LOCK_STALE_MS;
 			return owner.processKey !== currentProcessKey;
 		}
 		// No start-key: PID liveness alone cannot detect reuse — age the lock out instead.

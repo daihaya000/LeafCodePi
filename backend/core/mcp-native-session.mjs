@@ -28,7 +28,15 @@ export function resolveBackendMcpNativeSession(sessionCwd) {
  * re-running factories bound to a retired one. A failed preparation yields no factories. */
 export function nativeMcpExtensionFactory(sessionCwd) {
   return (api) => {
-    for (const factory of resolveBackendMcpNativeSession(sessionCwd).factories) factory(api);
+    // Native factories are async: hand the pending result back to the loader (sequentially, in order)
+    // so a failed registration is reported and finishes before later extensions (tool_search/excludeTools).
+    let pending;
+    for (const factory of resolveBackendMcpNativeSession(sessionCwd).factories) {
+      if (pending) { pending = pending.then(() => factory(api)); continue; }
+      const result = factory(api);
+      if (result && typeof result.then === "function") pending = Promise.resolve(result);
+    }
+    return pending;
   };
 }
 

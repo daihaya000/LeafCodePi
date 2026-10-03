@@ -3,6 +3,8 @@ import type { RoomRelayEnvelope, RoomRelayState } from "./room-store.mjs";
 
 export const MAX_ROOM_RELAY_DEPTH: number;
 export const RELAY_ENVELOPE_TTL_MS: number;
+export const RELAY_STATE_RETAIN_MS: number;
+export function pruneRelayState(state: RoomRelayState, nowMs: number, retainMs?: number): RoomRelayState;
 export type { RoomRelayEnvelope, RoomRelayState };
 
 export type ConsumedRelayEnvelope = {

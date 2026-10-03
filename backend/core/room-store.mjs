@@ -1,4 +1,4 @@
-import { appendFileSync, existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import { appendFileSync, closeSync, existsSync, fstatSync, mkdirSync, openSync, readdirSync, readFileSync, readSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { randomUUID } from "node:crypto";
 import { normalizeRoom } from "./room-normalize.mjs";
@@ -6,6 +6,29 @@ import { normalizeRoom } from "./room-normalize.mjs";
 export const ROOM_ID_PATTERN = /^[0-9a-f]{8}-[0-9a-f-]{27,}$/i;
 /** Live rooms stay a bounded file; older turns move to append-only history. */
 export const MAX_LIVE_ROOM_MESSAGES = 500;
+/** How much of history.jsonl's tail is checked for already archived message ids. */
+const HISTORY_DEDUPE_TAIL_BYTES = 256 * 1024;
+
+/** Ids of messages in the last HISTORY_DEDUPE_TAIL_BYTES of a history file (a cut first line is ignored). */
+function recentHistoryIds(path) {
+  const ids = new Set();
+  let fd;
+  try {
+    fd = openSync(path, "r");
+    const size = fstatSync(fd).size;
+    const length = Math.min(size, HISTORY_DEDUPE_TAIL_BYTES);
+    const buffer = Buffer.alloc(length);
+    readSync(fd, buffer, 0, length, size - length);
+    const lines = buffer.toString("utf8").split("\n");
+    if (size > length) lines.shift();
+    for (const line of lines) {
+      try { const id = JSON.parse(line)?.id; if (typeof id === "string") ids.add(id); } catch { /* skip partial or malformed line */ }
+    }
+  } catch { /* no history yet */ } finally {
+    if (fd !== undefined) closeSync(fd);
+  }
+  return ids;
+}
 /** Image MIME types the room stores, and the extension used on disk (order matters for lookups). */
 export const ROOM_IMAGE_EXTENSIONS = { "image/png": "png", "image/jpeg": "jpg", "image/webp": "webp", "image/gif": "gif" };
 /** Attachment names are server-generated; anything else must not reach the filesystem. */
@@ -106,7 +129,12 @@ export class RoomFileStore {
     const overflow = room.messages.splice(0, room.messages.length - maxLiveMessages);
     const dataRoot = this.roomDataRoot(room.id);
     mkdirSync(dataRoot, { recursive: true });
-    appendFileSync(join(dataRoot, "history.jsonl"), `${overflow.map((message) => JSON.stringify(message)).join("\n")}\n`, "utf8");
+    const historyPath = join(dataRoot, "history.jsonl");
+    // If an earlier archive reached history but the room file write failed, these messages are still live
+    // and come back here: skip the ones already archived instead of duplicating them.
+    const archived = recentHistoryIds(historyPath);
+    const fresh = overflow.filter((message) => !(typeof message.id === "string" && archived.has(message.id)));
+    if (fresh.length > 0) appendFileSync(historyPath, `${fresh.map((message) => JSON.stringify(message)).join("\n")}\n`, "utf8");
     return overflow.length;
   }
 

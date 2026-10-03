@@ -18,10 +18,12 @@ export function expectedWebUiToken(): string {
 
 /** Edge-safe constant-time-ish token compare (no node:crypto). */
 export function tokensMatch(given: string, expected: string): boolean {
-  if (!given || !expected || given.length !== expected.length) return false;
-  let diff = 0;
-  for (let i = 0; i < given.length; i += 1) {
-    diff |= given.charCodeAt(i) ^ expected.charCodeAt(i);
+  if (!given || !expected) return false;
+  // Always walk the expected length and fold the length difference into the result, so timing
+  // depends on the secret only and never on how long the guess is.
+  let diff = given.length ^ expected.length;
+  for (let i = 0; i < expected.length; i += 1) {
+    diff |= (given.charCodeAt(i) || 0) ^ expected.charCodeAt(i);
   }
   return diff === 0;
 }

@@ -158,7 +158,13 @@ export class AtomicLockCoordinator {
           `).run(key, token, this.pid, this.incarnation, now);
           acquired = true;
         } else {
-          const observedIncarnation = this.probeIncarnation(owner.pid);
+          // The incarnation probe can spawn a process (PowerShell/ps) while this transaction holds the DB
+          // write lock, so skip it whenever its result cannot change the decision: a time-stale lease is
+          // taken over regardless, and an owner row without an incarnation only needs a liveness check.
+          const stale = options.staleMs > 0 && now - owner.acquired_at >= options.staleMs;
+          const observedIncarnation = !stale && owner.incarnation !== null
+            ? this.probeIncarnation(owner.pid)
+            : null;
           const alive = observedIncarnation !== null || processIsAlive(owner.pid);
           const sameIncarnation = alive
             && owner.incarnation !== null
@@ -171,7 +177,6 @@ export class AtomicLockCoordinator {
           // This is the sole backstop for that case: liveness/incarnation checks
           // alone cannot distinguish "alive and working" from "alive and stuck".
           // staleMs <= 0 disables time-based takeover (liveness checks only).
-          const stale = options.staleMs > 0 && now - owner.acquired_at >= options.staleMs;
           if (stale || (!sameIncarnation && !unknownIncarnation)) {
             db.prepare(`
               UPDATE locks

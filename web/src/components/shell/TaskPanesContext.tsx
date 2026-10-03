@@ -221,6 +221,8 @@ export function TaskPanesProvider({ children }: { children: React.ReactNode }) {
   const [mdUp, setMdUp] = useState(false);
   const restoredRef = useRef(false);
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // 未保存のレイアウト。デバウンス中にアンマウントされても書き出せるよう保持する。
+  const pendingSaveRef = useRef<(() => void) | null>(null);
   const lastUrlSyncRef = useRef<string | null>(urlTaskId ?? null);
   // 外部遷移（戻る/進む・直リンク）のみ panes 側へ反映。
   const externalUrlRef = useRef<string | null>(null);
@@ -503,10 +505,15 @@ export function TaskPanesProvider({ children }: { children: React.ReactNode }) {
   // md 未満では復元しない仕様（§5）と対になるよう、保存も md 以上に限定する
   // （モバイル初期 state で既存レイアウトを上書きしないため）。
   useEffect(() => {
-    if (!mdUp) return;
+    if (!mdUp) {
+      pendingSaveRef.current = null;
+      return;
+    }
     if (saveTimerRef.current != null) clearTimeout(saveTimerRef.current);
+    pendingSaveRef.current = () => saveTaskPanes(state);
     saveTimerRef.current = setTimeout(() => {
       saveTimerRef.current = null;
+      pendingSaveRef.current = null;
       saveTaskPanes(state);
     }, SAVE_DEBOUNCE_MS);
     return () => {
@@ -516,6 +523,16 @@ export function TaskPanesProvider({ children }: { children: React.ReactNode }) {
       }
     };
   }, [state, mdUp]);
+
+  // アンマウント時にデバウンス待ちの保存を書き出す（分割直後に離れてもレイアウトを残す）。
+  useEffect(
+    () => () => {
+      const flush = pendingSaveRef.current;
+      pendingSaveRef.current = null;
+      flush?.();
+    },
+    [],
+  );
 
   // 外部遷移（戻る/進む・直リンク）のみ panes 側へ反映。
   // 「/」は新規作成（Home）タブへ向ける。

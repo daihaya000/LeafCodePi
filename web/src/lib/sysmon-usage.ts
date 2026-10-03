@@ -590,6 +590,8 @@ function gpuFallbackTtlMs(): number {
 
 let lastNvidiaGpu: { value: GpuMetric; at: number } | null = null;
 let lastAmdGpus: { value: GpuMetric[]; at: number } | null = null;
+const EMPTY_GPU_BACKOFF_MS = 30_000;
+let emptyGpuUntil = 0;
 
 /**
  * GPU使用率・VRAMを取得する。NVidia と AMD を並列で試し、見つかったものを全部返す。
@@ -623,9 +625,19 @@ async function collectGpusOnce(): Promise<GpuMetric[]> {
  * 2回目はバイナリが温まっているため成功しやすい。
  */
 async function collectGpus(): Promise<GpuMetric[]> {
+  if (Date.now() < emptyGpuUntil) return [];
   const first = await collectGpusOnce();
-  if (first.length > 0) return first;
-  return collectGpusOnce();
+  if (first.length > 0) {
+    emptyGpuUntil = 0;
+    return first;
+  }
+  const second = await collectGpusOnce();
+  // A host without any GPU (or without the tools) would respawn nvidia-smi + PowerShell on every poll;
+  // after two empty rounds with no GPU ever seen, skip collection for a while.
+  if (second.length === 0 && lastNvidiaGpu === null && lastAmdGpus === null) {
+    emptyGpuUntil = Date.now() + EMPTY_GPU_BACKOFF_MS;
+  }
+  return second;
 }
 
 /**

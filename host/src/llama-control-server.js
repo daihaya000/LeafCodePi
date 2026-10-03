@@ -84,7 +84,8 @@ async function readJsonBody(req, maxBytes = 16_384) {
  *   onRestartWebuiBlocked?: () => Promise<string | null> | string | null,
  *   onRestartBackend?: () => Promise<unknown> | unknown,
  *   onRestartBackendBlocked?: () => Promise<string | null> | string | null,
- *   onRestartHost?: () => Promise<unknown> | unknown,
+ *   onRestartHostBlocked?: () => Promise<string | null> | string | null,
+  *   onRestartHost?: () => Promise<unknown> | unknown,
  *   onBrowserConfigRead?: () => { autoOpenBrowser: boolean },
  *   onBrowserConfigWrite?: (patch: { autoOpenBrowser: boolean }) => { autoOpenBrowser: boolean },
  *   onWebUiAuthRead?: () => object,
@@ -334,6 +335,13 @@ export function createLlamaControlServer(handlers) {
         if (typeof handlers.onRestartHost !== "function") {
           res.writeHead(501, JSON_HEADERS);
           res.end(JSON.stringify({ ok: false, error: "host restart is not supported by this host" }));
+          return;
+        }
+        // Quitting the host stops the Backend and WebUI with it, ending live Goal Loops.
+        const blocked = await Promise.resolve(handlers.onRestartHostBlocked?.()).catch(() => null);
+        if (blocked) {
+          res.writeHead(409, JSON_HEADERS);
+          res.end(JSON.stringify({ ok: false, target: "host", blocked: true, error: blocked }));
           return;
         }
         res.writeHead(202, JSON_HEADERS);

@@ -1,4 +1,6 @@
 import { spawn } from "node:child_process";
+import { statSync } from "node:fs";
+import { isAbsolute } from "node:path";
 
 /** Choose the OS file-manager command. Windows Explorer stays explorer.exe. */
 export function explorerOpenCommand(platform, targetPath) {
@@ -8,6 +10,16 @@ export function explorerOpenCommand(platform, targetPath) {
 }
 
 export function openProjectInExplorer(targetPath, options = {}) {
+  if (typeof targetPath !== "string" || !isAbsolute(targetPath)) {
+    throw Object.assign(new Error("path must be an absolute directory"), { status: 400 });
+  }
+  try {
+    if (!(options.stat ?? statSync)(targetPath).isDirectory()) {
+      throw new Error("not a directory");
+    }
+  } catch {
+    throw Object.assign(new Error("path must be an existing directory"), { status: 400 });
+  }
   const spawnFn = options.spawn ?? spawn;
   const platform = options.platform ?? process.platform;
   const { command, args } = explorerOpenCommand(platform, targetPath);

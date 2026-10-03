@@ -23,6 +23,7 @@ import { dirname, join, resolve } from "node:path";
 import { loadSkillsFromDir, type Skill } from "@earendil-works/pi-coding-agent";
 import { resolvePiAgentDir } from "@/lib/agents-md";
 import { dataDir } from "@/lib/paths";
+import { withDirectoryLock } from "@backend-core/directory-lock.mjs";
 import type { BotSkillsConfig } from "@/lib/types";
 import { bundledExtensionEntries } from "@/lib/extensions";
 import { filterSkillsByState as coreFilterSkillsByState, filterSkillsForBot as coreFilterSkillsForBot } from "@backend-core/skill-filters.mjs";
@@ -282,13 +283,22 @@ export function setSkillsEnabled(
   if (trimmedNames.some((name) => !listedNames.has(name))) {
     throw new SkillsError("not-found", "スキルが見つかりません");
   }
-  const state = readSkillsState();
   const scope = options?.scope ?? "code";
-  for (const name of trimmedNames) {
-    if (enabled) delete state[scope][name];
-    else state[scope][name] = true;
-  }
-  writeSkillsState(state);
+  // Read-modify-write under a cross-process lock so concurrent toggles cannot drop each other's entries.
+  const statePath = skillsStatePath();
+  withDirectoryLock({
+    lockPath: `${statePath}.lock`,
+    parentDir: dirname(statePath),
+    staleMs: 30_000,
+    busyMessage: "skills state is busy",
+  }, () => {
+    const state = readSkillsState();
+    for (const name of trimmedNames) {
+      if (enabled) delete state[scope][name];
+      else state[scope][name] = true;
+    }
+    writeSkillsState(state);
+  });
   return listSkills(agentDir, options);
 }
 

@@ -1,4 +1,4 @@
-import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -231,6 +231,24 @@ describe("bot intercom Phase B contract", () => {
 
     resetBotIntercomForTests();
     setBotIntercomResidentLookup((id) => residents.has(id));
+    expect(getBotIntercomInbox(bob.id).unreadCount).toBe(0);
+  });
+
+  it("reloads the mailbox when another process rewrote it, instead of serving a stale cached copy", () => {
+    const alice = enableIntercom(createBot({ name: "Alice" }).id)!;
+    const bob = enableIntercom(createBot({ name: "Bob" }).id)!;
+    residents.add(bob.id);
+    sendBotIntercom({ fromBotId: alice.id, to: bob.id, text: "hello" });
+    expect(getBotIntercomInbox(bob.id).unreadCount).toBe(1);
+
+    // Another process marks the mail read on disk (the in-memory copy here still says unread).
+    const path = botIntercomMailboxPathForTests(bob.id);
+    const stored = JSON.parse(readFileSync(path, "utf8")) as { lastReadAt: number };
+    stored.lastReadAt = Date.now() + 60_000;
+    writeFileSync(path, JSON.stringify(stored));
+    const later = new Date(Date.now() + 5_000);
+    utimesSync(path, later, later);
+
     expect(getBotIntercomInbox(bob.id).unreadCount).toBe(0);
   });
 

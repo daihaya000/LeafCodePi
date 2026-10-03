@@ -45,14 +45,22 @@ export function searchLeafCodeMemory(
 
     // ponytail: a bounded LIKE scan keeps literal queries predictable; switch to the extension's FTS pipeline only if user-search latency becomes measurable.
     const matches = terms.map(() => "m.content LIKE ? ESCAPE '\\'").join(" OR ");
+    // Recall stays OR; rank rows that contain the whole phrase first, then by how many terms matched.
+    const hits = terms.map(() => "(CASE WHEN m.content LIKE ? ESCAPE '\\' THEN 1 ELSE 0 END)").join(" + ");
     const rows = database.prepare(`
       SELECT m.project, m.target, m.category, m.content, m.created, m.last_referenced
       FROM memories m
       WHERE ${matches}
       ORDER BY CASE WHEN m.content LIKE ? ESCAPE '\\' THEN 0 ELSE 1 END,
+               (${hits}) DESC,
                m.last_referenced DESC
       LIMIT ?
-    `).all(...terms.map(likePattern), likePattern(normalized), MAX_RESULTS) as MemoryRow[];
+    `).all(
+      ...terms.map(likePattern),
+      likePattern(normalized),
+      ...terms.map(likePattern),
+      MAX_RESULTS,
+    ) as MemoryRow[];
 
     return rows.map((row) => ({
       project: row.project,
