@@ -32,6 +32,8 @@ export function publicMcpHeadersSaveResult(value) {
   if (!value || typeof value !== "object" || value.ok !== true) return null;
   const auth = publicMcpAuthSnapshot(value.auth);
   const reload = publicMcpReload(value.reload);
-  if (!auth || auth.authType !== "headers" || auth.credentialSource !== "secure-store" || !reload) return null;
+  // A headers save may leave an Authorization header in place (native config), which the status then
+  // reports as bearer; both are the same redacted metadata shape.
+  if (!auth || !["headers", "bearer"].includes(auth.authType) || !["secure-store", "config"].includes(auth.credentialSource) || !reload) return null;
   return { ok: true, auth, reload };
 }

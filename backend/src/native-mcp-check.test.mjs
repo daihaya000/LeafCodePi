@@ -64,6 +64,17 @@ test("the CLI prints one JSON report and exits with the report result", async (t
   assert.equal(JSON.stringify(report).includes("mcp-auth.json"), false);
 });
 
+test("the bundle freshness check reports stale/missing bundles and fails acceptance on them", async (t) => {
+  const agentDir = await emptyAgentDir(t);
+  const missing = await runNativeMcpCheck({ agentDir, skipStorage: true, connect: true, env: {}, connectTimeoutMs: 2_000, bundlePath: join(agentDir, "none.mjs") });
+  assert.equal(missing.bundle, "missing"); assert.equal(missing.issues.includes("bundle-stale"), true); assert.equal(missing.ok, false);
+  await writeFile(join(agentDir, "bundle.mjs"), "export const removeOAuth = () => {};\n");
+  const current = await runNativeMcpCheck({ agentDir, skipStorage: true, connect: true, env: {}, connectTimeoutMs: 2_000, bundlePath: join(agentDir, "bundle.mjs") });
+  assert.equal(current.bundle, "current"); assert.equal(current.issues.includes("bundle-stale"), false);
+  const listed = await runNativeMcpCheck({ agentDir, skipStorage: true, env: {}, bundlePath: join(agentDir, "none.mjs") });
+  assert.equal(listed.bundle, "missing"); assert.equal(listed.ok, true, "a plain config read does not require the bundle");
+});
+
 test("connect handshakes every enabled server and fails acceptance when one cannot", async (t) => {
   const agentDir = await emptyAgentDir(t);
   // A shipped-only config has no enabled server at all: acceptance must fail instead of passing vacuously.

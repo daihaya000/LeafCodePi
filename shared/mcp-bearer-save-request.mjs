@@ -17,6 +17,7 @@ export function publicMcpBearerSaveResult(value) {
   if (!value || typeof value !== "object" || value.ok !== true) return null;
   const auth = publicMcpAuthSnapshot(value.auth);
   const reload = publicMcpReload(value.reload);
-  if (!auth || auth.authType !== "bearer" || auth.credentialSource !== "secure-store" || !reload) return null;
+  // The credential may live in the legacy OS store or (native MCP) in the private config headers.
+  if (!auth || auth.authType !== "bearer" || !["secure-store", "config"].includes(auth.credentialSource) || !reload) return null;
   return { ok: true, auth, reload };
 }

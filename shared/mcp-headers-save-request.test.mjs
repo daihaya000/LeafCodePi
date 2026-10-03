@@ -36,7 +36,10 @@ test("header response strips secrets, paths and raw reload/provider errors", () 
       credentialSource: "secure-store", credentialStatus: "present", credentialMessage: "private-fixture-secret" },
     reload: { reloaded: 0, deferred: 0, failed: 1, errors: ["private-fixture-secret"] } };
   assert.equal(JSON.stringify(publicMcpHeadersSaveResult(value)).includes("private"), false);
-  for (const input of [null, {}, { ...value, auth: { ...value.auth, authType: "bearer" } }, { ...value, reload: {} }]) {
+  for (const input of [null, {}, { ...value, auth: { ...value.auth, authType: "none" } }, { ...value, auth: { ...value.auth, credentialSource: "oauth" } }, { ...value, reload: {} }]) {
     assert.equal(publicMcpHeadersSaveResult(input), null);
   }
+  // A bearer-type status is the same redacted shape: a native headers save may coexist with an
+  // Authorization header that the status reports first.
+  assert.equal(publicMcpHeadersSaveResult({ ...value, auth: { ...value.auth, authType: "bearer", credentialSource: "config" } }).auth.authType, "bearer");
 });

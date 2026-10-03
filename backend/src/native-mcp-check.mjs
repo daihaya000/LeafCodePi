@@ -11,6 +11,7 @@
  * raises the per-server handshake timeout (default 30s; browser-use needs well over 10s to boot).
  */
 import { dirname, isAbsolute, resolve } from "node:path";
+import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { homedir } from "node:os";
 import { getAgentDir } from "@earendil-works/pi-coding-agent";
@@ -24,6 +25,7 @@ import { isNativeMcpRequested, runEnvCommand } from "./mcp-native-activation.mjs
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const BUNDLED_CONFIG = resolve(HERE, "..", "core", "mcp-defaults.json");
+const DEFAULT_BUNDLE = resolve(HERE, "..", "runtime", "runtime.bundle.mjs");
 
 /** Runs the check and returns a report. Never throws for an expected refusal. */
 export async function runNativeMcpCheck(options = {}) {
@@ -31,6 +33,12 @@ export async function runNativeMcpCheck(options = {}) {
   const agentDir = options.agentDir ?? getAgentDir();
   const skipStorage = options.skipStorage === true;
   const report = { ok: false, nativeRequested: isNativeMcpRequested(env), storage: "skipped", servers: [], connect: null, issues: [] };
+  // The Backend loads the BUILT bundle, so a bundle older than the sources cannot serve today's
+  // native API (auth writes, lazy provider resolution). Reported always; acceptance fails on it.
+  let bundle;
+  try { bundle = readFileSync(options.bundlePath ?? DEFAULT_BUNDLE, "utf8").includes("removeOAuth") ? "current" : "stale"; }
+  catch { bundle = "missing"; }
+  report.bundle = bundle;
 
   if (!skipStorage) {
     const configPath = resolve(agentDir, "mcp.json"), credentialPath = resolve(agentDir, "mcp-auth.json");
@@ -55,6 +63,7 @@ export async function runNativeMcpCheck(options = {}) {
     name, enabled: config.enabled !== false, transport: typeof config.url === "string" ? "http" : "stdio", exposure: config.exposure ?? "codemode",
   }));
   if (options.connect !== true) { report.ok = true; return report; }
+  if (bundle !== "current") report.issues.push("bundle-stale");
 
   // Real handshake per enabled server through the native transports. Servers start exactly as a
   // session would start them; only initialize/tools-list run, never a tool call.
@@ -104,7 +113,8 @@ export async function runNativeMcpCheck(options = {}) {
     // Acceptance needs every enabled server to complete a handshake; exposure decides only which tools
     // the model sees, so a codemode server still has to answer tools/list.
     const enabled = fresh.servers.filter((server) => server.config.enabled !== false).map((server) => server.name);
-    report.ok = enabled.length > 0 && enabled.every((name) => typeof servers[name]?.tools === "number");
+    report.ok = enabled.length > 0 && enabled.every((name) => typeof servers[name]?.tools === "number")
+      && !report.issues.includes("bundle-stale");
     if (!report.ok) report.issues.push("enabled-servers-not-verified");
   } catch (error) {
     report.issues.push(error?.message === "MCP native runtime unavailable" ? "native-runtime-refused" : "connect-failed");
@@ -127,6 +137,7 @@ function main() {
       process.stdout.write(`native flag requested: ${report.nativeRequested}\n`);
       process.stdout.write(`storage attestation: ${report.storage}${options.skipStorage ? " (SKIPPED: not acceptance)" : ""}\n`);
       process.stdout.write(`bundled defaults: ${report.servers.length > 0 ? "loaded" : "none"}\n`);
+      process.stdout.write(`runtime bundle: ${report.bundle}\n`);
       for (const server of report.servers) process.stdout.write(`server ${server.name}: ${server.transport} ${server.exposure}${server.enabled ? "" : " (off)"}\n`);
       if (report.connect) {
         for (const [name, value] of Object.entries(report.connect.servers ?? {})) {

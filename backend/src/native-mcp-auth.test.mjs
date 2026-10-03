@@ -66,8 +66,8 @@ test("a real Backend persists native bearer/header auth and removes only what it
 
   // Bearer save: written to the config header, answered with the public snapshot only.
   const saved = await fetch(base, { method: "POST", headers, body: JSON.stringify({ type: "bearer", token: "private-fixture-token" }) });
-  assert.equal(saved.status, 200, await saved.text());
   const savedBody = await saved.json();
+  assert.equal(saved.status, 200, JSON.stringify(savedBody));
   assert.equal(savedBody.ok, true); assert.equal(savedBody.auth.authType, "bearer");
   assert.equal(savedBody.auth.credentialSource, "config"); assert.equal(savedBody.auth.credentialStatus, "present");
   assert.equal(JSON.stringify(savedBody).includes("private-fixture-token"), false);
@@ -76,17 +76,20 @@ test("a real Backend persists native bearer/header auth and removes only what it
 
   // Header save records the name; a "headers" removal clears the saved header but keeps the manual one.
   const custom = await fetch(base, { method: "POST", headers, body: JSON.stringify({ type: "headers", headers: { "x-fixture": "private-value" } }) });
-  assert.equal(custom.status, 200, await custom.text());
+  const customBody = await custom.json();
+  assert.equal(custom.status, 200, JSON.stringify(customBody));
   assert.equal(config().headers["x-fixture"], "private-value");
   const removedHeaders = await fetch(base, { method: "DELETE", headers, body: JSON.stringify({ type: "headers" }) });
-  assert.equal(removedHeaders.status, 200, await removedHeaders.text());
+  const removedHeadersBody = await removedHeaders.json();
+  assert.equal(removedHeaders.status, 200, JSON.stringify(removedHeadersBody));
   assert.equal(Object.hasOwn(config().headers, "x-fixture"), false);
   assert.equal(config().headers["x-manual"], "hand-edited");
   assert.equal(config().headers.Authorization, "Bearer private-fixture-token", "a bearer save is not part of the header record");
 
   // Bearer removal clears the Authorization header; the manual header survives.
   const removedBearer = await fetch(base, { method: "DELETE", headers, body: JSON.stringify({ type: "bearer" }) });
-  assert.equal(removedBearer.status, 200, await removedBearer.text());
+  const removedBearerBody = await removedBearer.json();
+  assert.equal(removedBearer.status, 200, JSON.stringify(removedBearerBody));
   assert.equal(Object.hasOwn(config().headers, "Authorization"), false);
   assert.equal(config().headers["x-manual"], "hand-edited");
 

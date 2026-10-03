@@ -31,7 +31,10 @@ test("bearer save response whitelist removes credentials, owner paths and provid
   assert.equal(JSON.stringify(result).includes("private"), false);
   assert.equal(result.reload.errors.length, 1);
   for (const value of [null, {}, { ...input, ok: false }, { ...input, auth: { ...input.auth, authType: "headers" } },
-    { ...input, auth: { ...input.auth, credentialSource: "config" } }, { ...input, reload: {} }]) {
+    { ...input, auth: { ...input.auth, credentialSource: "oauth" } }, { ...input, reload: {} }]) {
     assert.equal(publicMcpBearerSaveResult(value), null);
   }
+  // Native MCP keeps the credential in the private config headers: the same redacted shape is valid.
+  const native = publicMcpBearerSaveResult({ ...input, auth: { ...input.auth, credentialSource: "config" } });
+  assert.equal(native.auth.credentialSource, "config"); assert.equal(JSON.stringify(native).includes("private"), false);
 });
