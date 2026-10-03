@@ -21,7 +21,12 @@ const safeId = (value) => (typeof value === "string" && ID.test(value) ? value :
 /** @param {{ path?: string, now?: () => Date, maxLines?: number }} [options] */
 export function createPeerAuditLog(options = {}) {
   const now = options.now ?? (() => new Date());
-  const maxLines = options.maxLines ?? PEER_AUDIT_MAX_LINES;
+  const configuredMaxLines = options.maxLines ?? PEER_AUDIT_MAX_LINES;
+  const maxLines = Number.isFinite(configuredMaxLines)
+    ? Math.max(1, Math.floor(configuredMaxLines))
+    : PEER_AUDIT_MAX_LINES;
+  // Keep 10% headroom so full-file compaction is amortized; read() still exposes at most maxLines.
+  const trimBatch = Math.max(1, Math.floor(maxLines / 10));
   const file = () => options.path ?? peerAuthAuditPath();
   let lines = null;
 
@@ -47,7 +52,7 @@ export function createPeerAuditLog(options = {}) {
         }, async () => {
           await appendFile(path, `${line}\n`, { encoding: "utf8", mode: 0o600 });
           lines = lines === null ? await countLines(path) : lines + 1;
-          if (lines > maxLines) {
+          if (lines > maxLines + trimBatch) {
             const kept = (await readFile(path, "utf8")).split("\n").filter(Boolean).slice(-maxLines);
             const temp = `${path}.tmp`;
             await writeFile(temp, `${kept.join("\n")}\n`, { encoding: "utf8", mode: 0o600 });
@@ -63,8 +68,11 @@ export function createPeerAuditLog(options = {}) {
     },
     /** Newest last. Malformed lines are skipped. */
     read(limit = 100) {
+      const requested = Number.isFinite(limit) ? Math.max(0, Math.floor(limit)) : maxLines;
+      const count = Math.min(maxLines, requested);
+      if (count === 0) return [];
       try {
-        return readFileSync(file(), "utf8").split("\n").filter(Boolean).slice(-Math.max(0, limit)).flatMap((line) => {
+        return readFileSync(file(), "utf8").split("\n").filter(Boolean).slice(-count).flatMap((line) => {
           try { return [JSON.parse(line)]; } catch { return []; }
         });
       } catch { return []; }

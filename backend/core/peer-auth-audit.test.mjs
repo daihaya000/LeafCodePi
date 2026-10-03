@@ -31,11 +31,13 @@ test("rejects unknown actions and results, and neutralises unsafe identifiers", 
   } finally { await cleanup(); }
 });
 
-test("keeps only the newest maxLines entries", async () => {
-  const { root, log, cleanup } = await fixture({ maxLines: 5 });
+test("keeps the newest maxLines entries and batches physical trimming", async () => {
+  const { root, path, log, cleanup } = await fixture({ maxLines: 5 });
   try {
     for (let i = 0; i < 12; i += 1) await log.record({ peerId: `p${i}`, action: "list", result: "ok" });
     assert.deepEqual(log.read(100).map((entry) => entry.peerId), ["p7", "p8", "p9", "p10", "p11"]);
+    assert.deepEqual(log.read(0), []);
+    assert.equal((await readFile(path, "utf8")).split("\n").filter(Boolean).length, 6);
     assert.deepEqual(await readdir(root), ["peer-auth-audit.jsonl"]);
   } finally { await cleanup(); }
 });
@@ -50,7 +52,8 @@ test("concurrent async records serialize and preserve the maxLines tail", async 
     const entries = log.read(100).map((entry) => entry.peerId);
     const persisted = (await readFile(path, "utf8")).split("\n").filter(Boolean).map((line) => JSON.parse(line).peerId);
     assert.equal(entries.length, 20);
-    assert.deepEqual(entries, persisted);
+    assert.ok(persisted.length >= 20 && persisted.length <= 22);
+    assert.deepEqual(entries, persisted.slice(-20));
     assert.equal(new Set(entries).size, 20);
     assert.equal(entries.every((id) => /^p\d+$/.test(id)), true);
     assert.deepEqual(await readdir(root), ["peer-auth-audit.jsonl"]);
