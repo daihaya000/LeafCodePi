@@ -55,7 +55,7 @@ import {
   saveReasoningTranslationOverride,
   useReasoningTranslation,
 } from "@/lib/reasoning-translation";
-import type { SubagentRunDto, UiDiagnostic, UiMessage, UiPart } from "@/lib/types";
+import type { NestedToolCallDto, SubagentRunDto, UiDiagnostic, UiMessage, UiPart } from "@/lib/types";
 
 export { formatElapsed } from "@/components/ui";
 
@@ -485,6 +485,38 @@ function NestedAgentPanel({
 
 // part は SSE の flood でも参照が保たれる（stabilize + WeakMap 派生）前提で memo 化し、
 // ストリーミング中の全カード再描画を避ける。実行中タイマーは内部 state 駆動のため影響なし。
+/** Calls a tool made while it ran (a codemode script): what ran and how it ended. */
+function NestedCallList({ calls }: { calls: readonly NestedToolCallDto[] }) {
+  return (
+    <div>
+      <p className="text-[11px] font-medium text-faint">内部呼び出し（{calls.length}件）</p>
+      <ul className="mt-1 divide-y divide-border rounded-lg border border-border">
+        {calls.map((call) => (
+          <li key={call.id} className="flex items-start gap-2 px-2.5 py-1.5 text-xs">
+            {call.status === "error" ? (
+              <CircleAlert className="mt-0.5 h-3.5 w-3.5 shrink-0 text-danger" aria-hidden="true" />
+            ) : call.status === "unfinished" ? (
+              <Minus className="mt-0.5 h-3.5 w-3.5 shrink-0 text-muted" aria-hidden="true" />
+            ) : (
+              <Check className="mt-0.5 h-3.5 w-3.5 shrink-0 text-success/70" aria-hidden="true" />
+            )}
+            <div className="min-w-0 flex-1">
+              <span className="break-all text-text">{call.name}</span>
+              <span className="sr-only">
+                {call.status === "error" ? "エラー" : call.status === "unfinished" ? "未完了" : "完了"}
+              </span>
+              {call.error && <p className="mt-0.5 break-words text-danger">{call.error}</p>}
+            </div>
+            {call.durationMs !== undefined && (
+              <span className="shrink-0 tabular-nums text-faint">{formatElapsed(call.durationMs)}</span>
+            )}
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
 export const ToolCard = memo(function ToolCard({
   part,
   taskId,
@@ -563,7 +595,8 @@ export const ToolCard = memo(function ToolCard({
     : output
       ? `${isError ? "エラー: " : ""}${output.replace(/\s+/g, " ").slice(0, isError ? 80 : 100)}`
       : "";
-  const hasDetail = fields.length > 0 || Boolean(output) || isCancelled || isSubagent;
+  const nestedCalls = state.nestedCalls ?? [];
+  const hasDetail = fields.length > 0 || Boolean(output) || isCancelled || isSubagent || nestedCalls.length > 0;
   // 実行中は自動で開く（上の effect）が、畳めば隠せる。
   const showNested = isSubagent && open;
   // シェル出力は Markdown にすると空白・整列が壊れるので等幅のまま出す。
@@ -669,6 +702,7 @@ export const ToolCard = memo(function ToolCard({
               ))}
             </dl>
           )}
+          {nestedCalls.length > 0 && <NestedCallList calls={nestedCalls} />}
           {isCancelled && <p className="text-sm text-muted">中断されました</p>}
           {isShell && active && !output && (
             <p className="text-[11px] text-faint">ログを待機中…</p>

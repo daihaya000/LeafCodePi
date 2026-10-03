@@ -73,6 +73,7 @@ export function toolLabel(tool: string, input?: Record<string, unknown>): string
   if (t === "watchdog_permission_decision") return "権限確認";
   if (t === "watchdog_warn") return "監視警告";
   if (t === "mcp" || t === "mcpScript") return "MCP";
+  if (t === "codemode") return "スクリプト";
   if (t === "find_roots") return "ウィンドウ検索";
   if (t === "observe_ui") return "画面観察";
   if (t === "search_ui") return "UI検索";
@@ -120,6 +121,17 @@ function clip(text: string, max: number): string {
   return text.length > max ? `${text.slice(0, max)}…` : text;
 }
 
+/** First meaningful line of a codemode script, without its `// @options` header. */
+function codemodeSummary(input: Record<string, unknown>): string | null {
+  const code = asString(input.code);
+  if (!code) return null;
+  const line = code
+    .split(/\r?\n/)
+    .map((row) => row.trim())
+    .find((row) => row && !row.startsWith("// @options"));
+  return line ? clip(line, 100) : null;
+}
+
 function todoSummary(input: Record<string, unknown>): string | null {
   if (!Array.isArray(input.todos)) return null;
   const todos = input.todos as { status?: unknown }[];
@@ -141,6 +153,7 @@ export function toolSummary(tool: string, state: ToolState | undefined): string 
   if (t.includes("todo")) {
     return todoSummary(input) ?? toolLabel(tool, input);
   }
+  if (t === "codemode") return codemodeSummary(input) ?? toolLabel(tool, input);
   if (t.includes("subagent") || t === "task") {
     const instruction = subagentInstruction(input);
     return (
@@ -211,6 +224,10 @@ export function toolInputFields(
   if (t.includes("bash") || t.includes("shell")) {
     add("説明", "description");
     add("コマンド", "command");
+    return fields;
+  }
+  if (t === "codemode") {
+    add("コード", "code", (value) => clip(value, 800));
     return fields;
   }
 
