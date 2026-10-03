@@ -189,6 +189,7 @@ import {
   TOOL_SEARCH_NAME,
 } from "@/lib/pi/deferred-tools";
 import { hasIdentityChanges, sessionIdentityPatch, sessionIdentitySource } from "@/lib/pi/session-identity";
+import { sessionToolSelection } from "@/lib/pi/session-tool-selection";
 import {
   bundledExtensionEntries,
   filterExtensionsByState,
@@ -3835,6 +3836,17 @@ async function createSession(options: {
     botCodeTool: Boolean(botCodeTaskId),
     roomHandoffTool: Boolean(roomHandoffTaskId),
   });
+  // SDK `tools` is a hard allowlist and native MCP tools register after connecting, so an
+  // unrestricted session with native MCP excludes what it does not want instead. Agent and Bot
+  // sessions keep their strict allowlist.
+  const dynamicMcpTools = nativeMcp.active && !agentOptions?.tools && !options.botTools;
+  const toolSelection = sessionToolSelection({
+    tools,
+    dynamicMcpTools,
+    registered: dynamicMcpTools
+      ? resourceLoader.getExtensions().extensions.flatMap((extension) => [...extension.tools.keys()])
+      : [],
+  });
   const modelRuntimeStartedAt = options.onTiming ? performance.now() : 0;
   const modelRuntime = (await getRuntimeFor(options.accountId)) ?? undefined;
   reportTaskDetailPhase(
@@ -3851,7 +3863,7 @@ async function createSession(options: {
     sessionManager,
     resourceLoader,
     modelRuntime,
-    tools,
+    ...("tools" in toolSelection ? { tools: toolSelection.tools } : { excludeTools: toolSelection.excludeTools }),
   });
   reportTaskDetailPhase(
     options.onTiming,
@@ -3859,6 +3871,8 @@ async function createSession(options: {
     agentSessionStartedAt,
   );
   createdSession = result.session;
+  // Without an allowlist the SDK starts from its own defaults; restore the intended loadout.
+  if ("initialActive" in toolSelection) result.session.setActiveToolsByName(toolSelection.initialActive);
   const configureStartedAt = options.onTiming ? performance.now() : 0;
   await configureCreatedSession(result.session, {
     botTools: options.botTools,
