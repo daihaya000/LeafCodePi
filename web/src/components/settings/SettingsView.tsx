@@ -29,6 +29,7 @@ import { AgentsSettings } from "@/components/settings/AgentsSettings";
 import { BrowserSettings } from "@/components/settings/BrowserSettings";
 import { WebUiAuthSettings } from "@/components/settings/WebUiAuthSettings";
 import { PeerShareSettings } from "@/components/settings/PeerShareSettings";
+import { PeerImportSettings } from "@/components/settings/PeerImportSettings";
 import { SettingsTransfer } from "@/components/settings/SettingsTransfer";
 import { PromptTransfer } from "@/components/settings/PromptTransfer";
 import { ReasoningTranslationSettings } from "@/components/settings/ReasoningTranslationSettings";
@@ -463,6 +464,7 @@ export function SettingsView() {
                 <div id="models-providers" className="scroll-mt-24 rounded-2xl border border-border bg-surface p-4">
                   <ProviderAuthPanel providers={providers} onChanged={onProviderChanged} />
                 </div>
+                <PeerImportSettings onImported={onProviderChanged} />
               </SettingsGroup>
             </section>
           )}

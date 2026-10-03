@@ -54,6 +54,9 @@ vi.mock("@/components/settings/BrowserSettings", () => ({
     return <h3>ブラウザ設定</h3>;
   },
 }));
+vi.mock("@/components/settings/PeerImportSettings", () => ({
+  PeerImportSettings: () => <h3>別のLCPから認証情報を取り込む</h3>,
+}));
 vi.mock("@/components/settings/PeerShareSettings", () => ({
   PeerShareSettings: () => <h3>認証情報の共有</h3>,
 }));
@@ -190,6 +193,7 @@ describe("SettingsView", () => {
       "生成モデル",
       "セッションラベル",
       "プロバイダー",
+      "別のLCPから認証情報を取り込む",
     ]);
     expect(screen.getByRole("heading", { name: "起動時の既定値" }).closest('[role="tabpanel"]')?.id).toBe("settings-panel-models");
     expect(screen.queryByRole("navigation", { name: "モデル設定内" })).toBeNull();
