@@ -1199,6 +1199,9 @@ export const TaskView = memo(function TaskView({
   }, []);
 
   useEffect(() => {
+    // 裏ペインは描画されないので、状態リセットも接続も行わない。前面に戻ると
+    // active が変わりこの effect が再実行される。
+    if (!active) return;
     let closed = false;
     let source: EventSource | null = null;
     let retryTimer: ReturnType<typeof setTimeout> | null = null;
@@ -1232,7 +1235,9 @@ export const TaskView = memo(function TaskView({
     if ((readCachedModels()?.length ?? 0) === 0) setModelsLoading(true);
 
     const connect = () => {
-      if (closed) return;
+      // 分割タブの裏ペインでは接続しない。active が deps にあるので、
+      // 前面に戻るとこの effect が再実行されて connect される。
+      if (closed || !active) return;
       retryTimer = cancelPendingSseReconnect(retryTimer);
       source = closeSseSource(source);
       // 一部の端末・中継が no-cache の SSE URL を再利用し、reload 後に
@@ -1616,7 +1621,7 @@ export const TaskView = memo(function TaskView({
       retryTimer = cancelPendingSseReconnect(retryTimer);
       source = closeSseSource(source);
     };
-  }, [cachedSession, taskId, applyDetail, notifySidebarIfNeeded]);
+  }, [active, cachedSession, taskId, applyDetail, notifySidebarIfNeeded]);
 
   const loadOlderMessages = useCallback(async () => {
     if (historyLoadingRef.current) return;
