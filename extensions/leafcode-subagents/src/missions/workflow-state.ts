@@ -96,12 +96,22 @@ function rememberStartKey(pid: number, key: string | undefined): string | undefi
 	return key;
 }
 
-/** Test-only: forget memoized process start keys. */
+/** Test-only: count start-key probes so a test can assert none happened. */
+let startKeyProbeCount = 0;
+
+/** Test-only: forget memoized process start keys and reset the probe counter. */
 export function resetProcessStartKeyCacheForTests(): void {
 	startKeyCache.clear();
+	startKeyProbeCount = 0;
+}
+
+/** Test-only: how many start-key probes ran since the last reset. */
+export function startKeyProbeCountForTests(): number {
+	return startKeyProbeCount;
 }
 
 function processStartKey(pid: number): string | undefined {
+	startKeyProbeCount += 1;
 	if (process.platform === "linux") return cachedStartKey(pid) ?? linuxProcessStartKey(pid) ?? psProcessStartKey(pid);
 	if (process.platform === "win32") return cachedStartKey(pid) ?? windowsProcessStartKey(pid);
 	return undefined;
@@ -140,16 +150,19 @@ function readStateLockOwner(lockPath: string): StateLockOwner | undefined {
 function stateLockIsStale(lockPath: string, now = Date.now()): boolean {
 	const owner = readStateLockOwner(lockPath);
 	if (owner) {
+		// A young lock can never be stale, so skip the ownership probe: it costs a
+		// synchronous PowerShell spawn (up to 1s of blocked event loop) per contender.
+		if (now - owner.createdAt < STATE_LOCK_STALE_MS) return false;
 		if (!isProcessAlive(owner.pid)) return true;
 		if (owner.processKey) {
 			const currentProcessKey = owner.pid === process.pid ? currentProcessKeyFor() : processStartKey(owner.pid);
 			// The owner's pid is alive. A failed/timed-out start-key probe (slow PowerShell under load) says nothing
 			// about reuse, so it must not steal a live owner's lock: fall back to ageing it out instead.
-			if (!currentProcessKey) return now - owner.createdAt > STATE_LOCK_STALE_MS;
+			if (!currentProcessKey) return true;
 			return owner.processKey !== currentProcessKey;
 		}
 		// No start-key: PID liveness alone cannot detect reuse — age the lock out instead.
-		return now - owner.createdAt > STATE_LOCK_STALE_MS;
+		return true;
 	}
 	try {
 		return now - fs.statSync(lockPath).mtimeMs > STATE_LOCK_STALE_MS;

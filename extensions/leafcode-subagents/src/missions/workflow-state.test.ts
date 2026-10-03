@@ -1,4 +1,5 @@
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import assert from "node:assert/strict";
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, expect, it } from "vitest";
@@ -6,6 +7,7 @@ import {
 	createMissionWorkflowState,
 	missionStatePath,
 	resetProcessStartKeyCacheForTests,
+	startKeyProbeCountForTests,
 } from "./workflow-state.ts";
 
 let root = "";
@@ -67,3 +69,32 @@ it("reuses the memoized process start key instead of probing again for the same 
 	expect(first.get("checkpoint")).toBe("first");
 	expect(second.get("checkpoint")).toBe("second");
 });
+
+it("does not probe the owner while the lock is young", () => {
+	resetProcessStartKeyCacheForTests();
+	root = mkdtempSync(join(tmpdir(), "mission-young-lock-"));
+	const location = {
+		projectRoot: root,
+		missionDir: join(root, "missions"),
+		globalIndexDir: join(root, "index"),
+		writeGlobalIndex: false,
+	};
+	const statePath = missionStatePath(location, "mission-young");
+	const lockPath = `${statePath}.lock`;
+	mkdirSync(lockPath, { recursive: true });
+	// A fresh owner with a start key cannot be stale, so the PowerShell probe
+	// (up to 1s of blocked event loop) must not run on any retry.
+	writeFileSync(
+		join(lockPath, "owner.json"),
+		JSON.stringify({ pid: process.pid, token: "young", createdAt: Date.now(), processKey: "live-key" }),
+		"utf8",
+	);
+	resetProcessStartKeyCacheForTests();
+	assert.throws(
+		() => createMissionWorkflowState(location, "mission-young").set("checkpoint", "waiting"),
+		/Timed out acquiring mission state lock/,
+	);
+
+	expect(startKeyProbeCountForTests()).toBe(0);
+	expect(existsSync(lockPath)).toBe(true);
+}, 20_000);
