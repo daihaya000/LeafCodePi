@@ -16,7 +16,7 @@ export type PeerAuditInput = {
 export const PEER_AUDIT_MAX_LINES: number;
 export function peerAuthAuditPath(): string;
 export function createPeerAuditLog(options?: { path?: string; now?: () => Date; maxLines?: number }): {
-  record(entry: PeerAuditInput): boolean;
+  record(entry: PeerAuditInput): Promise<boolean>;
   read(limit?: number): PeerAuditEntry[];
 };
 export function createPeerRateLimiter(options?: { limit?: number; windowMs?: number; now?: () => number; maxKeys?: number }): {

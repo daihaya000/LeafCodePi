@@ -14,7 +14,7 @@ async function fixture(options = {}) {
 test("records identifiers and outcomes only", async () => {
   const { path, log, cleanup } = await fixture();
   try {
-    assert.equal(log.record({ peerId: "p1", action: "resolve", providerId: "anthropic", accountId: null, result: "ok", token: "SECRET", credential: "SECRET" }), true);
+    assert.equal(await log.record({ peerId: "p1", action: "resolve", providerId: "anthropic", accountId: null, result: "ok", token: "SECRET", credential: "SECRET" }), true);
     const raw = await readFile(path, "utf8");
     assert.equal(raw.includes("SECRET"), false);
     assert.deepEqual(log.read(), [{ at: "2026-10-03T00:00:00.000Z", peerId: "p1", action: "resolve", providerId: "anthropic", accountId: null, result: "ok" }]);
@@ -24,9 +24,9 @@ test("records identifiers and outcomes only", async () => {
 test("rejects unknown actions and results, and neutralises unsafe identifiers", async () => {
   const { log, cleanup } = await fixture();
   try {
-    assert.equal(log.record({ action: "other", result: "ok" }), false);
-    assert.equal(log.record({ action: "list", result: "weird" }), false);
-    log.record({ peerId: "bad id\n{\"x\":1}", providerId: "../x", action: "denied", result: "unauthorized" });
+    assert.equal(await log.record({ action: "other", result: "ok" }), false);
+    assert.equal(await log.record({ action: "list", result: "weird" }), false);
+    await log.record({ peerId: "bad id\n{\"x\":1}", providerId: "../x", action: "denied", result: "unauthorized" });
     assert.deepEqual(log.read().map(({ peerId, providerId }) => [peerId, providerId]), [[null, null]]);
   } finally { await cleanup(); }
 });
@@ -34,8 +34,25 @@ test("rejects unknown actions and results, and neutralises unsafe identifiers", 
 test("keeps only the newest maxLines entries", async () => {
   const { root, log, cleanup } = await fixture({ maxLines: 5 });
   try {
-    for (let i = 0; i < 12; i += 1) log.record({ peerId: `p${i}`, action: "list", result: "ok" });
+    for (let i = 0; i < 12; i += 1) await log.record({ peerId: `p${i}`, action: "list", result: "ok" });
     assert.deepEqual(log.read(100).map((entry) => entry.peerId), ["p7", "p8", "p9", "p10", "p11"]);
+    assert.deepEqual(await readdir(root), ["peer-auth-audit.jsonl"]);
+  } finally { await cleanup(); }
+});
+
+test("concurrent async records serialize and preserve the maxLines tail", async () => {
+  const { root, path, log, cleanup } = await fixture({ maxLines: 20 });
+  try {
+    const results = await Promise.all(Array.from({ length: 40 }, (_, i) => log.record({
+      peerId: `p${i}`, action: "list", result: "ok",
+    })));
+    assert.equal(results.every(Boolean), true);
+    const entries = log.read(100).map((entry) => entry.peerId);
+    const persisted = (await readFile(path, "utf8")).split("\n").filter(Boolean).map((line) => JSON.parse(line).peerId);
+    assert.equal(entries.length, 20);
+    assert.deepEqual(entries, persisted);
+    assert.equal(new Set(entries).size, 20);
+    assert.equal(entries.every((id) => /^p\d+$/.test(id)), true);
     assert.deepEqual(await readdir(root), ["peer-auth-audit.jsonl"]);
   } finally { await cleanup(); }
 });
@@ -44,16 +61,16 @@ test("a new log instance continues the existing line count", async () => {
   const { path, cleanup } = await fixture();
   try {
     const first = createPeerAuditLog({ path, maxLines: 3 });
-    for (let i = 0; i < 3; i += 1) first.record({ peerId: `a${i}`, action: "list", result: "ok" });
+    for (let i = 0; i < 3; i += 1) await first.record({ peerId: `a${i}`, action: "list", result: "ok" });
     const second = createPeerAuditLog({ path, maxLines: 3 });
-    second.record({ peerId: "b", action: "list", result: "ok" });
+    await second.record({ peerId: "b", action: "list", result: "ok" });
     assert.deepEqual(second.read().map((entry) => entry.peerId), ["a1", "a2", "b"]);
   } finally { await cleanup(); }
 });
 
-test("record never throws when the log cannot be written", () => {
+test("record never throws when the log cannot be written", async () => {
   const log = createPeerAuditLog({ path: join(tmpdir(), "leafcode-missing\0bad", "x.jsonl") });
-  assert.equal(log.record({ action: "list", result: "ok" }), false);
+  assert.equal(await log.record({ action: "list", result: "ok" }), false);
   assert.deepEqual(log.read(), []);
 });
 
@@ -91,10 +108,10 @@ test("append and trim run under a lock: a held lock defers the write and a free 
   try {
     const log = createPeerAuditLog({ path });
     const entry = { peerId: "p", action: "list", result: "ok" };
-    assert.equal(log.record(entry), true);
+    assert.equal(await log.record(entry), true);
     assert.equal((await readdir(root)).includes("audit.jsonl.lock"), false);
     await mkdir(`${path}.lock`);
-    assert.equal(log.record(entry), false, "a fresh foreign lock makes the best-effort write give up");
+    assert.equal(await log.record(entry), false, "a fresh foreign lock makes the best-effort write give up");
     assert.equal(log.read().length, 1);
   } finally { await rm(root, { recursive: true, force: true }); }
 });

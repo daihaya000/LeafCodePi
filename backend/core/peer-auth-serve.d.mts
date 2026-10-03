@@ -5,7 +5,7 @@ export type PeerServiceResponse = { status: number; body: unknown; headers: Reco
 export type PeerAuthServiceDeps = {
   grants: { verify(token: string): PeerGrant | null };
   limiter: { take(key: string): { ok: boolean; retryAfterMs: number } };
-  audit: { record(entry: PeerAuditInput): unknown };
+  audit: { record(entry: PeerAuditInput): Promise<boolean> | boolean };
   readStoredCredential(providerId: string, accountId: string | null): Promise<unknown> | unknown;
   getAuth(
     providerId: string,

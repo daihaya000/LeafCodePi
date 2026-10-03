@@ -5,7 +5,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, utimesSync, w
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
-import { withDirectoryLock } from "./directory-lock.mjs";
+import { withDirectoryLock, withDirectoryLockAsync } from "./directory-lock.mjs";
 
 function setup(t) {
   const root = mkdtempSync(join(tmpdir(), "leafcode-directory-lock-"));
@@ -25,6 +25,25 @@ test("the action result is returned and a throwing action still releases the loc
   const { options } = setup(t);
   assert.equal(withDirectoryLock(options, () => 42), 42);
   assert.throws(() => withDirectoryLock(options, () => { throw new Error("action failed"); }), /action failed/);
+  assert.equal(existsSync(options.lockPath), false);
+});
+
+test("the async action holds the lock across awaits, serializes callers, and releases on failure", async (t) => {
+  const { options } = setup(t);
+  let active = 0;
+  let maxActive = 0;
+  await Promise.all(Array.from({ length: 4 }, () => withDirectoryLockAsync(
+    { ...options, maxAttempts: 100, waitMs: 1 },
+    async () => {
+      active += 1;
+      maxActive = Math.max(maxActive, active);
+      await new Promise((resolve) => setTimeout(resolve, 2));
+      active -= 1;
+    },
+  )));
+  assert.equal(maxActive, 1);
+  assert.equal(existsSync(options.lockPath), false);
+  await assert.rejects(withDirectoryLockAsync(options, async () => { throw new Error("async action failed"); }), /async action failed/);
   assert.equal(existsSync(options.lockPath), false);
 });
 

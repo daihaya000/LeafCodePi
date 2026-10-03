@@ -31,7 +31,7 @@ export function createPeerAuthService(deps) {
   const now = deps.now ?? (() => Date.now());
 
   /** Shared gate: invalid credentials share a limit key; valid grants are limited by peer id. */
-  const gate = (authorization, action) => {
+  const gate = async (authorization, action) => {
     const token = parsePeerBearer(authorization);
     const grant = token ? deps.grants.verify(token) : null;
     if (!grant) {
@@ -39,12 +39,12 @@ export function createPeerAuthService(deps) {
       // instead of trusting spoofable forwarded headers. Over-limit attempts are not audited again.
       const taken = deps.limiter.take(UNAUTHENTICATED_LIMIT_KEY);
       if (!taken.ok) return { response: rateLimited(taken) };
-      deps.audit.record({ action: "denied", result: "unauthorized" });
+      await deps.audit.record({ action: "denied", result: "unauthorized" });
       return { response: failure(401, "unauthorized") };
     }
     const taken = deps.limiter.take(grant.id);
     if (!taken.ok) {
-      deps.audit.record({ peerId: grant.id, action, result: "rate-limited" });
+      await deps.audit.record({ peerId: grant.id, action, result: "rate-limited" });
       return { response: rateLimited(taken) };
     }
     return { grant };
@@ -52,7 +52,7 @@ export function createPeerAuthService(deps) {
 
   return {
     async list({ authorization }) {
-      const checked = gate(authorization, "list");
+      const checked = await gate(authorization, "list");
       if (checked.response) return checked.response;
       const { grant } = checked;
       try {
@@ -74,23 +74,23 @@ export function createPeerAuthService(deps) {
           accounts,
         });
         if (!list) throw new Error("invalid list");
-        deps.audit.record({ peerId: grant.id, action: "list", result: "ok" });
+        await deps.audit.record({ peerId: grant.id, action: "list", result: "ok" });
         return reply(200, list);
       } catch {
-        deps.audit.record({ peerId: grant.id, action: "list", result: "error" });
+        await deps.audit.record({ peerId: grant.id, action: "list", result: "error" });
         return failure(503, "unavailable");
       }
     },
 
     async resolve({ authorization, body }) {
-      const checked = gate(authorization, "resolve");
+      const checked = await gate(authorization, "resolve");
       if (checked.response) return checked.response;
       const { grant } = checked;
       const parsed = parsePeerResolveRequest(body);
       if (!parsed.ok) return failure(400, "bad-request");
       const { providerId, accountId } = parsed.value;
       if (!grant.providers.includes(providerId)) {
-        deps.audit.record({ peerId: grant.id, action: "resolve", providerId, accountId, result: "forbidden" });
+        await deps.audit.record({ peerId: grant.id, action: "resolve", providerId, accountId, result: "forbidden" });
         return failure(403, "forbidden");
       }
       // The peer chooses one of the shared accounts. An account that does not hold this provider is
@@ -99,17 +99,17 @@ export function createPeerAuthService(deps) {
         const known = (await deps.listAccounts()).some((account) => account.accountId === accountId);
         const storedForAccount = known ? await deps.listStoredProviders(accountId) : [];
         if (!known) {
-          deps.audit.record({ peerId: grant.id, action: "resolve", providerId, accountId, result: "forbidden" });
+          await deps.audit.record({ peerId: grant.id, action: "resolve", providerId, accountId, result: "forbidden" });
           return failure(403, "forbidden");
         }
         // Named accounts must hold the credential themselves; only the default account may fall back
         // to ambient auth (environment/ADC), which would otherwise leak into every account.
         if (accountId !== null && !storedForAccount.some((entry) => entry.providerId === providerId)) {
-          deps.audit.record({ peerId: grant.id, action: "resolve", providerId, accountId, result: "not-found" });
+          await deps.audit.record({ peerId: grant.id, action: "resolve", providerId, accountId, result: "not-found" });
           return failure(404, "not-found");
         }
       } catch {
-        deps.audit.record({ peerId: grant.id, action: "resolve", providerId, accountId, result: "error" });
+        await deps.audit.record({ peerId: grant.id, action: "resolve", providerId, accountId, result: "error" });
         return failure(503, "unavailable");
       }
       try {
@@ -126,14 +126,14 @@ export function createPeerAuthService(deps) {
           credential = typeof key === "string" ? publicPeerCredential({ type: "api_key", key }) : null;
         }
         if (!credential) {
-          deps.audit.record({ peerId: grant.id, action: "resolve", providerId, accountId, result: "not-found" });
+          await deps.audit.record({ peerId: grant.id, action: "resolve", providerId, accountId, result: "not-found" });
           return failure(404, "not-found");
         }
         if (credential.type === "oauth" && credential.expires <= now()) throw new Error("expired after refresh");
-        deps.audit.record({ peerId: grant.id, action: "resolve", providerId, accountId, result: "ok" });
+        await deps.audit.record({ peerId: grant.id, action: "resolve", providerId, accountId, result: "ok" });
         return reply(200, { credential });
       } catch {
-        deps.audit.record({ peerId: grant.id, action: "resolve", providerId, accountId, result: "error" });
+        await deps.audit.record({ peerId: grant.id, action: "resolve", providerId, accountId, result: "error" });
         return failure(503, "unavailable");
       }
     },

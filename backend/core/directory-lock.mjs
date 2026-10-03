@@ -1,4 +1,5 @@
 import { mkdirSync, rmSync, statSync } from "node:fs";
+import { mkdir, rm, stat } from "node:fs/promises";
 
 function blockingSleep(ms) {
   Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
@@ -30,4 +31,29 @@ export function withDirectoryLock({
     }
   }
   try { return action(); } finally { rmSync(lockPath, { recursive: true, force: true }); }
+}
+
+/**
+ * Run an async action under the same cross-process directory lock without blocking while waiting.
+ * Lock acquisition is atomic; stale locks are reclaimed using the same policy as withDirectoryLock.
+ */
+export async function withDirectoryLockAsync({
+  lockPath, parentDir, staleMs, busyMessage,
+  maxAttempts = 300, waitMs = 10, now = () => Date.now(),
+  sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
+}, action) {
+  await mkdir(parentDir, { recursive: true });
+  for (let attempt = 0; ; attempt += 1) {
+    try {
+      await mkdir(lockPath);
+      break;
+    } catch {
+      try {
+        if (now() - (await stat(lockPath)).mtimeMs > staleMs) await rm(lockPath, { recursive: true, force: true });
+      } catch { /* another worker removed or replaced the lock */ }
+      if (attempt >= maxAttempts) throw new Error(busyMessage);
+      await sleep(waitMs);
+    }
+  }
+  try { return await action(); } finally { await rm(lockPath, { recursive: true, force: true }); }
 }

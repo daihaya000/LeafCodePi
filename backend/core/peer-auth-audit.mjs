@@ -1,7 +1,8 @@
-import { appendFileSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
+import { readFileSync } from "node:fs";
+import { appendFile, readFile, rename, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { dataDir } from "./app-paths.mjs";
-import { withDirectoryLock } from "./directory-lock.mjs";
+import { withDirectoryLockAsync } from "./directory-lock.mjs";
 
 // Audit trail and rate limiting for peer auth sharing (docs/plans/peer-auth-share.md).
 // Entries hold identifiers and outcomes only: never tokens, hashes or credentials.
@@ -24,34 +25,33 @@ export function createPeerAuditLog(options = {}) {
   const file = () => options.path ?? peerAuthAuditPath();
   let lines = null;
 
-  const countLines = (path) => {
-    try { return readFileSync(path, "utf8").split("\n").filter(Boolean).length; } catch { return 0; }
+  const countLines = async (path) => {
+    try { return (await readFile(path, "utf8")).split("\n").filter(Boolean).length; } catch { return 0; }
   };
 
   return {
-    /** Best effort: an audit write failure must not turn a served request into an error. */
-    record({ peerId = null, action, providerId = null, accountId = null, result }) {
+    /** Best effort: async audit I/O failure must not turn a served request into an error. */
+    async record({ peerId = null, action, providerId = null, accountId = null, result }) {
       if (!ACTIONS.has(action) || !RESULTS.has(result)) return false;
       const path = file();
       try {
-        mkdirSync(dirname(path), { recursive: true });
         const line = JSON.stringify({
           at: now().toISOString(), peerId: safeId(peerId), action, providerId: safeId(providerId),
           accountId: safeId(accountId), result,
         });
-        // Append and trim (read -> rewrite -> rename) share one lock so a concurrent process's line
-        // cannot fall between the trim's read and its rename. Short wait: auditing is best effort.
-        withDirectoryLock({
+        // Append and trim (read -> rewrite -> rename) share one async lock so a concurrent process's line
+        // cannot fall between the trim's read and its rename. Waiting and file I/O do not block the event loop.
+        await withDirectoryLockAsync({
           lockPath: `${path}.lock`, parentDir: dirname(path), staleMs: 10_000,
           busyMessage: "peer audit log is busy", maxAttempts: 100, waitMs: 5,
-        }, () => {
-          appendFileSync(path, `${line}\n`, { encoding: "utf8", mode: 0o600 });
-          lines = (lines ?? countLines(path) - 1) + 1;
+        }, async () => {
+          await appendFile(path, `${line}\n`, { encoding: "utf8", mode: 0o600 });
+          lines = lines === null ? await countLines(path) : lines + 1;
           if (lines > maxLines) {
-            const kept = readFileSync(path, "utf8").split("\n").filter(Boolean).slice(-maxLines);
+            const kept = (await readFile(path, "utf8")).split("\n").filter(Boolean).slice(-maxLines);
             const temp = `${path}.tmp`;
-            writeFileSync(temp, `${kept.join("\n")}\n`, { encoding: "utf8", mode: 0o600 });
-            renameSync(temp, path);
+            await writeFile(temp, `${kept.join("\n")}\n`, { encoding: "utf8", mode: 0o600 });
+            await rename(temp, path);
             lines = kept.length;
           }
         });
