@@ -26,9 +26,9 @@ describe("CPU temperature probe caching", () => {
       return 55;
     });
 
-    expect((await mod.collectSystemUsage()).cpu.tempC).toBe(55);
-    expect((await mod.collectSystemUsage()).cpu.tempC).toBe(55);
-    expect((await mod.collectSystemUsage()).cpu.tempC).toBe(55);
+    expect((await mod.collectSystemUsage()).cpu?.tempC).toBe(55);
+    expect((await mod.collectSystemUsage()).cpu?.tempC).toBe(55);
+    expect((await mod.collectSystemUsage()).cpu?.tempC).toBe(55);
     expect(probes).toBe(1);
   });
 
@@ -47,7 +47,7 @@ describe("CPU temperature probe caching", () => {
       mod.collectSystemUsage(),
     ]);
 
-    expect(values.map((usage) => usage.cpu.tempC)).toEqual([60, 60, 60]);
+    expect(values.map((usage) => usage.cpu?.tempC)).toEqual([60, 60, 60]);
     expect(probes).toBe(1);
   });
 
@@ -59,8 +59,8 @@ describe("CPU temperature probe caching", () => {
       return probes === 1 ? null : 45;
     });
 
-    expect((await mod.collectSystemUsage()).cpu.tempC).toBeNull();
-    expect((await mod.collectSystemUsage()).cpu.tempC).toBe(45);
+    expect((await mod.collectSystemUsage()).cpu?.tempC).toBeNull();
+    expect((await mod.collectSystemUsage()).cpu?.tempC).toBe(45);
     expect(probes).toBe(2);
   });
 
@@ -73,8 +73,8 @@ describe("CPU temperature probe caching", () => {
       return probes;
     });
 
-    expect((await mod.collectSystemUsage()).cpu.tempC).toBe(1);
-    expect((await mod.collectSystemUsage()).cpu.tempC).toBe(2);
+    expect((await mod.collectSystemUsage()).cpu?.tempC).toBe(1);
+    expect((await mod.collectSystemUsage()).cpu?.tempC).toBe(2);
     expect(probes).toBe(2);
   });
 });
