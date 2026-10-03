@@ -1353,3 +1353,41 @@ describe("listBotCodeRequestsForBots", () => {
     expect(grouped.get("three")).toEqual([]);
   });
 });
+
+describe("outbox directory listing cache", () => {
+  const writeRequest = (botId: string, state: string) => {
+    const dir = join(store.root, "bot-code-requests");
+    mkdirSync(dir, { recursive: true });
+    const id = createHash("sha256").update(`${botId}-${state}`).digest("hex");
+    writeFileSync(join(dir, `${id}.json`), `${JSON.stringify({
+      id, botId, originTaskId: `bot:${botId}`, codeTaskId: `${botId}-task`,
+      state, queuedAt: 1, prompt: "p",
+    })}
+`, "utf8");
+    return id;
+  };
+
+  it("reuses the listing inside the TTL and re-lists after a new record", () => {
+    __resetBotCodeRequestCacheForTests();
+    writeRequest("one", "running");
+    listBotCodeRequestsForBots(["one"]);
+    const afterFirst = botCodeRequestCacheStats();
+    expect(afterFirst.listings).toBeGreaterThan(0);
+
+    // A read inside the TTL must not touch the directory again.
+    listBotCodeRequestsForBots(["one"]);
+    const afterSecond = botCodeRequestCacheStats();
+    expect(afterSecond.listings).toBe(afterFirst.listings);
+    expect(afterSecond.listingHits).toBeGreaterThan(afterFirst.listingHits);
+
+    // A save() from this process drops the listing immediately, so the next read
+    // re-lists it and the new record shows without waiting out the TTL.
+    queueBotCodePrompt("one", { id: "task-1", projectId: "p" } as never, "second");
+    const grouped = listBotCodeRequestsForBots(["one"]);
+    expect(botCodeRequestCacheStats().listings).toBeGreaterThan(afterSecond.listings);
+    // The queued prompt is a user intervention, which the summary filter drops by
+    // design; the point here is that the directory was listed again at all.
+    expect(grouped.get("one")?.length).toBeGreaterThanOrEqual(1);
+    __resetBotCodeRequestCacheForTests();
+  });
+});

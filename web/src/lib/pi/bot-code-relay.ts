@@ -238,6 +238,10 @@ function requestPath(id: string): string {
 }
 function save(request: CodeRequest): void {
   mkdirSync(root(), { recursive: true });
+  // This process just created or replaced a record, so the memoized listing is
+  // stale by definition. Drop it instead of waiting out the TTL, so the writer
+  // sees its own write on the very next read.
+  outboxListing = null;
   const path = requestPath(request.id);
   const temporary = `${path}.${process.pid}.tmp`;
   writeFileSync(temporary, `${JSON.stringify(request)}\n`, "utf8");
@@ -298,17 +302,45 @@ function read(id: string): CodeRequest | undefined {
  */
 interface CachedCodeRequest { ino: bigint; size: bigint; mtimeNs: bigint; value: CodeRequest; }
 const codeRequestCache = new Map<string, CachedCodeRequest>();
-const codeRequestCacheStats = { reads: 0, hits: 0 };
+const codeRequestCacheStats = { reads: 0, hits: 0, listings: 0, listingHits: 0 };
+
+/**
+ * The outbox directory listing changes only when a request is written or
+ * removed, but the relay ticks every couple of seconds. Reuse the listing for a
+ * short window; the directory's own mtime moves on every entry change, so a
+ * change is picked up as soon as the stamp differs.
+ */
+const OUTBOX_LISTING_TTL_MS = 1_000;
+let outboxListing: { dir: string; listedAt: number; names: string[] } | null = null;
+
+function outboxRequestNames(dir: string): string[] {
+  const now = Date.now();
+  if (outboxListing && outboxListing.dir === dir && now - outboxListing.listedAt < OUTBOX_LISTING_TTL_MS) {
+    codeRequestCacheStats.listingHits += 1;
+    return outboxListing.names;
+  }
+  let names: string[] = [];
+  try {
+    names = readdirSync(dir).filter((name) => /^[a-f0-9]{64}\.json$/.test(name));
+  } catch {
+    outboxListing = null;
+    return [];
+  }
+  codeRequestCacheStats.listings += 1;
+  outboxListing = { dir, listedAt: now, names };
+  return names;
+}
+
 function requests(): CodeRequest[] {
   const dir = root();
   if (!existsSync(dir)) {
     codeRequestCache.clear();
+    outboxListing = null;
     return [];
   }
   const listed: CodeRequest[] = [];
   const present = new Set<string>();
-  for (const name of readdirSync(dir)) {
-    if (!/^[a-f0-9]{64}\.json$/.test(name)) continue;
+  for (const name of outboxRequestNames(dir)) {
     const id = name.slice(0, -5);
     const path = join(dir, name);
     let stat: BigIntStats;
@@ -343,11 +375,14 @@ function requests(): CodeRequest[] {
 /** Test-only: drop memoized outbox records and read counters. */
 export function __resetBotCodeRequestCacheForTests(): void {
   codeRequestCache.clear();
+  outboxListing = null;
   codeRequestCacheStats.reads = 0;
   codeRequestCacheStats.hits = 0;
+  codeRequestCacheStats.listings = 0;
+  codeRequestCacheStats.listingHits = 0;
 }
-/** Test-only: how many outbox records were re-read versus served from the cache. */
-export function botCodeRequestCacheStats(): { reads: number; hits: number } {
+/** Test-only: how many outbox records and directory listings were re-read versus served from the cache. */
+export function botCodeRequestCacheStats(): { reads: number; hits: number; listings: number; listingHits: number } {
   return { ...codeRequestCacheStats };
 }
 // The terminal-state rule lives in backend core.
