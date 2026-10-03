@@ -141,4 +141,46 @@ describe("SettingsTransfer", () => {
     fireEvent.click(within(disclosure).getByRole("button", { name: "異常終了後の保全ファイルを確認" }));
     await waitFor(() => expect(screen.getByRole("status").textContent).toBe("保全ファイルはありません"));
   });
+
+  it("resets stored provider credentials after confirmation and reports the backup", async () => {
+    sendJson.mockResolvedValue({ backupPath: "C:\\data\\credential-backups\\leafcode-pi-credentials-x.json", accountCount: 2 });
+    render(<SettingsTransfer />);
+    const disclosure = screen.getByText("認証の初期化", { selector: "summary" }).closest("details");
+    expect(disclosure?.hasAttribute("open")).toBe(false);
+    fireEvent.click(within(disclosure!).getByRole("button", { name: "初期化" }));
+    await waitFor(() => expect(sendJson).toHaveBeenCalledWith("/api/settings/transfer", undefined, "DELETE"));
+    expect(window.confirm).toHaveBeenCalledWith(expect.stringContaining("プロバイダー認証を初期化します"));
+    expect((await screen.findByRole("status")).textContent).toContain("leafcode-pi-credentials-x.json");
+    expect((await screen.findByRole("status")).textContent).toContain("初期化しました");
+  });
+
+  it("does not reset credentials when the confirmation is declined", async () => {
+    vi.mocked(window.confirm).mockReturnValue(false);
+    render(<SettingsTransfer />);
+    const disclosure = screen.getByText("認証の初期化", { selector: "summary" }).closest("details");
+    fireEvent.click(within(disclosure!).getByRole("button", { name: "初期化" }));
+    expect(sendJson).not.toHaveBeenCalled();
+  });
+
+  it("keeps the reset report and warns when the journal cannot be removed afterwards", async () => {
+    sendJson.mockResolvedValue({
+      backupPath: "C:\\data\\credential-backups\\leafcode-pi-credentials-x.json", accountCount: 1,
+      warning: "初期化は完了しましたが、保全ファイルを削除できませんでした。保全ファイル: C:\\data\\settings-transfer-recovery\\x.json",
+    });
+    render(<SettingsTransfer />);
+    fireEvent.click(within(screen.getByText("認証の初期化", { selector: "summary" }).closest("details")!).getByRole("button", { name: "初期化" }));
+    expect(await screen.findByRole("alert")).toHaveProperty("textContent", expect.stringContaining("初期化は完了しましたが"));
+    expect(screen.getByRole("status").textContent).toContain("初期化しました");
+  });
+
+  it("offers recovery when a credential reset rolls back and cannot restore", async () => {
+    render(<SettingsTransfer />);
+    sendJson.mockRejectedValueOnce(new Error(`設定の自動復旧に失敗しました。保全ファイル: C:\\data\\settings-transfer-recovery\\${recoveryId}.json`));
+    sendJson.mockResolvedValueOnce({ recovered: true });
+    fireEvent.click(within(screen.getByText("認証の初期化", { selector: "summary" }).closest("details")!).getByRole("button", { name: "初期化" }));
+    expect(await screen.findByRole("alert")).toHaveProperty("textContent", expect.stringContaining("設定の自動復旧に失敗しました"));
+    fireEvent.click(await screen.findByRole("button", { name: "保全ファイルから復旧" }));
+    await waitFor(() => expect(sendJson).toHaveBeenCalledWith("/api/settings/transfer", { action: "recover", recoveryId }));
+    expect(await screen.findByRole("status")).toHaveProperty("textContent", "保全ファイルから復旧しました。LeafCodePiを再起動してください。");
+  });
 });

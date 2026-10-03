@@ -168,6 +168,7 @@ export async function withTransferRecovery<T>(
   paths: readonly string[],
   action: () => Promise<T>,
   onRestored?: () => void,
+  options?: { completedLabel?: string },
 ): Promise<T> {
   if (!paths.length) return action();
   const root = dataDir();
@@ -194,7 +195,7 @@ export async function withTransferRecovery<T>(
     }
     // 成功後は平文の保全ファイルを残さない。削除失敗でも適用済みと明示する。
     try { rmSync(journalPath, { force: true }); }
-    catch { throw new TransferRecoveryError(journalPath, "インポートは完了しましたが、保全ファイルを削除できませんでした", true); }
+    catch { throw new TransferRecoveryError(journalPath, `${options?.completedLabel ?? "インポート"}は完了しましたが、保全ファイルを削除できませんでした`, true); }
     return result;
   } finally {
     activeTransactions.delete(root);

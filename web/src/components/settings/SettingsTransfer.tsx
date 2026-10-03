@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { History, Search, Trash2 } from "lucide-react";
+import { History, RotateCcw, Search, Trash2 } from "lucide-react";
 import { Button, cx } from "@/components/ui";
 import { SettingsDisclosure, TransferActions } from "@/components/settings/TransferControls";
 import { getJson, sendJson } from "@/lib/client";
@@ -16,7 +16,7 @@ const labels: Record<TransferScope, string> = {
   all: "WebUI動作設定とプロバイダー認証",
 };
 
-type BusyAction = "export" | "import" | "check" | `recover:${string}` | `discard:${string}`;
+type BusyAction = "export" | "import" | "reset" | "check" | `recover:${string}` | `discard:${string}`;
 
 export function SettingsTransfer() {
   const [busy, setBusy] = useState<BusyAction | null>(null);
@@ -127,6 +127,27 @@ export function SettingsTransfer() {
     }
   }
 
+  async function resetCredentials() {
+    if (!window.confirm("保存済みのプロバイダー認証を初期化します。旧認証はバックアップへ退避し、このPCのログイン状態は未ログインへ戻ります。完了後にLeafCodePiを再起動してください。")) return;
+    setBusy("reset");
+    setError(null);
+    setMessage(null);
+    setRecoveryId(null);
+    try {
+      const result = await sendJson<{ backupPath: string; accountCount: number; warning?: string }>("/api/settings/transfer", undefined, "DELETE");
+      setMessage(`旧認証を${result.backupPath}へ退避し、保存済みのプロバイダー認証を初期化しました。LeafCodePiを再起動してください`);
+      if (result.warning) setError(result.warning);
+    } catch (cause) {
+      const detail = cause instanceof Error ? cause.message : "認証の初期化に失敗しました";
+      setError(detail);
+      setRecoveryId(detail.startsWith("設定の自動復旧に失敗しました")
+        ? detail.match(/settings-transfer-recovery[\\/]([0-9a-f-]{36})\.json/)?.[1] ?? null
+        : null);
+    } finally {
+      setBusy(null);
+    }
+  }
+
   const disabled = busy !== null;
 
   return (
@@ -173,6 +194,14 @@ export function SettingsTransfer() {
               </ul>
             </>
           )}
+        </SettingsDisclosure>
+        <SettingsDisclosure title="認証の初期化">
+          <p className="text-xs leading-5 text-muted">
+            保存済みのプロバイダー認証（auth.json・cookie・アカウント認証）をバックアップへ退避してから削除します。退避したJSONはこのカードのインポートで戻せます。アカウント一覧とWebUI動作設定は残り、OS資格情報ストアとブラウザ内のcookieは変更しません。
+          </p>
+          <Button className="w-full" variant="danger" busy={busy === "reset"} disabled={disabled} onClick={() => void resetCredentials()}>
+            <RotateCcw className="h-4 w-4" />初期化
+          </Button>
         </SettingsDisclosure>
       </div>
       {message && <p role="status" className="mt-2 text-xs text-success">{message}</p>}

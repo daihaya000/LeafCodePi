@@ -11,7 +11,7 @@ import { writeAccountOpenCodeGoWorkspace } from "@/lib/codexbar/providers/openco
 import { getSetting, setSetting } from "@/lib/pi/web-settings";
 import { importSettingsBackup } from "@/lib/pi/settings-transfer";
 import { TransferRecoveryError, withTransferRecovery } from "@/lib/pi/transfer-recovery";
-import { GET, POST } from "./route";
+import { DELETE, GET, POST } from "./route";
 
 const saved = {
   data: process.env.LEAFCODE_PI_DATA_DIR,
@@ -38,6 +38,9 @@ function request(body: unknown, headers: Record<string, string> = {}) {
 }
 function getRequest(headers: Record<string, string> = {}) {
   return new NextRequest("http://localhost/api/settings/transfer", { headers });
+}
+function deleteRequest(headers: Record<string, string> = {}) {
+  return new NextRequest("http://localhost/api/settings/transfer", { method: "DELETE", headers });
 }
 function restore(key: keyof typeof saved, env: string) {
   if (saved[key] === undefined) delete process.env[env];
@@ -157,6 +160,50 @@ describe("/api/settings/transfer", () => {
     expect(JSON.parse(readFileSync(join(process.env.PI_CODING_AGENT_DIR!, "auth.json"), "utf8")).typesafe.key).toBe("default-key");
     expect(readFileSync(accountAnthropicCookiePath(accountAuthPath(account.id, process.env.PI_CODING_AGENT_DIR!)), "utf8")).toContain("ant-session");
     expect(readFileSync(defaultTypesafeCookiePath(), "utf8")).toContain("organization_id");
+  });
+
+  it("resets stored provider credentials to a backup without touching settings or account records", async () => {
+    setup();
+    const agentDir = process.env.PI_CODING_AGENT_DIR!;
+    const account = createAccount({ label: "personal", providers: ["openrouter", "anthropic"] });
+    const authPath = accountAuthPath(account.id, agentDir);
+    mkdirSync(dirname(authPath), { recursive: true });
+    writeFileSync(authPath, JSON.stringify({ openrouter: { type: "api_key", key: "ACCOUNT-SECRET" } }));
+    const defaultAuth = join(agentDir, "auth.json");
+    writeFileSync(defaultAuth, JSON.stringify({ typesafe: { type: "api_key", key: "DEFAULT-SECRET" } }));
+    const anthCookie = "# Netscape HTTP Cookie File\n.claude.com\tTRUE\t/\tTRUE\t0\tsessionKey\tant-session\n";
+    saveAccountAnthropicCookieFile(authPath, anthCookie);
+    saveTypesafeCookieFile("# Netscape HTTP Cookie File\nconsole.typesafe.ai\tFALSE\t/\tTRUE\t0\tsession_id\tkey\nconsole.typesafe.ai\tFALSE\t/\tTRUE\t0\torganization_id\torg\n");
+    writeOpenRouterAccountConfig(authPath, { managementKey: "management-secret" });
+    setSetting("auto-optimize", "balanced");
+
+    const response = await DELETE(deleteRequest({ cookie: "leafcode-pi-token=test-token" }));
+    expect(response.status).toBe(200);
+    const result = await response.json() as { backupPath: string; accountCount: number };
+    expect(result.accountCount).toBe(1);
+    expect(existsSync(defaultAuth)).toBe(false);
+    expect(existsSync(authPath)).toBe(false);
+    expect(existsSync(accountAnthropicCookiePath(authPath))).toBe(false);
+    expect(existsSync(defaultTypesafeCookiePath())).toBe(false);
+    expect(existsSync(join(dirname(authPath), "openrouter.json"))).toBe(false);
+    // アカウント一覧と設定は残り、旧認証は再インポート可能なバックアップへ退避される。
+    expect(listAccounts()).toHaveLength(1);
+    expect(getSetting("auto-optimize")).toBe("balanced");
+    expect(existsSync(result.backupPath)).toBe(true);
+    const backup = JSON.parse(readFileSync(result.backupPath, "utf8"));
+    expect(backup.scope).toBe("credentials");
+    expect(backup.credentials.defaultAuth.typesafe.key).toBe("DEFAULT-SECRET");
+    expect(backup.credentials.accounts[0].auth.openrouter.key).toBe("ACCOUNT-SECRET");
+    expect(backup.credentials.accounts[0].openrouterManagementKey).toBe("management-secret");
+    const recoveryDir = join(process.env.LEAFCODE_PI_DATA_DIR!, "settings-transfer-recovery");
+    expect(existsSync(recoveryDir) ? readdirSync(recoveryDir) : []).toEqual([]);
+  });
+
+  it("denies credential reset without access-token protection", async () => {
+    setup();
+    expect((await DELETE(deleteRequest())).status).toBe(403);
+    process.env.LEAFCODE_PI_BIND_HOST = "127.0.0.1";
+    expect((await DELETE(deleteRequest())).status).toBe(200);
   });
 
   it("imports combined settings and new account references without changing unrelated values", async () => {

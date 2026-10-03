@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { exportSettingsBackup, importSettingsBackup, type TransferScope } from "@/lib/pi/settings-transfer";
+import { exportSettingsBackup, importSettingsBackup, resetStoredCredentials, type TransferScope } from "@/lib/pi/settings-transfer";
 import { TransferRecoveryError, discardTransferRecoveryFile, listTransferRecoveries, restoreTransferRecoveryFile } from "@/lib/pi/transfer-recovery";
 import { invalidateSettingsFileCache } from "@/lib/pi/web-settings";
 import { invalidateCachedUsage } from "@/lib/codexbar/cache";
@@ -9,6 +9,24 @@ import { rejectUnauthorizedTransfer, transferNoStore as noStore } from "@/lib/pi
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+
+export async function DELETE(req: NextRequest) {
+  const unauthorized = rejectUnauthorizedTransfer(req);
+  if (unauthorized) return unauthorized;
+  try {
+    const result = await resetStoredCredentials();
+    return NextResponse.json({ ok: true, ...result }, { headers: noStore });
+  } catch (error) {
+    if (error instanceof TransferRecoveryError) {
+      return NextResponse.json({ error: error.message, recoveryPath: error.recoveryPath }, { status: 500, headers: noStore });
+    }
+    const status = (error as { status?: unknown }).status;
+    return NextResponse.json(
+      { error: status === 400 ? (error as Error).message : "認証の初期化に失敗しました" },
+      { status: status === 400 ? 400 : 500, headers: noStore },
+    );
+  }
+}
 
 export async function GET(req: NextRequest) {
   const unauthorized = rejectUnauthorizedTransfer(req);

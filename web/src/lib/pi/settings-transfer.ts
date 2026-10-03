@@ -1,5 +1,5 @@
-import { lstatSync, readFileSync } from "node:fs";
-import { dirname, join } from "node:path";
+import { lstatSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { basename, dirname, join } from "node:path";
 import {
   accountAuthPath, importAccountRecords, listAccounts, resolvePiAgentDir,
   type AccountRecord,
@@ -23,7 +23,7 @@ import {
 } from "@/lib/hang-timeout";
 import { JEV_MODEL_SETTING_KEY, normalizeJevModelSettings } from "@/lib/jev-model-settings";
 import { ALLOWED_SETTING_KEYS, validateSettingValue } from "@/lib/pi/setting-validation";
-import { withAuthFileLock, withTransferRecovery } from "@/lib/pi/transfer-recovery";
+import { TransferRecoveryError, withAuthFileLock, withTransferRecovery } from "@/lib/pi/transfer-recovery";
 import { MAX_SETTING_VALUE_CHARS, invalidateSettingsFileCache, readSettingsFile, updateSettingsFile } from "@/lib/pi/web-settings";
 import { dataDir } from "@/lib/paths";
 
@@ -152,6 +152,66 @@ export async function exportSettingsBackup(scope: TransferScope): Promise<Settin
   }
   if (Buffer.byteLength(JSON.stringify(backup), "utf8") > MAX_ARCHIVE_BYTES) invalid("バックアップが大きすぎます");
   return backup;
+}
+
+const CREDENTIAL_BACKUP_DIRECTORY = "credential-backups";
+
+function writeCredentialBackup(backup: SettingsBackup): string {
+  const directory = join(dataDir(), CREDENTIAL_BACKUP_DIRECTORY);
+  mkdirSync(directory, { recursive: true, mode: 0o700 });
+  const base = `leafcode-pi-credentials-${new Date().toISOString().replaceAll(/[:.]/g, "-")}-${process.pid}`;
+  for (let index = 0; ; index += 1) {
+    const path = join(directory, `${base}${index ? `-${index}` : ""}.json`);
+    try {
+      writeFileSync(path, `${JSON.stringify(backup, null, 2)}\n`, { mode: 0o600, flag: "wx" });
+      return path;
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
+    }
+  }
+}
+
+export type CredentialResetSummary = {
+  backupPath: string;
+  accountCount: number;
+  warning?: string;
+};
+
+/**
+ * 保存済みのプロバイダー認証をバックアップへ退避してから削除する。
+ * アカウント一覧・WebUI設定・OS資格情報ストアは変更しない。
+ */
+export async function resetStoredCredentials(): Promise<CredentialResetSummary> {
+  const agentDir = await resolvePiAgentDir();
+  const accounts = listAccounts();
+  if (accounts.length > 200) invalid("アカウント数が多すぎます");
+  const targets: string[] = [join(agentDir, "auth.json")];
+  for (const record of accounts) {
+    const authPath = accountAuthPath(record.id, agentDir);
+    targets.push(authPath, join(dirname(authPath), "openrouter.json"), ...Object.values(cookiePaths(authPath, record.id)));
+  }
+  targets.push(defaultAnthropicCookiePath(), defaultOpenCodeCookiePath(), defaultOllamaCookiePath(), defaultTypesafeCookiePath());
+
+  let backupPath = "";
+  const reset = async () => {
+    backupPath = writeCredentialBackup(await exportSettingsBackup("credentials"));
+    for (const path of targets) {
+      const removeOne = () => { rmSync(path, { force: true }); };
+      if (basename(path) === "auth.json") await withAuthFileLock(path, removeOne);
+      else removeOne();
+    }
+  };
+  try {
+    await withTransferRecovery(targets, reset, () => invalidateCachedUsage(), { completedLabel: "初期化" });
+  } catch (error) {
+    if (error instanceof TransferRecoveryError && error.applied) {
+      invalidateCachedUsage();
+      return { backupPath, accountCount: accounts.length, warning: error.message };
+    }
+    throw error;
+  }
+  invalidateCachedUsage();
+  return { backupPath, accountCount: accounts.length };
 }
 
 function validateSettings(raw: unknown, accountIds: readonly string[] = []): Record<string, string | number> {
