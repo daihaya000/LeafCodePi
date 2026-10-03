@@ -180,6 +180,27 @@ export function toolResultText(result: unknown): string {
   );
 }
 
+/**
+ * data URL は多次元文字列。実測で画像付きセッションではこれが snapshot の 99.9%
+ * を占め、投影のたびに同じ画像の文字列を作り直すと大きなヒープの churn になる。
+ * mime と base64 の組が同じなら同じ文字列を使い回す。
+ */
+const imageDataUrlCache = new Map<string, string>();
+const IMAGE_DATA_URL_CACHE_MAX_ENTRIES = 16;
+
+function imageDataUrl(mime: string, data: string): string {
+  const key = `${mime}\u0000${data}`;
+  const cached = imageDataUrlCache.get(key);
+  if (cached) return cached;
+  const url = `data:${mime};base64,${data}`;
+  if (imageDataUrlCache.size >= IMAGE_DATA_URL_CACHE_MAX_ENTRIES) {
+    const oldest = imageDataUrlCache.keys().next().value;
+    if (oldest !== undefined) imageDataUrlCache.delete(oldest);
+  }
+  imageDataUrlCache.set(key, url);
+  return url;
+}
+
 function imagePartsFromBlocks(blocks: unknown[], prefix: string): UiPart[] {
   const parts: UiPart[] = [];
   blocks.forEach((block, index) => {
@@ -191,7 +212,7 @@ function imagePartsFromBlocks(blocks: unknown[], prefix: string): UiPart[] {
       id: `${prefix}-image-${index}`,
       type: "image",
       mime,
-      url: `data:${mime};base64,${data}`,
+      url: imageDataUrl(mime, data),
     });
   });
   return parts;

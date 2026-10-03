@@ -532,6 +532,41 @@ describe("projectPiMessages", () => {
   });
 });
 
+describe("image data URL projection", () => {
+  const imageMessage = (id: string, data: string) => ({
+    id,
+    role: "user",
+    type: "message",
+    timestamp: 1_700_000_000_000,
+    content: [{ type: "image", mimeType: "image/png", data }],
+  });
+
+  it("reuses one data-URL string for the same image across projections", () => {
+    const raw = [{ type: "session", id: "s1" }, imageMessage("m1", "A".repeat(50_000))];
+
+    const first = projectPiMessages(raw)[0]?.parts[0];
+    const second = projectPiMessages(raw)[0]?.parts[0];
+
+    expect(first?.type).toBe("image");
+    expect(second?.type).toBe("image");
+    if (first?.type !== "image" || second?.type !== "image") throw new Error("expected image parts");
+    // Same string instance: a re-projection must not rebuild a megabyte-sized URL.
+    expect(second.url).toBe(first.url);
+  });
+
+  it("keeps distinct images distinct", () => {
+    const raw = [
+      { type: "session", id: "s1" },
+      imageMessage("m1", "AAAA"),
+      imageMessage("m2", "BBBB"),
+    ];
+    const urls = projectPiMessages(raw)
+      .flatMap((message) => message.parts)
+      .map((part) => (part.type === "image" ? part.url : ""));
+    expect(urls).toEqual(["data:image/png;base64,AAAA", "data:image/png;base64,BBBB"]);
+  });
+});
+
 describe("entryIdsForProjectedMessages", () => {
   it("skips toolResult entries so user message ids stay aligned", () => {
     const user1 = { role: "user", content: "ls して" };
