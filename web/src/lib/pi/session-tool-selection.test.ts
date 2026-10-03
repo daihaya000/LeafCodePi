@@ -59,7 +59,8 @@ async function create(selection: ReturnType<typeof sessionToolSelection> | ((reg
   });
   session = created.session;
   if ("initialActive" in picked) session.setActiveToolsByName(picked.initialActive);
-  await session.bindExtensions({});
+  // Like the harness: an error listener makes reload() emit session_start again.
+  await session.bindExtensions({ onError: () => undefined });
   return session;
 }
 
@@ -105,5 +106,16 @@ describe("real SDK session", () => {
     // The MCP extension activates codemode when a server needs it; that must be possible.
     created.setActiveToolsByName([...created.getActiveToolNames(), "codemode"]);
     assert.equal(created.getActiveToolNames().includes("codemode"), true);
+  }, 30_000);
+
+  it("keeps the same loadout and reachability across a session reload", async () => {
+    const created = await create((registered) => sessionToolSelection({ tools: ["read", "listed"], dynamicMcpTools: true, registered }));
+    created.setActiveToolsByName([...created.getActiveToolNames(), "codemode"]);
+    await created.reload();
+    const names = created.getAllTools().map((tool) => tool.name);
+    assert.equal(names.includes("unlisted"), false);
+    assert.equal(names.includes("bash"), false);
+    assert.deepEqual(created.getActiveToolNames().sort(), ["codemode", "listed", "read"]);
+    assert.deepEqual(created.getCallableToolNames().sort(), ["listed", "mcp__fixture__echo", "read"]);
   }, 30_000);
 });
