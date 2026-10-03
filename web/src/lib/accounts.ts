@@ -409,9 +409,9 @@ export function createAccount(input: {
 }
 
 /**
- * 実行中タスク / live Goal Loop / ランタイム lease / hang 監視から参照されている
- * アカウントは削除も一時停止も拒否する（provider fallback 中や hang abort→resume
- * の隙間は status が idle でも lease / hang watch が残る）。
+ * 実行中タスク / Goal Loop / ランタイム lease / hang 監視から参照されている
+ * アカウントの一時停止を拒否する。削除は live / blocked Loop を拒否するが、
+ * paused Loop はユーザーが停止中と判断して削除できる。
  */
 function assertAccountIdleForDisable(id: string, action: "delete" | "pause"): void {
   const verb = action === "delete" ? "削除" : "一時停止";
@@ -432,7 +432,8 @@ function assertAccountIdleForDisable(id: string, action: "delete" | "pause"): vo
       );
     }
     const loop = readGoalLoopState(task.directory, task.sessionId);
-    if (isGoalLoopSessionOwned(loop)) {
+    const pausedLoopMayBeDeleted = action === "delete" && loop?.status === "paused";
+    if (isGoalLoopSessionOwned(loop) && !pausedLoopMayBeDeleted) {
       throw Object.assign(
         new Error(`このアカウントで Goal Loop が動作中のため${verb}できません`),
         { status: 409 },
@@ -475,7 +476,7 @@ export function patchAccount(
  * （実行中セッションが認証を読み続けられるようにするため。再作成時も同じパスを使う）。
  */
 export function deleteAccount(id: string): void {
-  // code / bot 双方。Goal Loop は idle でもループが生きていることがある。
+  // code / bot 双方。Goal Loop は idle でも継続中の場合、削除を拒否する。
   assertAccountIdleForDisable(id, "delete");
   const file = readAccountsFile();
   const index = file.accounts.findIndex((account) => account.id === id);

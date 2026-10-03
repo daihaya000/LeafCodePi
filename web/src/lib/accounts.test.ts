@@ -565,7 +565,7 @@ describe("accounts store CRUD", () => {
     assert.equal(getAccount(account.id)?.enabled, true);
   });
 
-  it("refuses to delete while a Goal Loop is operator-held (manual_send)", () => {
+  it("allows deleting while a Goal Loop is paused for an operator hold", () => {
     tempDataDir();
     const project = upsertProject({
       name: "goal-hold-delete",
@@ -597,15 +597,11 @@ describe("accounts store CRUD", () => {
       }),
       "utf8",
     );
-    assert.throws(
-      () => deleteAccount(account.id),
-      (error) =>
-        httpStatus(error) === 409 &&
-        String((error as Error).message).includes("Goal Loop"),
-    );
+    deleteAccount(account.id);
+    assert.equal(getAccount(account.id), undefined);
   });
 
-  it("refuses to delete while a Goal Loop is turn_limit paused", () => {
+  it("allows deleting while a Goal Loop is turn_limit paused", () => {
     tempDataDir();
     const project = upsertProject({
       name: "goal-turn-limit-delete",
@@ -632,6 +628,41 @@ describe("accounts store CRUD", () => {
         goal: "ship",
         status: "paused",
         pauseReason: "turn_limit",
+        maxTurns: 3,
+        cooldownSeconds: 0,
+      }),
+      "utf8",
+    );
+    deleteAccount(account.id);
+    assert.equal(getAccount(account.id), undefined);
+  });
+
+  it("still refuses to delete while a Goal Loop is blocked", () => {
+    tempDataDir();
+    const project = upsertProject({
+      name: "goal-blocked-delete",
+      rootPath: join(tmpdir(), "goal-blocked-delete-root"),
+    });
+    const task = insertTask({ project, title: "goal blocked delete task" });
+    const account = createAccount({
+      label: "goal-blocked-delete",
+      providers: ["openai-codex"],
+    });
+    patchLoose(task.id, {
+      status: "idle",
+      accountId: account.id,
+      sessionId: "goal-blocked-delete-session",
+    });
+    const loopFile = goalLoopStateFile(task.directory, "goal-blocked-delete-session");
+    mkdirSync(join(process.env.LEAFCODE_PI_DATA_DIR!, "goals-loop"), {
+      recursive: true,
+    });
+    writeFileSync(
+      loopFile,
+      JSON.stringify({
+        id: "loop-blocked-delete",
+        goal: "ship",
+        status: "blocked",
         maxTurns: 3,
         cooldownSeconds: 0,
       }),
