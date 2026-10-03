@@ -2555,6 +2555,19 @@ async function attachSession(
     }
     return appendCompaction(...args);
   };
+  const appendContextEdit = session.sessionManager.appendContextEdit.bind(
+    session.sessionManager,
+  );
+  session.sessionManager.appendContextEdit = (...args) => {
+    if (live.leaseLost) return "";
+    const leaseRequired =
+      live.promptActive || session.isStreaming || hasActiveTaskLease(taskId);
+    if (leaseRequired && !ownsTaskLease(taskId)) {
+      abortTaskSessionsAfterLeaseLoss([taskId]);
+      return "";
+    }
+    return appendContextEdit(...args);
+  };
 
   const unsubscribe = session.subscribe((event) => {
     if (live.leaseLost) return;
