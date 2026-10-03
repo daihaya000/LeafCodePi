@@ -504,6 +504,8 @@ type LiveRuntime = {
   goalLoopTurnActive: boolean;
   /** A prompt has been accepted and is about to start or is still running. */
   promptActive: boolean;
+  /** This process lost the task lease; suppress later session effects. */
+  leaseLost: boolean;
   /** Settings selected during the current turn, applied before the next turn. */
   pendingSettings?: PendingLiveSettings;
   /** Bumped on abort so in-flight promptChain work after await does not resume. */
@@ -2421,6 +2423,7 @@ export function restoredThroughputState(
     manualCompactionInProgress: false,
     nativeCompactionAttempted: false,
     goalLoopTurnActive: false,
+    leaseLost: false,
     ...restoredThroughputState(existing, loaded, loadedToolTiming),
     snapshotTimer: null,
     pendingSnapshotEventType: null,
@@ -2505,6 +2508,7 @@ async function attachSession(
   });
 
   const unsubscribe = session.subscribe((event) => {
+    if (live.leaseLost) return;
     // The ordered effect sequence lives in backend core; every step below is the
     // harness-owned implementation of one step in that sequence.
     runSessionEventEffects(event, {
@@ -2619,7 +2623,10 @@ function shouldShutdownOnDispose(live: LiveRuntime, taskId: string): boolean {
 }
 
 /** live セッションを破棄し、保持していたアカウントランタイムの参照を解放する。 */
-function disposeLive(taskId: string): void {
+function disposeLive(
+  taskId: string,
+  options?: { skipRoomFlush?: boolean; skipExtensionShutdown?: boolean },
+): void {
   ensureLiveEpoch.set(taskId, (ensureLiveEpoch.get(taskId) ?? 0) + 1);
   disarmTaskHangWatch(taskId);
   clearPendingAttentionForTask(taskId);
@@ -2627,7 +2634,7 @@ function disposeLive(taskId: string): void {
   if (!live) return;
   // Room live を map から消す前に flush（消すと resident=false になり queued が永久放置される）。
   const roomBotId = roomBotIdFromTaskId(taskId);
-  if (roomBotId) {
+  if (roomBotId && !options?.skipRoomFlush) {
     live.promptActive = false;
     const otherRoomBusy = hasOtherBusyRoomLive(taskId, roomBotId, state().live);
     try {
@@ -2638,7 +2645,7 @@ function disposeLive(taskId: string): void {
   }
   live.unsubscribe();
   state().live.delete(taskId);
-  if (shouldShutdownOnDispose(live, taskId)) {
+  if (!options?.skipExtensionShutdown && shouldShutdownOnDispose(live, taskId)) {
     // Extensions (intercom presence/timers, memory SQLite, MCP) only release
     // resources in session_shutdown, which AgentSession.dispose() never emits.
     // ensureLive waits for this before recreating the same task's session.
@@ -7795,6 +7802,7 @@ export async function goalLoopCommand(
   const preparation = input.action === "start" || input.action === "resume" ? beginTaskPreparation(taskId) : undefined;
   try {
   let live = await ensureLive(taskId);
+  if (live.leaseLost) throw Object.assign(new Error(TASK_LEASE_BUSY_ERROR), { status: 409 });
   preparation?.assertCurrent();
   if (input.action === "start") {
     ensureSessionFilePersisted(live.session.sessionManager);
@@ -9218,11 +9226,10 @@ function queuePrompt(
   if (hangWatchAction === "disarm") disarmTaskHangWatch(live.taskId);
   let activeLive = live;
   const startedEpoch = live.promptEpoch;
-  const stillQueued = () =>
-    !isStaleHarnessPrompt(
-      startedEpoch,
-      (state().live.get(live.taskId) ?? live).promptEpoch,
-    );
+  const stillQueued = () => {
+    const currentLive = state().live.get(live.taskId) ?? live;
+    return !live.leaseLost && !currentLive.leaseLost && !isStaleHarnessPrompt(startedEpoch, currentLive.promptEpoch);
+  };
   const demoteInterruptToNormalPrompt = () => {
     // Stream ended (or never opened) while the client still looked "working".
     // Run as the next serial turn instead of silently dropping the text.
@@ -9615,6 +9622,9 @@ export async function promptTask(
   const preparation = beginTaskPreparation(id);
   try {
   const taskBeforePrompt = requireTask(id);
+  if (state().live.get(id)?.leaseLost) {
+    throw Object.assign(new Error(TASK_LEASE_BUSY_ERROR), { status: 409 });
+  }
   // 送信者はサーバー側でだけ決める。HTTP 本文にマーカーが含まれていてもBot送信にはしない。
   const promptText = options?.fromBot ? markBotPrompt(prompt) : stripBotPromptPrefix(prompt);
   // Gate precedence (archived project → Bot-code forwarding → foreign lease) lives in
@@ -9976,6 +9986,42 @@ function cancelHarnessPrompt(live: LiveRuntime): void {
   live.promptEpoch = nextPromptEpoch(live.promptEpoch);
   live.promptActive = false;
   live.pendingTransportRecovery = false;
+}
+
+/** Stop this process's local Pi session without changing the now-foreign task state. */
+export function abortTaskSessionsAfterLeaseLoss(taskIds: string[]): void {
+  for (const taskId of new Set(taskIds)) {
+    const live = state().live.get(taskId);
+    if (!live || live.leaseLost) continue;
+    live.leaseLost = true;
+    invalidateTaskPreparations(taskId);
+    disarmTaskHangWatch(taskId);
+    clearPendingAttentionForTask(taskId);
+    cancelHarnessPrompt(live);
+    clearSessionQueue(live.session);
+    cancelPendingTaskSnapshot(live);
+    const detachLostLive = () => {
+      if (state().live.get(taskId) !== live) return;
+      try {
+        // Mailbox flush and extension shutdown can write shared state after ownership was lost.
+        disposeLive(taskId, { skipRoomFlush: true, skipExtensionShutdown: true });
+      } catch (error) {
+        console.warn(`[task-runtime-lease] local session dispose failed for ${taskId}`, error);
+      }
+    };
+    try {
+      void Promise.resolve(live.session.abort()).then(
+        detachLostLive,
+        (error) => {
+          console.warn(`[task-runtime-lease] local session abort failed for ${taskId}`, error);
+          detachLostLive();
+        },
+      );
+    } catch (error) {
+      console.warn(`[task-runtime-lease] local session abort failed for ${taskId}`, error);
+      detachLostLive();
+    }
+  }
 }
 
 /** Pi aborts the running turn with a message like "Request was aborted". */

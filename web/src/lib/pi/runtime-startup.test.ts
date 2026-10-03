@@ -5,12 +5,15 @@ const mocks = vi.hoisted(() => ({
   reconcileOrphanedWorkingTasks: vi.fn(),
   ensureRoutineScheduler: vi.fn(),
   reconcileRoomRuntime: vi.fn(),
+  setLeaseLostListener: vi.fn(),
+  abortTaskSessionsAfterLeaseLoss: vi.fn(),
   localRuntimeBlocked: vi.fn(() => false),
 }));
 
 vi.mock("@/lib/pi/harness", () => ({
   startBotCodeRelay: mocks.startBotCodeRelay,
   promptTask: vi.fn(),
+  abortTaskSessionsAfterLeaseLoss: mocks.abortTaskSessionsAfterLeaseLoss,
   // Left out on purpose: the optional warmups are skipped instead of importing their modules here.
   getTaskSummariesWithTodoProgress: undefined,
   listModelsForAccounts: undefined,
@@ -18,7 +21,8 @@ vi.mock("@/lib/pi/harness", () => ({
 vi.mock("@/lib/routines", () => ({ ensureRoutineScheduler: mocks.ensureRoutineScheduler }));
 vi.mock("@/lib/task-runtime-lease", () => ({
   reconcileOrphanedWorkingTasks: mocks.reconcileOrphanedWorkingTasks,
-  // No listener, so the resume wiring is skipped instead of importing the store here.
+  setLeaseLostListener: mocks.setLeaseLostListener,
+  // No orphan listener, so the resume wiring is skipped instead of importing the store here.
   setOrphanedTaskListener: undefined,
 }));
 vi.mock("@/lib/room-runtime", () => ({ reconcileRoomRuntime: mocks.reconcileRoomRuntime }));
@@ -48,6 +52,10 @@ describe("startRuntimeServices", () => {
     expect(mocks.ensureRoutineScheduler).toHaveBeenCalledTimes(1);
     expect(mocks.reconcileOrphanedWorkingTasks).toHaveBeenCalledTimes(1);
     expect(mocks.reconcileRoomRuntime).toHaveBeenCalledTimes(1);
+    expect(mocks.setLeaseLostListener).toHaveBeenCalledTimes(1);
+    const lostLeaseListener = mocks.setLeaseLostListener.mock.calls[0]?.[0] as ((taskIds: string[]) => void) | undefined;
+    lostLeaseListener?.(["task"]);
+    expect(mocks.abortTaskSessionsAfterLeaseLoss).toHaveBeenCalledWith(["task"]);
   });
 
   it("does not start any owner-only service once the Backend owns the runtime", async () => {
@@ -57,6 +65,7 @@ describe("startRuntimeServices", () => {
     expect(mocks.ensureRoutineScheduler).not.toHaveBeenCalled();
     expect(mocks.reconcileOrphanedWorkingTasks).not.toHaveBeenCalled();
     expect(mocks.reconcileRoomRuntime).not.toHaveBeenCalled();
+    expect(mocks.setLeaseLostListener).not.toHaveBeenCalled();
   });
 
   it("reuses one startup across calls", async () => {

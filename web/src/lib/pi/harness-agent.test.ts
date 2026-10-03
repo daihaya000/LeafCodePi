@@ -13,7 +13,7 @@ import {
   getTaskHangWatch,
   stopHangWatchdogForTests,
 } from "./hang-watchdog";
-import { abortLiveForHangWatchdog, abortTask, archiveTask, autoArchiveOldTasks, evictIdleLiveSessions, destroyProject, destroyTask, getTaskDetail, isLiveBusyForReplace, isTaskRuntimeOwnedElsewhere, listActiveLlamaAgentModels, markTaskWorkingIfIdle, refreshLiveSessionsForAgentDefinition, reloadLiveSessionsContext, resetTaskSession, restoreTask, setBotPermissionMode, setBotTools, setTaskAgent, throwIfBusyForModelChange, throwIfBusyForPermissionChange, throwIfBusyForSkillPermissionChange, throwIfBusyForThinkingChange } from "./harness";
+import { abortLiveForHangWatchdog, abortTask, abortTaskSessionsAfterLeaseLoss, promptTask, archiveTask, autoArchiveOldTasks, evictIdleLiveSessions, destroyProject, destroyTask, getTaskDetail, isLiveBusyForReplace, isTaskRuntimeOwnedElsewhere, listActiveLlamaAgentModels, markTaskWorkingIfIdle, refreshLiveSessionsForAgentDefinition, reloadLiveSessionsContext, resetTaskSession, restoreTask, setBotPermissionMode, setBotTools, setTaskAgent, throwIfBusyForModelChange, throwIfBusyForPermissionChange, throwIfBusyForSkillPermissionChange, throwIfBusyForThinkingChange } from "./harness";
 import { taskRuntimeLeasePath } from "@/lib/task-runtime-lease";
 import { botTaskId, createBot, getBot, patchBot } from "@/lib/bots";
 import { setAgentEnabled } from "@/lib/agents";
@@ -339,6 +339,59 @@ describe("markTaskWorkingIfIdle", () => {
     assert.equal(markTaskWorkingIfIdle(task.id), true);
     assert.equal(getTask(task.id)?.status, "working");
     assert.equal(markTaskWorkingIfIdle(task.id), false);
+  });
+});
+
+describe("abortTaskSessionsAfterLeaseLoss", () => {
+  it("aborts only the local session and leaves the shared working task untouched", async () => {
+    const root = mkdtempSync(join(tmpdir(), "leafcode-pi-lease-lost-abort-"));
+    tempDirs.push(root);
+    process.env.LEAFCODE_PI_DATA_DIR = join(root, "data");
+    const project = upsertProject({ name: "demo", rootPath: root });
+    const task = insertTask({ project, title: "lease lost task" });
+    setTaskStatus(task.id, "working");
+    const manualAbortBefore = getTask(task.id)?.manualAbortedAssistantId;
+    let abortCount = 0;
+    let clearQueueCount = 0;
+    let disposeCount = 0;
+    let unsubscribeCount = 0;
+    const lostLive = {
+      taskId: task.id,
+      accountId: null,
+      leaseLost: false,
+      promptActive: true,
+      promptEpoch: 0,
+      session: {
+        clearQueue: () => { clearQueueCount += 1; },
+        abort: async () => { abortCount += 1; },
+        dispose: () => { disposeCount += 1; },
+      },
+      unsubscribe: () => { unsubscribeCount += 1; },
+      snapshotTimer: null,
+      pendingSnapshotEventType: "snapshot",
+      pendingSnapshotIsDelta: false,
+      pendingSnapshotExtra: undefined,
+    };
+    const live = new Map([[task.id, lostLive]]);
+    installFixtureHarness(live);
+
+    abortTaskSessionsAfterLeaseLoss([task.id, task.id]);
+    await assert.rejects(promptTask(task.id, "must not run"), (error) => {
+      assert.equal((error as { status?: number }).status, 409);
+      return true;
+    });
+    await Promise.resolve();
+
+    assert.equal(lostLive.leaseLost, true);
+    assert.equal(lostLive.promptActive, false);
+    assert.equal(lostLive.promptEpoch, 1);
+    assert.equal(clearQueueCount, 1);
+    assert.equal(abortCount, 1);
+    assert.equal(disposeCount, 1);
+    assert.equal(unsubscribeCount, 1);
+    assert.equal(live.has(task.id), false);
+    assert.equal(getTask(task.id)?.status, "working");
+    assert.equal(getTask(task.id)?.manualAbortedAssistantId, manualAbortBefore);
   });
 });
 

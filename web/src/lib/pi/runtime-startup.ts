@@ -8,13 +8,16 @@ const globals = globalThis as typeof globalThis & {
 async function loadServices(): Promise<RuntimeStartupServices> {
   const harness = await import("@/lib/pi/harness");
   const { ensureRoutineScheduler: startRoutineScheduler } = await import("@/lib/routines");
-  const { reconcileOrphanedWorkingTasks: reconcileLeases, setOrphanedTaskListener } = await import("@/lib/task-runtime-lease");
+  const { reconcileOrphanedWorkingTasks: reconcileLeases, setOrphanedTaskListener, setLeaseLostListener } = await import("@/lib/task-runtime-lease");
   const { reconcileRoomRuntime: reconcileRooms } = await import("@/lib/room-runtime");
   return {
     registerRestartResume: async () => {
       // Recovery prompts sessions, so it belongs to the runtime owner. After the cutover the Backend
       // registers its own listener; one here would only spend its retry budget on refused prompts.
       if (localRuntimeBlocked()) return;
+      if (typeof setLeaseLostListener === "function" && typeof harness.abortTaskSessionsAfterLeaseLoss === "function") {
+        setLeaseLostListener((taskIds) => harness.abortTaskSessionsAfterLeaseLoss(taskIds));
+      }
       if (typeof setOrphanedTaskListener !== "function" || typeof harness.promptTask !== "function") return;
       const { handleOrphanedTasks } = await import("@/lib/pi/restart-resume");
       const { getTask } = await import("@/lib/store");
