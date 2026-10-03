@@ -270,6 +270,9 @@ export function RoomView({ id, active = true }: { id: string; active?: boolean }
   }, [attention, bots, id, notificationDeliveryEnabled, room]);
 
   useEffect(() => {
+    // 分割タブの裏ペインは描画されないので接続しない。前面に戻ると active が
+    // 変わりこの effect が再実行されて connect される。
+    if (!active) return;
     let closed = false;
     let source: EventSource | null = null;
     let retry: ReturnType<typeof setTimeout> | null = null;
@@ -330,7 +333,7 @@ export function RoomView({ id, active = true }: { id: string; active?: boolean }
       retry = cancelPendingSseReconnect(retry);
       source = closeSseSource(source);
     };
-  }, [id]);
+  }, [active, id]);
 
   const botById = useMemo(() => new Map(bots.map((bot) => [bot.id, bot])), [bots]);
   const members = useMemo(
