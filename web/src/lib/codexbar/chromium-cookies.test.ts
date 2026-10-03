@@ -11,6 +11,7 @@ import {
   lookupLinuxSafeStoragePasswordSync,
 } from "./chromium-cookie-crypto";
 import {
+  decryptChromeCookie,
   listChromiumBrowserRoots,
   readChromiumCookiesFromProfile,
 } from "./chromium-cookies";
@@ -116,6 +117,20 @@ describe("listChromiumBrowserRoots", () => {
 
   it("does not invent browser roots on macOS (Netscape fallback)", () => {
     expect(listChromiumBrowserRoots("darwin", homedir(), {})).toEqual([]);
+  });
+});
+
+describe("Windows Chromium App-Bound cookies", () => {
+  it("does not send v20 payloads to the user-DPAPI fallback", () => {
+    let unprotectCalls = 0;
+    const cookie = Buffer.from("v20app-bound-ciphertext");
+    const result = decryptChromeCookie(cookie, null, () => {
+      unprotectCalls += 1;
+      return Buffer.from("must not be used");
+    });
+
+    expect(result).toBeNull();
+    expect(unprotectCalls).toBe(0);
   });
 });
 

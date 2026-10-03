@@ -39,6 +39,15 @@ export type ChromiumCookieRow = {
 };
 
 const linuxSafeStorageKeyCache = new Map<string, Buffer>();
+let appBoundCookieWarningLogged = false;
+
+function warnUnsupportedAppBoundCookies(): void {
+  if (appBoundCookieWarningLogged) return;
+  appBoundCookieWarningLogged = true;
+  console.warn(
+    "[codexbar] Skipping Windows Chromium App-Bound (v20) cookies; automatic import cannot use Chrome's privileged, app-identity-checked decryption service. Sign in through the provider's supported flow.",
+  );
+}
 
 function dpapiUnprotect(ciphertext: Buffer): Buffer | null {
   if (process.platform !== "win32" || ciphertext.length === 0) return null;
@@ -98,9 +107,13 @@ function loadLinuxSafeStorageKey(secretToolApp?: string): Buffer | null {
 function decryptChromeCookie(
   encrypted: Buffer,
   masterKey: Buffer | null,
+  unprotect: (ciphertext: Buffer) => Buffer | null = dpapiUnprotect,
 ): string | null {
   if (encrypted.length < 4) return null;
   const prefix = encrypted.subarray(0, 3).toString("ascii");
+
+  // v20 is App-Bound Encryption and is not a user-DPAPI blob.
+  if (prefix === "v20") return null;
 
   if ((prefix === "v10" || prefix === "v11") && masterKey && masterKey.length > 0) {
     const payload = encrypted.subarray(3);
@@ -122,10 +135,10 @@ function decryptChromeCookie(
   }
 
   let ciphertext = encrypted;
-  if (prefix === "v10" || prefix === "v11" || prefix === "v20") {
+  if (prefix === "v10" || prefix === "v11") {
     ciphertext = encrypted.subarray(3);
   }
-  const legacy = dpapiUnprotect(ciphertext);
+  const legacy = unprotect(ciphertext);
   return legacy ? legacy.toString("utf8") : null;
 }
 
@@ -294,6 +307,7 @@ export function readChromiumCookiesFromProfile(
     }>;
 
     const out: ChromiumCookieRow[] = [];
+    let appBoundCookiesSkipped = false;
     const now = Date.now();
     for (const row of rows) {
       const hostKey = String(row.host_key ?? "");
@@ -303,6 +317,10 @@ export function readChromiumCookiesFromProfile(
         typeof row.value === "string" && row.value.length > 0 ? row.value : "";
       if (!value && row.encrypted_value) {
         const enc = Buffer.from(row.encrypted_value as Uint8Array);
+        if (platform === "win32" && enc.subarray(0, 3).toString("ascii") === "v20") {
+          appBoundCookiesSkipped = true;
+          continue;
+        }
         value =
           platform === "linux"
             ? decryptChromiumSafeStorageCookie(enc, masterKey ?? Buffer.alloc(0), stripHash) ?? ""
@@ -323,6 +341,7 @@ export function readChromiumCookiesFromProfile(
         isSecure: Boolean(row.is_secure),
       });
     }
+    if (appBoundCookiesSkipped) warnUnsupportedAppBoundCookies();
     return out;
   } catch {
     return [];
