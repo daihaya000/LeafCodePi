@@ -1,8 +1,15 @@
+import { dataDir } from "../core/app-paths.mjs";
 import { runtimeGenerationStatus } from "../../shared/backend-generation.mjs";
 import { DEFAULT_BACKEND_PORT } from "../../shared/backend-protocol.mjs";
 import { readPendingRequestSnapshots } from "./pending-requests.mjs";
 import { readMcpMigrationDiagnostics } from "./mcp-migration-diagnostics.mjs";
 import { createNativeMcpStartup, legacyAuthWriteRefusal } from "./mcp-native-activation.mjs";
+import { createBackendMcpHeaderNameStore } from "../core/mcp-header-names.mjs";
+import { parseMcpBearerSaveRequest } from "../../shared/mcp-bearer-save-request.mjs";
+import { parseMcpHeadersSaveRequest } from "../../shared/mcp-headers-save-request.mjs";
+import { parseMcpAuthRemoveRequest } from "../../shared/mcp-auth-remove-request.mjs";
+import { publicMcpAuthSnapshot } from "../../shared/mcp-auth-snapshot.mjs";
+import { publicMcpReload } from "../../shared/mcp-preset-request.mjs";
 import { createRuntimeHost } from "./runtime-host.mjs";
 import { createResumePrompt } from "./restart-resume-prompt.mjs";
 import { DEFAULT_RUNTIME_BUNDLE, loadBackendRuntime } from "./runtime-loader.mjs";
@@ -68,6 +75,22 @@ try {
   // Opt-in native MCP: only meaningful with an attached runtime, and never a fallback path. The
   // bundled adapter stays authoritative while the flag is unset, so the two never run together.
   const nativeMcp = createNativeMcpStartup({ runtimeRequested });
+  // Header NAMES written through the native auth API (never values), so a "saved headers" removal
+  // deletes exactly those instead of every header the user may have edited into mcp.json.
+  const headerNames = nativeMcp ? createBackendMcpHeaderNameStore({ dataDir: dataDir() }) : null;
+  /** Native auth mutation: writes the config header through the owner, then answers with the same
+   * public snapshot/reload shape the legacy store bridge produced. Values never leave the owner. */
+  const nativeAuthMutation = async (runtime, name, write) => {
+    let before;
+    try { before = nativeMcp.readAuthStatus(name); }
+    catch { throw Object.assign(new Error("Backend MCP auth target not found"), { status: 404 }); }
+    try { await write(); }
+    catch { throw Object.assign(new Error("Backend MCP auth write failed"), { status: 409 }); }
+    const auth = publicMcpAuthSnapshot(nativeMcp.readAuthStatus(name));
+    const reload = publicMcpReload(await runtime.reloadLiveSessionsContext());
+    if (!auth || !reload || auth.name !== before.name) throw Object.assign(new Error("Backend MCP auth result invalid"), { status: 500 });
+    return { ok: true, auth, reload };
+  };
   const started = createBackendStartup({
     // Only the host may attach the runtime: the Web process still owns the SDK unless it is asked
     // to hand over, and two owners would double-write the store, leases and sessions.
@@ -148,7 +171,18 @@ try {
     removeMcpAuthAction: async (name, input) => {
       const runtime = started.runtime();
       if (!runtime) throw Object.assign(new Error("runtime unavailable"), { status: 503 });
-      if (nativeMcp) throw legacyAuthWriteRefusal();
+      if (nativeMcp) {
+        const parsed = parseMcpAuthRemoveRequest(input);
+        if (!parsed.ok || !parsed.value.type) throw Object.assign(new Error("Backend MCP auth removal failed"), { status: 400 });
+        const type = parsed.value.type;
+        if (type === "oauth") return nativeAuthMutation(runtime, name, () => { nativeMcp.removeOAuth(name); });
+        const recorded = type === "bearer" ? ["Authorization"] : headerNames.read(name);
+        if (recorded.length === 0) return nativeAuthMutation(runtime, name, () => undefined);
+        return nativeAuthMutation(runtime, name, async () => {
+          await nativeMcp.writeAuth(name, Object.fromEntries(recorded.map((header) => [header, null])));
+          headerNames.record(name, headerNames.read(name).filter((header) => !recorded.includes(header)));
+        });
+      }
       try { return await runtime.removeMcpAuth(name, input); }
       catch (error) {
         throw Object.assign(new Error("Backend MCP auth removal failed"), { status: runtime.mcpErrorStatus(error) });
@@ -157,7 +191,15 @@ try {
     saveMcpHeadersAuthAction: async (name, input) => {
       const runtime = started.runtime();
       if (!runtime) throw Object.assign(new Error("runtime unavailable"), { status: 503 });
-      if (nativeMcp) throw legacyAuthWriteRefusal();
+      if (nativeMcp) {
+        const parsed = parseMcpHeadersSaveRequest(input);
+        if (!parsed.ok) throw Object.assign(new Error("Backend MCP headers save failed"), { status: 400 });
+        const written = Object.keys(parsed.value.headers);
+        return nativeAuthMutation(runtime, name, async () => {
+          await nativeMcp.writeAuth(name, parsed.value.headers);
+          headerNames.record(name, [...headerNames.read(name), ...written]);
+        });
+      }
       try { return await runtime.saveMcpHeadersAuth(name, input); }
       catch (error) {
         throw Object.assign(new Error("Backend MCP headers save failed"), { status: runtime.mcpErrorStatus(error) });
@@ -166,7 +208,11 @@ try {
     saveMcpBearerAuthAction: async (name, input) => {
       const runtime = started.runtime();
       if (!runtime) throw Object.assign(new Error("runtime unavailable"), { status: 503 });
-      if (nativeMcp) throw legacyAuthWriteRefusal();
+      if (nativeMcp) {
+        const parsed = parseMcpBearerSaveRequest(input);
+        if (!parsed.ok) throw Object.assign(new Error("Backend MCP bearer save failed"), { status: 400 });
+        return nativeAuthMutation(runtime, name, () => nativeMcp.writeAuth(name, { Authorization: `Bearer ${parsed.value.token}` }));
+      }
       try { return await runtime.saveMcpBearerAuth(name, input); }
       catch (error) {
         throw Object.assign(new Error("Backend MCP bearer save failed"), { status: runtime.mcpErrorStatus(error) });

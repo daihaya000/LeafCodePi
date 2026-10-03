@@ -129,6 +129,9 @@ icacls <dir>\mcp.json /inheritance:r /grant:r "$env:USERNAME:F"   # inherit-only
 
 ## 切替実行（2026-10-03）
 
+- 認証書込み対応後は **runtime bundle の再ビルド＋Backend再起動**が必要（Backendはビルド済bundleの
+  native APIを使うため）。未再ビルドの間、`backend/src/native-mcp-auth.test.mjs` は自動でskipする。
+
 - ACL: `~/.pi/agent` の継承元 `~/.pi` から `X870\CodexSandboxUsers` のACEを削除（復旧: `icacls "%USERPROFILE%\.pi" /grant:r "$env:COMPUTERNAME\CodexSandboxUsers:(OI)(CI)(RX)"`）。
   `node backend/src/native-mcp-check.mjs` → `storage attestation: ok` / `result: ok`。
 - 実機configでの実サーバー受け入れ: `--connect --timeout-ms=25000 --json` →
@@ -180,9 +183,12 @@ icacls <dir>\mcp.json /inheritance:r /grant:r "$env:USERNAME:F"   # inherit-only
 
 ## 未実装ゲート（切替後も残る）
 
-- 認証情報の書込み: native 中は bearer/headers/OAuth の保存操作が 409。
-  OAuth は SDK の接続時フロー（openUrl + callback）へ置き換える設計判断が必要。
-  bearer を config `headers` へ平文保存するのは既存の秘密ストアより劣化するため実装しない。
+- 認証情報の書込み: **対応済み**（2026-10-03）。native時は bearer保存（`Authorization: Bearer …`）、
+  headers保存、bearer/headers削除、OAuth資格情報削除が `mcp.json` / 固定credential store を更新して再公開する。
+  値はACL保護された `~/.pi/agent/mcp.json` の headers に**平文**で入る（Pi自身の `auth.json` と同じ扱い）。
+  headers削除は**UI保存分のヘッダ名だけ**を削除し、手書きヘッダは残す（名前のみを
+  `<dataDir>/mcp-header-names.json` に記録。値は保存しない）。OAuthログイン自体はSDKの接続時フロー。
+  google-workspace プリセットは SDK が `access_type=offline` を送れないため native では未対応（明示拒否のまま）。
 - 実行中セッションの reload: ON/OFF・preset 書込みは応答後に provider を再公開し、`reloadLiveSessionsContext()` の
   `session.reload()` が loader を再実行するため、そのセッションにも反映される（harness は provider を
   loader 実行ごとに解決する）。外部 writer が直接書き換えた場合は再起動まで反映されない。

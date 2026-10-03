@@ -18,6 +18,9 @@ export type BackendMcpPreparedRuntime = Readonly<{
   readAuthStatus(name: string): McpPublicAuthSnapshot;
   /** PRIVATE OAuth-only status (configured HTTP endpoints); kept for callers that want the store only. */
   readOAuthStatus(name: string): BackendMcpOAuthStatus;
+  /** Owner-only OAuth credential removal for one configured endpoint; true when something was stored.
+   * Does not cancel an in-flight refresh or pending login. */
+  removeOAuth(name: string): boolean;
 }>;
 export type BackendMcpNativeRuntime = Readonly<{
   /** Reads/validates the fixed sources once; retires older bindings. Reprepare after entered writes. */

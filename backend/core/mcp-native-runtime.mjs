@@ -111,6 +111,17 @@ export function createBackendMcpNativeRuntime(options) {
             return readOAuthStatus(entry.name, entry.config.url);
           } catch { throw unavailable(); }
         },
+        /** Owner-only OAuth credential removal for one configured endpoint: clears the fixed native
+         * store entry (authority-attested) and reports whether anything was stored. It does NOT cancel
+         * an in-flight SDK refresh or a pending login (documented limitation). */
+        removeOAuth(name) {
+          try {
+            if (typeof name !== "string" || !name) throw unavailable();
+            const entry = snapshot.servers.find((server) => server.name === name);
+            if (!entry || typeof entry.config?.url !== "string" || !entry.config.url) throw unavailable();
+            return credentials.remove(entry.name, entry.config.url) === true;
+          } catch { throw unavailable(); }
+        },
         /** One SDK extension family for one session cwd. No activation. */
         forSession(sessionCwd) {
           try {

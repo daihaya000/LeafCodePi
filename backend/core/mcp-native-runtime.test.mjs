@@ -231,6 +231,22 @@ test("writeAuth persists a bounded header, republishes the snapshot and retires 
   await assert.rejects(runtime.writeAuth("remote", { "bad name": "v" }), safe);
 });
 
+test("removeOAuth clears only that endpoint's native store entry and refuses stdio/unknown names", async (t) => {
+  const remoteUrl = "https://remote.example/mcp";
+  const root = await fixture(t, { remote: { url: remoteUrl, auth: "oauth" }, local: { command: process.execPath, args: ["--version"] } });
+  const runtime = create(base(root)); t.after(() => runtime.dispose());
+  const prepared = await runtime.prepare();
+  assert.throws(() => prepared.removeOAuth("local"), safe);
+  assert.throws(() => prepared.removeOAuth("unknown"), safe);
+  assert.equal(prepared.removeOAuth("remote"), false, "nothing stored yet");
+  const store = createBackendMcpCredentials(createBackendMcpCredentialOwner({ agentDir: root, assertOwner() {}, assertPrivateStorage() {} }));
+  store.forServer("remote", remoteUrl).save({ serverUrl: remoteUrl, tokens: { access_token: "private-token", token_type: "Bearer" }, tokensExpireAt: Date.now() + 60_000 });
+  assert.equal(prepared.readAuthStatus("remote").credentialStatus, "present");
+  assert.equal(prepared.removeOAuth("remote"), true);
+  assert.equal(prepared.readAuthStatus("remote").credentialStatus, "missing");
+  assert.equal(prepared.removeOAuth("remote"), false);
+});
+
 test("a failing process owner or storage attestation makes prepare unavailable without leaking causes", async (t) => {
   const root = await fixture(t, { user: { command: process.execPath } });
   removeRoot(t, root);
