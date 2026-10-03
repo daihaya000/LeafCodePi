@@ -1,0 +1,109 @@
+import { parsePeerBearer, parsePeerResolveRequest, publicPeerCredential, publicPeerList } from "../../shared/peer-auth-wire.mjs";
+
+// Core of GET /api/peer-auth/list and POST /api/peer-auth/resolve (docs/plans/peer-auth-share.md).
+// Pure orchestration: the runtime, credential reads, grants, audit and limiter are injected, so the
+// Web routes only adapt Request/Response. Responses never carry refresh tokens or error details.
+
+/** A peer needs this much remaining OAuth validity so its own SDK never tries to refresh. */
+export const PEER_MIN_OAUTH_VALIDITY_MS = 10 * 60 * 1000;
+const NO_STORE = { "Cache-Control": "no-store" };
+
+const reply = (status, body, headers = {}) => ({ status, body, headers: { ...NO_STORE, ...headers } });
+const failure = (status, code, headers) => reply(status, { error: code }, headers);
+
+/**
+ * @param {{
+ *   grants: { verify(token: string): null | { id: string, accountId: string | null, providers: string[] } },
+ *   limiter: { take(key: string): { ok: boolean, retryAfterMs: number } },
+ *   audit: { record(entry: object): unknown },
+ *   readStoredCredential(providerId: string, accountId: string | null): Promise<unknown> | unknown,
+ *   getAuth(providerId: string, accountId: string | null, options: { minOAuthValidityMs: number }): Promise<{ auth?: { apiKey?: string } } | undefined>,
+ *   listStoredProviders(accountId: string | null): Promise<{ providerId: string, type: string }[]>,
+ *   listAccounts(): Promise<{ accountId: string | null, label: string }[]> | { accountId: string | null, label: string }[],
+ *   now?: () => number,
+ * }} deps
+ */
+export function createPeerAuthService(deps) {
+  const now = deps.now ?? (() => Date.now());
+
+  /** Shared gate: bearer -> grant -> rate limit. Returns { grant } or a ready response. */
+  const gate = (authorization, action) => {
+    const token = parsePeerBearer(authorization);
+    const grant = token ? deps.grants.verify(token) : null;
+    if (!grant) {
+      deps.audit.record({ action: "denied", result: "unauthorized" });
+      return { response: failure(401, "unauthorized") };
+    }
+    const taken = deps.limiter.take(grant.id);
+    if (!taken.ok) {
+      deps.audit.record({ peerId: grant.id, action, result: "rate-limited" });
+      return { response: failure(429, "rate-limited", { "Retry-After": String(Math.max(1, Math.ceil(taken.retryAfterMs / 1000))) }) };
+    }
+    return { grant };
+  };
+
+  return {
+    async list({ authorization }) {
+      const checked = gate(authorization, "list");
+      if (checked.response) return checked.response;
+      const { grant } = checked;
+      try {
+        const stored = await deps.listStoredProviders(grant.accountId);
+        const accounts = (await deps.listAccounts()).filter((account) => account.accountId === grant.accountId);
+        const list = publicPeerList({
+          providers: stored.filter((entry) => grant.providers.includes(entry.providerId)),
+          accounts,
+        });
+        if (!list) throw new Error("invalid list");
+        deps.audit.record({ peerId: grant.id, action: "list", accountId: grant.accountId, result: "ok" });
+        return reply(200, list);
+      } catch {
+        deps.audit.record({ peerId: grant.id, action: "list", accountId: grant.accountId, result: "error" });
+        return failure(503, "unavailable");
+      }
+    },
+
+    async resolve({ authorization, body }) {
+      const checked = gate(authorization, "resolve");
+      if (checked.response) return checked.response;
+      const { grant } = checked;
+      const parsed = parsePeerResolveRequest(body);
+      if (!parsed.ok) return failure(400, "bad-request");
+      const { providerId, accountId: requested } = parsed.value;
+      // A grant is bound to one account; null/omitted means "the granted one".
+      if (requested !== null && requested !== grant.accountId) {
+        deps.audit.record({ peerId: grant.id, action: "resolve", providerId, accountId: requested, result: "forbidden" });
+        return failure(403, "forbidden");
+      }
+      const accountId = grant.accountId;
+      if (!grant.providers.includes(providerId)) {
+        deps.audit.record({ peerId: grant.id, action: "resolve", providerId, accountId, result: "forbidden" });
+        return failure(403, "forbidden");
+      }
+      try {
+        let stored = await deps.readStoredCredential(providerId, accountId);
+        if (stored?.type === "oauth") {
+          // Refresh happens only here: getAuth rotates and persists under the auth file lock.
+          await deps.getAuth(providerId, accountId, { minOAuthValidityMs: PEER_MIN_OAUTH_VALIDITY_MS });
+          stored = await deps.readStoredCredential(providerId, accountId);
+        }
+        let credential = publicPeerCredential(stored);
+        if (!credential && stored === undefined) {
+          const resolved = await deps.getAuth(providerId, accountId, { minOAuthValidityMs: PEER_MIN_OAUTH_VALIDITY_MS });
+          const key = resolved?.auth?.apiKey;
+          credential = typeof key === "string" ? publicPeerCredential({ type: "api_key", key }) : null;
+        }
+        if (!credential) {
+          deps.audit.record({ peerId: grant.id, action: "resolve", providerId, accountId, result: "not-found" });
+          return failure(404, "not-found");
+        }
+        if (credential.type === "oauth" && credential.expires <= now()) throw new Error("expired after refresh");
+        deps.audit.record({ peerId: grant.id, action: "resolve", providerId, accountId, result: "ok" });
+        return reply(200, { credential });
+      } catch {
+        deps.audit.record({ peerId: grant.id, action: "resolve", providerId, accountId, result: "error" });
+        return failure(503, "unavailable");
+      }
+    },
+  };
+}
