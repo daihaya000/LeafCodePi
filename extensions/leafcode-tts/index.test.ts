@@ -1,8 +1,10 @@
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { describe, expect, it } from "vitest";
-import { buildHttpTtsBody, cut, isVoicevoxEngineUrl, readBotTtsVoice, readTtsConfig, speakable, SpeechChunker, writeTtsConfig } from "./index.ts";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { buildHttpTtsBody, cut, isVoicevoxEngineUrl, readBotTtsVoice, readTtsConfig, speakable, Speaker, SpeechChunker, synthesizeVoicevox, writeTtsConfig } from "./index.ts";
+
+afterEach(() => vi.unstubAllGlobals());
 
 /** Speaker.say と同じ前処理を通した結果だけを読み上げ単位として比較する。 */
 function spoken(chunker: SpeechChunker, delta: string): string[] {
@@ -188,5 +190,58 @@ describe("isVoicevoxEngineUrl", () => {
     expect(isVoicevoxEngineUrl("http://127.0.0.1:10101/")).toBe(true);
     expect(isVoicevoxEngineUrl("http://127.0.0.1:18080/v1/audio/speech")).toBe(false);
     expect(isVoicevoxEngineUrl("http://127.0.0.1:8080/v1/tts")).toBe(false);
+  });
+});
+
+describe("extension TTS outbound", () => {
+  it("does not follow redirects for VOICEVOX requests", async () => {
+    const options: RequestInit[] = [];
+    const fetchMock = vi.fn(async (_url: string, init: RequestInit) => {
+      options.push(init);
+      return options.length === 1
+        ? new Response("{}", { status: 200 })
+        : new Response(Buffer.from([1, 2, 3]), { status: 200 });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const audio = await synthesizeVoicevox("http://127.0.0.1:10101", "こんにちは", "1");
+
+    expect(audio?.length).toBe(3);
+    expect(options).toHaveLength(2);
+    expect(options.every((init) => init.redirect === "error")).toBe(true);
+  });
+
+  it("rejects unsupported schemes and URL credentials before fetching", async () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+    const speaker = new Speaker({ enabled: true, rate: 10 });
+    const synthesize = (speaker as unknown as { synthesize(text: string, url: string): Promise<string | null> })
+      .synthesize.bind(speaker);
+
+    expect(await synthesize("text", "file:///private/data")).toBeNull();
+    expect(await synthesizeVoicevox("http://user:secret@127.0.0.1:10101", "text")).toBeNull();
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("does not follow redirects for custom HTTP TTS", async () => {
+    const endpoint = "http://127.0.0.1:18080/v1/audio/speech";
+    const options: RequestInit[] = [];
+    const fetchMock = vi.fn(async (_url: string, init: RequestInit) => {
+      options.push(init);
+      return new Response(Buffer.from([1, 2, 3]), { status: 200 });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const speaker = new Speaker({ enabled: true, rate: 10, url: endpoint });
+    const synthesize = (speaker as unknown as { synthesize(text: string, url: string): Promise<string | null> })
+      .synthesize.bind(speaker);
+
+    const file = await synthesize("text", endpoint);
+    try {
+      expect(file).toBeTruthy();
+      expect(options).toHaveLength(1);
+      expect(options[0]?.redirect).toBe("error");
+    } finally {
+      if (file) rmSync(file, { force: true });
+    }
   });
 });

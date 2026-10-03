@@ -163,6 +163,16 @@ function httpPath(url: string): string {
   }
 }
 
+function isHttpTtsEndpoint(url: string): boolean {
+  try {
+    const parsed = new URL(url);
+    return (parsed.protocol === "http:" || parsed.protocol === "https:")
+      && Boolean(parsed.hostname) && !parsed.username && !parsed.password;
+  } catch {
+    return false;
+  }
+}
+
 /**
  * AivisSpeech / VOICEVOX エンジンのベース URL か。
  * `http://127.0.0.1:10101` のようにパス無し（または `/`）なら true。
@@ -198,16 +208,18 @@ export function buildHttpTtsBody(url: string, text: string, voice?: string): str
 
 /** VOICEVOX 互換: audio_query → synthesis。voice は style id（数値文字列）。 */
 export async function synthesizeVoicevox(baseUrl: string, text: string, voice?: string): Promise<Buffer | null> {
+  if (!isHttpTtsEndpoint(baseUrl)) return null;
   const speaker = (voice?.trim() || "1").replace(/[^0-9]/g, "") || "1";
   const root = baseUrl.replace(/\/+$/, "");
   const queryUrl = `${root}/audio_query?text=${encodeURIComponent(text)}&speaker=${speaker}`;
-  const queryRes = await fetch(queryUrl, { method: "POST" });
+  const queryRes = await fetch(queryUrl, { method: "POST", redirect: "error" });
   if (!queryRes.ok) return null;
   const query = await queryRes.text();
   const synthRes = await fetch(`${root}/synthesis?speaker=${speaker}`, {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: query,
+    redirect: "error",
   });
   if (!synthRes.ok) return null;
   return Buffer.from(await synthRes.arrayBuffer());
@@ -264,6 +276,7 @@ export class Speaker {
   }
 
   private async synthesize(text: string, url: string): Promise<string | null> {
+    if (!isHttpTtsEndpoint(url)) return null;
     try {
       const wav = isVoicevoxEngineUrl(url)
         ? await synthesizeVoicevox(url, text, this.config.voice)
@@ -272,6 +285,7 @@ export class Speaker {
               method: "POST",
               headers: { "content-type": "application/json" },
               body: buildHttpTtsBody(url, text, this.config.voice),
+              redirect: "error",
             });
             if (!response.ok) return null;
             return Buffer.from(await response.arrayBuffer());
