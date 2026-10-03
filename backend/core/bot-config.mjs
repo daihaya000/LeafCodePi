@@ -4,7 +4,8 @@ export const SOUL_TEMPLATE = `# ボットの役割\n\nあなたは専属の1対1
 
 export const DEFAULT_SKILLS = { mode: "inherit", include: [], exclude: [] };
 
-// These are the defaults written before the newer Bot-only tools were added.
+// These are the defaults written before the newer Bot-only tools were added. Names a build no longer
+// offers (the retired `mcp` gateway) stay listed here: they describe historical files, not choices.
 const LEGACY_ADDED_TOOL_NAMES = [
   "web_search", "source_check", "fetch_content", "get_search_content", "contact_supervisor",
   "subagent_wait", "structured_output", "task_mutation_decision", "watchdog_permission_decision", "watchdog_warn",
@@ -124,10 +125,13 @@ export function parseBotConfig({ id, readText, writeConfig, toolNames, defaultTo
       codeSessionTaskId: typeof value.codeSessionTaskId === "string" ? value.codeSessionTaskId : null,
     };
     // Migrate legacy bots once, keeping the fallback stable for every subsequent read.
-    if (
-      migrateTools || !isAvatarColor(value.avatarColor) || typeof value.label !== "string"
-      || typeof value.notificationsEnabled !== "boolean" || typeof value.codeAutoApprove !== "boolean"
-    ) writeConfig(config);
+    const needsShapeRewrite = !isAvatarColor(value.avatarColor) || typeof value.label !== "string"
+      || typeof value.notificationsEnabled !== "boolean" || typeof value.codeAutoApprove !== "boolean";
+    if (needsShapeRewrite) writeConfig(config);
+    // A tool-allowlist migration alone must not rewrite the rest of the file: a value this build does
+    // not know (a newer permission mode, a field from a later build) has to stay on disk untouched,
+    // exactly like an unknown tool name does.
+    else if (migrateTools) writeConfig({ ...value, tools });
     return config;
   } catch { return null; }
 }

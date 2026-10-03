@@ -6,15 +6,18 @@ import {
   BOT_TOOL_NAMES,
 } from "./bot-tools.mjs";
 
-test("the Bot tool vocabulary is unchanged", () => {
+test("the Bot tool vocabulary has no dead MCP gateway entry", () => {
   assert.deepEqual([...BOT_TOOL_NAMES], [
     "read", "write", "edit", "bash", "powershell", "question", "grep", "find", "ls",
     "memory_search", "memory_add", "memory_replace", "memory_remove", "session_search",
     "skill_manage", "subagent", "todowrite", "tool_search", "jev_judge", "intercom",
     "web_search", "source_check", "fetch_content", "get_search_content", "contact_supervisor",
     "subagent_wait", "structured_output", "task_mutation_decision", "watchdog_permission_decision",
-    "watchdog_warn", "mcp",
+    "watchdog_warn",
   ]);
+  // Native MCP names its tools mcp__<server>__<tool> only once a server connects.
+  assert.equal(BOT_TOOL_NAMES.includes("mcp"), false);
+  assert.equal(BOT_DEFAULT_TOOL_NAMES.includes("mcp"), false);
 });
 
 test("the default-disabled list is unchanged and stays inside the vocabulary", () => {
