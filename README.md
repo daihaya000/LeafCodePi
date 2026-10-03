@@ -343,6 +343,8 @@ chmod +x start.sh
 ./start.sh
 ```
 
+`start.sh` は起動前に、host が異常終了して残った LeafCodePi の WebUI（`LEAFCODE_PI_PORT`、既定 3010 を listen している Next.js）だけを停止し、`EADDRINUSE` での再起動失敗を防ぎます。host が起動中の場合や、別プログラムがポートを使っている場合は何も止めず、後者は警告だけ表示します。無効化は `LEAFCODE_PI_RECLAIM_PORT=0` です。
+
 手動で起動する場合は `npm --prefix web install`、`npm --prefix host install` の後に `npm run host` でも構いません。
 
 Ubuntu / GNOME でアプリ一覧や Dock に固定できるランチャーを作成する場合は、リポジトリ直下で次を実行します。

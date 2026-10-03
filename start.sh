@@ -17,6 +17,12 @@ if [ ! -d host/node_modules/systray2 ]; then
   npm --prefix host install
 fi
 
+# A host that crashed can leave its WebUI listening, which makes every restart fail
+# with EADDRINUSE. Stop only that orphaned LeafCodePi WebUI; a running host is left alone.
+if [ "${LEAFCODE_PI_RECLAIM_PORT:-1}" != "0" ]; then
+  node host/src/reclaim-port.js || true
+fi
+
 : "${LEAFCODE_PI_MODE:=prod}"
 export LEAFCODE_PI_MODE
 exec npm run host -- "$@"

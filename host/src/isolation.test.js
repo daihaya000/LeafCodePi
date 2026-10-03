@@ -183,6 +183,13 @@ test("both launchers enforce the engines Node.js minimum", () => {
   assert.match(sh, /major < 22 \|\| \(major === 22 && minor < 19\)/);
 });
 
+test("start.sh reclaims a stale WebUI port before launching the host", () => {
+  const sh = readFileSync(join(repoRoot, "start.sh"), "utf8");
+  assert.ok(sh.indexOf("host/src/reclaim-port.js") > 0);
+  assert.ok(sh.indexOf("host/src/reclaim-port.js") < sh.indexOf("exec npm run host"));
+  assert.match(sh, /reclaim-port\.js \|\| true/);
+});
+
 test("desktop shortcut name is LeafCodePi.lnk", () => {
   const ps1 = readFileSync(join(repoRoot, "scripts", "create-shortcut.ps1"), "utf8");
   assert.match(ps1, /LeafCodePi\.lnk/);
