@@ -2542,6 +2542,19 @@ async function attachSession(
     }
     return appendCustomEntry(customType, data);
   };
+  const appendCompaction = session.sessionManager.appendCompaction.bind(
+    session.sessionManager,
+  );
+  session.sessionManager.appendCompaction = (...args) => {
+    if (live.leaseLost) return "";
+    const leaseRequired =
+      live.promptActive || session.isStreaming || hasActiveTaskLease(taskId);
+    if (leaseRequired && !ownsTaskLease(taskId)) {
+      abortTaskSessionsAfterLeaseLoss([taskId]);
+      return "";
+    }
+    return appendCompaction(...args);
+  };
 
   const unsubscribe = session.subscribe((event) => {
     if (live.leaseLost) return;
