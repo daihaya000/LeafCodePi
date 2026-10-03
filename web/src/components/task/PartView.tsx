@@ -35,9 +35,9 @@ import {
   MessageHeader,
   messageRowClassFor,
 } from "@/components/ConversationLayout";
-import { ImageLightbox } from "@/components/Composer";
 import { MarkdownImageScope, markdownImageComponents, markdownImageUrlTransform } from "@/components/MarkdownImage";
 import { ProviderIcon } from "@/components/ProviderIcon";
+import { LazyImagePart } from "@/components/task/LazyImagePart";
 import { ReferenceHighlight, type ReferenceHighlightReferences } from "@/components/ReferenceHighlight";
 import { formatTokens } from "@/lib/context-usage";
 import { formatTokensPerSecond, isSlowTokensPerSecond } from "@/lib/token-throughput";
@@ -1222,9 +1222,12 @@ export const PartView = memo(
               if (part.type === "file") return <FilePartView key={part.id} part={part} />;
               if (part.type !== "image") return null;
               return (
-                <ImageLightbox
+                <LazyImagePart
                   key={part.id}
-                  src={part.url}
+                  taskId={taskId}
+                  messageId={message.id}
+                  partId={part.id}
+                  url={part.url}
                   alt={part.filename ?? "画像"}
                   className="max-h-48 max-w-full rounded-xl object-contain"
                 />
@@ -1247,9 +1250,12 @@ export const PartView = memo(
             if (part.type === "file") return <FilePartView key={part.id} part={part} />;
             if (part.type === "image") {
               return (
-                <ImageLightbox
+                <LazyImagePart
                   key={part.id}
-                  src={part.url}
+                  taskId={taskId}
+                  messageId={message.id}
+                  partId={part.id}
+                  url={part.url}
                   alt={part.filename ?? "画像"}
                   className="max-h-64 rounded-xl border border-border"
                 />
