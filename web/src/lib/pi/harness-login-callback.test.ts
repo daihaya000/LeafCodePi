@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { completeProviderLoginCallback } from "./harness";
+import { completeProviderLoginCallback, queueLoginStart } from "./harness";
 
 const globalState = globalThis as Record<string, unknown>;
 const key = "__leafcodePiHarness";
@@ -27,5 +27,37 @@ describe("completeProviderLoginCallback", () => {
   it("rejects requests without an active login", async () => {
     globalState[key] = { loginSession: null };
     await expect(completeProviderLoginCallback("radius", "session-1", "test-input")).rejects.toMatchObject({ status: 409 });
+  });
+});
+
+describe("queueLoginStart", () => {
+  it("runs only when the queued session is still the current one", async () => {
+    const holder: { loginSession: unknown } = { loginSession: "session-1" };
+    const run = vi.fn(async () => undefined);
+    queueLoginStart(holder, "session-1", run);
+    await Promise.resolve();
+    expect(run).toHaveBeenCalledOnce();
+  });
+
+  it("skips a session that a newer login replaced before the microtask ran", async () => {
+    const holder: { loginSession: unknown } = { loginSession: "session-1" };
+    const superseded = vi.fn(async () => undefined);
+    const winner = vi.fn(async () => undefined);
+    queueLoginStart(holder, "session-1", superseded);
+    // A second login cancels the first before either microtask runs.
+    holder.loginSession = "session-2";
+    queueLoginStart(holder, "session-2", winner);
+    await Promise.resolve();
+    expect(superseded).not.toHaveBeenCalled();
+    expect(winner).toHaveBeenCalledOnce();
+  });
+
+  it("skips a session cancelled before its microtask ran", async () => {
+    const holder: { loginSession: unknown } = { loginSession: "session-1" };
+    const run = vi.fn(async () => undefined);
+    queueLoginStart(holder, "session-1", run);
+    holder.loginSession = null;
+    await Promise.resolve();
+    expect(run).not.toHaveBeenCalled();
   });
 });

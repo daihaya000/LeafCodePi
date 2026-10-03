@@ -79,7 +79,7 @@
 | 中 **[一部修正 2026-10-03: resolveAutoAgent / resolveRoomOpener に signal オプション追加、POST /api/tasks は req.signal を伝播。room-runtime・harness 等の他の呼び出し元は未対応]** | `auto-agent.ts` (~55–64, 357–369)、`room-opener.ts` (~43–47, 144–157)、呼び出し `room-runtime.ts` (~425) | 呼び出し元 AbortSignal 無し。送信取消／Room 停止でもルーター呼び出しが止まらない。 |
 | 中 **[修正済 2026-10-03: キャッシュキーに最終メッセージの usage 数値を追加]** | `web/src/lib/pi/harness.ts` (~1423–1449) | context 使用量キャッシュが「末尾同一参照のまま usage だけ増加」を見落とす。 |
 | 中 **[確認済・現状該当せず 2026-10-03: setActiveToolsByName は bindExtensions(session_start) より前に実行される（harness.ts 3894 → 3574）]** | `web/src/lib/pi/harness.ts` (~3872–3881) | `createAgentSession` 直後の `setActiveToolsByName(initialActive)` が、`session_start` で有効化した codemode / direct MCP を静的 loadout に戻して消しうる。 |
-| 中 **[一部修正 2026-10-03: microtask 開始時に自分がまだ現行セッションか確認し、置換・取消済みなら run しない。専用テストは未追加]** | `web/src/lib/pi/harness.ts` (~6732–6748) | ログインはプロセス全体で1本。次開始で前を cancel しても積済 microtask が `runtime.login` を呼び、同時ログインで loopback 衝突しうる。 |
+| 中 **[一部修正 2026-10-04: microtask 開始時に自分がまだ現行セッションか確認し、置換・取消済みなら run しない。専用テストを追加]** | `web/src/lib/pi/harness.ts` (~6732–6748) | ログインはプロセス全体で1本。次開始で前を cancel しても積済 microtask が `runtime.login` を呼び、同時ログインで loopback 衝突しうる。 |
 
 ---
 

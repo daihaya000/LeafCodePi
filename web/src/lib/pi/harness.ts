@@ -1965,6 +1965,23 @@ function openSettingsManager() {
 const providerFallbackInflight = new Map<string, Promise<void>>();
 
 /**
+ * Start a provider login one microtask later so the SSE client can attach first.
+ * Only the session that is still current when the microtask runs may start: a
+ * newer login cancels the previous one, and running both would race on the
+ * loopback listener the OAuth flow binds.
+ */
+export function queueLoginStart(
+  holder: { loginSession: unknown },
+  session: unknown,
+  run: () => Promise<unknown>,
+): void {
+  queueMicrotask(() => {
+    if (holder.loginSession !== session) return;
+    void run();
+  });
+}
+
+/**
  * Test-only: wait out provider-limit fallbacks started in the current test so
  * a late session replacement cannot leak into the next test's runtime.
  */
@@ -6926,34 +6943,30 @@ export async function startProviderLogin(
   );
   current.loginSession = session;
   // Let the SSE client attach before the OAuth flow emits prompts.
-  queueMicrotask(() => {
-    // Superseded or cancelled before it started: running it would race the newer login's loopback listener.
-    if (current.loginSession !== session) return;
-    void session.run(runtime, {
-      // New ChatGPT OAuth registers this installation; keep its identity stable
-      // across account logins without copying legacy Codex credentials.
-      getDeviceId: () => openSettingsManager().getOrCreateDeviceId(),
+  queueLoginStart(current, session, () => session.run(runtime, {
+    // New ChatGPT OAuth registers this installation; keep its identity stable
+    // across account logins without copying legacy Codex credentials.
+    getDeviceId: () => openSettingsManager().getOrCreateDeviceId(),
+  })
+    .finally(() => {
+      // A login can change both models and account-scoped usage.
+      invalidateHealthCache();
+      invalidateCachedUsage();
+      clearProviderCache(
+        `${session.accountId ? `account:${session.accountId}` : "default"}:${session.providerId}`,
+      );
+      // Keep the finished session briefly so a late EventSource can replay history.
+      setTimeout(() => {
+        if (current.loginSession === session) current.loginSession = null;
+      }, 15_000);
     })
-      .finally(() => {
-        // A login can change both models and account-scoped usage.
-        invalidateHealthCache();
-        invalidateCachedUsage();
-        clearProviderCache(
-          `${session.accountId ? `account:${session.accountId}` : "default"}:${session.providerId}`,
-        );
-        // Keep the finished session briefly so a late EventSource can replay history.
-        setTimeout(() => {
-          if (current.loginSession === session) current.loginSession = null;
-        }, 15_000);
-      })
-      .catch((error) => {
-        // A broken SSE subscriber can reject run(); the session already records
-        // the failure, so just keep it from becoming an unhandled rejection.
-        console.warn(
-          `[leafcode-pi] provider login failed: ${error instanceof Error ? error.message : String(error)}`,
-        );
-      });
-  });
+    .catch((error) => {
+      // A broken SSE subscriber can reject run(); the session already records
+      // the failure, so just keep it from becoming an unhandled rejection.
+      console.warn(
+        `[leafcode-pi] provider login failed: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    }));
   return { sessionId: session.id };
 }
 
