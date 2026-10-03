@@ -14,6 +14,8 @@ import {
 } from './reasoning-translation-quality.js';
 
 const REQUEST_TIMEOUT_MS = 30_000;
+/** pip とモデルDLは数分かかる。それを超える実行は停止したと判断して打ち切る。 */
+const INSTALL_TIMEOUT_MS = 30 * 60_000;
 const READY_TIMEOUT_MS = 60_000;
 const MAX_ENGINE_ITEMS = 16;
 const MAX_ENGINE_CHARS = 16_000;
@@ -39,7 +41,7 @@ function executable(dataDir) {
   return { file: 'python3', args: [] };
 }
 
-export function createTranslationService({ repoRoot, dataDir, log = () => {} }) {
+export function createTranslationService({ repoRoot, dataDir, log = () => {}, installTimeoutMs = INSTALL_TIMEOUT_MS }) {
   let child = null;
   let reader = null;
   let pending = new Map();
@@ -57,6 +59,7 @@ export function createTranslationService({ repoRoot, dataDir, log = () => {} }) 
   let overridesLoaded = false;
   let cachedModelVersion = null;
   let installProc = null;
+  let installTimer = null;
   let installError = null;
   let installStderr = '';
   /** Serialize stdin writes — parallel batches must not interleave JSON lines. */
@@ -754,6 +757,10 @@ export function createTranslationService({ repoRoot, dataDir, log = () => {} }) 
   /** Kill a running installer and mark it failed so status() does not report 'running'. */
   function stopInstall(message) {
     const oldInstall = installProc;
+    if (installTimer) {
+      clearTimeout(installTimer);
+      installTimer = null;
+    }
     if (!oldInstall) return;
     installProc = null;
     oldInstall.removeAllListeners('exit');
@@ -793,6 +800,13 @@ export function createTranslationService({ repoRoot, dataDir, log = () => {} }) 
     child.stderr.on('data', (chunk) => {
       installStderr = `${installStderr}${String(chunk)}`.slice(-4_000);
     });
+    // pip とモデルDLは数分かかるが、無期限に走らせるとインストール不能のまま
+    // 蓄積する。一定時間後に打ち切ってエラーとして知らせ、再試行できるようにする。
+    installTimer = setTimeout(() => {
+      if (installProc !== child) return;
+      stopInstall('translation install timed out');
+    }, installTimeoutMs);
+    installTimer.unref?.();
     const fail = (message) => {
       installError = `${message}${installStderr.trim() ? `: ${installStderr.trim().slice(-500)}` : ''}`;
       if (installProc === child) installProc = null;

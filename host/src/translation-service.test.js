@@ -481,3 +481,32 @@ test('stop kills a running installer instead of leaving it behind', async () => 
     await cleanupTempDir(repoRoot);
   }
 });
+
+test('a hung installer is stopped by the install timeout without an explicit stop', async () => {
+  const root = join(tmpdir(), `leafcode-translation-install-timeout-${process.pid}`);
+  const repoRoot = join(root, 'repo');
+  const dataDir = join(root, 'data');
+  mkdirSync(join(repoRoot, 'translation'), { recursive: true });
+  writeFileSync(join(repoRoot, 'translation', 'install.py'), ['import time', 'time.sleep(600)'].join(NL), 'utf8');
+  const python = translationPython();
+  if (!python) {
+    rmSync(root, { recursive: true, force: true });
+    return;
+  }
+  const originalPython = process.env.LEAFCODE_TRANSLATION_PYTHON;
+  process.env.LEAFCODE_TRANSLATION_PYTHON = python;
+  // A short timeout stands in for the production one so the test does not wait.
+  const service = createTranslationService({ repoRoot, dataDir, installTimeoutMs: 100 });
+  try {
+    assert.equal(service.install().state, 'running');
+    await new Promise((resolve) => setTimeout(resolve, 600));
+
+    assert.equal(service.status().installState, 'error');
+    assert.match(service.status().installError, /timed out/);
+  } finally {
+    if (originalPython === undefined) delete process.env.LEAFCODE_TRANSLATION_PYTHON;
+    else process.env.LEAFCODE_TRANSLATION_PYTHON = originalPython;
+    await cleanupTempDir(dataDir);
+    await cleanupTempDir(repoRoot);
+  }
+});
