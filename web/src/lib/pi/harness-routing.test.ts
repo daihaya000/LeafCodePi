@@ -1898,6 +1898,44 @@ describe("integrated session routing", () => {
     expect(JSON.parse(readFileSync(taskRuntimeLeasePath(task.id), "utf8")).token).toBe("other-worker");
   });
 
+  it("exposes a task-lease assertion to fork-context extensions", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "leafcode-pi-extension-lease-guard-"));
+    tempDirs.push(dir);
+    process.env.LEAFCODE_PI_DATA_DIR = dir;
+    process.env.PI_CODING_AGENT_DIR = join(dir, "agent");
+    __resetPiAgentDirCacheForTests();
+    installHarness(new Map());
+    const project = upsertProject({ name: "demo", rootPath: dir });
+    const task = await createTask({ projectId: project.id, prompt: "initial" });
+    const harness = (globalThis as Record<string, unknown>)[GLOBAL_KEY] as {
+      live: Map<string, {
+        promptChain: Promise<void>;
+        session: {
+          sessionManager: { assertLeaseOwnership: () => void };
+          abort?: () => Promise<void>;
+        };
+      }>;
+    };
+    const live = harness.live.get(task.id)!;
+    await live.promptChain;
+    expect(() => live.session.sessionManager.assertLeaseOwnership()).not.toThrow();
+    const { acquireTaskLease } = await import("@/lib/task-runtime-lease");
+    expect(acquireTaskLease(task.id)).toBe(true);
+    patchTask(task.id, { status: "working" });
+
+    const sessionEntry = fakePi.sessions.at(-1)!;
+    live.session.abort = async () => { sessionEntry.events.push("abort-requested"); };
+    mkdirSync(dirname(taskRuntimeLeasePath(task.id)), { recursive: true });
+    writeFileSync(taskRuntimeLeasePath(task.id), JSON.stringify({ token: "other-worker", pid: process.pid, acquiredAt: Date.now(), heartbeatAt: Date.now() }), "utf8");
+    expect(() => live.session.sessionManager.assertLeaseOwnership()).toThrow(/ownership changed/);
+    await waitFor(() => sessionEntry.disposed);
+
+    expect(sessionEntry.events).toContain("abort-requested");
+    expect(harness.live.has(task.id)).toBe(false);
+    expect(getTask(task.id)?.status).toBe("working");
+    expect(JSON.parse(readFileSync(taskRuntimeLeasePath(task.id), "utf8")).token).toBe("other-worker");
+  });
+
   it("queues a prompt for a Bot-owned Code session held by another worker", async () => {
     const dir = mkdtempSync(join(tmpdir(), "leafcode-pi-bot-code-lease-"));
     tempDirs.push(dir);

@@ -32,6 +32,7 @@ interface ForkableSessionManager {
 	getSessionFile(): string | undefined;
 	getLeafId(): string | null;
 	getSessionDir?(): string;
+	assertLeaseOwnership?: () => void;
 	openSession?: (path: string, sessionDir?: string) => BranchSessionManager;
 }
 
@@ -235,6 +236,7 @@ export function createForkContextResolver(
 				throw new Error(`Parent session file does not exist: ${parentSessionFile}. Pi has not persisted enough history to fork yet.`);
 			}
 			const sourceManager = openSession(parentSessionFile, sessionDir);
+			sessionManager.assertLeaseOwnership?.();
 			const sessionFile = sourceManager.createBranchedSession(leafId);
 			if (!sessionFile) {
 				throw new Error("Session manager did not return a forked session file.");
@@ -252,6 +254,7 @@ export function createForkContextResolver(
 					appendThinkingOffEntry(entries);
 					thinkingOverride = "off";
 				}
+				sessionManager.assertLeaseOwnership?.();
 				fs.mkdirSync(path.dirname(sessionFile), { recursive: true });
 				fs.writeFileSync(sessionFile, `${[header, ...entries].map((entry) => JSON.stringify(entry)).join("\n")}\n`, "utf-8");
 			} else {
@@ -261,6 +264,7 @@ export function createForkContextResolver(
 						appendThinkingOffEntry(entries);
 						thinkingOverride = "off";
 					}
+					sessionManager.assertLeaseOwnership?.();
 					fs.writeFileSync(sessionFile, `${entries.map((entry) => JSON.stringify(entry)).join("\n")}\n`, "utf-8");
 				}
 			}

@@ -2621,6 +2621,19 @@ async function attachSession(
     return createBranchedSession(...args);
   };
 
+  const leaseGuardedSessionManager = session.sessionManager as typeof session.sessionManager & {
+    assertLeaseOwnership?: () => void;
+  };
+  leaseGuardedSessionManager.assertLeaseOwnership = () => {
+    if (live.leaseLost) throw new Error("Task runtime lease ownership was lost.");
+    const leaseRequired =
+      live.promptActive || session.isStreaming || hasActiveTaskLease(taskId);
+    if (leaseRequired && !ownsTaskLease(taskId)) {
+      abortTaskSessionsAfterLeaseLoss([taskId]);
+      throw new Error("Task runtime lease ownership changed.");
+    }
+  };
+
   const unsubscribe = session.subscribe((event) => {
     if (live.leaseLost) return;
     if (

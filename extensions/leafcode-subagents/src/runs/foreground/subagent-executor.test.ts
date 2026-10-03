@@ -1,7 +1,8 @@
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import { createForkContextResolver } from "../../shared/fork-context.ts";
 import { DEFAULT_MAX_OUTPUT, type ForegroundRunControl, type SubagentState } from "../../shared/types.ts";
 import type { SubagentParamsLike } from "./subagent-executor.ts";
 
@@ -229,5 +230,53 @@ describe("executor lifecycle boundary", () => {
 		expect(text(result)).toContain("reuses the persisted child model");
 		expect(discover).not.toHaveBeenCalled();
 		expect(launch.async).not.toHaveBeenCalled();
+	});
+});
+
+describe("fork-context lease boundary", () => {
+	const parentSessionFile = () => {
+		const file = join(root, "fork-context-parent.jsonl");
+		writeFileSync(file, `${JSON.stringify({ type: "session", id: "parent", cwd: root })}\n`, "utf8");
+		return file;
+	};
+
+	it("checks parent lease ownership before creating a detached fork", () => {
+		const parentFile = parentSessionFile();
+		const forkFile = join(root, "fork-context-child.jsonl");
+		const createBranchedSession = vi.fn(() => forkFile);
+		const assertLeaseOwnership = vi.fn(() => { throw new Error("task lease changed"); });
+		const resolver = createForkContextResolver({
+			getSessionFile: () => parentFile,
+			getLeafId: () => "parent-leaf",
+			assertLeaseOwnership,
+		}, "fork", { openSession: () => ({ createBranchedSession }) });
+
+		expect(() => resolver.sessionFileForIndex()).toThrow(/task lease changed/);
+		expect(assertLeaseOwnership).toHaveBeenCalledOnce();
+		expect(createBranchedSession).not.toHaveBeenCalled();
+		expect(existsSync(forkFile)).toBe(false);
+	});
+
+	it("checks parent lease ownership before deferred fork-file persistence", () => {
+		const parentFile = parentSessionFile();
+		const forkFile = join(root, "deferred-fork.jsonl");
+		const assertLeaseOwnership = vi.fn()
+			.mockImplementationOnce(() => undefined)
+			.mockImplementationOnce(() => { throw new Error("task lease changed before persistence"); });
+		const sourceManager = {
+			createBranchedSession: vi.fn(() => forkFile),
+			getHeader: () => ({ type: "session", id: "child", cwd: root }),
+			getEntries: () => [],
+		};
+		const resolver = createForkContextResolver({
+			getSessionFile: () => parentFile,
+			getLeafId: () => "parent-leaf",
+			assertLeaseOwnership,
+		}, "fork", { openSession: () => sourceManager });
+
+		expect(() => resolver.sessionFileForIndex()).toThrow(/task lease changed before persistence/);
+		expect(assertLeaseOwnership).toHaveBeenCalledTimes(2);
+		expect(sourceManager.createBranchedSession).toHaveBeenCalledOnce();
+		expect(existsSync(forkFile)).toBe(false);
 	});
 });
