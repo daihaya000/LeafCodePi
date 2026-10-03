@@ -41,10 +41,9 @@ function realPath(value: string): string {
 }
 
 export function resolveGitRepositoryIdentity(cwd: string): GitRepositoryIdentity | undefined {
-	if (git(cwd, ["rev-parse", "--is-inside-work-tree"]) !== "true") return undefined;
-	const root = git(cwd, ["rev-parse", "--show-toplevel"]);
-	const commonDir = git(cwd, ["rev-parse", "--git-common-dir"]);
-	if (!root || !commonDir) return undefined;
+	// One spawn instead of three: output is one value per requested option, in order.
+	const [inside, root, commonDir] = (git(cwd, ["rev-parse", "--is-inside-work-tree", "--show-toplevel", "--git-common-dir"]) ?? "").split(/\r?\n/).map((line) => line.trim());
+	if (inside !== "true" || !root || !commonDir) return undefined;
 	const commonDirPath = path.isAbsolute(commonDir)
 		? commonDir
 		: [path.resolve(cwd, commonDir), path.resolve(root, commonDir)].find((candidate) => fs.existsSync(candidate)) ?? path.resolve(root, commonDir);
@@ -75,7 +74,9 @@ export function resolveWorkflowChatProgress(input: ResolveWorkflowChatProgressIn
 	const requested = normalizeRequestedMode(input.requested);
 	if (requested.error) return { error: requested.error };
 	const parentIdentity = resolveGitRepositoryIdentity(input.parentCwd);
-	const workflowIdentity = resolveGitRepositoryIdentity(input.workflowCwd);
+	const workflowIdentity = path.resolve(input.parentCwd) === path.resolve(input.workflowCwd)
+		? parentIdentity
+		: resolveGitRepositoryIdentity(input.workflowCwd);
 	const sameRepo = !!(
 		parentIdentity
 		&& workflowIdentity

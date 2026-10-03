@@ -702,10 +702,8 @@ function writeLoop(loop: GoalLoop): boolean {
           }
         }
         // 25+50+75+100ms = 250ms total before the overwrite fallback.
-        const until = Date.now() + 25 * (attempt + 1);
-        while (Date.now() < until) {
-          // writeLoopは同期API。イベントループを長く塞がないよう最大250msまで。
-        }
+        // writeLoopは同期API。CPUを回さず（Atomics.wait）最大250msまで待つ。
+        Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 25 * (attempt + 1));
       }
     }
   } catch (error) {
