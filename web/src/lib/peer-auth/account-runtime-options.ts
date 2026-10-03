@@ -2,6 +2,11 @@ import { createRemotePeerCredentialStore } from "@backend-core/peer-auth-remote-
 import { readPeerConfig } from "@backend-core/peer-auth-config.mjs";
 import { accountAuthPath, accountDir, accountModelsStorePath } from "@/lib/accounts";
 
+/** Whether this account takes its credentials from another LCP (valid `peer.json`). */
+export function isPeerAccount(id: string, agentDir: string): boolean {
+  return readPeerConfig(accountDir(id, agentDir)) !== null;
+}
+
 /**
  * Options for an account's ModelRuntime. An account with a valid `peer.json` takes its credentials from
  * another LCP through a read-only, in-memory store and has no auth.json of its own; every other account
