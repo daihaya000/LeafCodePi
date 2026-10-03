@@ -10,9 +10,10 @@ const safe = (e) => e instanceof Error && e.message === "MCP native activation u
 
 /** Fake bundle module: records what activation passes and how the provider is installed. */
 function fakeRuntime({ createThrows = false, installThrows = false, republishThrows = false, forSession } = {}) {
-  const calls = { options: [], installs: 0, dispose: 0, scopes: [], statusReads: [] };
+  const calls = { options: [], installs: 0, dispose: 0, scopes: [], statusReads: [], authWrites: [] };
   const prepared = { binding: Object.freeze({}), forSession: forSession ?? (() => "session"),
-    readOAuthStatus(name) { calls.statusReads.push(name); return { name, configPath: "", authType: "oauth", credentialSource: "oauth", credentialConfigured: true, credentialStatus: "present" }; } };
+    readOAuthStatus(name) { calls.statusReads.push(name); return { name, configPath: "", authType: "oauth", credentialSource: "oauth", credentialConfigured: true, credentialStatus: "present" }; },
+    readAuthStatus(name) { calls.statusReads.push(name); return { name, configPath: "", authType: "bearer", credentialSource: "config", credentialConfigured: true, credentialStatus: "present" }; } };
   return { calls, prepared,
     createBackendMcpNativeRuntime(options) {
       calls.options.push(options);
@@ -24,6 +25,7 @@ function fakeRuntime({ createThrows = false, installThrows = false, republishThr
           if (republishThrows && calls.installs > 1) throw Error("private republish failure");
           return prepared;
         },
+        async writeAuth(name, headers) { calls.authWrites.push([name, headers]); return prepared; },
         runWrite(work) { return Promise.resolve().then(() => work({ fixture: true })); },
         dispose() { calls.dispose++; },
       };
@@ -182,6 +184,18 @@ test("legacy adapter auth writes are refused with a 409 while native MCP is acti
   const refusal = legacyAuthWriteRefusal();
   assert.equal(refusal.status, 409); assert.equal(refusal.cause, undefined);
   assert.equal(/private|token|store/i.test(refusal.message), false);
+});
+
+test("auth writes go through the runtime and refresh the handle used for status reads", async () => {
+  const runtime = fakeRuntime();
+  const activation = createNativeMcpActivation({ agentDir: "C:/private-agent", environment: {}, variables: {} });
+  await assert.rejects(activation.writeAuth("remote", { Authorization: "Bearer x" }), safe); // before initialize
+  await activation.initialize(runtime);
+  assert.equal(activation.readAuthStatus("remote").authType, "bearer");
+  assert.equal(await activation.writeAuth("remote", { Authorization: "Bearer private", "x-fixture": null }), undefined);
+  assert.deepEqual(runtime.calls.authWrites, [["remote", { Authorization: "Bearer private", "x-fixture": null }]]);
+  activation.dispose();
+  await assert.rejects(activation.writeAuth("remote", { Authorization: "Bearer x" }), safe);
 });
 
 test("a malformed bundle module and a non-http auth URL fail closed", async () => {

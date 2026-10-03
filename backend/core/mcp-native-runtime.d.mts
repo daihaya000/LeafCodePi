@@ -2,6 +2,7 @@ import type { McpExtensionOptions, LoadedMcpConfig } from "@earendil-works/pi-co
 import type { McpFetch } from "@earendil-works/pi-mcp";
 import type { BackendMcpConfigBinding } from "./mcp-native-config-owner.mjs";
 import type { BackendMcpOAuthStatus } from "./mcp-native-oauth-status.mjs";
+import type { McpPublicAuthSnapshot } from "../../shared/mcp-auth-snapshot.mjs";
 import type { BackendMcpConfigLocation } from "./mcp-native-config-file-writer.mjs";
 import type { BackendMcpCredentialLocation } from "./mcp-native-credential-owner.mjs";
 import type { BackendMcpExtensionsResult } from "./mcp-native-extensions.mjs";
@@ -13,7 +14,9 @@ export type BackendMcpPreparedRuntime = Readonly<{
   snapshot: LoadedMcpConfig;
   /** SDK extension family for one session cwd (url entries -> HTTP, others -> stdio). No activation. */
   forSession(sessionCwd: string): BackendMcpExtensionsResult;
-  /** Read-only native OAuth status for one configured entry of this snapshot; never refreshes/writes. */
+  /** Read-only native auth status for one configured entry of this snapshot; never refreshes/writes. */
+  readAuthStatus(name: string): McpPublicAuthSnapshot;
+  /** PRIVATE OAuth-only status (configured HTTP endpoints); kept for callers that want the store only. */
   readOAuthStatus(name: string): BackendMcpOAuthStatus;
 }>;
 export type BackendMcpNativeRuntime = Readonly<{
@@ -22,6 +25,9 @@ export type BackendMcpNativeRuntime = Readonly<{
   /** Prepare + install as the process session provider (the only install path). A failed reload
    * leaves the previous provider installed, but its retired binding fails closed. New sessions only. */
   install(): Promise<BackendMcpPreparedRuntime>;
+  /** Owner-only auth write (headers, null removes): retires the current binding, republishes and
+   * returns the fresh handle. Running sessions keep their snapshot. */
+  writeAuth(name: string, headers: Readonly<Record<string, string | null>>): Promise<BackendMcpPreparedRuntime>;
   runWrite<T>(work: (scope: BackendMcpWriterScope) => T | Promise<T>): Promise<T>;
   drain(): Promise<void>;
   dispose(): void;

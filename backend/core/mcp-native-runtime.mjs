@@ -10,6 +10,7 @@ import { createBackendMcpHttpTransportFactory } from "./mcp-native-http-transpor
 import { setBackendMcpNativeSessionProvider } from "./mcp-native-session.mjs";
 import { createBackendMcpStdioTransportFactory } from "./mcp-native-stdio-transport.mjs";
 import { createBackendMcpConfigStorageCheck, createBackendMcpPrivateStorageCheck } from "./mcp-private-storage.mjs";
+import { publicMcpAuthSnapshot } from "../../shared/mcp-auth-snapshot.mjs";
 
 const unavailable = () => new Error("MCP native runtime unavailable");
 const plain = (v) => v && typeof v === "object" && !Array.isArray(v) && [Object.prototype, null].includes(Object.getPrototypeOf(v));
@@ -69,8 +70,39 @@ export function createBackendMcpNativeRuntime(options) {
         binding,
         /** PRIVATE resolved snapshot (env/header commands already substituted); never a DTO. */
         snapshot,
-        /** Read-only native OAuth status for one configured entry of THIS snapshot. Never refreshes or
-         * writes; non-configured, stdio/header and unknown entries are refused by the authority. */
+        /** Read-only native auth status for one configured entry of THIS snapshot. Never refreshes or
+         * writes. Config headers win (they are what the runtime sends); otherwise the OAuth store is
+         * consulted and non-credential endpoints report none. */
+        readAuthStatus(name) {
+          try {
+            if (typeof name !== "string" || !name) throw unavailable();
+            const entry = snapshot.servers.find((server) => server.name === name);
+            if (!entry) throw unavailable();
+            const url = typeof entry.config?.url === "string" && entry.config.url ? entry.config.url : undefined;
+            const headers = plain(entry.config?.headers) ? entry.config.headers : undefined;
+            const authorization = headers ? Object.keys(headers).find((key) => key.toLowerCase() === "authorization") : undefined;
+            const snapshotValue = (authType, credentialConfigured, credentialSource, credentialStatus) =>
+              publicMcpAuthSnapshot({ name, ...(url === undefined ? {} : { url }), authType, credentialConfigured, credentialSource, credentialStatus });
+            if (authorization !== undefined) {
+              const value = headers[authorization];
+              const result = snapshotValue(typeof value === "string" && /^Bearer\s/i.test(value) ? "bearer" : "headers", true, "config", "present");
+              if (!result) throw unavailable();
+              return result;
+            }
+            if (headers && Object.keys(headers).length > 0) {
+              const result = snapshotValue("headers", true, "config", "present");
+              if (!result) throw unavailable();
+              return result;
+            }
+            if (url === undefined) {
+              const result = snapshotValue("none", false, "none", "missing");
+              if (!result) throw unavailable();
+              return result;
+            }
+            return readOAuthStatus(entry.name, url);
+          } catch { throw unavailable(); }
+        },
+        /** PRIVATE OAuth-store-only status for one configured entry (authority whitelist applies). */
         readOAuthStatus(name) {
           try {
             if (typeof name !== "string" || !name) throw unavailable();
@@ -98,16 +130,27 @@ export function createBackendMcpNativeRuntime(options) {
       });
     };
 
+    /** Prepare a fresh binding and publish it as the process session provider (single install path). */
+    const installRuntime = async () => {
+      const prepared = await prepareRuntime();
+      setBackendMcpNativeSessionProvider(prepared.forSession);
+      return prepared;
+    };
+
     return Object.freeze({
       prepare: prepareRuntime,
-      /** Prepares a fresh binding and installs it as the process session provider. This is the only
-       * installation path, so a failed reload leaves the previous provider in place — its retired
-       * binding then fails closed instead of silently serving an old snapshot. Callers must
-       * re-install after any entered config write; new sessions pick it up, running ones do not. */
-      async install() {
+      /** Installs the fresh snapshot as the process session provider. A failed reload leaves the
+       * previous provider in place — its retired binding then fails closed. New sessions only. */
+      install: installRuntime,
+      /** Owner-only auth write for one configured entry: prepares a fresh binding, writes bounded
+       * header values through its guarded updater (which retires that binding) and republishes for
+       * later sessions. Returns the fresh prepared handle; running sessions keep their snapshot. */
+      async writeAuth(name, headers) {
         const prepared = await prepareRuntime();
-        setBackendMcpNativeSessionProvider(prepared.forSession);
-        return prepared;
+        const entry = prepared.snapshot.servers.find((server) => server.name === name);
+        if (!entry) throw unavailable();
+        try { prepared.binding.writeAuthHeaders(entry, headers); } catch { throw unavailable(); }
+        return installRuntime();
       },
       runWrite: (work) => owner.runWrite(work),
       drain: () => owner.drain(),

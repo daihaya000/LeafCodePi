@@ -190,6 +190,47 @@ test("envCommands resolves adapter-style secrets into the private snapshot befor
   assert.equal((await resolved.prepare()).snapshot.servers[0].config.env.KEY, "resolved-value", "each prepare resolves its own copy");
 });
 
+test("readAuthStatus reflects config headers first and falls back to the OAuth store or none", async (t) => {
+  const root = await fixture(t, {
+    bearer: { url: "https://bearer.example/mcp", headers: { authorization: "Bearer private-token" } },
+    headersOnly: { url: "https://headers.example/mcp", headers: { "x-fixture": "private-value" } },
+    oauth: { url: "https://oauth.example/mcp", auth: "oauth" },
+    local: { command: process.execPath, args: ["--version"] },
+  });
+  const runtime = create(base(root)); t.after(() => runtime.dispose());
+  const prepared = await runtime.prepare();
+  const bearer = prepared.readAuthStatus("bearer");
+  assert.equal(bearer.authType, "bearer"); assert.equal(bearer.credentialSource, "config");
+  assert.equal(bearer.credentialStatus, "present"); assert.equal(bearer.credentialConfigured, true);
+  assert.equal(JSON.stringify(bearer).includes("private"), false);
+  const custom = prepared.readAuthStatus("headersOnly");
+  assert.equal(custom.authType, "headers"); assert.equal(custom.credentialSource, "config"); assert.equal(custom.credentialStatus, "present");
+  assert.equal(prepared.readAuthStatus("oauth").credentialStatus, "missing"); // configured endpoint, empty store
+  const none = prepared.readAuthStatus("local");
+  assert.equal(none.authType, "none"); assert.equal(none.credentialSource, "none"); assert.equal(none.credentialStatus, "missing");
+  assert.throws(() => prepared.readAuthStatus("unknown"), safe);
+});
+
+test("writeAuth persists a bounded header, republishes the snapshot and retires the old binding", async (t) => {
+  const root = await fixture(t, { remote: { url: "https://remote.example/mcp" } });
+  const runtime = create(base(root)); t.after(() => runtime.dispose());
+  const before = await runtime.prepare();
+  const after = await runtime.writeAuth("remote", { Authorization: "Bearer private-fixture", "x-fixture": "1" });
+  const onDisk = JSON.parse(await readFile(join(root, "mcp.json"), "utf8"));
+  assert.deepEqual(onDisk.mcpServers.remote.headers, { Authorization: "Bearer private-fixture", "x-fixture": "1" });
+  assert.equal(after.snapshot.servers[0].config.headers.Authorization, "Bearer private-fixture");
+  assert.equal(after.readAuthStatus("remote").credentialStatus, "present");
+  assert.equal(runtime.binding?.assertOwner, undefined);
+  // The previous binding is retired by the entered write (its own sanitized message).
+  assert.throws(() => before.binding.assertOwner(), (error) => error instanceof Error && error.message === "MCP configuration owner unavailable" && error.cause === undefined);
+  // Removal and unknown servers ride the same guarded path.
+  const cleared = await runtime.writeAuth("remote", { Authorization: null, "x-fixture": null });
+  assert.equal(Object.hasOwn(JSON.parse(await readFile(join(root, "mcp.json"), "utf8")).mcpServers.remote, "headers"), false);
+  assert.equal(cleared.readAuthStatus("remote").credentialStatus, "missing");
+  await assert.rejects(runtime.writeAuth("unknown", { Authorization: "Bearer x" }), safe);
+  await assert.rejects(runtime.writeAuth("remote", { "bad name": "v" }), safe);
+});
+
 test("a failing process owner or storage attestation makes prepare unavailable without leaking causes", async (t) => {
   const root = await fixture(t, { user: { command: process.execPath } });
   removeRoot(t, root);

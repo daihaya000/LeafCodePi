@@ -43,8 +43,10 @@ export function createNativeMcpStartup({ runtimeRequested, env = process.env, ac
     initializeRuntime: (runtimeModule) => instance.initialize(runtimeModule),
     /** Config writes go through the owner's writer scope so the provider is republished afterwards. */
     runConfigWrite: (work) => instance.runConfigWrite(work),
-    /** Read-only native OAuth status for one configured entry (public whitelist shape). */
+    /** Read-only native auth status for one configured entry (public whitelist shape). */
     readAuthStatus: (name) => instance.readAuthStatus(name),
+    /** Owner-only auth write: bounded header values (null removes), republished for later sessions. */
+    writeAuth: (name, headers) => instance.writeAuth(name, headers),
   });
 }
 
@@ -152,8 +154,15 @@ export function createNativeMcpActivation(options = {}) {
       },
       /** Read-only native auth status for one configured entry of the installed snapshot. */
       readAuthStatus(name) {
-        if (state !== "active" || !prepared || typeof prepared.readOAuthStatus !== "function") throw unavailable();
-        return prepared.readOAuthStatus(name);
+        if (state !== "active" || !prepared || typeof prepared.readAuthStatus !== "function") throw unavailable();
+        return prepared.readAuthStatus(name);
+      },
+      /** Owner-only auth write: retires the current binding, republishes and acknowledges undefined.
+       * Running sessions keep their snapshot; the caller owns any UI refresh. */
+      async writeAuth(name, headers) {
+        if (state !== "active" || !owner || typeof owner.writeAuth !== "function") throw unavailable();
+        try { prepared = await owner.writeAuth(name, headers); } catch { throw unavailable(); }
+        return undefined;
       },
       /** Releases the config owner; already-installed providers/sessions are not revoked. */
       dispose() { try { owner?.dispose(); } catch { /* best-effort */ } owner = undefined; prepared = undefined; state = "disposed"; },
