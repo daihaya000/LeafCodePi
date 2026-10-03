@@ -1243,6 +1243,8 @@ function persistThroughputSample(
         payload,
       );
       live.persistedThroughputKeys.add(timing.startedAtMs);
+      // Persisting made this sample evictable, so the live map can shed it now.
+      trimLiveThroughputMap(live);
       const persisted = {
         ...timing,
         // payload holds the resolved count, which stays valid once the streamed chars are dropped.
@@ -1343,6 +1345,26 @@ function trackMessageEndEvent(
  */
 const LIVE_TOOL_TIMING_LIMIT = 512;
 
+/**
+ * Throughput samples are persisted to the session file and reloaded on restore,
+ * so the live map only has to cover what is still on screen. It is keyed by the
+ * message timestamp (insertion-ordered), so dropping from the front evicts the
+ * oldest turns instead of growing one entry per assistant message forever.
+ */
+const LIVE_THROUGHPUT_LIMIT = 512;
+
+function trimLiveThroughputMap(live: LiveRuntime): void {
+  if (live.throughputByStartedAt.size <= LIVE_THROUGHPUT_LIMIT) return;
+  for (const startedAt of live.throughputByStartedAt.keys()) {
+    // Only persisted samples are safe to drop: a missing sample would otherwise
+    // lose the tok/s display for a turn that never reached the session file.
+    if (!live.persistedThroughputKeys.has(startedAt)) continue;
+    live.throughputByStartedAt.delete(startedAt);
+    live.persistedThroughputKeys.delete(startedAt);
+    if (live.throughputByStartedAt.size <= LIVE_THROUGHPUT_LIMIT) break;
+  }
+}
+
 function trimLiveTimingMaps(live: LiveRuntime): void {
   const excess = live.toolStartedAt.size - LIVE_TOOL_TIMING_LIMIT;
   if (excess <= 0) return;
@@ -1421,6 +1443,7 @@ export function trackThroughputEvent(
         startedAt,
         createThroughputTiming(startedAt),
       );
+      trimLiveThroughputMap(live);
     }
     return;
   }

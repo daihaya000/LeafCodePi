@@ -314,4 +314,44 @@ describe("trackThroughputEvent", () => {
     // Partial output stays bounded by the existing toolResult cleanup.
     assert.ok(live.toolPartialOutputByCallId.size <= 600);
   });
+
+  it("evicts persisted throughput samples instead of growing one per assistant turn", async () => {
+    vi.useFakeTimers();
+    const { live, persisted } = liveState();
+
+    for (let index = 0; index < 600; index += 1) {
+      const startedAt = 1_000 + index;
+      trackThroughputEvent(live, { type: "message_start", message: { role: "assistant", timestamp: startedAt } });
+      // A finished turn is persisted, which is what makes the sample evictable.
+      // Persistence is deferred to a microtask, so let it run before the next turn.
+      trackThroughputEvent(live, {
+        type: "message_end",
+        message: { role: "assistant", timestamp: startedAt, usage: { output: 10 } },
+      });
+      await Promise.resolve();
+    }
+
+    assert.ok(live.throughputByStartedAt.size <= 512, `throughput map held ${live.throughputByStartedAt.size}`);
+    // The newest turn is still projected, and its persisted marker stays with it.
+    assert.equal(live.throughputByStartedAt.has(1_000 + 599), true);
+    assert.equal(live.persistedThroughputKeys.has(1_000 + 599), true);
+    // The oldest turns were dropped from both the map and the persisted set.
+    assert.equal(live.throughputByStartedAt.has(1_000), false);
+    assert.equal(live.persistedThroughputKeys.has(1_000), false);
+    assert.ok(persisted.length > 0, "samples were still written to the session file");
+  });
+
+  it("keeps unpersisted throughput samples so a live turn never loses its tok/s", () => {
+    vi.useFakeTimers();
+    const { live } = liveState();
+
+    for (let index = 0; index < 600; index += 1) {
+      // message_start only: no message_end, so nothing is persisted.
+      trackThroughputEvent(live, { type: "message_start", message: { role: "assistant", timestamp: 2_000 + index } });
+    }
+
+    // Unpersisted samples are never evicted, because dropping them would erase the
+    // tok/s display for a turn that has not reached the session file yet.
+    assert.equal(live.throughputByStartedAt.size, 600);
+  });
 });
