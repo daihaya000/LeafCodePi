@@ -8,6 +8,7 @@ import {
   DEFAULT_LINUX_SAFE_STORAGE_PASSWORD,
   decryptChromiumSafeStorageCookie,
   deriveChromiumSafeStorageKey,
+  lookupLinuxSafeStoragePassword,
   lookupLinuxSafeStoragePasswordSync,
 } from "./chromium-cookie-crypto";
 import {
@@ -56,14 +57,17 @@ describe("Linux Chromium Safe Storage crypto", () => {
     expect(decryptChromiumSafeStorageCookie(encrypted, key, true)).toBe("real-value");
   });
 
-  it("falls back to peanuts when secret-tool is missing", () => {
+  it("falls back to peanuts without retrying when secret-tool is unavailable", () => {
+    let calls = 0;
     const result = lookupLinuxSafeStoragePasswordSync("chrome", () => {
+      calls += 1;
       throw new Error("ENOENT");
     });
     expect(result).toEqual({
       password: DEFAULT_LINUX_SAFE_STORAGE_PASSWORD,
       cacheable: false,
     });
+    expect(calls).toBe(1);
   });
 
   it("uses secret-tool output when lookup succeeds", () => {
@@ -71,6 +75,37 @@ describe("Linux Chromium Safe Storage crypto", () => {
       password: "custom-pass",
       cacheable: true,
     });
+  });
+
+  it("finds app-less legacy Chromium secrets by their v1 schema", () => {
+    const queries: Array<[string, string]> = [];
+    const result = lookupLinuxSafeStoragePasswordSync("chrome", (attribute, value) => {
+      queries.push([attribute, value]);
+      if (attribute === "application") {
+        throw Object.assign(new Error("no match"), { status: 1, stderr: Buffer.alloc(0) });
+      }
+      return "legacy-pass";
+    });
+
+    expect(result).toEqual({ password: "legacy-pass", cacheable: true });
+    expect(queries).toEqual([
+      ["application", "chrome"],
+      ["xdg:schema", "chrome_libsecret_os_crypt_password"],
+    ]);
+  });
+
+  it("uses the same legacy schema fallback in the async extension path", async () => {
+    const queries: Array<[string, string]> = [];
+    const result = await lookupLinuxSafeStoragePassword("chromium", async (attribute, value) => {
+      queries.push([attribute, value]);
+      return attribute === "xdg:schema" ? "legacy-pass" : null;
+    });
+
+    expect(result).toEqual({ password: "legacy-pass", cacheable: true });
+    expect(queries).toEqual([
+      ["application", "chromium"],
+      ["xdg:schema", "chrome_libsecret_os_crypt_password"],
+    ]);
   });
 });
 

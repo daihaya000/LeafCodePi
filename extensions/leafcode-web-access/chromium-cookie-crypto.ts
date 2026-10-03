@@ -15,6 +15,7 @@ import { homedir } from "node:os";
 import { isAbsolute, join } from "node:path";
 
 export const DEFAULT_LINUX_SAFE_STORAGE_PASSWORD = "peanuts";
+const LEGACY_LINUX_SAFE_STORAGE_SCHEMA = "chrome_libsecret_os_crypt_password";
 
 export type ChromiumBrowserConfig = {
 	id: string;
@@ -142,41 +143,86 @@ function peanutsFallback(cacheable: boolean): LinuxSafeStoragePassword {
 	return { password: DEFAULT_LINUX_SAFE_STORAGE_PASSWORD, cacheable };
 }
 
-/**
- * libsecret via `secret-tool lookup application <chrome|chromium|…>`.
- * Missing tool / empty result falls back to Chromium's default "peanuts".
- */
-export function lookupLinuxSafeStoragePasswordSync(
-	secretToolApp?: string,
-	run?: (app: string) => string | null,
-): LinuxSafeStoragePassword {
-	if (!secretToolApp) return peanutsFallback(true);
+/** Current entries use an app attribute; older Chromium entries have only the v1 schema. */
+type LinuxSecretToolLookup = (attribute: string, value: string) => string | null;
+type AsyncLinuxSecretToolLookup = (attribute: string, value: string) => string | null | Promise<string | null>;
+type LinuxSecretToolLookupResult = { password: string; miss: boolean };
+
+function isSecretToolNoMatch(error: unknown, stderrOutput?: unknown): boolean {
+	if (!error || typeof error !== "object") return false;
+	const details = error as { code?: unknown; status?: unknown; stderr?: unknown };
+	const code = details.status ?? details.code;
+	const stderrValue = stderrOutput ?? details.stderr;
+	const stderr = Buffer.isBuffer(stderrValue) ? stderrValue.toString("utf8") : String(stderrValue ?? "");
+	return String(code) === "1" && !stderr.trim();
+}
+
+function lookupLinuxSafeStorageValueSync(
+	attribute: string,
+	value: string,
+	run?: LinuxSecretToolLookup,
+): LinuxSecretToolLookupResult {
 	try {
 		const password = run
-			? run(secretToolApp)
-			: execFileSync("secret-tool", ["lookup", "application", secretToolApp], {
+			? run(attribute, value)?.trim() ?? ""
+			: execFileSync("secret-tool", ["lookup", attribute, value], {
 					encoding: "utf8",
 					timeout: 5000,
-					stdio: ["ignore", "pipe", "ignore"],
+					stdio: ["ignore", "pipe", "pipe"],
 				}).trim();
-		return password ? { password, cacheable: true } : peanutsFallback(false);
-	} catch {
-		return peanutsFallback(false);
+		return { password, miss: !password };
+	} catch (error) {
+		return { password: "", miss: isSecretToolNoMatch(error) };
 	}
 }
 
-export function lookupLinuxSafeStoragePassword(
-	secretToolApp?: string,
-): Promise<LinuxSafeStoragePassword> {
-	if (!secretToolApp) return Promise.resolve(peanutsFallback(true));
+function lookupLinuxSafeStorageValue(
+	attribute: string,
+	value: string,
+	run?: AsyncLinuxSecretToolLookup,
+): Promise<LinuxSecretToolLookupResult> {
+	if (run) {
+		return Promise.resolve().then(() => run(attribute, value)).then((password) => {
+			const normalized = password?.trim() ?? "";
+			return { password: normalized, miss: !normalized };
+		}).catch(() => ({ password: "", miss: false }));
+	}
 	return new Promise((resolve) => {
-		execFile("secret-tool", ["lookup", "application", secretToolApp], { timeout: 5000 }, (err, stdout) => {
-			if (err) {
-				resolve(peanutsFallback(false));
-				return;
-			}
-			const password = stdout.trim();
-			resolve(password ? { password, cacheable: true } : peanutsFallback(false));
-		});
+		try {
+			execFile("secret-tool", ["lookup", attribute, value], { encoding: "utf8", timeout: 5000 }, (err, stdout, stderr) => {
+				if (err) {
+					resolve({ password: "", miss: isSecretToolNoMatch(err, stderr) });
+					return;
+				}
+				const password = stdout.trim();
+				resolve({ password, miss: !password });
+			});
+		} catch (error) {
+			resolve({ password: "", miss: isSecretToolNoMatch(error) });
+		}
 	});
+}
+
+export function lookupLinuxSafeStoragePasswordSync(
+	secretToolApp?: string,
+	run?: LinuxSecretToolLookup,
+): LinuxSafeStoragePassword {
+	if (!secretToolApp) return peanutsFallback(true);
+	const current = lookupLinuxSafeStorageValueSync("application", secretToolApp, run);
+	if (current.password) return { password: current.password, cacheable: true };
+	if (!current.miss) return peanutsFallback(false);
+	const legacy = lookupLinuxSafeStorageValueSync("xdg:schema", LEGACY_LINUX_SAFE_STORAGE_SCHEMA, run);
+	return legacy.password ? { password: legacy.password, cacheable: true } : peanutsFallback(false);
+}
+
+export async function lookupLinuxSafeStoragePassword(
+	secretToolApp?: string,
+	run?: AsyncLinuxSecretToolLookup,
+): Promise<LinuxSafeStoragePassword> {
+	if (!secretToolApp) return peanutsFallback(true);
+	const current = await lookupLinuxSafeStorageValue("application", secretToolApp, run);
+	if (current.password) return { password: current.password, cacheable: true };
+	if (!current.miss) return peanutsFallback(false);
+	const legacy = await lookupLinuxSafeStorageValue("xdg:schema", LEGACY_LINUX_SAFE_STORAGE_SCHEMA, run);
+	return legacy.password ? { password: legacy.password, cacheable: true } : peanutsFallback(false);
 }
