@@ -52,6 +52,15 @@ function writeAuthConfig(dataDirPath, config) {
   writeSecretFile(path, `${JSON.stringify(raw, null, 2)}\n`);
 }
 
+function isWebUiAuthExplicitlyDisabled(dataDirPath) {
+  try {
+    const raw = JSON.parse(readFileSync(webUiAuthPath(dataDirPath), "utf8"));
+    return raw?.enabled === false;
+  } catch {
+    return false;
+  }
+}
+
 export function writeWebUiAuthFile(dataDirPath, token) {
   const normalized = normalizeToken(token);
   if (!normalized) {
@@ -87,7 +96,8 @@ export function writeWebUiAuthConfig(dataDirPath, patch) {
 }
 
 /**
- * Ensure a WebUI access token exists when binding beyond loopback.
+ * Require a WebUI access token beyond loopback by default. An explicit
+ * `enabled: false` config remains a deliberate opt-out.
  * @returns {{ authRequired: boolean, token: string | null }}
  */
 export function ensureWebUiAuth(env, bindHost, dataDirPath) {
@@ -95,14 +105,19 @@ export function ensureWebUiAuth(env, bindHost, dataDirPath) {
   const configured = readWebUiAuthConfig(dataDirPath);
   const remote = !isLoopbackBind(bindHost);
 
-  if (!remote || !configured.enabled) {
+  if (!remote || isWebUiAuthExplicitlyDisabled(dataDirPath)) {
     return { authRequired: false, token: envToken || configured.token };
   }
 
   let token = envToken || configured.token;
-  if (!token) {
-    token = randomBytes(32).toString("base64url");
-    writeWebUiAuthConfig(dataDirPath, { token, enabled: true });
+  if (!token) token = randomBytes(32).toString("base64url");
+  if (!configured.enabled || (!envToken && !configured.token)) {
+    // Do not copy an environment-managed secret into the config file. If that
+    // secret is later removed, persist the generated replacement token.
+    writeAuthConfig(dataDirPath, {
+      token: envToken ? configured.token : token,
+      enabled: true,
+    });
   }
   return { authRequired: true, token };
 }
