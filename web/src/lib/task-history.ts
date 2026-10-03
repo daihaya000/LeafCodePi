@@ -91,6 +91,23 @@ export function stripImageDataFromMessages(messages: readonly UiMessage[]): UiMe
   });
 }
 
+/**
+ * Recover one image part's data URL from a projection that still carries it.
+ * After `stripImageDataFromMessages` the history page no longer ships base64, so the
+ * client asks for the single part it actually needs instead of the whole page.
+ * Returns null when the message is absent, the part is not an image, or the copy at
+ * hand is already stripped — in that case the caller has the bytes already.
+ */
+export function imagePartDataUrl(
+  messages: readonly UiMessage[],
+  target: { messageId: string; partId: string },
+): string | null {
+  const message = messages.find((item) => item.id === target.messageId);
+  const part = message?.parts.find((item) => item.id === target.partId);
+  if (!part || part.type !== "image") return null;
+  return part.url.startsWith("data:") ? part.url : null;
+}
+
 /** Prepend an older page while retaining the current live copy at the boundary. */
 export function prependOlderTaskMessages(
   current: UiMessage[],
