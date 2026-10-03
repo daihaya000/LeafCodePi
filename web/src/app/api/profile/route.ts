@@ -48,13 +48,52 @@ export async function GET(request: NextRequest) {
   }
 }
 
+/**
+ * Re-read an undeclared body with a hard byte ceiling. Returns null once the limit
+ * is passed, so the request is refused before the whole payload is held in memory.
+ */
+async function requestWithinArchiveLimit(request: Request): Promise<Request | null> {
+  const body = request.body;
+  if (!body) return request;
+  const limit = MAX_ARCHIVE_BYTES + MULTIPART_OVERHEAD_BYTES;
+  const reader = body.getReader();
+  const chunks: Uint8Array[] = [];
+  let received = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    if (!value) continue;
+    received += value.byteLength;
+    if (received > limit) {
+      await reader.cancel();
+      return null;
+    }
+    chunks.push(value);
+  }
+  const buffered = new Uint8Array(received);
+  let offset = 0;
+  for (const chunk of chunks) {
+    buffered.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  return new Request(request.url, {
+    method: request.method,
+    headers: request.headers,
+    body: buffered,
+  });
+}
+
 export async function POST(request: NextRequest) {
   if (localRuntimeBlocked()) return profileMutationUnavailable();
   try {
-    // Refuse before the multipart body is buffered whenever the size is declared.
-    const declared = Number(request.headers.get("content-length"));
+    // A declared content-length is refused outright; an undeclared (chunked) body
+    // is re-read under a byte ceiling so formData() never holds the whole payload.
+    const declaredHeader = request.headers.get("content-length");
+    const declared = declaredHeader === null ? Number.NaN : Number(declaredHeader);
     if (Number.isFinite(declared) && declared > MAX_ARCHIVE_BYTES + MULTIPART_OVERHEAD_BYTES) return archiveTooLarge();
-    const form = await request.formData();
+    const formRequest = Number.isFinite(declared) ? request : await requestWithinArchiveLimit(request);
+    if (formRequest === null) return archiveTooLarge();
+    const form = await formRequest.formData();
     const file = form.get("profile");
     if (!(file instanceof File)) {
       return NextResponse.json({ error: "設定ファイルを指定してください" }, { status: 400 });

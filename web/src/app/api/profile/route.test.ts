@@ -105,6 +105,23 @@ describe("/api/profile ownership", () => {
     expect(form).not.toHaveBeenCalled(); expectNoProfileWork();
   });
 
+  it("rejects an undeclared (chunked) upload that passes the archive limit while reading", async () => {
+    vi.stubEnv("NODE_ENV", "test");
+    // A body that declares no content-length and never ends below the limit.
+    let produced = 0;
+    const stream = new ReadableStream<Uint8Array>({
+      pull(controller) {
+        if (produced > 300 * 1024 * 1024) return controller.close();
+        produced += 8 * 1024 * 1024;
+        controller.enqueue(new Uint8Array(8 * 1024 * 1024));
+      },
+    });
+    const request = new NextRequest(url, { method: "POST", body: stream, duplex: "half" } as never);
+    const form = vi.spyOn(request, "formData");
+    expect((await POST(request)).status).toBe(413);
+    expect(form).not.toHaveBeenCalled(); expectNoProfileWork();
+  });
+
   it("local owner validation still rejects missing upload and invalid backup selector", async () => {
     vi.stubEnv("NODE_ENV", "test");
     expect((await POST(new NextRequest(url, { method: "POST", body: new FormData() }))).status).toBe(400);
