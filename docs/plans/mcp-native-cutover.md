@@ -134,7 +134,9 @@ icacls <dir>\mcp.json /inheritance:r /grant:r "$env:USERNAME:F"   # inherit-only
 - 実機configでの実サーバー受け入れ: `--connect --timeout-ms=25000 --json` →
   `{"ok":true,"storage":"ok","connect":{"browser-use":{"tools":16},"blendermcp":{"tools":26},"comfy-mcp":{"tools":39}},"issues":[]}`。
 - Hostの `backendLaunchPlan` が Backend 子プロセスへ `LEAFCODE_PI_MCP_NATIVE=1` を渡すように変更（`LEAFCODE_PI_MCP_NATIVE=0` でadapterへ即ロールバック）。
-- 残り: Backend/Host の再起動 → セッションでnative MCPツールが出ること・ON/OFF・再起動再現の確認 → adapter撤去。
+- 再起動後の実機検証: 同じflag（`LEAFCODE_PI_BACKEND_RUNTIME=1` + `LEAFCODE_PI_MCP_NATIVE=1`）で実 agentDir＋使い捨てデータディレクトリの
+  実Backendを起動 → `ready: true` / `runtimeStartupIncomplete: []`（native runtime が接続できた）。
+- 残り: セッションでnative MCPツールが出ることの確認（ユーザー操作）→ adapter撤去。
 
 ## 実Backendでの受け入れ（2026-10-03）
 
