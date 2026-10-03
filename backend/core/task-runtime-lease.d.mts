@@ -5,6 +5,7 @@ export const ORPHANED_WORKING_TASK_ERROR: string;
 
 export type TaskLeaseTask = { id: string; status: string; error?: string | null };
 export type OrphanedTaskListener<T extends TaskLeaseTask = TaskLeaseTask> = (tasks: T[]) => void;
+export type TaskLeaseLostListener = (taskIds: string[]) => void;
 export type HeartbeatHandle = { unref?: () => unknown };
 export type TaskLeaseState<T extends TaskLeaseTask = TaskLeaseTask> = {
   token: string;
@@ -12,6 +13,8 @@ export type TaskLeaseState<T extends TaskLeaseTask = TaskLeaseTask> = {
   heartbeatTimer: HeartbeatHandle | null;
   orphanListener?: OrphanedTaskListener<T> | null;
   pendingOrphans?: T[];
+  leaseLostListener?: TaskLeaseLostListener | null;
+  pendingLeaseLosses?: string[];
 };
 
 export function createTaskLeaseState<T extends TaskLeaseTask = TaskLeaseTask>(): TaskLeaseState<T>;
@@ -35,6 +38,7 @@ export class TaskLeaseService<T extends TaskLeaseTask = TaskLeaseTask> {
   ownsTaskLease(taskId: string): boolean;
   hasActiveTaskLease(taskId: string): boolean;
   setOrphanedTaskListener(listener: OrphanedTaskListener<T> | null): void;
+  setLeaseLostListener(listener: TaskLeaseLostListener | null): void;
   reconcileOrphanedWorkingTasks(): string[];
   stopHeartbeat(): void;
 }

@@ -8,11 +8,12 @@ const MAX_ACQUIRE_ATTEMPTS = 4;
 /** Reclaim locks only bridge a read-check-delete, so a long-lived one means its holder crashed. */
 export const RECLAIM_LOCK_STALE_MS = 10_000;
 const MAX_PENDING_ORPHANS = 100;
+const MAX_PENDING_LEASE_LOSSES = 100;
 export const ORPHANED_WORKING_TASK_ERROR = "ホスト再起動後にCodeセッションを復旧できなかったため停止しました";
 
 /** Caller-owned state can outlive module reloads without creating another owner. */
 export function createTaskLeaseState() {
-  return { token: randomUUID(), ownedTasks: new Set(), heartbeatTimer: null, orphanListener: null, pendingOrphans: [] };
+  return { token: randomUUID(), ownedTasks: new Set(), heartbeatTimer: null, orphanListener: null, pendingOrphans: [], leaseLostListener: null, pendingLeaseLosses: [] };
 }
 
 function processAlive(pid) {
@@ -41,9 +42,11 @@ export class TaskLeaseService {
     this.setHeartbeat = setHeartbeat;
     this.clearHeartbeat = clearHeartbeat;
     this.warn = warn;
-    // Older hot-reloaded states predate orphan notification fields.
+    // Older hot-reloaded states predate notification fields.
     state.orphanListener ??= null;
     state.pendingOrphans ??= [];
+    state.leaseLostListener ??= null;
+    state.pendingLeaseLosses ??= [];
   }
 
   taskRuntimeLeasePath(taskId) {
@@ -74,12 +77,25 @@ export class TaskLeaseService {
   #touchTaskLease(taskId) {
     const path = this.taskRuntimeLeasePath(taskId);
     const record = this.#readLease(path);
-    if (!record || record.token !== this.token) return;
+    if (!record || record.token !== this.token) {
+      this.#loseTaskLease(taskId);
+      return;
+    }
     try {
       const temporary = `${path}.${this.pid}.${Math.random().toString(16).slice(2)}.tmp`;
       writeFileSync(temporary, `${JSON.stringify({ ...record, heartbeatAt: this.now() })}\n`, "utf8");
       renameSync(temporary, path);
     } catch { /* cleanup/reconcile handles a transient write failure */ }
+  }
+
+  #loseTaskLease(taskId) {
+    if (!this.state.ownedTasks.delete(taskId)) return;
+    const listener = this.state.leaseLostListener;
+    if (listener) {
+      this.#notifyLeaseLoss(listener, [taskId]);
+      return;
+    }
+    this.state.pendingLeaseLosses = [...(this.state.pendingLeaseLosses ?? []), taskId].slice(-MAX_PENDING_LEASE_LOSSES);
   }
 
   #isStalePath(path, existing, now) {
@@ -186,6 +202,19 @@ export class TaskLeaseService {
     const pending = this.state.pendingOrphans ?? [];
     this.state.pendingOrphans = [];
     if (pending.length > 0) this.#notifyOrphans(listener, pending);
+  }
+
+  setLeaseLostListener(listener) {
+    this.state.leaseLostListener = listener;
+    if (!listener) return;
+    const pending = this.state.pendingLeaseLosses ?? [];
+    this.state.pendingLeaseLosses = [];
+    if (pending.length > 0) this.#notifyLeaseLoss(listener, pending);
+  }
+
+  #notifyLeaseLoss(listener, taskIds) {
+    try { listener(taskIds); }
+    catch (error) { this.warn("[task-runtime-lease] lease-lost listener failed", error); }
   }
 
   #notifyOrphans(listener, tasks) {

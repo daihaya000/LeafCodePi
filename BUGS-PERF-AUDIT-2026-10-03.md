@@ -54,7 +54,7 @@
 
 | 重大度 | 箇所 | 内容 |
 | --- | --- | --- |
-| 高 **[保留 2026-10-03: 旧所有者がハートビート停止後に奪われたと気づいて実行を止める経路（ownsTaskLease は判定用に配線済みだが停止用ではない）の設計が先に必要]** | `backend/core/task-runtime-lease.mjs` (~85–87, 140–144) | プロセス生存中でもハートビート 60s 停止で mtime だけでリース奪取。旧プロセス停止なし→Code セッション二重化。 |
+| 高 **[一部修正 2026-10-03: heartbeatでtoken差替えを検知しownedTasksから除去、lease-lost listenerへ通知する基盤を追加。runtimeのローカルsession停止・書込みfencingは未配線]** | `backend/core/task-runtime-lease.mjs`、`web/src/lib/task-runtime-lease.ts` | プロセス生存中でもheartbeatが60s停止するとleaseを奪取できる。旧所有者への通知hookは追加したが、active Code session停止と以後の共有書込みfencingが残る。 |
 | 高 **[一部修正 2026-10-03: 生存 PID で起動キー取得に失敗しても stale 扱いにせず経過時間で判定。他者 PID の起動キー取得の同期 powershell（最大1秒）は未対応]** | `extensions/leafcode-subagents/src/missions/workflow-state.ts` (~60–66, 105–113, reclaim ~156–161) | Windows 起動キー取得が同期 `powershell`（timeout 1000ms）。失敗すると生存ロックを stale 扱いで奪う。ロック取得のたびイベントループ停止。 |
 | 高 **[一部修正 2026-10-03: mailbox.json の mtime が変わっていたらキャッシュを破棄して再読込。読込と persist の間の極小レースは残る]** | `web/src/lib/bot-intercom.ts` (~157, 430–437, 508–513) | 受信箱キャッシュがプロセスをまたぐ。ツールは Backend・既読 PATCH は Next。後勝ちの `persistMailbox` が相手の既読／メッセージを戻せる。 |
 | 高〜中 **[一部修正 2026-10-03: anthropic と openai-codex(CLI/Pi) を single-flight 化、persist 失敗時はメモリ内トークンを使用、pi-auth.ts は atomic 書き込み＋破損ファイルは上書きせず中止。プロセス間の refresh 競合は未対応]** | `web/src/lib/codexbar/providers/anthropic.ts`（`persistTokens` ~105–120、`tryRefreshTokens` ~123–145）、`openai-codex.ts`（`persistTokens` ~122、refresh 後 `loadAuth`）、`web/src/lib/codexbar/pi-auth.ts`（`writeBackPiOAuthTokens` ~182–214） | 使用量取得の OAuth refresh に single-flight が無い。IdP が refresh token を回したあと、CLI 側 `persistTokens` は書き込み失敗を握りつぶしてから古いファイルを読み直すので、新しい refresh だけが消える。Pi の `auth.json` はロック内でも `writeFileSync` で、クラッシュで全プロバイダ分が欠ける。並行ポーリングで同じ refresh を二度使うと、後勝ちが無効トークンを残す。 |

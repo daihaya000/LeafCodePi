@@ -96,6 +96,28 @@ test("a single unreferenced heartbeat updates only records owned by this token",
   f.service.releaseTaskLease("a");
 });
 
+test("heartbeat drops a replaced lease and queues one owner-loss notification", (t) => {
+  let now = Date.now();
+  const f = fixture(t, { now: () => now });
+  f.service.acquireTaskLease("replaced");
+  const replacement = { ...record(f.service, "replaced"), token: "next-owner", heartbeatAt: now };
+  seed(f.service, "replaced", replacement);
+
+  now += HEARTBEAT_MS;
+  f.timers[0].callback();
+  assert.equal(f.state.ownedTasks.has("replaced"), false);
+  assert.equal(f.service.ownsTaskLease("replaced"), false);
+  assert.equal(record(f.service, "replaced").token, "next-owner");
+  assert.deepEqual(f.state.pendingLeaseLosses, ["replaced"]);
+
+  const notifications = [];
+  f.service.setLeaseLostListener((taskIds) => notifications.push(taskIds));
+  assert.deepEqual(notifications, [["replaced"]]);
+  assert.deepEqual(f.state.pendingLeaseLosses, []);
+  f.timers[0].callback();
+  assert.deepEqual(notifications, [["replaced"]]);
+});
+
 test("healthy foreign owners and fresh incomplete writes are not acquired", (t) => {
   const f = fixture(t);
   seed(f.service, "foreign", { token: "foreign", pid: process.pid, acquiredAt: Date.now(), heartbeatAt: Date.now() });
