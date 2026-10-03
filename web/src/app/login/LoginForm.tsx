@@ -1,7 +1,7 @@
 "use client";
 
 import { useRouter, useSearchParams } from "next/navigation";
-import { FormEvent, useState } from "react";
+import { FormEvent, useCallback, useEffect, useState } from "react";
 
 export default function LoginForm({ authFileDisplayPath }: { authFileDisplayPath: string }) {
   const router = useRouter();
@@ -11,15 +11,16 @@ export default function LoginForm({ authFileDisplayPath }: { authFileDisplayPath
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
-  async function onSubmit(event: FormEvent) {
-    event.preventDefault();
+  const signIn = useCallback(async (givenToken: string) => {
+    const normalizedToken = givenToken.trim();
+    if (!normalizedToken) return;
     setBusy(true);
     setError(null);
     try {
       const res = await fetch("/api/auth/webui", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ token: token.trim() }),
+        body: JSON.stringify({ token: normalizedToken }),
       });
       if (!res.ok) {
         const body = (await res.json().catch(() => null)) as { error?: string } | null;
@@ -33,6 +34,19 @@ export default function LoginForm({ authFileDisplayPath }: { authFileDisplayPath
     } finally {
       setBusy(false);
     }
+  }, [next, router]);
+
+  useEffect(() => {
+    const fragmentToken = new URLSearchParams(window.location.hash.slice(1)).get("token")?.trim();
+    if (!fragmentToken) return;
+    window.history.replaceState(null, "", `${window.location.pathname}${window.location.search}`);
+    setToken(fragmentToken);
+    void signIn(fragmentToken);
+  }, [signIn]);
+
+  function onSubmit(event: FormEvent) {
+    event.preventDefault();
+    void signIn(token);
   }
 
   return (

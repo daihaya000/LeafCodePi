@@ -44,7 +44,7 @@
 | 中 **[見送り: tmpdir はエージェント生成の一時画像表示のための意図的設計。拡張子とマジックバイトで検証済み]** | `web/src/lib/local-image.ts`（~56–58, 79） | タスク画像の許可ルートに `tmpdir()` を足している。ブラウズ許可（ホーム / OneDrive / プロジェクト）より広く、一時フォルダ内の画像をタスク経由で読める。 |
 | 中 **[修正済 2026-10-03: localhostはIPv4接続拒否時のみIPv6 loopbackへ再試行。DNS解決は引き続き不使用]** | `web/src/lib/pi/oauth-callback.ts`、`web/src/lib/pi/oauth-callback.test.ts` | localhost callbackにIPv4 listenerがない場合、127.0.0.1の`ECONNREFUSED`後に`::1`へ再試行。callback URLがIP literalなら従来どおり該当familyへ固定。IPv6-only listenerの回帰テストあり。 |
 | 中 **[修正済 2026-10-03: child transcript初回レコードへ親sessionのSHA-256 keyを記録。tempはkey一致のみ列挙し、旧形式・所有者不明を除外]** | `web/src/lib/pi/subagent-runs.ts`、`extensions/leafcode-subagents/src/shared/child-transcript.ts` | `os.tmpdir()` の `pi-subagents-*` を全部走査する。別タスク transcript が混ざる。 |
-| 中 **[一部修正 2026-10-03: API では ?token= を拒否。ページは一回限りのサインイン用に維持（リダイレクトで除去）]** | `web/src/proxy.ts`（~11–16, 37–44）、`web/src/lib/webui-auth.ts`（~30–33） | WebUI トークンを `?token=` クエリでも受理。リファラ・アクセスログ・履歴にトークンが残りうる（短いトークン／無レート制限とは別面）。 |
+| 中 **[修正済 2026-10-03: `?token=` は認証に使わずページURLから除去。one-time sign-in は `/login#token=...` に移行し、client がPOST前にfragmentを履歴から削除。APIは引き続きquery tokenを拒否]** | `web/src/proxy.ts`、`web/src/app/login/LoginForm.tsx`、各回帰テスト | WebUI tokenをURL queryで受理するとreferer・access log・履歴へ漏れうる。fragment方式ではtokenをHTTP URLに含めず、旧query付きページも認証前に除去する。 |
 | 低 | `backend/core/mcp-native-config-owner.mjs` (~76–86) | `verify()` から ACL attest を外したのは意図的（Win で毎ターン 1s 超）。準備後の ACL 変更は次の `prepare` まで気づかない。 |
 | 低 | `web/src/lib/codexbar/chromium-cookie-crypto.ts` (~149–161) | Linux `secret-tool lookup application <app>` は schema なし。Chrome libsecret とずれると peanuts に落ち、復号が静かに失敗しうる。 |
 

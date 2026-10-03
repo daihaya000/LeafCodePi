@@ -8,23 +8,24 @@ import {
   webUiAuthRequired,
 } from "@/lib/webui-auth-shared";
 
-/**
- * `?token=` only exists so a link can sign a browser in once (the page request is redirected to
- * a clean URL and a cookie is set). API routes never accept it: URLs end up in logs and referrers.
- */
+/** One-time sign-in links use `/login#token=...`; fragments never reach the server. */
 function tokenFromRequest(req: NextRequest): string | null {
   const auth = req.headers.get("authorization");
   if (auth?.startsWith("Bearer ")) return auth.slice(7).trim();
-  const cookie = req.cookies.get(WEBUI_AUTH_COOKIE)?.value;
-  if (cookie) return cookie;
-  if (req.nextUrl.pathname.startsWith("/api/")) return null;
-  return req.nextUrl.searchParams.get("token");
+  return req.cookies.get(WEBUI_AUTH_COOKIE)?.value ?? null;
 }
 
 export function proxy(req: NextRequest) {
-  if (!webUiAuthRequired()) return NextResponse.next();
-
   const pathname = req.nextUrl.pathname;
+  if (!pathname.startsWith("/api/") && req.nextUrl.searchParams.has("token")) {
+    const url = req.nextUrl.clone();
+    url.searchParams.delete("token");
+    const res = NextResponse.redirect(url);
+    res.headers.set("Cache-Control", "no-store");
+    res.headers.set("Referrer-Policy", "no-referrer");
+    return res;
+  }
+  if (!webUiAuthRequired()) return NextResponse.next();
   const cookie = req.cookies.get(WEBUI_AUTH_COOKIE)?.value;
   const expected = expectedWebUiToken();
   if (pathname === "/login" && cookie && tokensMatch(cookie, expected)) {
@@ -41,13 +42,6 @@ export function proxy(req: NextRequest) {
 
   const given = tokenFromRequest(req);
   if (given && tokensMatch(given, expected)) {
-    if (req.nextUrl.searchParams.get("token") === given && !pathname.startsWith("/api/")) {
-      const url = req.nextUrl.clone();
-      url.searchParams.delete("token");
-      const res = NextResponse.redirect(url);
-      res.cookies.set(WEBUI_AUTH_COOKIE, given, WEBUI_AUTH_COOKIE_OPTIONS);
-      return res;
-    }
     const res = NextResponse.next();
     // Keep a previously approved browser signed in while it continues to use the WebUI.
     if (cookie && tokensMatch(cookie, expected)) {

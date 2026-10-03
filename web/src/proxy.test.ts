@@ -40,13 +40,27 @@ describe("WebUI device authentication", () => {
       .toBe("http://localhost:3010/");
   });
 
-  it("signs a page link in once and strips the query token, but never accepts it on API routes", () => {
-    const page = proxy(new NextRequest(`http://127.0.0.1:3000/settings?token=${token}`));
+  it("never accepts query tokens and removes them from page URLs", () => {
+    const page = proxy(new NextRequest(`http://127.0.0.1:3000/settings?token=${token}&tab=overview`));
     expect(page.status).toBe(307);
-    expect(new URL(page.headers.get("location") ?? "").pathname + new URL(page.headers.get("location") ?? "").search).toBe("/settings");
-    expect(page.cookies.get("leafcode-pi-token")?.value).toBe(token);
+    const pageUrl = new URL(page.headers.get("location") ?? "");
+    expect(pageUrl.pathname + pageUrl.search).toBe("/settings?tab=overview");
+    expect(page.cookies.get("leafcode-pi-token")).toBeUndefined();
+    expect(page.headers.get("cache-control")).toBe("no-store");
+    expect(page.headers.get("referrer-policy")).toBe("no-referrer");
+
+    const login = proxy(new NextRequest(`http://127.0.0.1:3000/login?token=${token}`));
+    expect(login.status).toBe(307);
+    expect(new URL(login.headers.get("location") ?? "").pathname + new URL(login.headers.get("location") ?? "").search).toBe("/login");
+
     const api = proxy(new NextRequest(`http://127.0.0.1:3000/api/tasks?token=${token}`));
     expect(api.status).toBe(401);
+  });
+
+  it("leaves fragment sign-in links to the login page client", () => {
+    const response = proxy(new NextRequest(`http://127.0.0.1:3000/login#token=${token}`));
+    expect(response.status).toBe(200);
+    expect(response.cookies.get("leafcode-pi-token")).toBeUndefined();
   });
 
   it("requires the new token after a rotation and does not renew the stale cookie", () => {
