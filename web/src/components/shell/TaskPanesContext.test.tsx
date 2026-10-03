@@ -308,6 +308,20 @@ describe("TaskPanesProvider", () => {
     expect(screen.getByTestId("icon-task-a").textContent).toBe(afterBot);
   });
 
+  it("keeps a Bot tab open while the sidebar has never loaded", async () => {
+    localStorage.setItem(TASK_PANES_STORAGE_KEY, JSON.stringify({ version: 1, panes: [{ id: "pane-1", tabs: ["/bots/one"], activeTabId: "/bots/one" }], activePaneId: "pane-1" }));
+    mocks.usePathname.mockReturnValue("/bots/one");
+    // Sidebar fetch keeps failing: the empty list must not retire the open tab.
+    mocks.getJson.mockImplementation(async (url: string) => {
+      if (url === "/api/bots/sidebar") throw new Error("sidebar unavailable");
+      return { tasks: [] };
+    });
+    render(<TaskPanesProvider><Probe /></TaskPanesProvider>);
+
+    await waitFor(() => expect(mocks.getJson).toHaveBeenCalled());
+    expect(screen.getByTestId("state").textContent).toBe("false:/bots/one");
+  });
+
   it("restores Bot routes, titles and closes only deleted Bot tabs", async () => {
     matches = true;
     localStorage.setItem(TASK_PANES_STORAGE_KEY, JSON.stringify({ version: 1, panes: [{ id: "first-pane", tabs: ["second", "/bots/one"], activeTabId: "second" }], activePaneId: "first-pane" }));

@@ -19,12 +19,19 @@ export type BotSidebarSnapshot = {
   bots: BotSidebarBot[];
   rooms: BotSidebarRoom[];
   error: string | null;
+  /**
+   * True once a fetch has succeeded. Consumers that treat an empty `bots` /
+   * `rooms` list as "this Bot no longer exists" must wait for this, otherwise the
+   * pre-fetch empty snapshot closes tabs that are still valid.
+   */
+  loaded: boolean;
 };
 
 const EMPTY_SNAPSHOT: BotSidebarSnapshot = {
   bots: [],
   rooms: [],
   error: null,
+  loaded: false,
 };
 
 let snapshot = EMPTY_SNAPSHOT;
@@ -74,9 +81,9 @@ export function refreshBotSidebar(refreshToken?: string): Promise<BotSidebarSnap
       const nextBots = Array.isArray(result.bots) ? result.bots : [];
       const nextRooms = Array.isArray(result.rooms) ? result.rooms : [];
       const nextSignature = JSON.stringify({ bots: nextBots, rooms: nextRooms });
-      if (nextSignature !== signature || snapshot.error !== null) {
+      if (nextSignature !== signature || snapshot.error !== null || !snapshot.loaded) {
         signature = nextSignature;
-        snapshot = { bots: nextBots, rooms: nextRooms, error: null };
+        snapshot = { bots: nextBots, rooms: nextRooms, error: null, loaded: true };
         emit();
       }
       return snapshot;

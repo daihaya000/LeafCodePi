@@ -99,7 +99,7 @@
 
 | 重大度 | 箇所 | 内容 |
 | --- | --- | --- |
-| 高 | `web/src/components/shell/TaskPanesContext.tsx`（~426–448）、`web/src/lib/bot-sidebar-store.ts`（~24–30, 59–60） | Bot/Room タブの整理がサイドバー取得前の空スナップショットで走る。開いている `/bots/...` を「一覧に無い」とみなして閉じ、URL 同期で別画面へ飛ばしうる。取得失敗時も空のままなので復活しない。 |
+| 高 **[一部修正 2026-10-04: sidebar snapshot に loaded を追加し、初回取得成功前の空スナップショット（および取得失敗中）では Bot/Room タブを閉じない。loaded 取得後の実削除は従来どおり]** | `web/src/components/shell/TaskPanesContext.tsx`（~426–448）、`web/src/lib/bot-sidebar-store.ts`（~24–30, 59–60） | Bot/Room タブの整理がサイドバー取得前の空スナップショットで走る。開いている `/bots/...` を「一覧に無い」とみなして閉じ、URL 同期で別画面へ飛ばしうる。取得失敗時も空のままなので復活しない。 |
 | 高〜中 | `BotView.tsx` (~623–796)、`TaskView.tsx` (~1201–1619, mount ~3031) | SSE に `active` ガード無し。裏ペインでも EventSource が残り、分割タブぶん接続増。 |
 | 中 | `web/src/components/bot/RoomView.tsx`（`active` ~143、SSE effect ~274–332） | Room の EventSource は `active` を見ず、依存が `[id]` だけ。裏の Room ペインでも接続と再接続が残る。Bot/Task の SSE ガード無しとは別画面。 |
 | 中 **[一部緩和 2026-10-03: 走査エントリ上限 20000 を追加。許可ルート検査は、ルート外のモデル置き場を壊すため未対応]** | `web/src/app/api/llama-server/models/route.ts`（GET ~110–146、`collect` ~76–108） | `dir` は browse 許可ルートを見ず、危険文字が無ければ任意の絶対パスを `readdirSync` で深さ 2 まで同期走査する。`statSync` はディレクトリの symlink を追跡する。遅い共有や巨大ツリーで BFF がブロックし、ワークスペース外の `.gguf` 名も返る。 |

@@ -439,7 +439,10 @@ export function TaskPanesProvider({ children }: { children: React.ReactNode }) {
       titlesDirty = true;
     }
     const latest = latestStateForRetarget;
-    if (latest) {
+    // Before the first successful fetch (or while it keeps failing) the sidebar is
+    // empty by default, so pruning here would close every open /bots/... tab and let
+    // URL sync navigate away. Only a loaded snapshot may retire a Bot/Room tab.
+    if (latest && botSidebar.loaded) {
       let next = latest;
       for (const id of latest.panes.flatMap((pane) => pane.tabs)) {
         if (isBotTabId(id) && !titles.has(id)) {
@@ -450,7 +453,7 @@ export function TaskPanesProvider({ children }: { children: React.ReactNode }) {
       if (next !== latest) rawDispatch({ type: "replace", state: next });
     }
     if (titlesDirty) bumpTitlesVersion();
-  }, [bots, emitTabMeta, rooms]);
+  }, [bots, botSidebar.loaded, emitTabMeta, rooms]);
 
   useEffect(() => {
     const onBotSidebarChanged = (event: Event) => {
