@@ -4,7 +4,7 @@ import { readFile } from "node:fs/promises";
 import { dirname, join, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { test } from "node:test";
-import { browserOpenCommand, createBrowserOpener, createNativeMcpActivation, createNativeMcpStartup, isNativeMcpRequested, legacyAuthWriteRefusal } from "./mcp-native-activation.mjs";
+import { browserOpenCommand, createBrowserOpener, createNativeMcpActivation, createNativeMcpStartup, isNativeMcpRequested, legacyAuthWriteRefusal, runEnvCommand } from "./mcp-native-activation.mjs";
 
 const safe = (e) => e instanceof Error && e.message === "MCP native activation unavailable" && e.cause === undefined;
 
@@ -32,6 +32,24 @@ function fakeRuntime({ createThrows = false, installThrows = false, republishThr
     },
   };
 }
+
+test("the default `!command` resolver sees only allowlisted env, not the Backend's whole environment", () => {
+  const secret = "fixture-secret-value";
+  const key = "LEAFCODE_ENV_COMMAND_SECRET";
+  process.env[key] = secret;
+  try {
+    // The resolver itself must not leak the secret, and must still resolve a normal command.
+    const visible = (name) => `node -e "process.stdout.write(String(process.env.${name} !== undefined))"`;
+    assert.equal(runEnvCommand(visible(key)), "false");
+    assert.equal(runEnvCommand(visible("PATH")), "true", "an allowlisted name stays available");
+    assert.equal(runEnvCommand(`node -e "process.stdout.write('  trimmed  ')"`), "trimmed");
+    // A failing command keeps its marker rather than producing a half-secret.
+    assert.equal(runEnvCommand(`node -e "process.exit(3)"`), undefined);
+    assert.equal(runEnvCommand(`node -e "process.stdout.write('')"`), undefined);
+  } finally {
+    delete process.env[key];
+  }
+});
 
 test("the opt-in flag is off by default and only explicit native values enable it", () => {
   for (const env of [{}, { LEAFCODE_PI_MCP_NATIVE: "" }, { LEAFCODE_PI_MCP_NATIVE: "0" }, { LEAFCODE_PI_MCP_NATIVE: "off" }, { LEAFCODE_PI_MCP_NATIVE: "adapter" }]) {

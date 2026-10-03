@@ -1,6 +1,7 @@
 import { basename, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { isDeepStrictEqual, types } from "node:util";
 import { StdioTransport } from "@earendil-works/pi-mcp";
+import { inheritedEnvEntries } from "./mcp-native-inherited-env.mjs";
 const plain = (v) => v && typeof v === "object" && !Array.isArray(v)
   && [Object.prototype, null].includes(Object.getPrototypeOf(v));
 const own = (v, keys) => plain(v) && keys.every((key) => Object.hasOwn(v, key));
@@ -9,35 +10,6 @@ const unavailable = () => new Error("MCP stdio transport unavailable");
 const text = (v) => typeof v === "string" && !v.includes("\0");
 const absolute = (v) => text(v) && isAbsolute(v);
 const envKey = (key) => process.platform === "win32" ? key.toLowerCase() : key;
-/**
- * Names a stdio child inherits implicitly: what an executable, a shell or a TLS/proxy stack needs to
- * start at all. Everything else in the Backend environment (tokens for other services, session
- * material) used to reach every MCP child; a server that needs one declares it in its own `env`,
- * where `${NAME}` still expands from the full snapshot. Matching is case-insensitive on Windows and
- * exact on POSIX, because that is how the OS treats env names there.
- */
-const INHERITED_ENV_NAMES = new Set([
-  "path", "pathext", "systemroot", "windir", "comspec", "temp", "tmp", "tmpdir",
-  "userprofile", "homedrive", "homepath", "appdata", "localappdata", "programdata",
-  "programfiles", "programfiles(x86)", "commonprogramfiles", "commonprogramfiles(x86)",
-  "number_of_processors", "processor_architecture", "processor_identifier", "os",
-  "home", "lang", "language", "lc_all", "lc_ctype", "tz", "shell", "term",
-  "ssl_cert_file", "ssl_cert_dir", "node_extra_ca_certs", "node_path", "node_options",
-  "http_proxy", "https_proxy", "no_proxy", "all_proxy",
-  "HTTP_PROXY", "HTTPS_PROXY", "NO_PROXY", "ALL_PROXY",
-]);
-/** Config prefixes that are tooling settings rather than another service's credential. */
-const INHERITED_ENV_PREFIXES = ["npm_config_", "npm_package_", "pnpm_", "yarn_", "NPM_CONFIG_", "PNPM_", "YARN_"];
-
-function inheritedEnvironment(all) {
-  const result = new Map();
-  for (const [normalized, pair] of all) {
-    const name = process.platform === "win32" ? normalized.toLowerCase() : normalized;
-    if (!INHERITED_ENV_NAMES.has(name) && !INHERITED_ENV_PREFIXES.some((prefix) => name.startsWith(prefix))) continue;
-    result.set(normalized, pair);
-  }
-  return result;
-}
 /**
  * A server's `cwd` chooses where its relative file IO is rooted. `..`, an absolute path or `~` must
  * not move that root out of the session directory: the session cwd is already an authority check, so
@@ -95,7 +67,7 @@ export function createBackendMcpStdioTransportFactory(options) {
     if (!absolute(captured.configPath) || basename(captured.configPath) !== "mcp.json"
       || !absolute(captured.sessionCwd) || !absolute(captured.homeDir)
       || typeof captured.assertSnapshotOwner !== "function" || types.isAsyncFunction(captured.assertSnapshotOwner)) throw unavailable();
-    const all = environment(captured.environment, false), base = inheritedEnvironment(all), snapshot = structuredClone(captured.snapshot);
+    const all = environment(captured.environment, false), base = inheritedEnvEntries(all), snapshot = structuredClone(captured.snapshot);
     if (!own(snapshot, ["servers", "errors"]) || !only(snapshot, ["servers", "errors", "autoEnableCodemode"])
       || !Array.isArray(snapshot.servers) || !Array.isArray(snapshot.errors) || snapshot.errors.length !== 0) throw unavailable();
     const entries = new Map(), namespaces = new Set();

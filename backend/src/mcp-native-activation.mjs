@@ -1,6 +1,7 @@
 import { spawn, spawnSync } from "node:child_process";
 import { homedir, platform as osPlatform } from "node:os";
 import { fileURLToPath } from "node:url";
+import { inheritedEnv } from "../core/mcp-native-inherited-env.mjs";
 
 /** Bundled default config: the same file the migration planner reads. Overridable for tests/deployments. */
 export const BUNDLED_MCP_CONFIG = new URL("../core/mcp-defaults.json", import.meta.url);
@@ -11,11 +12,14 @@ const COMMAND_TIMEOUT_MS = 10_000, COMMAND_MAX_OUTPUT_BYTES = 1024 * 1024;
 
 /** Default resolver for adapter-style `!command` env/header secrets. Shell semantics and the 10s/1MiB
  * bounds match the legacy adapter so existing configs keep working; stdout is trimmed, and a failure
- * returns undefined so only the affected server is refused. Values never reach logs. */
+ * returns undefined so only the affected server is refused. Values never reach logs.
+ *
+ * The child sees the same allowlisted environment a stdio MCP server inherits, not the Backend's
+ * whole environment: a secret resolver has no reason to read another service's tokens. */
 export function runEnvCommand(command) {
   const result = spawnSync(command, {
     shell: true, encoding: "utf8", timeout: COMMAND_TIMEOUT_MS, maxBuffer: COMMAND_MAX_OUTPUT_BYTES,
-    stdio: ["ignore", "pipe", "ignore"], windowsHide: true,
+    stdio: ["ignore", "pipe", "ignore"], windowsHide: true, env: inheritedEnv(),
   });
   if (result?.error || typeof result?.stdout !== "string") return undefined;
   const value = result.stdout.trim();
