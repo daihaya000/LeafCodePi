@@ -168,6 +168,35 @@ describe("large session files", () => {
 
     expect(readSessionLastMessage(file)).toEqual({ role: "user", text: "末尾の発言", timestamp: 2 });
   });
+
+  it("reads the last message from a file just over the full-read limit", () => {
+    // 512KB超・1MB未満: 全読みではなく1MBの末尾窓で足りる。
+    const file = tempFile(
+      "medium-last-message.session",
+      [
+        entry({ type: "session", id: "s9", version: 3 }),
+        toolResult("pad", "s9", "bash", { content: [{ type: "text", text: "x".repeat(600_000) }] }, 1),
+        userMessage("m1", "pad", "中くらいのセッションの発言", 2),
+      ].join("\n"),
+    );
+
+    expect(readSessionLastMessage(file)).toEqual({ role: "user", text: "中くらいのセッションの発言", timestamp: 2 });
+  });
+
+  it("widens the tail window when one huge line fills it", () => {
+    // 1MB窓を巨大な1行が埋めるので4MB窓まで広げて見つける。
+    const file = tempFile(
+      "huge-line-last-message.session",
+      [
+        entry({ type: "session", id: "s9", version: 3 }),
+        userMessage("m1", "s9", "窓の外の重要な発言", 1),
+        toolResult("pad", "m1", "bash", { content: [{ type: "text", text: "y".repeat(1_100_000) }] }, 2),
+        assistantMessage("m2", "pad", "その後の発言", 3),
+      ].join("\n"),
+    );
+
+    expect(readSessionLastMessage(file)).toEqual({ role: "assistant", text: "その後の発言", timestamp: 3 });
+  });
 });
 
 describe("readSessionConversation", () => {

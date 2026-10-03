@@ -46,6 +46,8 @@ function cacheConversation(
 const TAIL_READ_BYTES = 4_000_000;
 /** サイドバープレビュー用の末尾読みサイズ。最新1件だけ必要なので小さくする。 */
 const LAST_MESSAGE_TAIL_BYTES = 1_000_000;
+/** サイドバープレビュー用の全読み上限。これを超えるファイルは末尾窓だけで探す。 */
+const LAST_MESSAGE_FULL_READ_BYTES = 512_000;
 /** ToDo 救済の前方スキャン上限。これを超えるファイルは末尾ウィンドウだけで探す。 */
 const LARGE_FILE_SCAN_MAX_BYTES = 64_000_000;
 /** 末尾窓に会話が無い時（巨大な1行で窓が埋まる等）の再試行サイズ。 */
@@ -379,6 +381,28 @@ function lastMessageFromRawEntries(entries: unknown[]): SessionLastMessage | nul
   return null;
 }
 
+/** 最終発言を探す。見つからなければ null。 */
+function lastMessageFromContent(content: string): SessionLastMessage | null {
+  if (!content.trim()) return null;
+  const entries = parseAndMigrateEntries(content);
+  const sessionEntries = entries.filter((entry) => entry.type !== "session");
+  return lastMessageFromEntries(buildSessionContext(sessionEntries).messages) ?? lastMessageFromRawEntries(sessionEntries);
+}
+
+/**
+ * プレビューに必要なのは最新1件だけ。ストリーム中は 12 秒ごとに mtime が変わるので、
+ * 全読みの境界を 512KB まで下げ、それより大きいファイルは 1MB の末尾窓を読む。
+ * 窓に最終発言が入らない場合（巨大な1行で埋まる等）だけ 4MB 窓へ広げる。
+ */
+function readLastMessageContent(sessionFile: string, size: number): string | null {
+  if (size <= LAST_MESSAGE_FULL_READ_BYTES) return readFileSync(sessionFile, "utf8");
+  const tail = readTailText(sessionFile, LAST_MESSAGE_TAIL_BYTES);
+  if (tail === null) return null;
+  if (lastMessageFromContent(tail)) return tail;
+  if (size <= MAX_SESSION_FILE_BYTES) return readFileSync(sessionFile, "utf8");
+  return readTailText(sessionFile, TAIL_READ_BYTES);
+}
+
 /**
  * 最後の発言をセッションファイルから読む（サイドバープレビュー用）。
  * ランタイム初期化・Piセッション生成を伴わないため、Bot一覧の初回表示が
@@ -393,12 +417,8 @@ export function readSessionLastMessage(sessionFile: string | null | undefined): 
     if (cached && cached.mtimeMs === stats.mtimeMs && cached.size === stats.size) {
       return cached.value;
     }
-    // 長いセッションでもプレビューが出るよう、大きなファイルは末尾だけ読む
-    const content =
-      stats.size <= MAX_SESSION_FILE_BYTES
-        ? readFileSync(sessionFile, "utf8")
-        : readTailText(sessionFile, LAST_MESSAGE_TAIL_BYTES);
-    if (content === null || !content.trim()) {
+    const content = readLastMessageContent(sessionFile, stats.size);
+    if (content === null) {
       cacheLastMessage(sessionFile, {
         mtimeMs: stats.mtimeMs,
         size: stats.size,
@@ -406,9 +426,7 @@ export function readSessionLastMessage(sessionFile: string | null | undefined): 
       });
       return null;
     }
-    const entries = parseAndMigrateEntries(content);
-    const sessionEntries = entries.filter((entry) => entry.type !== "session");
-    const last = lastMessageFromEntries(buildSessionContext(sessionEntries).messages) ?? lastMessageFromRawEntries(sessionEntries);
+    const last = lastMessageFromContent(content);
     cacheLastMessage(sessionFile, {
       mtimeMs: stats.mtimeMs,
       size: stats.size,
