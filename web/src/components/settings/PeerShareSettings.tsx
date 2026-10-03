@@ -30,7 +30,8 @@ export function PeerShareSettings() {
           getJson<{ providers: { id: string; name: string; authenticated: boolean }[] }>("/api/providers"),
           getJson<{ accounts: { id: string; label: string; enabled?: boolean }[] }>("/api/accounts"),
         ]);
-        // Every account that holds a provider can be shared, so count them across accounts.
+        // Every added account that holds a provider is shared, so count them across accounts.
+        // The default auth.json is never shared, so it is not counted.
         const accounts = accountList.accounts.filter((account) => account.enabled !== false);
         const statuses = await Promise.all(
           accounts.map((account) =>
@@ -39,9 +40,6 @@ export function PeerShareSettings() {
           ),
         );
         const counts = new Map<string, number>();
-        for (const provider of auth.providers) {
-          if (provider.authenticated) counts.set(provider.id, (counts.get(provider.id) ?? 0) + 1);
-        }
         for (const status of statuses) {
           for (const id of status.providers ?? []) counts.set(id, (counts.get(id) ?? 0) + 1);
         }
@@ -140,7 +138,7 @@ export function PeerShareSettings() {
         </label>
 
         <fieldset className="text-sm" disabled={disabled}>
-          <legend className="mb-1.5 text-muted">共有するプロバイダ（そのプロバイダを持つ全アカウントが対象）</legend>
+          <legend className="mb-1.5 text-muted">共有するプロバイダ（そのプロバイダを持つ追加アカウントすべてが対象。既定アカウントは共有しません）</legend>
           {providers.length === 0 ? (
             <p className="text-xs text-muted">共有できるログイン済みプロバイダがありません。</p>
           ) : (

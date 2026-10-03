@@ -7,7 +7,7 @@ import test from "node:test";
 import { createPeerAuditLog, createPeerRateLimiter } from "./peer-auth-audit.mjs";
 import { ModelRuntime } from "@earendil-works/pi-coding-agent";
 import { createPeerGrantStore } from "./peer-auth-grants.mjs";
-import { createRemotePeerCredentialStore } from "./peer-auth-remote-store.mjs";
+import { createPeerCacheRegistry, createRemotePeerCredentialStore } from "./peer-auth-remote-store.mjs";
 import { createPeerAuthService } from "./peer-auth-serve.mjs";
 
 // A (sharing LCP) and B (consuming LCP) over a real loopback HTTP connection. A's auth.json is a real
@@ -115,10 +115,12 @@ test("a provider outside the grant, a revoked grant and disabled sharing are all
     assert.equal(await b.read("openrouter"), undefined);
     assert.equal((await b.read("anthropic")).type, "oauth");
     a.grants.setEnabled(false);
-    await assert.rejects(createRemotePeerCredentialStore({ peerUrl: a.url, token }).read("anthropic"), /\(401\)/);
+    // A fresh B process (no shared cache yet) is refused; a running one keeps its cache until it expires.
+    const fresh = () => ({ peerUrl: a.url, token, registry: createPeerCacheRegistry() });
+    await assert.rejects(createRemotePeerCredentialStore(fresh()).read("anthropic"), /\(401\)/);
     a.grants.setEnabled(true);
     a.grants.revoke(grant.id);
-    await assert.rejects(createRemotePeerCredentialStore({ peerUrl: a.url, token }).read("anthropic"), /\(401\)/);
+    await assert.rejects(createRemotePeerCredentialStore(fresh()).read("anthropic"), /\(401\)/);
     await assert.rejects(createRemotePeerCredentialStore({ peerUrl: a.url, token: "x".repeat(43) }).read("anthropic"), /\(401\)/);
   } finally { await a.cleanup(); }
 });

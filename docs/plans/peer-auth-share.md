@@ -89,6 +89,12 @@
 - harness: `accountRuntimeManager` の peer 分岐（`credentials` で生成、`authPath` なし）。`accounts.ts` の `accountStoredProviders` が peer.json の providers を保存済みとして返す
 - UI: A 側 `PeerShareSettings`（共有トグル・プロバイダ選択（アカウント数付き・アカウント選択なし）・トークン 1 回表示・失効・平文 HTTP 警告）、B 側 `PeerImportSettings`（URL/トークン/名前 → 取込、作成されたアカウント一覧を表示）
 
+**実運用での修正（2026-10-03）**
+
+- A は既定アカウント（`auth.json`）を共有しない（`sharedAccounts`）。アカウントルーティング対象プロバイダは A 自身も既定認証を使わないため
+- B の store は同一ピア・同一トークンで list と credential のキャッシュを共有し、runtime 再生成や複数アカウントでリクエストが倍増しない（A のレート制限回避）。offer はアカウント単位で判定し、A が一時的に応答しないときは古い list を使う
+- SDK は runtime 生成時に一度だけ credential を確認するため、peer runtime は `watchPeerAvailability` が `refresh({ allowNetwork: false })` を backoff で再試行し、復旧後にモデルキャッシュを無効化する
+
 **未実施（残）**
 
 - prod 再ビルド・再起動による実表示確認（他セッション作業中のため保留）

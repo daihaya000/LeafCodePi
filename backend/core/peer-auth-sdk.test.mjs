@@ -81,3 +81,30 @@ test("no local auth file is created or read for a peer runtime", async () => {
     assert.equal(JSON.stringify(result).includes("local-SECRET"), false, "the injected store owns the provider");
   } finally { await rm(root, { recursive: true, force: true }); }
 });
+
+test("refresh() re-runs the credential check, so a runtime created while A was down recovers", async () => {
+  const root = await mkdtemp(join(tmpdir(), "leafcode-peer-sdk-"));
+  try {
+    let up = false;
+    const store = {
+      async read(providerId) {
+        if (!up) throw new Error("Peer auth request failed");
+        return providerId === "openrouter" ? { type: "api_key", key: "k" } : undefined;
+      },
+      async list() {
+        if (!up) throw new Error("Peer auth request failed");
+        return [{ providerId: "openrouter", type: "api_key" }];
+      },
+      async modify() { return undefined; },
+      async delete() {},
+    };
+    const runtime = await ModelRuntime.create({
+      credentials: store, authPath: join(root, "auth.json"), modelsStorePath: join(root, "models-store.json"), allowModelNetwork: false,
+    });
+    assert.equal(runtime.hasConfiguredAuth("openrouter"), false, "the first check failed while A was down");
+    up = true;
+    await runtime.refresh({ allowNetwork: false });
+    assert.equal(runtime.hasConfiguredAuth("openrouter"), true);
+    assert.ok(runtime.getModels("openrouter").length > 0);
+  } finally { await rm(root, { recursive: true, force: true }); }
+});

@@ -6,6 +6,7 @@ import { parsePeerResolveResponse, publicPeerList } from "./peer-auth-wire.mjs";
 
 const RESOLVE_PATH = "/api/peer-auth/resolve";
 const LIST_PATH = "/api/peer-auth/list";
+const LIST_TTL_MS = 30_000;
 
 function unavailable(status) {
   return new Error(status ? `Peer auth request failed (${status})` : "Peer auth request failed");
@@ -18,10 +19,32 @@ function peerBase(peerUrl) {
 }
 
 /**
+ * Caches shared by every store that talks to the same peer with the same token. One import creates a
+ * local account per account of the sharing LCP, and runtimes are recreated over time; sharing the
+ * metadata list and resolved credentials keeps that from multiplying requests (and hitting A's rate limit).
+ */
+export function createPeerCacheRegistry() {
+  const peers = new Map();
+  return {
+    get(key) {
+      let peer = peers.get(key);
+      if (!peer) {
+        peer = { list: null, listInflight: null, credentials: new Map(), inflight: new Map() };
+        peers.set(key, peer);
+      }
+      return peer;
+    },
+  };
+}
+
+const defaultRegistry = createPeerCacheRegistry();
+
+/**
  * @param {{
  *   peerUrl: string, token: string, accountId?: string | null,
  *   fetch?: typeof fetch, now?: () => number, timeoutMs?: number,
  *   refreshMarginMs?: number, apiKeyTtlMs?: number,
+ *   registry?: ReturnType<typeof createPeerCacheRegistry>,
  * }} options
  */
 export function createRemotePeerCredentialStore(options) {
@@ -31,15 +54,13 @@ export function createRemotePeerCredentialStore(options) {
   const accountId = options.accountId ?? null;
   const doFetch = options.fetch ?? globalThis.fetch;
   const now = options.now ?? (() => Date.now());
-  const timeoutMs = options.timeoutMs ?? 10_000;
+  // A may have to start the account runtime (and refresh OAuth) before it can answer.
+  const timeoutMs = options.timeoutMs ?? 20_000;
   // Above the SDK's own five-minute window so a cached token never makes it call `modify`.
   const refreshMarginMs = options.refreshMarginMs ?? 6 * 60_000;
   const apiKeyTtlMs = options.apiKeyTtlMs ?? 5 * 60_000;
-
-  const cache = new Map();
-  const inflight = new Map();
-  let listCache = null;
-  let listInflight = null;
+  const shared = (options.registry ?? defaultRegistry).get(`${base}\n${token}`);
+  const credentialKey = (providerId) => `${accountId ?? ""}\n${providerId}`;
 
   const request = async (path, init, signal) => {
     const response = await doFetch(`${base}${path}`, {
@@ -61,6 +82,7 @@ export function createRemotePeerCredentialStore(options) {
     : entry.fetchedAt + apiKeyTtlMs > now());
 
   const fetchCredential = async (providerId, signal) => {
+    const key = credentialKey(providerId);
     const body = JSON.stringify(accountId === null ? { providerId } : { providerId, accountId });
     let response;
     try {
@@ -68,10 +90,10 @@ export function createRemotePeerCredentialStore(options) {
     } catch {
       throw unavailable();
     }
-    if (response.status === 404) { cache.delete(providerId); return undefined; }
+    if (response.status === 404) { shared.credentials.delete(key); return undefined; }
     if (response.status === 401 || response.status === 403) {
       // A revoked or narrowed grant must not be papered over by a cached token.
-      cache.delete(providerId);
+      shared.credentials.delete(key);
       throw Object.assign(unavailable(response.status), { rejected: true });
     }
     if (!response.ok) throw unavailable(response.status);
@@ -79,52 +101,61 @@ export function createRemotePeerCredentialStore(options) {
     try { parsed = parsePeerResolveResponse(await response.json()); } catch { /* invalid body */ }
     if (!parsed) throw unavailable();
     const credential = toCredential(parsed.credential);
-    cache.set(providerId, { credential, fetchedAt: now() });
+    shared.credentials.set(key, { credential, fetchedAt: now() });
     return credential;
   };
 
-  /** Concurrent callers share one request per provider. */
+  /** Concurrent callers share one request per account and provider. */
   const resolve = (providerId, signal) => {
-    const pending = inflight.get(providerId) ?? fetchCredential(providerId, signal).finally(() => inflight.delete(providerId));
-    inflight.set(providerId, pending);
+    const key = credentialKey(providerId);
+    const pending = shared.inflight.get(key) ?? fetchCredential(providerId, signal).finally(() => shared.inflight.delete(key));
+    shared.inflight.set(key, pending);
     return pending;
   };
 
-  /** One cached GET of the peer's metadata list, shared by list()/listAccounts()/read(). */
+  /** One cached GET of the peer's metadata list; a stale copy is kept for when A is briefly unreachable. */
   const fetchList = (signal) => {
-    if (listCache && listCache.at + 30_000 > now()) return Promise.resolve(listCache.value);
-    if (!listInflight) {
-      listInflight = (async () => {
+    if (shared.list && shared.list.at + LIST_TTL_MS > now()) return Promise.resolve(shared.list.value);
+    if (!shared.listInflight) {
+      shared.listInflight = (async () => {
         let response;
         try { response = await request(LIST_PATH, { method: "GET" }, signal); } catch { throw unavailable(); }
         if (!response.ok) throw unavailable(response.status);
         let parsed = null;
         try { parsed = publicPeerList(await response.json()); } catch { /* invalid body */ }
         if (!parsed) throw unavailable();
-        listCache = { at: now(), value: parsed };
+        shared.list = { at: now(), value: parsed };
         return parsed;
-      })().finally(() => { listInflight = null; });
+      })().finally(() => { shared.listInflight = null; });
     }
-    return listInflight;
+    return shared.listInflight;
   };
 
   /**
    * The SDK probes every provider at runtime creation. Asking the metadata list first keeps a provider
-   * the peer does not offer from becoming a failing resolve (which would abort the whole refresh), and
-   * avoids a request per unrelated provider.
+   * this account is not offered from becoming a failing resolve (which would abort the whole refresh).
+   * Offers are per account: a provider another account of A holds is not this account's to use.
    */
   const peerOffers = async (providerId, signal) => {
-    const list = await fetchList(signal);
-    return list.providers.some((entry) => entry.providerId === providerId);
+    let list;
+    try {
+      list = await fetchList(signal);
+    } catch (error) {
+      if (!shared.list) throw error;
+      list = shared.list.value;
+    }
+    const account = list.accounts.find((entry) => entry.accountId === accountId);
+    return account ? account.providers.includes(providerId) : false;
   };
 
   return {
     async read(providerId, readOptions) {
-      const cached = cache.get(providerId);
+      const key = credentialKey(providerId);
+      const cached = shared.credentials.get(key);
       if (usable(cached, refreshMarginMs)) return cached.credential;
       try {
         if (!await peerOffers(providerId, readOptions?.signal)) {
-          cache.delete(providerId);
+          shared.credentials.delete(key);
           return undefined;
         }
       } catch {
@@ -152,7 +183,7 @@ export function createRemotePeerCredentialStore(options) {
 
     /** Never runs `fn`: the SDK's callback would refresh with the peer's token, which only A may do. */
     async modify(providerId, _fn, modifyOptions) {
-      cache.delete(providerId);
+      shared.credentials.delete(credentialKey(providerId));
       return resolve(providerId, modifyOptions?.signal);
     },
 

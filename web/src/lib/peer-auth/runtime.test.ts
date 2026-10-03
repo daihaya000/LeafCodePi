@@ -2,7 +2,21 @@ import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { storedProviderTypes } from "./runtime";
+import { sharedAccounts, storedProviderTypes } from "./runtime";
+
+describe("sharedAccounts", () => {
+  it("offers enabled added accounts only and never the default account", () => {
+    expect(sharedAccounts([
+      { id: "a1", label: "daichi@mail.com", enabled: true },
+      { id: "a2", label: "paused", enabled: false },
+      { id: "a3", label: "legacy" },
+    ])).toEqual([
+      { accountId: "a1", label: "daichi@mail.com" },
+      { accountId: "a3", label: "legacy" },
+    ]);
+    expect(sharedAccounts([]).some((account) => account.accountId === null)).toBe(false);
+  });
+});
 
 const dirs: string[] = [];
 function authFile(content: string): string {

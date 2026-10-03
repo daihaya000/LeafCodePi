@@ -19,6 +19,18 @@ export function storedProviderTypes(authPath: string): { providerId: string; typ
   }
 }
 
+/**
+ * Accounts offered to peers: enabled added accounts only. The default auth.json is never shared:
+ * account-routed providers do not use it on this LCP either, and it would otherwise leak to every peer.
+ */
+export function sharedAccounts(
+  accounts: readonly { id: string; label: string; enabled?: boolean }[],
+): { accountId: string; label: string }[] {
+  return accounts
+    .filter((account) => account.enabled !== false)
+    .map((account) => ({ accountId: account.id, label: account.label }));
+}
+
 async function authPathFor(accountId: string | null): Promise<string | null> {
   const agentDir = await resolvePiAgentDir();
   if (accountId === null) return join(agentDir, "auth.json");
@@ -51,12 +63,7 @@ function createDeps(): PeerAuthServiceDeps {
       const path = await authPathFor(accountId);
       return path ? storedProviderTypes(path) : [];
     },
-    listAccounts: () => [
-      { accountId: null, label: "既定" },
-      ...listAccounts()
-        .filter((account) => account.enabled !== false)
-        .map((account) => ({ accountId: account.id, label: account.label })),
-    ],
+    listAccounts: () => sharedAccounts(listAccounts()),
   };
 }
 

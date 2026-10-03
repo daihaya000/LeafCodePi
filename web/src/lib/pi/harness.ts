@@ -292,7 +292,7 @@ import { resolveBotSessionOptions } from "@backend-core/bot-session-options.mjs"
 import { runSessionEventEffects } from "@backend-core/session-event-effects.mjs";
 import { isBotTask, liveSessionName, liveSessionRefusalError, liveSessionWorkspace, preflightLiveSession, resolveSessionPermissionDefaults, TASK_ARCHIVED_MESSAGE, TASK_NOT_FOUND_MESSAGE, resolveSessionAccountId, resolveSessionAccountRefusal, resolveSessionPermissionMode, resolveSessionSkillPermission, resolveSessionThinkingLevelSource, resolveStoredModelOutcome } from "@backend-core/live-session-preflight.mjs";
 import { runSerializedByKey } from "@backend-core/keyed-serializer.mjs";
-import { accountRuntimeOptions } from "@/lib/peer-auth/account-runtime-options";
+import { accountRuntimeOptions, watchPeerAvailability } from "@/lib/peer-auth/account-runtime-options";
 import { attachReplacementSession } from "@backend-core/live-replace.mjs";
 import { buildBotCodeReportContent } from "@backend-core/bot-code-report.mjs";
 import {
@@ -945,6 +945,8 @@ function accountRuntimeManager(): AccountRuntimeManager {
         accountLabel: getAccount(id)?.label ?? null,
         authPath,
       });
+      // Peer accounts: retry the SDK's one-time credential check until the shared providers appear.
+      watchPeerAvailability(runtime, id, agentDir, invalidateHealthCache);
       return runtime;
     });
   }

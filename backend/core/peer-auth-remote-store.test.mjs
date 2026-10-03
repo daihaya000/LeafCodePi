@@ -1,31 +1,37 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { createRemotePeerCredentialStore } from "./peer-auth-remote-store.mjs";
+import { createPeerCacheRegistry, createRemotePeerCredentialStore } from "./peer-auth-remote-store.mjs";
 
 const TOKEN = "T".repeat(43);
 const json = (status, body) => new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } });
 const oauth = (expires, access = "acc") => ({ credential: { type: "oauth", access, expires, refresh: "LEAK" } });
 const LIST_PATH = "/api/peer-auth/list";
 
-function setup({ responses = [], accountId, offered = ["anthropic", "openrouter", "x"], listBody } = {}) {
+function setup({ responses = [], accountId, offered = ["anthropic", "openrouter", "x"], listBody, registry = createPeerCacheRegistry() } = {}) {
   let time = 1_000_000;
   const calls = [];
   const queue = [...responses];
-  const store = createRemotePeerCredentialStore({
-    peerUrl: "http://a.test:3000/some/path", token: TOKEN, accountId, now: () => time,
-    fetch: async (url, init) => {
-      calls.push({ url, init });
-      if (String(url).endsWith(LIST_PATH)) {
-        // The metadata list is always served unless a test overrides it.
-        return (listBody ?? json(200, { providers: offered.map((providerId) => ({ providerId, type: "oauth" })), accounts: [] })).clone();
-      }
-      const next = queue.length > 1 ? queue.shift() : queue[0];
-      if (next instanceof Error) throw next;
-      return typeof next === "function" ? next() : next.clone();
-    },
+  const state = { listFails: false };
+  const fetch = async (url, init) => {
+    calls.push({ url, init });
+    if (String(url).endsWith(LIST_PATH)) {
+      if (state.listFails) throw new Error("ECONNREFUSED");
+      // The metadata list is always served unless a test overrides it; offers are per account.
+      return (listBody ?? json(200, {
+        providers: offered.map((providerId) => ({ providerId, type: "oauth" })),
+        accounts: [{ accountId: accountId ?? null, label: "a", providers: offered }],
+      })).clone();
+    }
+    const next = queue.length > 1 ? queue.shift() : queue[0];
+    if (next instanceof Error) throw next;
+    return typeof next === "function" ? next() : next.clone();
+  };
+  const make = (overrides = {}) => createRemotePeerCredentialStore({
+    peerUrl: "http://a.test:3000/some/path", token: TOKEN, accountId, now: () => time, fetch, registry, ...overrides,
   });
+  const store = make();
   return {
-    store, calls, advance: (ms) => { time += ms; }, now: () => time,
+    store, make, state, calls, advance: (ms) => { time += ms; }, now: () => time,
     resolves: () => calls.filter((call) => call.init?.method === "POST"),
     lists: () => calls.filter((call) => call.init?.method === "GET"),
   };
@@ -47,6 +53,39 @@ test("accountId is sent only when set", async () => {
   const f = setup({ accountId: "acc1", responses: [json(200, { credential: { type: "api_key", key: "k" } })] });
   await f.store.read("openrouter");
   assert.deepEqual(JSON.parse(f.resolves()[0].init.body), { providerId: "openrouter", accountId: "acc1" });
+});
+
+test("stores for the same peer share one list and one credential cache across instances", async () => {
+  const registry = createPeerCacheRegistry();
+  const f = setup({ registry, responses: [json(200, { credential: { type: "api_key", key: "k" } })] });
+  assert.equal((await f.store.read("openrouter")).key, "k");
+  // A recreated runtime gets a new store instance but must not hit A again.
+  assert.equal((await f.make().read("openrouter")).key, "k");
+  assert.equal(f.lists().length, 1);
+  assert.equal(f.resolves().length, 1);
+});
+
+test("offers are per account: a provider only another account of A holds is absent", async () => {
+  const f = setup({ accountId: "acc1", listBody: json(200, {
+    providers: [{ providerId: "anthropic", type: "oauth" }, { providerId: "openai-codex", type: "oauth" }],
+    accounts: [
+      { accountId: "acc1", label: "one", providers: ["openai-codex"] },
+      { accountId: "acc2", label: "two", providers: ["anthropic"] },
+    ],
+  }) });
+  assert.equal(await f.store.read("anthropic"), undefined);
+  // An account A no longer shares (for example its default account) is offered nothing.
+  assert.equal(await f.make({ accountId: null }).read("openai-codex"), undefined);
+  assert.equal(f.resolves().length, 0);
+});
+
+test("a stale list still decides offers while A is briefly unreachable", async () => {
+  const f = setup({ responses: [json(200, { credential: { type: "api_key", key: "k1" } }), json(200, { credential: { type: "api_key", key: "k2" } })] });
+  assert.equal((await f.store.read("openrouter")).key, "k1");
+  f.state.listFails = true;
+  f.advance(6 * 60_000); // list and API key cache both expired
+  assert.equal((await f.store.read("openrouter")).key, "k2");
+  assert.equal(await f.store.read("not-offered"), undefined);
 });
 
 test("a provider the peer does not offer is absent without a resolve request", async () => {

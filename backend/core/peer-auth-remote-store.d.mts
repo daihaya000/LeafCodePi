@@ -13,7 +13,10 @@ export type RemotePeerCredentialStore = {
   ): Promise<RemotePeerCredential | undefined>;
   delete(providerId?: string, options?: StoreOptions): Promise<void>;
 };
+export type PeerCacheRegistry = { get(key: string): unknown };
+export function createPeerCacheRegistry(): PeerCacheRegistry;
 export function createRemotePeerCredentialStore(options: {
+  registry?: PeerCacheRegistry;
   peerUrl: string;
   token: string;
   accountId?: string | null;

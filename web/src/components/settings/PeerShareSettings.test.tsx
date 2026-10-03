@@ -8,8 +8,9 @@ vi.mock("@/lib/client", () => ({ getJson, sendJson }));
 
 const grant = { id: "g1", label: "laptop", providers: ["anthropic"], createdAt: "2026-10-03T00:00:00Z" };
 const providers = { providers: [
-  { id: "anthropic", name: "Anthropic", authenticated: true },
-  { id: "openrouter", name: "OpenRouter", authenticated: false },
+  { id: "anthropic", name: "Anthropic", authenticated: false },
+  // Logged in on the default account only: never shared, so never offered.
+  { id: "openrouter", name: "OpenRouter", authenticated: true },
   { id: "openai-codex", name: "OpenAI Codex", authenticated: false },
 ] };
 const accounts = { accounts: [
@@ -23,7 +24,7 @@ function serve(snapshot: unknown) {
     if (path === "/api/accounts") return accounts;
     if (path.startsWith("/api/accounts/")) {
       const id = decodeURIComponent(path.split("/")[3]);
-      return { providers: id === "acc-1" ? ["openai-codex"] : [] };
+      return { providers: id === "acc-1" ? ["openai-codex", "anthropic"] : [] };
     }
     return snapshot;
   });
@@ -37,11 +38,11 @@ describe("PeerShareSettings", () => {
     sendJson.mockReset();
   });
 
-  it("offers the providers held by some account, with account counts, and warns that traffic is unencrypted", async () => {
+  it("offers the providers held by added accounts, with account counts, and warns that traffic is unencrypted", async () => {
     render(<PeerShareSettings />);
     expect(await screen.findByLabelText(/Anthropic（1アカウント）/)).toBeTruthy();
     expect(screen.getByLabelText(/OpenAI Codex（1アカウント）/)).toBeTruthy();
-    // Held by nobody, and the disabled account is not counted.
+    // Only the default account holds it (and the disabled account is not counted).
     expect(screen.queryByLabelText(/OpenRouter/)).toBeNull();
     expect(screen.getByText(/暗号化されずに流れます/)).toBeTruthy();
   });
