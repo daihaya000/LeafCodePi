@@ -45,7 +45,7 @@
 | 中 **[修正済 2026-10-03: localhostはIPv4接続拒否時のみIPv6 loopbackへ再試行。DNS解決は引き続き不使用]** | `web/src/lib/pi/oauth-callback.ts`、`web/src/lib/pi/oauth-callback.test.ts` | localhost callbackにIPv4 listenerがない場合、127.0.0.1の`ECONNREFUSED`後に`::1`へ再試行。callback URLがIP literalなら従来どおり該当familyへ固定。IPv6-only listenerの回帰テストあり。 |
 | 中 **[修正済 2026-10-03: child transcript初回レコードへ親sessionのSHA-256 keyを記録。tempはkey一致のみ列挙し、旧形式・所有者不明を除外]** | `web/src/lib/pi/subagent-runs.ts`、`extensions/leafcode-subagents/src/shared/child-transcript.ts` | `os.tmpdir()` の `pi-subagents-*` を全部走査する。別タスク transcript が混ざる。 |
 | 中 **[修正済 2026-10-03: `?token=` は認証に使わずページURLから除去。one-time sign-in は `/login#token=...` に移行し、client がPOST前にfragmentを履歴から削除。APIは引き続きquery tokenを拒否]** | `web/src/proxy.ts`、`web/src/app/login/LoginForm.tsx`、各回帰テスト | WebUI tokenをURL queryで受理するとreferer・access log・履歴へ漏れうる。fragment方式ではtokenをHTTP URLに含めず、旧query付きページも認証前に除去する。 |
-| 低 | `backend/core/mcp-native-config-owner.mjs` (~76–86) | `verify()` から ACL attest を外したのは意図的（Win で毎ターン 1s 超）。準備後の ACL 変更は次の `prepare` まで気づかない。 |
+| 低 **[見送り 2026-10-03: ACLはprepare時・書込み時にattest。毎回verifyで同期再検査するとWindowsのイベントループを1秒超停止するため、ACL変更の検知遅延は次のprepare/書込みまで許容]** | `backend/core/mcp-native-config-owner.mjs` (~76–86) | `verify()` の高頻度ACL再検査は性能コストに見合わない。準備後に起きたACL変更は次の `prepare` または書込み時に検知する残余リスク。 |
 | 低 | `web/src/lib/codexbar/chromium-cookie-crypto.ts` (~149–161) | Linux `secret-tool lookup application <app>` は schema なし。Chrome libsecret とずれると peanuts に落ち、復号が静かに失敗しうる。 |
 
 ---
