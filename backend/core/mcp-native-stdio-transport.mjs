@@ -1,4 +1,4 @@
-import { basename, isAbsolute, join, resolve } from "node:path";
+import { basename, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { isDeepStrictEqual, types } from "node:util";
 import { StdioTransport } from "@earendil-works/pi-mcp";
 const plain = (v) => v && typeof v === "object" && !Array.isArray(v)
@@ -9,6 +9,19 @@ const unavailable = () => new Error("MCP stdio transport unavailable");
 const text = (v) => typeof v === "string" && !v.includes("\0");
 const absolute = (v) => text(v) && isAbsolute(v);
 const envKey = (key) => process.platform === "win32" ? key.toLowerCase() : key;
+/**
+ * A server's `cwd` chooses where its relative file IO is rooted. `..`, an absolute path or `~` must
+ * not move that root out of the session directory: the session cwd is already an authority check, so
+ * the child inherits the same boundary. This refuses a configured cwd that used to launch outside the
+ * session (including `~/...` when the home directory is elsewhere) instead of silently trusting it.
+ */
+function resolveChildCwd(sessionCwd, configured) {
+  const childCwd = resolve(sessionCwd, configured);
+  if (childCwd === sessionCwd) return childCwd;
+  const inside = relative(sessionCwd, childCwd);
+  if (!inside || inside.startsWith("..") || isAbsolute(inside) || inside.split(sep).includes("..")) throw unavailable();
+  return childCwd;
+}
 /** `identifiers` is true for server-declared config env (must be `${NAME}`-referable and predictable);
  * the base environment only has to be a valid child env map, so ambient keys such as `ProgramFiles(x86)`
  * are kept instead of refusing every session. */
@@ -125,7 +138,7 @@ export function createBackendMcpStdioTransportFactory(options) {
         const env = new Map(base);
         for (const [normalized, [key, value]] of environment(config.env ?? {}, true)) env.set(normalized, [key, expandEnv(value)]);
         const childEnv = Object.freeze(Object.fromEntries(env.values()));
-        const args = (config.args ?? []).map(expandHome), childCwd = resolve(captured.sessionCwd, expandHome(config.cwd ?? "."));
+        const args = (config.args ?? []).map(expandHome), childCwd = resolveChildCwd(captured.sessionCwd, expandHome(config.cwd ?? "."));
         assertOwner();
         const transport = new OwnerStdioTransport({ command, args, cwd: childCwd, env: childEnv, inheritEnv: false, stderr: "pipe" });
         Object.freeze(transport.options.args);

@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import { mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import { test } from "node:test";
 import { McpClient, McpConnectionClosedError, StdioTransport } from "@earendil-works/pi-mcp";
 import { createBackendMcpStdioTransportFactory as create } from "./mcp-native-stdio-transport.mjs";
@@ -35,6 +35,29 @@ test("inert constructor, exact global selector, detached explicit env/home/cwd a
   assert.throws(() => { transport.options = {}; }, TypeError);
   await transport.close(); assert.equal(transport.pid, undefined);
   const another = call(factory, options, expected); assert.notEqual(another, transport); await another.close();
+});
+
+test("a server cwd may not leave the session directory", async () => {
+  for (const cwd of ["..", "../outside", "work/../../outside", join(tmpdir(), "elsewhere")]) {
+    const options = input(); options.snapshot.servers[0].config.cwd = cwd;
+    assert.throws(() => call(create(options), options), safe, `${cwd} must be refused`);
+  }
+  // `~` expands to the captured home directory, which is outside the session unless it is the same.
+  for (const cwd of ["~", "~/elsewhere"]) {
+    const outside = input(); outside.homeDir = join(tmpdir(), "elsewhere-home"); outside.snapshot.servers[0].config.cwd = cwd;
+    assert.throws(() => call(create(outside), outside), safe, `${cwd} must be refused`);
+    const inside = input(); inside.snapshot.servers[0].config.cwd = cwd;
+    const transport = call(create(inside), inside);
+    assert.equal(transport.options.cwd, join(inside.homeDir, cwd === "~" ? "" : "elsewhere").replace(/[\\/]$/, ""));
+    await transport.close();
+  }
+  // The session directory itself and any path inside it still launch.
+  for (const cwd of [undefined, ".", "work", "work/nested", "work/../work/inner"]) {
+    const options = input(); options.snapshot.servers[0].config.cwd = cwd;
+    const transport = call(create(options), options);
+    assert.equal(transport.options.cwd, resolve(options.sessionCwd, cwd ?? "."));
+    await transport.close();
+  }
 });
 
 test("constructor rejects malformed contracts, duplicate namespaces, foreign sources and async authority without IO", () => {
