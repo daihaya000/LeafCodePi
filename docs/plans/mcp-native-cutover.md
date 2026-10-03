@@ -169,8 +169,10 @@ icacls <dir>\mcp.json /inheritance:r /grant:r "$env:USERNAME:F"   # inherit-only
    - ON/OFF トグルと preset 追加が再公開される（応答後に新規セッションへ反映）
    - Backend 再起動後も同じ結果になる
 6. adapter 撤去（別コミット）: bundled 読み込み対象から `leafcode-mcp-adapter` を外し、
-   `FORK_REPLACED_EXTENSIONS` と profile 書込み 503 を維持する。同梱既定の MCP 定義
-   （`extensions/leafcode-mcp-adapter/mcp.json`）は native が読むため、中立な場所へ移してから削除する。
+   `FORK_REPLACED_EXTENSIONS` と profile 書込み 503 を維持する。同梱既定の MCP 定義は
+   `backend/core/mcp-defaults.json` へ移済み（全参照切替済み）。移行直後の稼働中プロセスは旧パスを
+   参照したままなので、再起動までは旧パスに互換コピーを残す。再起動後（Hostがbundleを自動再ビルド）に
+   旧コピーと `extensions/leafcode-mcp-adapter/` を削除する。
 
 ## 復旧
 
