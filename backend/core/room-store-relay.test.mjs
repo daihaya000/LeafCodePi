@@ -108,3 +108,20 @@ test("an unchanged relay state is not written again", (t) => {
   assert.notEqual(statSync(path).ino, firstInode);
   assert.deepEqual(store.readRelayState(ID), { envelopes: {}, claims: { t9: ["z"] } });
 });
+
+test("a repeated write of the same state object is skipped without rewriting", (t) => {
+  const { store } = fixture(t);
+  const path = store.relayStatePath(ID);
+  const state = { envelopes: { e1: { roomId: ID, expiresAt: Date.now() + 1000 } }, claims: {} };
+  store.writeRelayState(ID, state);
+  const first = statSync(path);
+  // Identity check only: no timestamp trickery, so an unchanged state means no write.
+  store.writeRelayState(ID, state);
+  assert.equal(statSync(path).mtimeMs, first.mtimeMs);
+  assert.equal(statSync(path).ino, first.ino);
+
+  // A new object with different content still lands.
+  store.writeRelayState(ID, { envelopes: {}, claims: { t1: ["a"] } });
+  assert.notEqual(statSync(path).ino, first.ino);
+  assert.deepEqual(store.readRelayState(ID), { envelopes: {}, claims: { t1: ["a"] } });
+});

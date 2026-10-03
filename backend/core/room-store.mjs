@@ -104,7 +104,7 @@ export class RoomFileStore {
       const raw = readFileSync(this.relayStatePath(roomId), "utf8");
       // Remember what is on disk so an identical writeRelayState() is a no-op even
       // after another worker wrote the same content.
-      (this.lastRelayState ??= new Map()).set(roomId, raw);
+      (this.lastRelayState ??= new Map()).set(roomId, { state: undefined, serialized: raw });
       const value = JSON.parse(raw);
       const envelopes = value.envelopes && typeof value.envelopes === "object" ? value.envelopes : {};
       const claims = value.claims && typeof value.claims === "object" ? value.claims : {};
@@ -124,16 +124,21 @@ export class RoomFileStore {
   writeRelayState(roomId, state) {
     mkdirSync(this.roomDataRoot(roomId), { recursive: true });
     const path = this.relayStatePath(roomId);
+    // Relay ticks hand back the same state object they read, so identity settles the
+    // common "nothing moved" case without serializing. A mutated object still falls
+    // through to the content compare below.
+    const last = this.lastRelayState?.get(roomId);
+    if (last && last.state === state) return;
     const serialized = `${JSON.stringify(state)}\n`;
-    // Relay ticks call this even when nothing moved. Serializing is unavoidable to
-    // know that, but writing an identical file is not: skip it so an idle room
-    // does not churn the file and its watchers.
-    const lastWritten = this.lastRelayState?.get(roomId);
-    if (lastWritten !== undefined && lastWritten === serialized) return;
+    // Writing an identical file is what churns an idle room's watchers.
+    if (last && last.serialized === serialized) {
+      this.lastRelayState.set(roomId, { state, serialized });
+      return;
+    }
     const temporary = `${path}.${process.pid}.${randomUUID()}.tmp`;
     writeFileSync(temporary, serialized, "utf8");
     renameSync(temporary, path);
-    (this.lastRelayState ??= new Map()).set(roomId, serialized);
+    this.lastRelayState.set(roomId, { state, serialized });
   }
 
   /**
