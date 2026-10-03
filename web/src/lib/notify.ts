@@ -1,3 +1,5 @@
+import { isBotTabOpen } from "@/lib/open-bot-tabs";
+
 export type NotifyKind = "attention" | "done";
 
 export type NotifyDecisionInput = {
@@ -73,4 +75,15 @@ export function isRoutineRunHandledInline(
   botId: string,
 ): boolean {
   return Boolean(botId) && pathname === `/bots/${botId}`;
+}
+
+/**
+ * Same question for a split layout: the active pane's pathname cannot name a Bot
+ * that is open in another pane, so the open-tab set decides.
+ */
+export function isRoutineRunShownInline(
+  pathname: string | null | undefined,
+  botId: string,
+): boolean {
+  return isRoutineRunHandledInline(pathname, botId) || isBotTabOpen(botId);
 }

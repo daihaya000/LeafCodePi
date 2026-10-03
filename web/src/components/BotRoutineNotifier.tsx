@@ -2,7 +2,7 @@
 
 import { useEffect } from "react";
 import { getBotSidebarSnapshot, refreshBotSidebar } from "@/lib/bot-sidebar-store";
-import { isRoutineRunHandledInline, routineRunNotificationText } from "@/lib/notify";
+import { isRoutineRunShownInline, routineRunNotificationText } from "@/lib/notify";
 import { getNotificationDeliveryEnabled } from "@/lib/notification-delivery-client";
 import { playSessionCompleteSound } from "@/lib/session-complete-sound";
 import { subscribeBotsEvents } from "@/lib/bots-events-hub";
@@ -20,7 +20,7 @@ let permissionRequested = false;
  * Bot タブを開いている画面では BotView が担当するので、ここでは何もしない。
  */
 export function notifyRoutineRun(run: RoutineRunEventDto): void {
-  if (isRoutineRunHandledInline(window.location.pathname, run.botId)) return;
+  if (isRoutineRunShownInline(window.location.pathname, run.botId)) return;
   const findBot = () => getBotSidebarSnapshot().bots.find((item) => item.id === run.botId);
   const bot = findBot();
   if (bot) {
@@ -32,7 +32,7 @@ export function notifyRoutineRun(run: RoutineRunEventDto): void {
   void refreshBotSidebar()
     .catch(() => undefined)
     .then(() => {
-      if (isRoutineRunHandledInline(window.location.pathname, run.botId)) return;
+      if (isRoutineRunShownInline(window.location.pathname, run.botId)) return;
       deliverRoutineRunNotification(run, findBot()?.notificationsEnabled === false);
     });
 }

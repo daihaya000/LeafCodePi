@@ -12,6 +12,7 @@ import {
   useSyncExternalStore,
 } from "react";
 import { usePathname } from "next/navigation";
+import { setOpenBotTabIds } from "@/lib/open-bot-tabs";
 import {
   createState,
   BOTS_TAB_ID,
@@ -298,6 +299,13 @@ export function TaskPanesProvider({ children }: { children: React.ReactNode }) {
       if (listeners.size === 0) tabMetaListenersRef.current.delete(taskId);
     };
   }, []);
+
+  useEffect(() => {
+    // Publish which Bot conversations are open in any pane so the routine notifier
+    // can suppress its duplicate sound/notification for a Bot the user can see.
+    setOpenBotTabIds(state.panes.flatMap((pane) => pane.tabs.flatMap((tabId) =>
+      tabId.startsWith("/bots/") ? [decodeURIComponent(tabId.slice("/bots/".length))] : [])));
+  }, [state]);
 
   useEffect(() => {
     const changedBotIds = changedIconIds(previousIconBotsRef.current, iconBots, sameBotIconData);
