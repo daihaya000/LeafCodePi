@@ -1,6 +1,14 @@
 import { llamaServerBaseUrl } from "@/lib/llama-server-settings";
 
 /**
+ * A model load can take minutes, and every caller that arrives while one is in
+ * flight would otherwise hold a Next BFF worker for the same wait. One in-flight
+ * load per server root is shared, and a caller that joins late still gets the
+ * final state instead of starting a second load.
+ */
+const inFlightLoads = new Map<string, Promise<{ ok: boolean; modelId?: string; error?: string }>>();
+
+/**
  * Ensure llama-server has at least one loaded model (router mode).
  * Safe to call repeatedly; no-ops when already loaded or single-model.
  */
@@ -14,7 +22,23 @@ export async function ensureLlamaServerModelLoaded(options?: {
     .replace(/\/v1$/i, "");
   const preferred = options?.preferredId?.trim() ?? "";
   const waitMs = options?.waitMs ?? 180_000;
+  const inflightKey = `${root}\u0000${preferred}`;
+  const existing = inFlightLoads.get(inflightKey);
+  if (existing) return existing;
+  const started = ensureLlamaServerModelLoadedInner(root, preferred, waitMs);
+  inFlightLoads.set(inflightKey, started);
+  try {
+    return await started;
+  } finally {
+    if (inFlightLoads.get(inflightKey) === started) inFlightLoads.delete(inflightKey);
+  }
+}
 
+async function ensureLlamaServerModelLoadedInner(
+  root: string,
+  preferred: string,
+  waitMs: number,
+): Promise<{ ok: boolean; modelId?: string; error?: string }> {
   try {
     const listRes = await fetch(`${root}/models`, {
       cache: "no-store",
