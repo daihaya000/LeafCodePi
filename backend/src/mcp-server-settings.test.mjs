@@ -408,7 +408,7 @@ test("Backend entry persists ON/OFF through the rebuilt runtime and returns only
   const token = randomBytes(32).toString("base64url");
   const child = spawn(process.execPath, [fileURLToPath(new URL("./entry.mjs", import.meta.url))], {
     env: { ...process.env, NODE_ENV: "test", PI_CODING_AGENT_DIR: root, LEAFCODE_PI_DATA_DIR: join(root, "data"),
-      LEAFCODE_PI_BACKEND_TOKEN: token, LEAFCODE_PI_BACKEND_PORT: "0", LEAFCODE_PI_BACKEND_RUNTIME: "attach",
+      LEAFCODE_PI_BACKEND_TOKEN: token, LEAFCODE_PI_BACKEND_PORT: "0", LEAFCODE_PI_MCP_NATIVE: "", LEAFCODE_PI_BACKEND_RUNTIME: "attach",
       LEAFCODE_PI_BACKEND_GENERATION: "", LEAFCODE_PI_BACKEND_RUNTIME_BUNDLE: "" },
     stdio: ["ignore", "pipe", "pipe"],
   });

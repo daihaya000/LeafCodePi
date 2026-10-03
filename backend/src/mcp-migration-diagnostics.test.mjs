@@ -129,7 +129,7 @@ test("Backend entry wires diagnostics using the SDK agent directory without runt
   const token = randomBytes(32).toString("base64url");
   child = spawn(process.execPath, [fileURLToPath(new URL("./entry.mjs", import.meta.url))], {
     env: { ...process.env, NODE_ENV: "test", PI_CODING_AGENT_DIR: root, LEAFCODE_PI_DATA_DIR: join(root, "data"),
-      LEAFCODE_PI_BACKEND_TOKEN: token, LEAFCODE_PI_BACKEND_PORT: "0", LEAFCODE_PI_BACKEND_RUNTIME: "",
+      LEAFCODE_PI_BACKEND_TOKEN: token, LEAFCODE_PI_BACKEND_PORT: "0", LEAFCODE_PI_MCP_NATIVE: "", LEAFCODE_PI_BACKEND_RUNTIME: "",
       LEAFCODE_PI_BACKEND_GENERATION: "", N8N_MCP_URL: "https://example.invalid/mcp" },
     stdio: ["ignore", "pipe", "pipe"],
   });

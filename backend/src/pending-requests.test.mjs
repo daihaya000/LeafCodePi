@@ -78,7 +78,7 @@ test("CLI exposes live pending DTOs and removes them after owner responses", { t
     env: {
       ...process.env, NODE_ENV: "test", LEAFCODE_PI_DATA_DIR: dataDir,
       LEAFCODE_PI_BACKEND_TOKEN: token, LEAFCODE_PI_BACKEND_PORT: "0",
-      LEAFCODE_PI_BACKEND_RUNTIME: "attach", LEAFCODE_PI_BACKEND_RUNTIME_BUNDLE: bundle,
+      LEAFCODE_PI_MCP_NATIVE: "", LEAFCODE_PI_BACKEND_RUNTIME: "attach", LEAFCODE_PI_BACKEND_RUNTIME_BUNDLE: bundle,
       LEAFCODE_PI_BACKEND_GENERATION: "",
     },
     stdio: ["ignore", "pipe", "pipe"],

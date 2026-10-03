@@ -1403,7 +1403,7 @@ test("CLI starts as a separate process without pretending SDK is ready", { timeo
       ...process.env,
       LEAFCODE_PI_BACKEND_TOKEN: token,
       LEAFCODE_PI_BACKEND_PORT: "0",
-      LEAFCODE_PI_BACKEND_RUNTIME: "",
+      LEAFCODE_PI_MCP_NATIVE: "", LEAFCODE_PI_BACKEND_RUNTIME: "",
       LEAFCODE_PI_BACKEND_GENERATION: "",
     },
     stdio: ["ignore", "pipe", "pipe"],
@@ -1435,7 +1435,7 @@ test("CLI serves no pending requests with a detached runtime and stays not ready
       ...process.env,
       LEAFCODE_PI_BACKEND_TOKEN: token,
       LEAFCODE_PI_BACKEND_PORT: "0",
-      LEAFCODE_PI_BACKEND_RUNTIME: "",
+      LEAFCODE_PI_MCP_NATIVE: "", LEAFCODE_PI_BACKEND_RUNTIME: "",
       LEAFCODE_PI_BACKEND_GENERATION: "",
     },
     stdio: ["ignore", "pipe", "pipe"],
@@ -1473,7 +1473,7 @@ async function spawnCli(t, extraEnv = {}) {
       LEAFCODE_PI_BACKEND_TOKEN: token,
       LEAFCODE_PI_BACKEND_PORT: "0",
       // Inherited from a live Backend when the suite runs inside one; each test opts in explicitly.
-      LEAFCODE_PI_BACKEND_RUNTIME: "",
+      LEAFCODE_PI_MCP_NATIVE: "", LEAFCODE_PI_BACKEND_RUNTIME: "",
       LEAFCODE_PI_BACKEND_GENERATION: "",
       ...extraEnv,
     },
@@ -1504,7 +1504,7 @@ test("the CLI stays not ready while the runtime is not requested", { timeout: 15
 });
 
 test("requesting the runtime attaches it and makes the CLI ready", { timeout: 90_000 }, async (t) => {
-  const cli = await spawnCli(t, { LEAFCODE_PI_BACKEND_RUNTIME: "attach" });
+  const cli = await spawnCli(t, { LEAFCODE_PI_MCP_NATIVE: "", LEAFCODE_PI_BACKEND_RUNTIME: "attach" });
   const ready = await readyUntil(cli.healthUrl, cli.headers);
   assert.equal(ready.status, 200, `health never became ready: ${JSON.stringify(ready.body)}`);
   assert.equal(ready.body.ready, true);
@@ -1558,7 +1558,7 @@ async function generationUntil(url, headers, timeoutMs = 45_000) {
 
 test("a pinned generation the bundle does not have keeps the CLI at 503", { timeout: 90_000 }, async (t) => {
   const cli = await spawnCli(t, {
-    LEAFCODE_PI_BACKEND_RUNTIME: "attach",
+    LEAFCODE_PI_MCP_NATIVE: "", LEAFCODE_PI_BACKEND_RUNTIME: "attach",
     LEAFCODE_PI_BACKEND_GENERATION: "gen-not-this-build",
   });
   const body = await generationUntil(cli.healthUrl, cli.headers);
@@ -1576,7 +1576,7 @@ test("the CLI becomes ready when the pinned generation is the bundle's own", { t
   const runtime = await loadBackendRuntime();
   if (!runtime.ok) return t.skip(`no built bundle: ${runtime.reason}`);
   const cli = await spawnCli(t, {
-    LEAFCODE_PI_BACKEND_RUNTIME: "attach",
+    LEAFCODE_PI_MCP_NATIVE: "", LEAFCODE_PI_BACKEND_RUNTIME: "attach",
     LEAFCODE_PI_BACKEND_GENERATION: runtime.generation,
   });
   const ready = await readyUntil(cli.healthUrl, cli.headers);
@@ -1588,7 +1588,7 @@ test("the CLI becomes ready when the pinned generation is the bundle's own", { t
 
 test("a missing runtime bundle keeps the CLI at 503 instead of failing to start", { timeout: 15_000 }, async (t) => {
   const cli = await spawnCli(t, {
-    LEAFCODE_PI_BACKEND_RUNTIME: "attach",
+    LEAFCODE_PI_MCP_NATIVE: "", LEAFCODE_PI_BACKEND_RUNTIME: "attach",
     LEAFCODE_PI_BACKEND_RUNTIME_BUNDLE: join(tmpdir(), "leafcode-no-such-bundle.mjs"),
   });
   const health = await request(cli.healthUrl, { headers: cli.headers });
