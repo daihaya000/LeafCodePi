@@ -74,6 +74,30 @@ test("startup initializes native MCP inside the real bundle, not the separate so
   assert.equal(existsSync(join(root, "mcp-auth.json")), false);
 });
 
+test("the built bundle exposes the current native MCP runtime API", { skip: !existsSync(BUNDLE) }, async (t) => {
+  const runtime = await import(pathToFileURL(BUNDLE).href);
+  for (const name of ["createBackendMcpNativeRuntime", "setBackendMcpNativeSessionProvider", "resolveBackendMcpNativeSession", "nativeMcpExtensionFactory"]) {
+    assert.equal(typeof runtime[name], "function", name);
+  }
+  // A stale bundle without install()/snapshot made every native activation fail silently, so the
+  // bundle's own shape is the contract here — not the source modules the check tool imports.
+  const root = mkdtempSync(join(tmpdir(), "leafcode-native-bundle-api-"));
+  t.after(() => { runtime.setBackendMcpNativeSessionProvider(undefined); rmSync(root, { recursive: true, force: true }); });
+  writeFileSync(join(root, "mcp.json"), '{"mcpServers":{}}');
+  writeFileSync(join(root, "bundle.json"), "{}");
+  const owner = runtime.createBackendMcpNativeRuntime({
+    agentDir: root, bundledConfigPath: join(root, "bundle.json"), homeDir: root,
+    environment: {}, variables: {}, fetch: async () => { throw Error("No network"); }, openUrl() {},
+    assertProcessOwner() {}, storageChecks: { config() {}, credentials() {} },
+  });
+  t.after(() => owner.dispose());
+  assert.equal(typeof owner.install, "function");
+  const prepared = await owner.install();
+  assert.equal(typeof prepared.snapshot, "object");
+  assert.equal(runtime.resolveBackendMcpNativeSession(root).active, true);
+  assert.equal(runtime.resolveBackendMcpNativeSession(root).factories.length, 3);
+});
+
 test("the runtime entry source and build script exist", () => {
   const root = resolve(HERE, "..", "..");
   assert.ok(existsSync(join(root, "scripts", "build-backend-runtime.mjs")), "build script is missing");
