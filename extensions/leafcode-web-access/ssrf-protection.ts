@@ -1,7 +1,7 @@
 import { lookup as dnsLookup } from "node:dns/promises";
 import { existsSync, readFileSync, statSync } from "node:fs";
 import net from "node:net";
-import { getActiveProxy, getWebSearchConfigPath, hasScopedProxyDecision, isProxyBypassedUrl } from "./utils.ts";
+import { getWebSearchConfigPath } from "./utils.ts";
 
 const DEFAULT_MAX_REDIRECTS = 5;
 const REDIRECT_STATUSES = new Set([301, 302, 303, 307, 308]);
@@ -147,10 +147,8 @@ interface ValidationOptions {
 	 */
 	allowRanges?: string[];
 	/**
-	 * When true, trust an explicitly-configured HTTP(S) proxy for hostname
-	 * resolution instead of performing local DNS lookups inside the sandbox.
-	 * Literal IPs and localhost remain blocked, and NO_PROXY hosts still use
-	 * the local SSRF preflight. This does not configure proxy transport.
+	 * Kept for config compatibility. This does not bypass DNS preflight because
+	 * HTTP(S)_PROXY does not guarantee that the active fetch transport uses it.
 	 */
 	trustEnvProxy?: boolean;
 	/** Allow loopback URLs for explicit provider base endpoints, not fetched targets. */
@@ -206,8 +204,6 @@ export async function validateRemoteUrl(rawUrl: string | URL, options: Validatio
 		assertPublicAddress(hostname, hostname, addressAllowRanges);
 		return url;
 	}
-
-	if (shouldTrustEnvProxy(url, options.trustEnvProxy === true)) return url;
 
 	let addresses: LookupAddress[];
 	try {
@@ -270,72 +266,6 @@ function assertDomainPolicy(hostname: string, policy?: DomainPolicy): void {
 
 function domainMatches(hostname: string, entry: string): boolean {
 	return hostname === entry || hostname.endsWith(`.${entry}`);
-}
-
-function getProxyForProtocol(protocol: string): string {
-	const candidates = protocol === "http:"
-		? [process.env.HTTP_PROXY, process.env.http_proxy, process.env.ALL_PROXY, process.env.all_proxy]
-		: protocol === "https:"
-			? [process.env.HTTPS_PROXY, process.env.https_proxy, process.env.HTTP_PROXY, process.env.http_proxy, process.env.ALL_PROXY, process.env.all_proxy]
-			: [];
-	for (const candidate of candidates) {
-		const value = candidate?.trim();
-		if (!value) continue;
-		try {
-			const proxyUrl = new URL(value);
-			if ((proxyUrl.protocol === "http:" || proxyUrl.protocol === "https:") && proxyUrl.hostname) return value;
-		} catch {
-			// Invalid proxy env vars should not weaken local DNS SSRF checks.
-		}
-	}
-	return "";
-}
-
-function hostnameMatchesNoProxy(hostname: string, port: string, entry: string): boolean {
-	const trimmed = entry.trim();
-	if (!trimmed) return false;
-	if (trimmed === "*") return true;
-
-	// NO_PROXY entries may include a port. Strip it only after handling
-	// bracketed IPv6 literals, which can contain several colons.
-	let hostEntry = trimmed;
-	let entryPort: string | undefined;
-	if (hostEntry.startsWith("[")) {
-		const closingBracket = hostEntry.indexOf("]");
-		if (closingBracket >= 0) {
-			const suffix = hostEntry.slice(closingBracket + 1);
-			if (/^:\\d+$/.test(suffix)) entryPort = suffix.slice(1);
-			hostEntry = hostEntry.slice(0, closingBracket + 1);
-		}
-	} else {
-		const colon = hostEntry.lastIndexOf(":");
-		if (colon > -1 && /^\d+$/.test(hostEntry.slice(colon + 1))) {
-			entryPort = hostEntry.slice(colon + 1);
-			hostEntry = hostEntry.slice(0, colon);
-		}
-	}
-	if (entryPort !== undefined && entryPort !== port) return false;
-
-	const normalizedEntry = normalizeHostname(hostEntry);
-	if (!normalizedEntry) return false;
-	if (normalizedEntry === hostname) return true;
-	const suffix = normalizedEntry.startsWith("*.")
-		? normalizedEntry.slice(1)
-		: normalizedEntry.startsWith(".")
-			? normalizedEntry
-			: `.${normalizedEntry}`;
-	return hostname.endsWith(suffix);
-}
-
-function shouldTrustEnvProxy(url: URL, enabled: boolean): boolean {
-	if (!enabled || !getProxyForProtocol(url.protocol)) return false;
-	if (hasScopedProxyDecision()) return false;
-	const activeProxy = getActiveProxy();
-	if (activeProxy && !isProxyBypassedUrl(url)) return false;
-	const hostname = normalizeHostname(url.hostname);
-	const port = url.port || (url.protocol === "https:" ? "443" : "80");
-	const noProxy = process.env.NO_PROXY || process.env.no_proxy || "";
-	return !noProxy.split(",").some(entry => hostnameMatchesNoProxy(hostname, port, entry));
 }
 
 function assertPublicAddress(address: string, hostname: string, allowRanges: ParsedCidr[] = []): void {
