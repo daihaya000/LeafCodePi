@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { useDeferredValue, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type {
   ChangeEventHandler,
   ClipboardEventHandler,
@@ -325,8 +325,11 @@ export function Composer({
     const triggerToken = findComposerReferenceToken(textarea.value, caret);
     return triggerToken ?? findComposerPromptPrefixToken(textarea.value, caret);
   }, [caret, textarea.value]);
+  // Typing must not wait for the candidate scan: the urgent render keeps the raw
+  // token (so the menu opens on the same keystroke) and only the filter is deferred.
+  const deferredQuery = useDeferredValue(currentToken?.query ?? null);
   const suggestions = useMemo(() => {
-    if (!currentToken) return [];
+    if (!currentToken || deferredQuery !== currentToken.query) return [];
     if (currentToken.kind === "prompt" && currentToken.mode === "prefix") {
       return filterComposerPromptPrefixes(availableReferences.prompts, currentToken.query);
     }
@@ -336,7 +339,7 @@ export function Composer({
         ? availableReferences.agents
         : availableReferences.prompts;
     return filterComposerReferences(source, currentToken.query);
-  }, [availableReferences.agents, availableReferences.prompts, availableReferences.skills, currentToken]);
+  }, [availableReferences.agents, availableReferences.prompts, availableReferences.skills, currentToken, deferredQuery]);
   const showSuggestions = focused && !textarea.readOnly && !textarea.disabled && suggestions.length > 0;
 
   useEffect(() => {

@@ -648,4 +648,48 @@ describe("Composer", () => {
     fireEvent.keyDown(textarea, { key: "Enter" });
     expect(textarea.value).toBe("変更をレビューしてください ");
   });
+
+  it("still shows reference candidates after the deferred query catches up", async () => {
+    function DeferredReferenceComposer() {
+      const [value, setValue] = useState("");
+      const textareaRef = useRef<HTMLTextAreaElement>(null);
+      const inputRef = useRef<HTMLInputElement>(null);
+      return (
+        <Composer
+          className=""
+          attachments={[]}
+          onRemoveAttachment={() => {}}
+          references={{ skills: [{ name: "review" }] }}
+          textarea={{
+            ref: textareaRef,
+            value,
+            rows: 1,
+            ariaLabel: "メッセージ",
+            placeholder: "入力",
+            className: "",
+            onChange: (event) => setValue(event.target.value),
+            onValueChange: setValue,
+            onKeyDown: () => {},
+          }}
+          attachmentControl={{
+            inputRef,
+            buttonTitle: "画像を添付",
+            onFilesSelected: () => {},
+            onTrigger: () => {},
+          }}
+          toolbar={null}
+          action={null}
+        />
+      );
+    }
+
+    render(<DeferredReferenceComposer />);
+    const textarea = screen.getByLabelText("メッセージ") as HTMLTextAreaElement;
+    textarea.focus();
+    fireEvent.change(textarea, { target: { value: "/rev", selectionStart: 4 } });
+
+    // The deferred value lands on a later render; the menu must still appear.
+    await screen.findByRole("listbox");
+    expect(screen.getByText("review")).toBeTruthy();
+  });
 });
