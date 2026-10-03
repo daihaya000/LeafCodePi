@@ -1,7 +1,10 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { EventEmitter } from "node:events";
-import { explorerOpenCommand, openProjectInExplorer } from "./open-explorer.js";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join, resolve } from "node:path";
+import { explorerAllowedRoots, explorerOpenCommand, isAllowedExplorerPath, openProjectInExplorer } from "./open-explorer.js";
 
 test("explorerOpenCommand keeps Windows Explorer and uses open/xdg-open elsewhere", () => {
   assert.deepEqual(explorerOpenCommand("win32", "C:\\work\\project"), {
@@ -24,6 +27,8 @@ test("openProjectInExplorer resolves when the platform command succeeds", async 
   child.unref = () => {};
   const result = openProjectInExplorer("/home/me/project", {
     platform: "linux",
+    allowedRoots: ["/home/me"],
+    realpath: (path) => path,
     stat: () => ({ isDirectory: () => true }),
     spawn: (command, args, options) => {
       spawned.push({ command, args, options });
@@ -38,10 +43,60 @@ test("openProjectInExplorer resolves when the platform command succeeds", async 
   ]);
 });
 
+test("explorerAllowedRoots includes the home, no-project root, and registered projects", () => {
+  const tempDir = mkdtempSync(join(tmpdir(), "explorer-roots-"));
+  try {
+    const projectRoot = join(tempDir, "registered-project");
+    const storeFile = join(tempDir, "store.json");
+    writeFileSync(storeFile, JSON.stringify({ version: 1, projects: [{ rootPath: projectRoot }] }));
+    const roots = explorerAllowedRoots({
+      home: tempDir,
+      env: {},
+      noProjectRoot: join(tempDir, "no-project"),
+      storeFile,
+    });
+    assert.deepEqual(new Set(roots), new Set([resolve(tempDir), resolve(projectRoot), resolve(tempDir, "no-project")]));
+  } finally {
+    rmSync(tempDir, { recursive: true, force: true });
+  }
+});
+
+test("isAllowedExplorerPath blocks outside roots and symlink escapes", () => {
+  const options = { platform: "linux", allowedRoots: ["/home/me"], realpath: (path) => path };
+  assert.equal(isAllowedExplorerPath("/home/me/project/src", options), true);
+  assert.equal(isAllowedExplorerPath("/etc", options), false);
+  assert.equal(
+    isAllowedExplorerPath("/home/me/link", {
+      ...options,
+      realpath: (path) => path === "/home/me/link" ? "/etc" : path,
+    }),
+    false,
+  );
+});
+
+test("openProjectInExplorer rejects paths outside allowed roots before filesystem access", () => {
+  let spawned = false;
+  let statCalls = 0;
+  assert.throws(
+    () => openProjectInExplorer("/outside/project", {
+      platform: "linux",
+      allowedRoots: ["/home/me"],
+      realpath: (path) => path,
+      stat: () => { statCalls += 1; return { isDirectory: () => true }; },
+      spawn: () => { spawned = true; },
+    }),
+    (error) => error.status === 403,
+  );
+  assert.equal(statCalls, 0);
+  assert.equal(spawned, false);
+});
+
 test("openProjectInExplorer rejects non-directories and relative paths before spawning", async () => {
   let spawned = false;
   const options = {
     platform: "linux",
+    allowedRoots: ["/home/me"],
+    realpath: (path) => path,
     stat: () => ({ isDirectory: () => false }),
     spawn: () => { spawned = true; },
   };
@@ -55,6 +110,8 @@ test("openProjectInExplorer reports an xdg-open failure", async () => {
   child.unref = () => {};
   const result = openProjectInExplorer("/home/me/project", {
     platform: "linux",
+    allowedRoots: ["/home/me"],
+    realpath: (path) => path,
     stat: () => ({ isDirectory: () => true }),
     spawn: () => {
       queueMicrotask(() => {
