@@ -92,6 +92,25 @@ describe("OAuth loopback relay", () => {
     await expect(forwardOAuthCallback({ url, state: null }, `${url}?code=test-code`, new AbortController().signal)).resolves.toBeUndefined();
   });
 
+  it("retries localhost on IPv6 only after an IPv4 connection refusal", async () => {
+    let received = "";
+    let remoteAddress = "";
+    const server = createServer((req, res) => {
+      received = req.url ?? "";
+      remoteAddress = req.socket.remoteAddress ?? "";
+      res.end("ok");
+    });
+    servers.push(server);
+    await new Promise<void>((resolve) => server.listen(0, "::1", resolve));
+    const url = `http://localhost:${(server.address() as AddressInfo).port}/oauth/callback`;
+
+    await expect(
+      forwardOAuthCallback({ url, state: null }, `${url}?code=test-code`, new AbortController().signal),
+    ).resolves.toBeUndefined();
+    expect(received).toBe("/oauth/callback?code=test-code");
+    expect(remoteAddress).toBe("::1");
+  });
+
   it.each([302, 400, 500])("rejects HTTP %s without following redirects or exposing secrets", async (status) => {
     const url = await serve((_req, res) => {
       res.writeHead(status, { Location: "http://example.test/secret" });

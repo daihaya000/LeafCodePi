@@ -63,27 +63,24 @@ export function validateOAuthCallback(target: OAuthCallbackTarget, input: string
   return actual;
 }
 
-/** No DNS, environment proxy, redirects, or response body is used by this relay. */
-export async function forwardOAuthCallback(
-  target: OAuthCallbackTarget,
-  input: string,
-  signal: AbortSignal,
-): Promise<void> {
-  const url = validateOAuthCallback(target, input);
-  const relaySignal = AbortSignal.any([signal, AbortSignal.timeout(10_000)]);
-  await new Promise<void>((resolve, reject) => {
-    const fail = () => reject(Object.assign(
-      new Error("認証の戻り先へ接続できませんでした。認証を開始し直してください"),
-      { status: 502 },
-    ));
+function callbackRelayFailure(code?: string): Error {
+  return Object.assign(
+    new Error("認証の戻り先へ接続できませんでした。認証を開始し直してください"),
+    { status: 502, ...(code ? { code } : {}) },
+  );
+}
+
+function relayToLoopbackHost(url: URL, hostname: string, signal: AbortSignal): Promise<void> {
+  return new Promise<void>((resolve, reject) => {
+    const fail = () => reject(callbackRelayFailure());
     const req = request({
-      hostname: url.hostname === "[::1]" ? "::1" : "127.0.0.1",
+      hostname,
       port: url.port,
       path: url.pathname + url.search,
       method: "GET",
       agent: false,
       headers: { Host: url.host },
-      signal: relaySignal,
+      signal,
     }, (res) => {
       res.resume();
       res.on("error", fail);
@@ -92,7 +89,31 @@ export async function forwardOAuthCallback(
         else fail();
       });
     });
-    req.on("error", fail);
+    req.on("error", (error: NodeJS.ErrnoException) => reject(callbackRelayFailure(error.code)));
     req.end();
   });
+}
+
+/** No DNS, environment proxy, redirects, or response body is used by this relay. */
+export async function forwardOAuthCallback(
+  target: OAuthCallbackTarget,
+  input: string,
+  signal: AbortSignal,
+): Promise<void> {
+  const url = validateOAuthCallback(target, input);
+  const relaySignal = AbortSignal.any([signal, AbortSignal.timeout(10_000)]);
+  const hosts = url.hostname === "localhost"
+    ? ["127.0.0.1", "::1"]
+    : [url.hostname === "[::1]" ? "::1" : "127.0.0.1"];
+
+  for (let index = 0; index < hosts.length; index += 1) {
+    try {
+      await relayToLoopbackHost(url, hosts[index], relaySignal);
+      return;
+    } catch (error) {
+      const code = error instanceof Error ? (error as NodeJS.ErrnoException).code : undefined;
+      if (url.hostname === "localhost" && index === 0 && code === "ECONNREFUSED") continue;
+      throw error;
+    }
+  }
 }
