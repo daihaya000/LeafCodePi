@@ -33,11 +33,16 @@ export type NativeToolSearch = { definition?: ToolDefinition };
 export function captureNativeToolSearch(
   factory: (api: ExtensionAPI) => void | Promise<void>,
   holder: NativeToolSearch,
+  isToolAllowed?: (name: string) => boolean,
 ): (api: ExtensionAPI) => void | Promise<void> {
   return (api) => {
     const bound = new Map<unknown, unknown>();
     const view = new Proxy({} as ExtensionAPI, {
       get(_target, key) {
+        // The factory includes codemode as well as search. Both must discover only permitted tools.
+        if (isToolAllowed && key === "getAllTools") return () => api.getAllTools().filter(({ name }) => isToolAllowed(name));
+        if (isToolAllowed && key === "getActiveTools") return () => api.getActiveTools().filter(isToolAllowed);
+        if (isToolAllowed && key === "setActiveTools") return (names: string[]) => api.setActiveTools(names.filter(isToolAllowed));
         if (key === "registerTool") {
           return (definition: ToolDefinition) => {
             if (definition?.name === TOOL_SEARCH_NAME) {

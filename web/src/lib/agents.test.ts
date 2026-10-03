@@ -256,6 +256,33 @@ describe("listAgents / setAgentEnabled", () => {
     assert.deepEqual(readUserAgent("scout", agentDir).draft.tools, []);
   });
 
+  it("restores inheritance without falling back to the package fixed allowlist", () => {
+    fixture();
+    setAgentTools("worker", [], agentDir);
+    setAgentTools("worker", null, agentDir);
+    assert.equal(listAgents(agentDir).agents.find((agent) => agent.name === "worker")?.tools, undefined);
+    const raw = JSON.parse(readFileSync(join(agentDir, "settings.json"), "utf8"));
+    assert.equal(raw.subagents.agentOverrides.worker.tools, "inherit");
+    setAgentTools("scout", [], agentDir);
+    setAgentTools("scout", null, agentDir);
+    assert.equal(readUserAgent("scout", agentDir).draft.tools, undefined);
+    assert.equal(parseAgentFile(readFileSync(join(agentDir, "agents", "scout.md"), "utf8")).tools, undefined);
+  });
+
+  it("does not expose legacy default tools to the editor or permit definition update bypasses", () => {
+    fixture();
+    const path = join(agentDir, "agents", "default.md");
+    writeFileSync(path, agentNamed("default"), "utf8");
+    const { draft } = readUserAgent("default", agentDir);
+    assert.equal(draft.tools, undefined);
+    assert.throws(() => updateAgent({ ...draft, tools: [] }, agentDir),
+      (error: unknown) => error instanceof AgentsError && agentsErrorStatus(error) === 403);
+    assert.equal(readFileSync(path, "utf8"), agentNamed("default"));
+    updateAgent({ ...draft, description: "Updated prompt" }, agentDir);
+    assert.equal(parseAgentFile(readFileSync(path, "utf8")).tools, undefined);
+    assert.equal(readUserAgent("default", agentDir).draft.description, "Updated prompt");
+  });
+
   it("keeps unmanaged frontmatter when saving a managed field", () => {
     fixture();
     writeFileSync(

@@ -19,6 +19,7 @@ import {
   type AgentThinking,
 } from "@/lib/agents";
 import { isThinkingLevel } from "@/lib/thinking-levels";
+import { DEFAULT_AGENT } from "@/lib/default-agent";
 
 /** `false` は pi-subagents の明示的な thinking 無効。`null` は設定解除。 */
 function isThinkingInput(value: unknown): value is AgentThinking | null {
@@ -78,15 +79,19 @@ export async function PATCH(req: NextRequest, context: RouteContext) {
   if (!body || typeof body !== "object" || Array.isArray(body)) {
     return NextResponse.json({ error: "リクエスト本文が不正です" }, { status: 400 });
   }
-  const record = body as { enabled?: unknown } & Partial<AgentDraft>;
+  const record = body as { enabled?: unknown; tools?: string[] | null } & Omit<Partial<AgentDraft>, "tools">;
+  // Reject before any model/effort/enabled write so a forbidden compound request has no side effects.
+  if (name.trim() === DEFAULT_AGENT && "tools" in record) {
+    return NextResponse.json({ error: "default エージェントは常に全ツールを継承します" }, { status: 403 });
+  }
   if ("model" in record && record.model !== undefined && record.model !== null && typeof record.model !== "string") {
     return NextResponse.json({ error: "model は文字列または null が必要です" }, { status: 400 });
   }
   if ("thinking" in record && record.thinking !== undefined && !isThinkingInput(record.thinking)) {
     return NextResponse.json({ error: "effort が不正です" }, { status: 400 });
   }
-  if ("tools" in record && record.tools !== undefined && (!Array.isArray(record.tools) || record.tools.some((tool) => typeof tool !== "string"))) {
-    return NextResponse.json({ error: "tools は文字列配列が必要です" }, { status: 400 });
+  if ("tools" in record && record.tools !== undefined && record.tools !== null && (!Array.isArray(record.tools) || record.tools.some((tool) => typeof tool !== "string"))) {
+    return NextResponse.json({ error: "tools は文字列配列または null が必要です" }, { status: 400 });
   }
 
   try {
@@ -99,13 +104,13 @@ export async function PATCH(req: NextRequest, context: RouteContext) {
       if ("thinking" in record) {
         setAgentThinking(name, isThinkingInput(record.thinking) ? record.thinking : null);
       }
-      if ("tools" in record) setAgentTools(name, record.tools ?? []);
+      if ("tools" in record) setAgentTools(name, record.tools ?? null);
     } else {
       // Update the agent definition.
       if (typeof record.systemPrompt !== "string") {
         return NextResponse.json({ error: "systemPrompt が必要です" }, { status: 400 });
       }
-      updateAgent({ ...(record as AgentDraft), name });
+      updateAgent({ ...record, name, systemPrompt: record.systemPrompt, tools: record.tools ?? undefined });
     }
     scheduleLiveSessionsContextReload(name);
     const listed = listAgents();

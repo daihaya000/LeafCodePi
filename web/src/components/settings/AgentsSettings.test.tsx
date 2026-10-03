@@ -2,7 +2,8 @@
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { toolNameLabel } from "@/lib/tool-labels";
-import { BOT_TOOL_NAMES, COMPUTER_USE_TOOL_NAMES, type ModelOption } from "@/lib/types";
+import { AGENT_TOOL_NAMES } from "@/lib/agent-tool-catalog";
+import { type ModelOption } from "@/lib/types";
 import { AgentsSettings } from "./AgentsSettings";
 
 const { getJson, sendJson } = vi.hoisted(() => ({
@@ -55,6 +56,7 @@ const agents = [
     id: "enabled",
     name: "enabled",
     enabled: true,
+    tools: ["read"],
     model: "openai-codex/gpt-5.6-luna",
     systemPrompt: "実装を確認する。",
     source: "package" as const,
@@ -315,11 +317,57 @@ describe("AgentsSettings", () => {
 
     const row = write.closest("li");
     expect(row).not.toBeNull();
-    const agentTools = [...BOT_TOOL_NAMES, ...COMPUTER_USE_TOOL_NAMES];
+    const agentTools = AGENT_TOOL_NAMES;
     expect(within(row!).getAllByRole("checkbox")).toHaveLength(agentTools.length);
     for (const tool of agentTools) {
       expect(within(row!).getByRole("checkbox", { name: `enabled の${toolNameLabel(tool)}` })).toBeTruthy();
     }
+  });
+
+  it("default tools are dynamically inherited without editable checkboxes, including legacy DTOs", async () => {
+    const defaultAgent = { ...agents[1], id: "default", name: "default", tools: ["read"] };
+    getJson.mockImplementation((path: string) => path === "/api/agents"
+      ? Promise.resolve({ agents: [defaultAgent] }) : Promise.resolve({ models }));
+    render(<AgentsSettings />);
+    const row = (await screen.findByRole("switch", { name: "default は常に有効" })).closest("li")!;
+    expect(within(row).getByText("全ツール継承・固定")).toBeTruthy();
+    expect(within(row).getByText(/default は全登録ツールを動的に継承/)).toBeTruthy();
+    expect(within(row).queryAllByRole("checkbox")).toHaveLength(0);
+    expect(within(row).queryByRole("button", { name: /継承に戻す/ })).toBeNull();
+    expect(sendJson).not.toHaveBeenCalled();
+  });
+
+  it("distinguishes inherited tools from deny-all and restores inheritance with null", async () => {
+    const inheritedAgent = { ...agents[1], tools: undefined };
+    getJson.mockImplementation((path: string) => path === "/api/agents"
+      ? Promise.resolve({ agents: [inheritedAgent] }) : Promise.resolve({ models }));
+    sendJson.mockResolvedValueOnce({ agents: [{ ...inheritedAgent, tools: [] }] });
+    render(<AgentsSettings />);
+    const row = (await screen.findByRole("switch", { name: "enabled を無効化" })).closest("li")!;
+    expect(within(row).getByText("既定を継承")).toBeTruthy();
+    expect(within(row).queryAllByRole("checkbox")).toHaveLength(0);
+    fireEvent.click(within(row).getByRole("button", { name: "個別に制限（許可なしから選択）" }));
+    await waitFor(() => expect(sendJson).toHaveBeenCalledWith("/api/agents/enabled", { tools: [] }, "PATCH"));
+    await waitFor(() => expect(within(row).getByText("許可なし")).toBeTruthy());
+    expect(within(row).getAllByRole("checkbox").every((box) => !(box as HTMLInputElement).checked)).toBe(true);
+    sendJson.mockResolvedValueOnce({ agents: [inheritedAgent] });
+    fireEvent.click(within(row).getByRole("button", { name: "既定を継承に戻す" }));
+    await waitFor(() => expect(sendJson).toHaveBeenLastCalledWith("/api/agents/enabled", { tools: null }, "PATCH"));
+    await waitFor(() => expect(within(row).getByText("既定を継承")).toBeTruthy());
+  });
+
+  it("offers codemode without Bot-only entries and preserves unknown extension/MCP tools", async () => {
+    const customAgent = { ...agents[1], tools: ["read", "future_tool"] };
+    getJson.mockImplementation((path: string) => path === "/api/agents"
+      ? Promise.resolve({ agents: [customAgent] }) : Promise.resolve({ models }));
+    render(<AgentsSettings />);
+    const codemode = await screen.findByRole("checkbox", { name: `enabled の${toolNameLabel("codemode")}` });
+    expect(codemode.closest("[data-tool-group]")?.getAttribute("data-tool-group")).toBe("write");
+    expect(screen.queryByRole("checkbox", { name: `enabled の${toolNameLabel("task_mutation_decision")}` })).toBeNull();
+    expect((screen.getByRole("checkbox", { name: "enabled のfuture_tool" }) as HTMLInputElement).checked).toBe(true);
+    fireEvent.change(screen.getByRole("textbox", { name: "enabled の追加ツール名" }), { target: { value: "mcp__demo__read, future_tool" } });
+    fireEvent.click(screen.getByRole("button", { name: "追加" }));
+    await waitFor(() => expect(sendJson).toHaveBeenCalledWith("/api/agents/enabled", { tools: ["read", "future_tool", "mcp__demo__read"] }, "PATCH"));
   });
 
   it("shows logical model candidates from separate accounts", async () => {
@@ -492,11 +540,11 @@ describe("AgentsSettings", () => {
     expect(document.activeElement).toBe(nameInput);
     expect(editorHeading.compareDocumentPosition(list!) & Node.DOCUMENT_POSITION_FOLLOWING).not.toBe(0);
 
-    // New drafts omit tools so the UI shows pi defaults instead of a 4-tool allowlist.
+    // Inheritance is a mode, not a fabricated fixed allowlist.
     const editor = editorHeading.closest("section");
     expect(editor).not.toBeNull();
-    expect(within(editor!).getByText(/未指定のエージェントは既定のツールを表示しています/)).toBeTruthy();
-    expect((within(editor!).getByRole("checkbox", { name: `新規エージェント の${toolNameLabel("write")}` }) as HTMLInputElement).checked).toBe(true);
+    expect(within(editor!).getByText("既定を継承")).toBeTruthy();
+    expect(within(editor!).queryAllByRole("checkbox")).toHaveLength(0);
     expect(within(editor!).getByRole("button", { name: "新規エージェント のEffort" })).toBeTruthy();
 
     const autoHeading = screen.getByRole("heading", { name: "Autoエージェント" });
@@ -504,6 +552,50 @@ describe("AgentsSettings", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "キャンセル" }));
     expect(document.activeElement).toBe(createButton);
+  });
+
+  it("saves inheritance after switching a new draft to deny-all and back", async () => {
+    render(<AgentsSettings />);
+    await screen.findByRole("switch", { name: "enabled を無効化" });
+    fireEvent.click(screen.getByRole("button", { name: "＋新規" }));
+    const editor = screen.getByRole("heading", { name: "新規エージェント" }).closest("section")!;
+    fireEvent.change(within(editor).getByRole("textbox", { name: "名前" }), { target: { value: "new-agent" } });
+    fireEvent.click(within(editor).getByRole("button", { name: "個別に制限（許可なしから選択）" }));
+    expect(within(editor).getByText("許可なし")).toBeTruthy();
+    fireEvent.click(within(editor).getByRole("button", { name: "既定を継承に戻す" }));
+    fireEvent.click(within(editor).getByRole("button", { name: "保存" }));
+    await waitFor(() => expect(sendJson).toHaveBeenCalledWith("/api/agents", expect.objectContaining({ name: "new-agent", tools: undefined }), "POST"));
+  });
+
+  it("saves a new explicit deny-all draft as []", async () => {
+    render(<AgentsSettings />);
+    await screen.findByRole("switch", { name: "enabled を無効化" });
+    fireEvent.click(screen.getByRole("button", { name: "＋新規" }));
+    const editor = screen.getByRole("heading", { name: "新規エージェント" }).closest("section")!;
+    fireEvent.change(within(editor).getByRole("textbox", { name: "名前" }), { target: { value: "blocked" } });
+    fireEvent.click(within(editor).getByRole("button", { name: "個別に制限（許可なしから選択）" }));
+    fireEvent.click(within(editor).getByRole("button", { name: "保存" }));
+    await waitFor(() => expect(sendJson).toHaveBeenCalledWith("/api/agents", expect.objectContaining({ name: "blocked", tools: [] }), "POST"));
+  });
+
+  it.each([
+    { initialTools: undefined, reset: false, expectedTools: undefined },
+    { initialTools: [] as string[], reset: false, expectedTools: [] },
+    { initialTools: [] as string[], reset: true, expectedTools: undefined },
+  ])("roundtrips an existing user draft without changing inheritance/deny-all: %j", async ({ initialTools, reset, expectedTools }) => {
+    const agent = { ...agents[1], id: "user", name: "user", source: "user", tools: initialTools };
+    getJson.mockImplementation((path: string) => path === "/api/agents"
+      ? Promise.resolve({ agents: [agent] }) : path === "/api/agents/user"
+        ? Promise.resolve({ draft: { name: "user", systemPrompt: "Prompt", tools: initialTools } })
+        : path === "/api/settings/auto-agent-prompt"
+          ? Promise.resolve({ value: null }) : Promise.resolve({ models }));
+    render(<AgentsSettings />);
+    const row = (await screen.findByRole("switch", { name: "user を無効化" })).closest("li")!;
+    fireEvent.click(within(row).getByRole("button", { name: "編集" }));
+    const editor = (await screen.findByRole("heading", { name: "編集: user" })).closest("section")!;
+    if (reset) fireEvent.click(within(editor).getByRole("button", { name: "既定を継承に戻す" }));
+    fireEvent.click(within(editor).getByRole("button", { name: "保存" }));
+    await waitFor(() => expect(sendJson).toHaveBeenCalledWith("/api/agents/user", expect.objectContaining({ name: "user", tools: expectedTools }), "PATCH"));
   });
 
   it("exposes Jev routing options for Auto agent selection", async () => {

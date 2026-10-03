@@ -22,7 +22,8 @@ import { ModelSelect } from "@/components/ModelSelect";
 import { Badge, Button, GhostSelect, Switch } from "@/components/ui";
 import { getJson, sendJson } from "@/lib/client";
 import { ALL_THINKING_LEVELS, THINKING_LEVEL_LABELS, isThinkingLevel } from "@/lib/thinking-levels";
-import { BOT_TOOL_NAMES, COMPUTER_USE_TOOL_NAMES, type ModelOption, type ThinkingLevel } from "@/lib/types";
+import { AGENT_TOOL_NAMES } from "@/lib/agent-tool-catalog";
+import { type ModelOption, type ThinkingLevel } from "@/lib/types";
 
 /** `false` = pi-subagents の明示的な thinking 無効。undefined = 既定に従う。 */
 type AgentThinking = ThinkingLevel | false;
@@ -67,27 +68,6 @@ type EditorState =
   | { mode: "create" }
   | { mode: "edit"; name: string }
   | { mode: "closed" };
-
-const AGENT_TOOL_NAMES = [...BOT_TOOL_NAMES, ...COMPUTER_USE_TOOL_NAMES];
-const AGENT_DEFAULT_TOOL_NAMES = [
-  "read",
-  "write",
-  "edit",
-  "bash",
-  "powershell",
-  "question",
-  "grep",
-  "find",
-  "ls",
-  "memory_search",
-  "memory_add",
-  "memory_replace",
-  "memory_remove",
-  "session_search",
-  "skill_manage",
-  "todowrite",
-  "tool_search",
-] as const;
 
 function emptyDraft(): AgentDraft {
   // Omit tools so new agents inherit pi defaults (same as package agents with tools unset).
@@ -303,9 +283,12 @@ function AgentToolsSettings({
   name: string;
   tools?: readonly string[];
   busy: boolean;
-  onChange: (tools: string[]) => void;
+  onChange: (tools: string[] | undefined) => void;
 }) {
-  const selectedTools = (tools ?? AGENT_DEFAULT_TOOL_NAMES).map((tool) => tool.trim()).filter(Boolean);
+  const [customTool, setCustomTool] = useState("");
+  const isDefault = name.trim() === DEFAULT_AGENT;
+  const inherited = tools === undefined;
+  const selectedTools = [...new Set((tools ?? []).map((tool) => tool.trim()).filter(Boolean))];
   const toolNames = [...new Set([...AGENT_TOOL_NAMES, ...selectedTools])];
 
   return (
@@ -319,19 +302,46 @@ function AgentToolsSettings({
           aria-hidden="true"
         />
         <span>使用するツール</span>
+        <Badge tone="neutral">{isDefault ? "全ツール継承・固定" : inherited ? "既定を継承" : selectedTools.length === 0 ? "許可なし" : `${selectedTools.length}件を許可`}</Badge>
       </summary>
       <section className="space-y-2 border-t border-border p-3" aria-label={`${name}のツール一覧`}>
-        <ToolPermissionList
-          name={name}
-          tools={toolNames}
-          selectedTools={selectedTools}
-          disabled={busy}
-          onChange={onChange}
-        />
-        <p className="text-[11px] text-muted">
-          チェックを外したツールは、このエージェントから利用できません。
-          {tools === undefined && "未指定のエージェントは既定のツールを表示しています。"}
-        </p>
+        {isDefault ? (
+          <p className="text-xs text-muted">
+            default は全登録ツールを動的に継承します。codemode、後から追加される拡張・接続済みMCPも対象です。個別制限は設定できません。
+          </p>
+        ) : inherited ? (
+          <>
+            <p className="text-xs text-muted">ツール一覧を固定せず、実行環境の既定を継承します。直接選択時とサブエージェント実行時では利用可能なツールが異なります。</p>
+            <Button type="button" variant="secondary" size="sm" disabled={busy} onClick={() => onChange([])}>
+              個別に制限（許可なしから選択）
+            </Button>
+          </>
+        ) : (
+          <>
+            <ToolPermissionList name={name} tools={toolNames} selectedTools={selectedTools} disabled={busy} onChange={onChange} />
+            <div className="flex flex-wrap items-center gap-2">
+              <label className="min-w-0 flex-1">
+                <span className={LABEL_CLASS}>追加ツール名（拡張・MCP）</span>
+                <input
+                  aria-label={`${name} の追加ツール名`}
+                  className={`${INPUT_CLASS} mt-1`}
+                  value={customTool}
+                  disabled={busy}
+                  placeholder="mcp__server__tool"
+                  onChange={(event) => setCustomTool(event.target.value)}
+                />
+              </label>
+              <Button type="button" variant="secondary" size="sm" disabled={busy || !customTool.trim()} onClick={() => {
+                const names = customTool.split(/[\s,]+/).filter(Boolean);
+                onChange([...new Set([...selectedTools, ...names])]);
+                setCustomTool("");
+              }}>追加</Button>
+            </div>
+            <Button type="button" variant="ghost" size="sm" disabled={busy} onClick={() => onChange(undefined)}>既定を継承に戻す</Button>
+            <p className="text-[11px] text-muted">チェックしたツールだけを許可します。0件は許可なしです。codemode内からの呼び出しにもこの制限が適用されます。候補一覧は登録・接続状態を保証しません。</p>
+          </>
+        )}
+        <p className="text-[11px] text-muted">設定の明示的な禁止が優先されます。サブエージェント使用が禁止なら、default・codemodeからも起動できません。無効な拡張・未接続MCP・Bot専用ツールは利用できず、スキル設定・実行権限・ToDoゲートも維持されます。</p>
       </section>
     </details>
   );
@@ -808,14 +818,14 @@ export function AgentsSettings() {
     }
   }
 
-  async function changeTools(agent: AgentDto, tools: string[]) {
-    if (busyId) return;
+  async function changeTools(agent: AgentDto, tools: string[] | undefined) {
+    if (busyId || agent.name === DEFAULT_AGENT) return;
     setBusyId(agent.id);
     setError(null);
     try {
       const result = await sendJson<{ agents: AgentDto[] }>(
         `/api/agents/${encodeURIComponent(agent.id)}`,
-        { tools },
+        { tools: tools ?? null },
         "PATCH",
       );
       setAgents(sortAgentRows(result.agents));

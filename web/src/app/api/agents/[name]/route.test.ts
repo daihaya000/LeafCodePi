@@ -76,6 +76,46 @@ describe("PATCH /api/agents/:name tool permissions", () => {
     expect(mocks.refreshLiveSessionsForAgentDefinition).toHaveBeenCalledWith("custom");
   });
 
+  it("restores inheritance with null, not an empty allowlist", async () => {
+    const response = await PATCH(request({ tools: null }), context());
+    await flushImmediate();
+    expect(response.status).toBe(200);
+    expect(mocks.setAgentTools).toHaveBeenCalledWith("custom", null);
+  });
+
+  it.each([
+    { tools: ["read"] },
+    { model: "openai/test", thinking: "high", tools: [] },
+    { enabled: true, tools: null },
+    { systemPrompt: "Changed", tools: ["read"] },
+  ])("rejects default tool updates before any compound write: %j", async (body) => {
+    const response = await PATCH(request(body), context("default"));
+    await flushImmediate();
+    expect(response.status).toBe(403);
+    expect(mocks.setAgentModel).not.toHaveBeenCalled();
+    expect(mocks.setAgentThinking).not.toHaveBeenCalled();
+    expect(mocks.setAgentEnabled).not.toHaveBeenCalled();
+    expect(mocks.setAgentTools).not.toHaveBeenCalled();
+    expect(mocks.updateAgent).not.toHaveBeenCalled();
+    expect(mocks.reloadLiveSessionsContext).not.toHaveBeenCalled();
+  });
+
+  it.each([{ tools: null }, { tools: [] }])("preserves tools %j through full user-definition updates", async ({ tools }) => {
+    const response = await PATCH(request({ systemPrompt: "Changed", tools }), context());
+    expect(response.status).toBe(200);
+    expect(mocks.updateAgent).toHaveBeenCalledWith(expect.objectContaining({ name: "custom", tools: tools ?? undefined }));
+    expect(mocks.setAgentTools).not.toHaveBeenCalled();
+    await flushImmediate();
+  });
+
+  it("allows default prompt/model updates without tools", async () => {
+    expect((await PATCH(request({ model: "openai/test" }), context("default"))).status).toBe(200);
+    expect(mocks.setAgentModel).toHaveBeenCalledWith("default", "openai/test");
+    expect((await PATCH(request({ systemPrompt: "Changed" }), context("default"))).status).toBe(200);
+    expect(mocks.updateAgent).toHaveBeenCalledWith(expect.objectContaining({ name: "default", systemPrompt: "Changed", tools: undefined }));
+    await flushImmediate();
+  });
+
   it("returns without waiting for a live session reload", async () => {
     let releaseReload!: () => void;
     const reload = new Promise<{ reloaded: boolean }>((resolve) => {

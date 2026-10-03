@@ -198,6 +198,7 @@ import {
 import { hasIdentityChanges, sessionIdentityPatch, sessionIdentitySource } from "@/lib/pi/session-identity";
 import { nestedCallsStoreFor, trackNestedToolEvent } from "@/lib/pi/nested-live-calls";
 import { sessionToolSelection } from "@/lib/pi/session-tool-selection";
+import { attachCodeToolPolicy, codeToolAllowed, registerCodeToolPolicy, updateCodeSubagentPolicy, type CodeToolPolicy } from "@/lib/pi/session-tool-policy";
 import {
   bundledExtensionEntries,
   filterExtensionsByState,
@@ -3697,6 +3698,7 @@ export function sessionExtensionFactories(input: {
   hasBotSkills: boolean;
   /** default has no hard allowlist; preserve an explicit subagent disable over SDK reload. */
   allTools?: boolean;
+  codeToolPolicy?: CodeToolPolicy;
   botCodeTaskId?: string;
   roomHandoffTaskId?: string;
   /** Holds the SDK search (native MCP or standalone), so `tool_search` has one owner. */
@@ -3707,7 +3709,8 @@ export function sessionExtensionFactories(input: {
   let subagentActiveBeforeReload: boolean | undefined;
   return [
     (api) => {
-      if (input.allTools) {
+      if (input.codeToolPolicy) registerCodeToolPolicy(api, input.codeToolPolicy);
+      if (input.allTools && !input.codeToolPolicy) {
         api.on("session_shutdown", () => { subagentActiveBeforeReload = api.getActiveTools().includes("subagent"); });
         api.on("session_start", () => {
           if (subagentActiveBeforeReload === false) {
@@ -3982,6 +3985,9 @@ async function createSession(options: {
   });
   const skillPermissionRef = { current: sessionPermissions.skillPermission as SkillPermission };
   const subagentPermission = sessionPermissions.subagentPermission;
+  const codeToolPolicy: CodeToolPolicy | undefined = options.botTools
+    ? undefined
+    : { subagent: subagentPermission ?? "deny" };
   // Filter disabled skills via state file (skills-state.json), not folder moves.
   // skillsOverride re-reads state on every resourceLoader.reload() / session.reload().
   // Also drop any ~/.agents skills Pi loads internally: this harness must not
@@ -4041,8 +4047,9 @@ async function createSession(options: {
         // The shared search owner must also find deferred extension tools without native MCP.
         pi.createToolSearchExtension()(api);
       },
-    ), nativeToolSearch), ...sessionExtensionFactories({
+    ), nativeToolSearch, codeToolPolicy ? (name) => codeToolAllowed(codeToolPolicy, name) : undefined), ...sessionExtensionFactories({
       nativeToolSearch,
+      codeToolPolicy,
       agentDir,
       botSoulBotId,
       botToolAllowlist,
@@ -4130,6 +4137,7 @@ async function createSession(options: {
     agentSessionStartedAt,
   );
   createdSession = result.session;
+  if (codeToolPolicy) attachCodeToolPolicy(result.session, codeToolPolicy);
   // Restore the Code base loadout. default also retains newly registered extension defaults.
   if ("initialActive" in toolSelection) {
     result.session.setActiveToolsByName(toolSelection.preserveActive
@@ -10145,6 +10153,7 @@ export function applySubagentPermission(
   permission: "allow" | "deny" | undefined,
 ): void {
   const effective = permission ?? "deny";
+  updateCodeSubagentPolicy(session, effective);
   if (
     typeof session.setActiveToolsByName !== "function" ||
     typeof session.getActiveToolNames !== "function"

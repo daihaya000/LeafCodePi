@@ -104,13 +104,14 @@ export function toolNameLabel(tool: string): string {
   if (t === "grep") return "文字列検索";
   if (t === "find") return "ファイル検索";
   if (t === "ls") return "ファイル一覧";
+  if (t === "codemode") return "codemode（スクリプト）";
   return toolLabel(tool);
 }
 
 /** Tools that can mutate workspace, memory, skills, task state, or delegated work. */
 const WRITE_TOOL_NAMES = new Set([
   "write", "edit", "bash", "powershell", "memory_add", "memory_replace", "memory_remove",
-  "skill_manage", "subagent", "todowrite", "update_soul", "mcp", "act_ui",
+  "skill_manage", "subagent", "todowrite", "update_soul", "mcp", "act_ui", "codemode",
 ]);
 
 export function isWriteTool(tool: string): boolean {

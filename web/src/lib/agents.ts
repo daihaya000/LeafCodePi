@@ -460,17 +460,17 @@ export function setAgentThinking(
   );
 }
 
-/** Set an agent's explicit tool allowlist (frontmatter for user agents, override for packages). */
+/** Set an explicit allowlist; null restores runtime inheritance (not the package's fixed list). */
 export function setAgentTools(
   name: string,
-  tools: readonly string[],
+  tools: readonly string[] | null,
   agentDir = resolvePiAgentDir(),
 ): AgentListResult {
   const { name: trimmed, agent } = assertListedAgent(name, agentDir);
   if (trimmed === DEFAULT_AGENT) {
     throw new AgentsError("readonly", "default エージェントは常に全ツールを継承します");
   }
-  const normalized = [...new Set(tools.map((tool) => tool.trim()).filter(Boolean))];
+  const normalized = tools === null ? undefined : [...new Set(tools.map((tool) => tool.trim()).filter(Boolean))];
   if (agent.source === "user") {
     const { draft } = readUserAgent(trimmed, agentDir);
     return updateAgent({ ...draft, tools: normalized }, agentDir);
@@ -478,7 +478,7 @@ export function setAgentTools(
   return updateAgentOverride(
     trimmed,
     (override) => {
-      override.tools = normalized;
+      override.tools = normalized ?? "inherit";
     },
     agentDir,
   );
@@ -576,7 +576,7 @@ export function readUserAgent(name: string, agentDir = resolvePiAgentDir()): { d
       name,
       description: typeof fm.description === "string" ? boundedDescription(fm.description) : undefined,
       aliases: fromCsv(fm.aliases),
-      tools: toTools(fm.tools),
+      tools: name.trim() === DEFAULT_AGENT ? undefined : toTools(fm.tools),
       model: typeof fm.model === "string" ? fm.model : undefined,
       fallbackModels: fromCsv(fm.fallbackModels),
       thinking: toThinking(fm.thinking),
@@ -601,9 +601,16 @@ function fromCsv(value: unknown): string[] | undefined {
   return undefined;
 }
 
+function assertDefaultToolsInherited(name: string, tools: unknown): void {
+  if (name === DEFAULT_AGENT && tools !== undefined) {
+    throw new AgentsError("readonly", "default エージェントは常に全ツールを継承します");
+  }
+}
+
 /** Create a new user agent. Rejects names that already exist. */
 export function createAgent(draft: AgentDraft, agentDir = resolvePiAgentDir()): AgentListResult {
   const name = assertValidName(draft.name);
+  assertDefaultToolsInherited(name, draft.tools);
   const existing = listAgents(agentDir);
   if (existing.agents.some((a) => a.name === name)) {
     throw new AgentsError("invalid-name", "同名のエージェントが既に存在します");
@@ -616,6 +623,7 @@ export function createAgent(draft: AgentDraft, agentDir = resolvePiAgentDir()): 
 /** Update a user agent. Frontmatter the editor does not manage is preserved server-side. */
 export function updateAgent(draft: AgentDraft, agentDir = resolvePiAgentDir()): AgentListResult {
   const name = assertValidName(draft.name);
+  assertDefaultToolsInherited(name, draft.tools);
   const filePath = assertEditable(agentDir, name);
   atomicWrite(filePath, serializeAgent({ ...draft, name }, readExtraFrontmatter(filePath)));
   return listAgents(agentDir);

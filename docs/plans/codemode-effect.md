@@ -14,8 +14,15 @@
   既存の subagent 許可・ToDo・権限ゲートは維持する。全操作のスクリプト強制ではない。
 - `tool_search` は native MCP が未有効でも SDK 検索へ委譲し、遅延公開された拡張ツールを検索できる。
   `default` のツール制限変更 API は拒否し、他のエージェントを制限付き用途に使う。
+- 設定の明示禁止は継承・許可リストより優先する。Code の subagent 禁止は非表示だけでなく
+  実行時にも拒否し、検索・codemode の候補から除外する。生存中の切替と reload でも維持する。
+  スキル禁止・無効拡張・承認モード・Bot 専用スコープの既存制御も解除しない。
+- 編集 UI は default を「全ツール継承・固定」と表示する。他エージェントは未指定（継承）と
+  `[]`（許可なし）を区別し、`PATCH tools: null` で継承へ戻せる。候補一覧は実行時の登録状態ではない。
+  codemode と任意の拡張/MCP 名を許可リストに追加でき、未知の既存名も保持する。
 - 回帰検証: `codemode-default-sdk.test.ts`、`mcp-native-session.test.ts`、
-  `codemode-gate-sdk.test.ts`、`codemode-permission-sdk.test.ts`。
+  `codemode-gate-sdk.test.ts`、`codemode-permission-sdk.test.ts`、`session-tool-policy-sdk.test.ts`、
+  `AgentsSettings.test.tsx`、`agents.test.ts`、`api/agents/[name]/route.test.ts`。
 
 `web/src/lib/pi/codemode-effect.test.ts` が同じタスクを3通りで実行し、モデルへ渡る文字数と
 モデル要求回数を数える。モデルは台本で動かす（回答品質・料金は測らない）。実SDKセッション・
