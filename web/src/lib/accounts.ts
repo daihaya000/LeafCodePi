@@ -1,7 +1,8 @@
 import { randomUUID } from "node:crypto";
 import { readFileSync } from "node:fs";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { readPeerConfig } from "@backend-core/peer-auth-config.mjs";
+import { withDirectoryLock } from "@backend-core/directory-lock.mjs";
 import { dataDir } from "./paths";
 import { atomicWriteText } from "./codexbar/utils";
 import { invalidateCachedUsage } from "./codexbar/cache";
@@ -239,6 +240,21 @@ function writeAccountsFile(file: AccountsFile): void {
   atomicWriteText(accountsPath(), `${JSON.stringify(file, null, 2)}\n`, 0o600);
 }
 
+/**
+ * Serialize read-modify-write on accounts.json across workers. atomicWriteText
+ * only keeps the file intact; without this lock two concurrent creates or a
+ * reorder can still drop each other's rows.
+ */
+function withAccountsLock<T>(action: () => T): T {
+  const path = accountsPath();
+  return withDirectoryLock({
+    lockPath: `${path}.lock`,
+    parentDir: dirname(path),
+    staleMs: 30_000,
+    busyMessage: "account list is busy",
+  }, action);
+}
+
 function badRequest(message: string): Error {
   return Object.assign(new Error(message), { status: 400 });
 }
@@ -311,6 +327,10 @@ export function listAccounts(): AccountRecord[] {
 
 /** アカウント一覧の表示順を保存する。入力は現在の全アカウントを一度ずつ含む必要がある。 */
 export function reorderAccounts(input: unknown): AccountRecord[] {
+  return withAccountsLock(() => reorderAccountsLocked(input));
+}
+
+function reorderAccountsLocked(input: unknown): AccountRecord[] {
   if (
     !Array.isArray(input) ||
     !input.every((id): id is string => typeof id === "string")
@@ -345,6 +365,10 @@ export function reorderAccounts(input: unknown): AccountRecord[] {
 
 /** バックアップから同じ ID のアカウントを追加。既存アカウントは変更しない。 */
 export function importAccountRecords(input: unknown): AccountRecord[] {
+  return withAccountsLock(() => importAccountRecordsLocked(input));
+}
+
+function importAccountRecordsLocked(input: unknown): AccountRecord[] {
   if (!Array.isArray(input) || input.length > 200) throw badRequest("アカウント一覧が不正です");
   const file = readAccountsFile();
   const ids = new Set<string>();
@@ -401,9 +425,11 @@ export function createAccount(input: {
     createdAt: now,
     updatedAt: now,
   };
-  const file = readAccountsFile();
-  file.accounts.push(record);
-  writeAccountsFile(file);
+  withAccountsLock(() => {
+    const file = readAccountsFile();
+    file.accounts.push(record);
+    writeAccountsFile(file);
+  });
   invalidateCachedUsage();
   return { ...record };
 }
@@ -446,6 +472,13 @@ export function patchAccount(
   id: string,
   patch: { label?: unknown; note?: unknown; enabled?: unknown },
 ): AccountRecord {
+  return withAccountsLock(() => patchAccountLocked(id, patch));
+}
+
+function patchAccountLocked(
+  id: string,
+  patch: { label?: unknown; note?: unknown; enabled?: unknown },
+): AccountRecord {
   const file = readAccountsFile();
   const record = file.accounts.find((account) => account.id === id);
   if (!record) throw notFound();
@@ -478,11 +511,13 @@ export function patchAccount(
 export function deleteAccount(id: string): void {
   // code / bot 双方。Goal Loop は idle でも継続中の場合、削除を拒否する。
   assertAccountIdleForDisable(id, "delete");
-  const file = readAccountsFile();
-  const index = file.accounts.findIndex((account) => account.id === id);
-  if (index === -1) throw notFound();
-  file.accounts.splice(index, 1);
-  writeAccountsFile(file);
+  withAccountsLock(() => {
+    const file = readAccountsFile();
+    const index = file.accounts.findIndex((account) => account.id === id);
+    if (index === -1) throw notFound();
+    file.accounts.splice(index, 1);
+    writeAccountsFile(file);
+  });
   for (const provider of ACCOUNT_PROVIDER_IDS) {
     clearProviderCache(`account:${id}:${provider}`);
   }
