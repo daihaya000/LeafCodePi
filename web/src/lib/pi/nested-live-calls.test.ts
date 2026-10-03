@@ -1,7 +1,14 @@
 import assert from "node:assert/strict";
 import { describe, it } from "vitest";
-import { liveNestedCallsFor, trackNestedToolEvent, type LiveNestedCalls } from "./nested-live-calls";
+import {
+  applyLiveNestedCalls,
+  liveNestedCallsFor,
+  nestedCallsStoreFor,
+  trackNestedToolEvent,
+  type LiveNestedCalls,
+} from "./nested-live-calls";
 import { trackThroughputEvent } from "./harness";
+import { snapshotMessages } from "./snapshot-messages";
 
 const start = (id: string, name: string, parent = "p1") => ({
   type: "tool_execution_start", toolCallId: id, toolName: name, args: { path: "secret.txt" }, parentToolCallId: parent,
@@ -46,6 +53,7 @@ describe("trackNestedToolEvent", () => {
 describe("harness event tracking", () => {
   function live() {
     return {
+      session: {},
       toolStartedAt: new Map(), toolEndedAt: new Map(), toolPartialOutputByCallId: new Map(),
       throughputByStartedAt: new Map(), persistedThroughputKeys: new Set(),
     } as unknown as Parameters<typeof trackThroughputEvent>[0];
@@ -60,9 +68,54 @@ describe("harness event tracking", () => {
     assert.deepEqual([...state.toolStartedAt.keys()], ["p1"]);
     assert.equal(state.toolEndedAt.size, 0);
     assert.equal(state.toolPartialOutputByCallId.size, 0);
-    assert.equal(liveNestedCallsFor(state.nestedToolCalls, "p1")[0]?.status, "ok");
+    const store = nestedCallsStoreFor((state as unknown as { session: object }).session);
+    assert.equal(liveNestedCallsFor(store, "p1")[0]?.status, "ok");
 
     trackThroughputEvent(state, { type: "message_end", message: { role: "toolResult", toolCallId: "p1" } });
-    assert.equal(state.nestedToolCalls?.has("p1"), false);
+    assert.equal(store?.has("p1"), false);
+  });
+});
+
+describe("live calls in a snapshot", () => {
+  function fakeSession(result?: object) {
+    const messages: object[] = [
+      { role: "user", content: "\u8abf\u3079\u3066", timestamp: 1 },
+      { role: "assistant", timestamp: 2, content: [{ type: "toolCall", id: "p1", name: "codemode", arguments: { code: "x" } }] },
+      ...(result ? [result] : []),
+    ];
+    return {
+      sessionId: "s1", isStreaming: true, isCompacting: false, messages,
+      agent: { state: { streamingMessage: undefined } },
+      sessionManager: { getLeafId: () => null, getBranch: () => [], getCwd: () => "C:/x" },
+    };
+  }
+  const nestedOf = (messages: ReturnType<typeof snapshotMessages>) => {
+    const part = messages.flatMap((message) => message.parts).find((item) => item.type === "tool");
+    return part?.type === "tool" ? { status: part.state.status, calls: part.state.nestedCalls } : undefined;
+  };
+
+  it("shows what a running script has done so far", () => {
+    const session = fakeSession();
+    const store = nestedCallsStoreFor(session, true)!;
+    trackNestedToolEvent(store, start("p1/1", "read"), 0);
+    trackNestedToolEvent(store, end("p1/1", "read"), 7);
+    trackNestedToolEvent(store, start("p1/2", "grep"), 8);
+    const shown = nestedOf(snapshotMessages(session as never));
+    assert.equal(shown?.status, "running");
+    assert.deepEqual(shown?.calls, [
+      { id: "p1/1", name: "read", status: "ok", durationMs: 7 },
+      { id: "p1/2", name: "grep", status: "unfinished" },
+    ]);
+  });
+
+  it("leaves a finished tool to its recorded calls and changes nothing without live calls", () => {
+    const done = fakeSession({ role: "toolResult", toolCallId: "p1", toolName: "codemode", content: [{ type: "text", text: "ok" }], isError: false, timestamp: 3 });
+    const store = nestedCallsStoreFor(done, true)!;
+    trackNestedToolEvent(store, start("p1/1", "read"), 0);
+    assert.equal(nestedOf(snapshotMessages(done as never))?.calls, undefined);
+    const idle = fakeSession();
+    assert.equal(nestedOf(snapshotMessages(idle as never))?.calls, undefined);
+    const messages = snapshotMessages(idle as never);
+    assert.equal(applyLiveNestedCalls(messages, new Map()), messages);
   });
 });

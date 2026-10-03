@@ -11,6 +11,7 @@ import {
 } from "@/lib/token-throughput";
 import type { UiMessage } from "@/lib/types";
 import { VersionedTimingMap } from "@/lib/pi/versioned-timing-map";
+import { applyLiveNestedCalls, nestedCallsStoreFor } from "@/lib/pi/nested-live-calls";
 import { VersionedThroughputMap } from "@/lib/pi/versioned-throughput-map";
 
 type PiModule = typeof import("@earendil-works/pi-coding-agent");
@@ -610,6 +611,8 @@ export function snapshotMessages(
   if (toolStartedAt && toolStartedAt.size > 0 && toolEndedAt) {
     projected = applySnapshotToolTiming(projected, toolStartedAt, toolEndedAt);
   }
+  const liveNested = nestedCallsStoreFor(session);
+  if (liveNested && liveNested.size > 0) projected = applyLiveNestedCalls(projected, liveNested);
   if (accountContext) {
     projected = applyMessageAccountIds(projected, accountContext);
     projected = applyMessageAgentIds(projected, accountContext);

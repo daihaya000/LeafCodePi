@@ -1,4 +1,4 @@
-import type { NestedToolCallDto } from "@/lib/types";
+import type { NestedToolCallDto, UiMessage } from "@/lib/types";
 import { toolResultText } from "@/lib/pi/messages";
 
 /**
@@ -63,6 +63,45 @@ export function trackNestedToolEvent(
   };
   entry.startedAtMs.delete(id);
   return true;
+}
+
+const storeBySession = new WeakMap<object, LiveNestedCalls>();
+
+/**
+ * The live store of a session. Keyed by the session object so the snapshot projection, which already
+ * receives the session, needs no extra argument; it is released with the session.
+ */
+export function nestedCallsStoreFor(session: object | undefined, create = false): LiveNestedCalls | undefined {
+  if (!session || typeof session !== "object") return undefined;
+  let store = storeBySession.get(session);
+  if (!store && create) {
+    store = new Map();
+    storeBySession.set(session, store);
+  }
+  return store;
+}
+
+/** Puts the live calls on the running tool parts they belong to. Other messages are returned as they are. */
+export function applyLiveNestedCalls(messages: UiMessage[], store: LiveNestedCalls): UiMessage[] {
+  const remaining = new Set([...store.keys()].filter((id) => (store.get(id)?.calls.length ?? 0) > 0));
+  if (remaining.size === 0) return messages;
+  let result: UiMessage[] | undefined;
+  for (let index = messages.length - 1; index >= 0 && remaining.size > 0; index -= 1) {
+    const message = messages[index]!;
+    if (message.role !== "assistant") continue;
+    let parts: UiMessage["parts"] | undefined;
+    message.parts.forEach((part, partIndex) => {
+      if (part.type !== "tool" || !remaining.has(part.callID)) return;
+      if (part.state.status !== "running" && part.state.status !== "pending") return;
+      remaining.delete(part.callID);
+      parts ??= message.parts.slice();
+      parts[partIndex] = { ...part, state: { ...part.state, nestedCalls: store.get(part.callID)!.calls.map((call) => ({ ...call })) } };
+    });
+    if (!parts) continue;
+    result ??= messages.slice();
+    result[index] = { ...message, parts };
+  }
+  return result ?? messages;
 }
 
 /** The calls recorded for one running tool call, oldest first. Empty when there are none. */
