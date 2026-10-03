@@ -1,8 +1,8 @@
-import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
-import { createForkContextResolver } from "../../shared/fork-context.ts";
+import { alignForkedSessionCwd, createForkContextResolver } from "../../shared/fork-context.ts";
 import { DEFAULT_MAX_OUTPUT, type ForegroundRunControl, type SubagentState } from "../../shared/types.ts";
 import type { SubagentParamsLike } from "./subagent-executor.ts";
 
@@ -19,6 +19,7 @@ let executorApi: typeof import("./subagent-executor.ts");
 let executor: ReturnType<typeof executorApi.createSubagentExecutor>;
 let ctx: Parameters<typeof executor.execute>[4];
 let discover: ReturnType<typeof vi.fn>;
+let assertParentLeaseOwnership: ReturnType<typeof vi.fn>;
 const childResult = { agent: "worker", task: "Summarize", exitCode: 0, messages: [], finalOutput: "done", usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, cost: 0, turns: 1 } };
 
 beforeAll(async () => {
@@ -41,9 +42,10 @@ beforeEach(() => {
 		watcher: null, watcherRestartTimer: null, resultFileCoalescer: { schedule: () => false, clear() {} },
 	};
 	discover = vi.fn(() => ({ agents: [{ name: "worker", description: "Test worker", systemPrompt: "Summarize", source: "project" as const, filePath: join(root, "worker.md") }] }));
+	assertParentLeaseOwnership = vi.fn();
 	ctx = {
 		cwd: root, hasUI: false, model: { provider: "test", id: "parent-model" },
-		sessionManager: { getSessionId: () => "parent", getSessionFile: () => null, getLeafId: () => null },
+		sessionManager: { getSessionId: () => "parent", getSessionFile: () => null, getLeafId: () => null, assertLeaseOwnership: assertParentLeaseOwnership },
 		modelRegistry: { getAvailable: () => [] },
 	} as unknown as typeof ctx;
 	executor = executorApi.createSubagentExecutor({
@@ -171,6 +173,14 @@ describe("executor lifecycle boundary", () => {
 		expect(result.details.usageBudget).toMatchObject({ exhausted: false });
 	});
 
+	it("passes the parent lease assertion to the child execution options", async () => {
+		await execute({ agent: "worker", task: "Summarize", context: "fresh", artifacts: false });
+		const assertion = launch.sync.mock.calls[0][4].assertLeaseOwnership;
+		expect(assertion).toBeTypeOf("function");
+		assertion?.();
+		expect(assertParentLeaseOwnership).toHaveBeenCalledOnce();
+	});
+
 	it("interrupts the active child without aborting its parent or admitting a duplicate foreground call", async () => {
 		let settle!: (value: typeof childResult & { interrupted: boolean }) => void;
 		launch.sync.mockImplementationOnce(() => new Promise((resolve) => { settle = resolve; }));
@@ -239,6 +249,16 @@ describe("fork-context lease boundary", () => {
 		writeFileSync(file, `${JSON.stringify({ type: "session", id: "parent", cwd: root })}\n`, "utf8");
 		return file;
 	};
+
+	it("checks parent lease ownership before rewriting a forked session cwd", () => {
+		const parentFile = parentSessionFile();
+		const original = readFileSync(parentFile, "utf8");
+		const assertLeaseOwnership = vi.fn(() => { throw new Error("task lease changed before cwd alignment"); });
+
+		expect(() => alignForkedSessionCwd(parentFile, tmpdir(), assertLeaseOwnership)).toThrow(/task lease changed before cwd alignment/);
+		expect(assertLeaseOwnership).toHaveBeenCalledOnce();
+		expect(readFileSync(parentFile, "utf8")).toBe(original);
+	});
 
 	it("checks parent lease ownership before creating a detached fork", () => {
 		const parentFile = parentSessionFile();

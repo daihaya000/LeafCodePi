@@ -1636,7 +1636,7 @@ async function runSyncCompletionInner(
 	options.onEffectivePrompt?.(taskWithAcceptance);
 	const sessionEnabled = Boolean(options.sessionFile || options.sessionDir) || shareEnabled;
 	if (options.context === "fork" && options.sessionFile && existsSync(options.sessionFile)) {
-		alignForkedSessionCwd(options.sessionFile, options.cwd ?? runtimeCwd);
+		alignForkedSessionCwd(options.sessionFile, options.cwd ?? runtimeCwd, options.assertLeaseOwnership);
 	}
 	const skillNames = options.skills ?? agent.skills ?? [];
 	const skillCwd = options.cwd ?? runtimeCwd;

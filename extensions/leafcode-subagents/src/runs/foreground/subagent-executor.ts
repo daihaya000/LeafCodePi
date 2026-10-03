@@ -3358,6 +3358,7 @@ async function runSinglePath(data: ExecutionContextData, deps: ExecutorDeps): Pr
 			permissions: deps.config.permissions,
 			parentSessionId: ctx.sessionManager.getSessionId() ?? undefined,
 			parentSessionFile: ctx.sessionManager.getSessionFile() ?? undefined,
+			assertLeaseOwnership: () => (ctx.sessionManager as typeof ctx.sessionManager & { assertLeaseOwnership?: () => void }).assertLeaseOwnership?.(),
 			llmIntentArbiter: createTaskMutationArbiter(ctx),
 			...workflowForegroundSteeringLaunchOptions(foregroundControl, 0),
 			context: data.contextPolicy.contextForAgent(params.agent!),

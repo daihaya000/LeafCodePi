@@ -1829,6 +1829,8 @@ export interface RunSyncOptions {
 	parentSessionId?: string;
 	/** Session file that owns this child run, used to scope temp artifacts. */
 	parentSessionFile?: string;
+	/** Internal guard for mutations derived from the parent task session. */
+	assertLeaseOwnership?: () => void;
 	/** Private prompt-runtime steering transport for workflow-owned foreground children. */
 	steerInboxDir?: string;
 	steerCapabilityPath?: string;
