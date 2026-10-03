@@ -85,6 +85,18 @@ test("local-client Explorer endpoint requires an allowed origin and local header
     });
     assert.equal(denied.status, 403);
     assert.equal(opened, "C:\\\\work\\\\project");
+
+    const noOrigin = await fetch(`http://127.0.0.1:${port}/local-client/explorer`, {
+      method: "POST",
+      headers: {
+        host: `127.0.0.1:${port}`,
+        "x-leafcode-pi-local-client": "1",
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({ path: "C:\\\\work\\\\other" }),
+    });
+    assert.equal(noOrigin.status, 403);
+    assert.equal(opened, "C:\\\\work\\\\project");
   } finally {
     await closeControlServer(server);
   }
