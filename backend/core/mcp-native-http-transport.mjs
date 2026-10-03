@@ -13,6 +13,16 @@ const absolute = (v) => text(v) && isAbsolute(v);
 const METADATA_HOSTNAMES = new Set(["metadata.google.internal", "metadata.goog", "instance-data.ec2.internal"]);
 
 /**
+ * Headers the transport owns: hop-by-hop and framing fields. A configured value would rewrite the
+ * virtual host, desync the body framing, or let the endpoint end the stream the SDK still expects,
+ * so they are refused instead of silently overridden.
+ */
+const FORBIDDEN_HEADERS = new Set([
+  "host", "content-length", "transfer-encoding", "connection", "keep-alive", "upgrade", "te", "trailer",
+  "proxy-authorization", "proxy-connection",
+]);
+
+/**
  * Destinations an HTTPS endpoint may not name: private, link-local, carrier-grade NAT and benchmark
  * ranges, IPv6 unique-local/link-local, and cloud metadata names. Loopback stays allowed because the
  * HTTP rule already trusts it explicitly. A DNS name that resolves into one of these ranges is NOT
@@ -51,8 +61,9 @@ function isPrivateDestination(hostname) {
  * cleanup. Throwing close listeners are isolated; unsubscribe remains usable. Previously delivered
  * messages/callback effects and response/SSE body consumption are NOT rolled back or fully cancelled.
  * Close remains callable; only a close-origin DELETE to the fixed endpoint bypasses authority,
- * best-effort as in the SDK. Private/link-local/metadata destinations are refused for HTTPS; this is
- * still not DNS pinning, writer quiescence or production activation.
+ * best-effort as in the SDK. Private/link-local/metadata destinations are refused for HTTPS, and
+ * hop-by-hop/framing headers are refused in both protocols; this is still not DNS pinning, writer
+ * quiescence or production activation.
  * Snapshot/headers/URL/options/auth are PRIVATE, never DTOs. Reprepare after source/variable changes.
  */
 export function createBackendMcpHttpTransportFactory(options) {
@@ -116,8 +127,9 @@ export function createBackendMcpHttpTransportFactory(options) {
         const href = url.href, headers = {}, names = new Set();
         if (!plain(config.headers ?? {})) throw unavailable();
         for (const name of Reflect.ownKeys(config.headers ?? {})) {
-          if (typeof name !== "string" || !/^[!#$%&'*+.^_`|~0-9A-Za-z-]+$/.test(name) || names.has(name.toLowerCase())) throw unavailable();
-          Object.defineProperty(headers, name, { value: expand(config.headers[name]), enumerable: true }); names.add(name.toLowerCase());
+          const lower = typeof name === "string" ? name.toLowerCase() : "";
+          if (typeof name !== "string" || !/^[!#$%&'*+.^_`|~0-9A-Za-z-]+$/.test(name) || FORBIDDEN_HEADERS.has(lower) || names.has(lower)) throw unavailable();
+          Object.defineProperty(headers, name, { value: expand(config.headers[name]), enumerable: true }); names.add(lower);
         }
         new Headers(headers); Object.freeze(headers); // Validate without network IO; never silently omit an invalid header.
         let closing = 0, deliveryStopped = false;

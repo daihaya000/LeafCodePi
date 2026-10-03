@@ -55,7 +55,11 @@ test("strict contracts/selectors, transport/url/header/template refusals never i
     { url: entry.config.url, type: "sse" }, { url: entry.config.url, headers: { V: "${MISSING}" } }, { url: entry.config.url, headers: { V: "!never-run" } },
     { url: entry.config.url, headers: { V: "$VALUE" } }, { url: entry.config.url, headers: { V: "$$escape" } },
     { url: entry.config.url, headers: { V: "line\r\nbreak" } }, { url: entry.config.url, headers: { V: "one", v: "two" } },
-    { url: entry.config.url, headers: { "bad name": "value" } }, { url: entry.config.url, unknown: true }]) {
+    { url: entry.config.url, headers: { "bad name": "value" } }, { url: entry.config.url, unknown: true },
+    { url: entry.config.url, headers: { Host: "evil.invalid" } }, { url: entry.config.url, headers: { "content-length": "0" } },
+    { url: entry.config.url, headers: { Connection: "close" } }, { url: entry.config.url, headers: { "Transfer-Encoding": "chunked" } },
+    { url: entry.config.url, headers: { Upgrade: "websocket" } }, { url: entry.config.url, headers: { te: "trailers" } },
+    { url: entry.config.url, headers: { "proxy-authorization": "secret" } }]) {
     const changed = input(); changed.snapshot.servers[0].config = config; changed.fetch = options.fetch; assert.throws(() => call(create(changed), changed), safe);
   }
   assert.equal(fetched, 0); const healthy = call(factory, options); await healthy.close();
@@ -79,6 +83,16 @@ test("an HTTPS MCP endpoint may not name a private, link-local or metadata desti
     const transport = call(create(changed), changed); assert.equal(transport instanceof StreamableHttpTransport, true);
     await transport.close();
   }
+// Hop-by-hop and framing headers are refused in either protocol, while endpoint headers stay.
+  for (const name of ["Host", "content-length", "Transfer-Encoding", "Connection", "Upgrade", "TE",
+    "Trailer", "Keep-Alive", "Proxy-Authorization", "proxy-connection"]) {
+    const changed = input(); changed.snapshot.servers[0].config.headers = { [name]: "value" };
+    assert.throws(() => call(create(changed), changed), safe, `${name} must be refused`);
+  }
+  const allowed = input(); allowed.snapshot.servers[0].config.headers = { Authorization: "Bearer fixture", "X-Trace": "on" };
+  const authorized = call(create(allowed), allowed);
+  assert.equal(authorized instanceof StreamableHttpTransport, true);
+  await authorized.close();
 });
 
 test("ambient variable names are kept but unreferencable; invalid keys/values still refuse", async () => {
