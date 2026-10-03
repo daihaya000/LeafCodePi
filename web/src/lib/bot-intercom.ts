@@ -155,11 +155,27 @@ const inboxEvents = new EventEmitter();
 inboxEvents.setMaxListeners(0);
 
 const inboxes = new Map<string, InboxState>();
-/** mailbox.json mtime the cached inbox was loaded from / last written to; a different mtime means another process wrote it. */
+/** mailbox.json stamp the cached inbox was loaded from / last written to. */
 const inboxMtimes = new Map<string, number>();
+/** Stronger stamp (mtime+size+ino) used to detect a racing write before persisting. */
+const inboxStamps = new Map<string, string>();
 
 function mailboxMtime(botId: string): number {
   try { return statSync(mailboxPath(botId)).mtimeMs; } catch { return -1; }
+}
+
+/**
+ * A content stamp, not just mtime: a rewrite inside the same millisecond keeps
+ * mtime identical on some filesystems, which would make a racing write look
+ * unchanged and get overwritten. Size disambiguates the common case.
+ */
+function mailboxStamp(botId: string): string {
+  try {
+    const stats = statSync(mailboxPath(botId));
+    return `${stats.mtimeMs}:${stats.size}:${stats.ino}`;
+  } catch {
+    return "missing";
+  }
 }
 const threads = new Map<string, PairThread>();
 const pendingAsks = new Map<string, PendingAskRecord>();
@@ -331,6 +347,10 @@ export function resetBotIntercomForTests(): void {
   waitingBots.clear();
   pendingAsks.clear();
   inboxes.clear();
+  // The mtime cache must go too: a leftover stamp would make the next test's
+  // first read look "unchanged" and skip loading the file it just wrote.
+  inboxMtimes.clear();
+  inboxStamps.clear();
   threads.clear();
   threadsLoaded = false;
   inboxEvents.removeAllListeners();
@@ -437,7 +457,9 @@ function persistMailbox(botId: string, state: InboxState): void {
   if (!isBotId(botId)) return;
   // Read-modify-write races the other process: if the file changed after our
   // in-memory copy was loaded, merging first keeps their messages and the later
-  // read marker instead of writing our stale copy over them.
+  // read marker instead of writing our stale copy over them. The merge re-reads
+  // on every attempt, so a writer that lands mid-merge is picked up by the next
+  // pass rather than lost.
   const merged = mergeWithOnDiskMailbox(botId, state);
   atomicWrite(mailboxPath(botId), {
     v: BOT_INTERCOM_SCHEMA_VERSION,
@@ -446,6 +468,7 @@ function persistMailbox(botId: string, state: InboxState): void {
     pendingAsks: merged.pendingAsks,
   });
   inboxMtimes.set(botId, mailboxMtime(botId));
+  inboxStamps.set(botId, mailboxStamp(botId));
 }
 
 /**
@@ -454,8 +477,8 @@ function persistMailbox(botId: string, state: InboxState): void {
  * the other process already read.
  */
 function mergeWithOnDiskMailbox(botId: string, state: InboxState): InboxState {
-  const mtime = mailboxMtime(botId);
-  if (mtime < 0 || mtime === inboxMtimes.get(botId)) return state;
+  const stamp = mailboxStamp(botId);
+  if (stamp === "missing" || stamp === inboxStamps.get(botId)) return state;
   const onDisk = loadMailbox(botId);
   if (onDisk.messages.length === 0 && onDisk.pendingAsks.length === 0 && onDisk.lastReadAt === 0) return state;
   const messages = new Map(state.messages.map((message) => [message.id, message]));
@@ -553,6 +576,7 @@ function inboxState(botId: string): InboxState {
   const created = mtime >= 0 ? loadMailbox(botId) : { messages: [], lastReadAt: 0, pendingAsks: [] };
   inboxes.set(botId, created);
   inboxMtimes.set(botId, mtime);
+  inboxStamps.set(botId, mailboxStamp(botId));
   return created;
 }
 

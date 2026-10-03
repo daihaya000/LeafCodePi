@@ -292,6 +292,41 @@ describe("bot intercom Phase B contract", () => {
     expect(getBotIntercomInbox(bob.id).unreadCount).toBe(0);
   });
 
+  it("does not lose a message written after this process loaded its copy", () => {
+    const alice = enableIntercom(createBot({ name: "Alice" }).id)!;
+    const bob = enableIntercom(createBot({ name: "Bob" }).id)!;
+    residents.add(alice.id);
+    residents.add(bob.id);
+    sendBotIntercom({ fromBotId: alice.id, to: bob.id, text: "first" });
+
+    // Another process writes between our read and our write. The merge in
+    // persistMailbox must keep its message instead of overwriting it.
+    const path = botIntercomMailboxPathForTests(bob.id);
+    const stored = JSON.parse(readFileSync(path, "utf8")) as {
+      lastReadAt: number;
+      messages: Array<Record<string, unknown>>;
+    };
+    stored.messages.push({
+      v: BOT_INTERCOM_SCHEMA_VERSION,
+      id: "racing-message",
+      fromBotId: alice.id,
+      toBotId: bob.id,
+      text: "written by the other process",
+      createdAt: Date.now() - 1,
+      depth: 0,
+    });
+    writeFileSync(path, JSON.stringify(stored));
+
+    sendBotIntercom({ fromBotId: alice.id, to: bob.id, text: "second" });
+
+    const written = JSON.parse(readFileSync(path, "utf8")) as { messages: Array<{ text: string }> };
+    const texts = written.messages.map((message) => message.text);
+    // The racing message must survive exactly once: a lost row loses a delivery,
+    // and a duplicated row would deliver the same message twice.
+    expect(texts.filter((text) => text === "written by the other process")).toHaveLength(1);
+    expect(texts).toContain("second");
+  });
+
   it("returns an ask reply as the wait result and lists pending asks by Bot id", async () => {
     const alice = enableIntercom(createBot({ name: "Alice" }).id)!;
     const bob = enableIntercom(createBot({ name: "Bob" }).id)!;
