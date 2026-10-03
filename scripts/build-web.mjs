@@ -1,6 +1,6 @@
 import { execFileSync, spawn, spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, readFileSync, readlinkSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { isMirroredNextCliReady, resolveMirrorRoot, syncMirror } from "./web-build-mirror.mjs";
@@ -340,6 +340,7 @@ export function productionWebUiIsIdle({
   mirrorRoot = resolveMirrorRoot(process.env, WEB_DIR),
   exec = execFileSync,
   platform = process.platform,
+  cwdOf = processCwd,
 } = {}) {
   let snapshot;
   try {
@@ -386,8 +387,22 @@ export function productionWebUiIsIdle({
       return false;
     }
     if (isMirrorNextStart(commandLine, mirrorRoot)) return false;
+    // `next start` renames itself to "next-server (vX)", so its command line
+    // no longer names the mirror. Its working directory still does.
+    if (platform === "linux") {
+      const cwd = cwdOf(pid);
+      if (cwd && resolve(cwd) === resolve(mirrorRoot)) return false;
+    }
   }
   return true;
+}
+
+function processCwd(pid) {
+  try {
+    return readlinkSync(`/proc/${pid}/cwd`);
+  } catch {
+    return null;
+  }
 }
 
 /**
