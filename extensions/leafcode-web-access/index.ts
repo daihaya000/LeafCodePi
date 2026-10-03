@@ -163,7 +163,7 @@ interface WebSearchConfig {
 	ssrf?: {
 		/** CIDR ranges exempted from the SSRF guard (e.g. fake-IP proxy ranges). */
 		allowRanges?: string[];
-		/** Skip local hostname DNS preflight when an HTTP(S)_PROXY env var applies. */
+		/** Use HTTP(S)_PROXY for direct URL fetches while still validating and pinning target DNS. */
 		trustEnvProxy?: boolean;
 	};
 }

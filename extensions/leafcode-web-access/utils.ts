@@ -251,28 +251,37 @@ export function hasScopedProxyDecision(): boolean {
 	return proxyStorage.getStore() !== undefined;
 }
 
-function noProxyEntryMatches(hostname: string, entry: string): boolean {
+function noProxyEntryMatches(url: URL, entry: string): boolean {
 	if (!entry) return false;
 	if (entry === "*") return true;
-	let host = entry;
-	if (host.startsWith("[")) {
-		const close = host.indexOf("]");
-		if (close > 0) host = host.slice(0, close + 1);
+
+	let hostname: string;
+	let port = 0;
+	const ipv6WithPort = entry.match(/^\[(.+)\]:(\d+)$/);
+	if (ipv6WithPort) {
+		hostname = ipv6WithPort[1];
+		port = Number.parseInt(ipv6WithPort[2], 10);
 	} else {
-		const colon = host.lastIndexOf(":");
-		if (colon > -1 && /^\d+$/.test(host.slice(colon + 1))) host = host.slice(0, colon);
+		const unbracketed = entry.replace(/^\[(.+)\]$/, "$1");
+		const colonCount = (unbracketed.match(/:/g) || []).length;
+		const hostWithPort = colonCount === 1 ? unbracketed.match(/^(.+):(\d+)$/) : null;
+		hostname = hostWithPort ? hostWithPort[1] : unbracketed;
+		port = hostWithPort ? Number.parseInt(hostWithPort[2], 10) : 0;
 	}
-	host = host.toLowerCase().replace(/^\[|\]$/g, "");
-	if (!host) return false;
-	return hostname === host || hostname.endsWith(host.startsWith(".") ? host : `.${host}`);
+
+	hostname = hostname.replace(/^\*?\./, "").replace(/^(.+)\.$/, "$1").toLowerCase();
+	const requestHostname = url.hostname.toLowerCase().replace(/^\[|\]$/g, "").replace(/^(.+)\.$/, "$1");
+	const requestPort = Number.parseInt(url.port, 10) || (url.protocol === "https:" ? 443 : url.protocol === "http:" ? 80 : 0);
+	if (!hostname || (port > 0 && port !== requestPort)) return false;
+	return requestHostname === hostname || requestHostname.endsWith(`.${hostname}`);
 }
 
 /** True when a URL must NOT be sent through the active proxy. */
 export function isProxyBypassedUrl(url: URL): boolean {
 	const hostname = url.hostname.toLowerCase().replace(/^\[|\]$/g, "");
 	if (hostname === "localhost" || hostname.endsWith(".localhost") || hostname === "127.0.0.1" || hostname === "::1") return true;
-	const noProxy = process.env.NO_PROXY || process.env.no_proxy;
-	if (noProxy && noProxy.split(",").some((entry) => noProxyEntryMatches(hostname, entry.trim()))) return true;
+	const noProxy = process.env.no_proxy ?? process.env.NO_PROXY ?? "";
+	if (noProxy.split(/[\s,]+/).some((entry) => noProxyEntryMatches(url, entry))) return true;
 	return false;
 }
 

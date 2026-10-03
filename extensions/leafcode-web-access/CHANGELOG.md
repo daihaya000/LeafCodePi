@@ -4,6 +4,10 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Fixed
+
+- Routed opted-in direct URL fetches through `HTTP_PROXY` / `HTTPS_PROXY` while preserving DNS preflight, per-hop IP pinning, original Host/SNI, and `NO_PROXY` direct behavior.
+
 ## [0.27.0] - 2026-08-28
 
 ### Highlights

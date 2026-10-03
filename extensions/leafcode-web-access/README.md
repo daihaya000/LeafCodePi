@@ -66,7 +66,7 @@ To route automatic searches through the active Pi model, configure an ordered ro
 
 With `useCurrentModel: true`, the automatic `openai` step uses Hosted `web_search` when the active model is a GPT model backed by an official OpenAI Responses endpoint: `openai`/`openai-responses` on HTTPS `api.openai.com`, or `openai-codex`/`openai-codex-responses` on the official ChatGPT Codex endpoint. Third-party gateways, Azure, and other models continue to the next route entry. A tool-level `provider` or top-level `provider` remains an explicit override; `provider: "openai"` keeps the existing independent OpenAI/Codex search-model behavior.
 
-For sandboxed networks that provide outbound proxy transport through environment variables, set `ssrf.trustEnvProxy` to `true` to skip local DNS preflight for proxied hostnames:
+For networks that require an environment proxy for direct URL fetching, set `ssrf.trustEnvProxy` to `true`:
 
 ```json
 {
@@ -76,7 +76,7 @@ For sandboxed networks that provide outbound proxy transport through environment
 }
 ```
 
-This is an opt-in DNS-preflight adjustment, not proxy transport configuration. `HTTP_PROXY`, `HTTPS_PROXY`, and `ALL_PROXY` are recognized; `NO_PROXY` hosts still undergo DNS validation, and localhost or literal private IP targets remain blocked.
+This opts `fetchRemoteUrl` into `HTTP_PROXY` / `HTTPS_PROXY`; it does not skip local DNS preflight. Every target and redirect hop must resolve locally, pass SSRF checks, and is sent through the proxy using the validated IP while retaining the original HTTP `Host` and HTTPS SNI. `NO_PROXY` targets use the direct transport, still pinned to the validated IP. If local DNS resolution fails, the request fails closed. This setting does not change explicitly configured proxies or provider-owned API transports.
 
 Optional dependencies for video frame extraction:
 

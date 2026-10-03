@@ -1,7 +1,7 @@
 import { lookup as dnsLookup } from "node:dns/promises";
 import { existsSync, readFileSync, statSync } from "node:fs";
 import net from "node:net";
-import { Agent, fetch as undiciFetch } from "undici";
+import { Agent, EnvHttpProxyAgent, fetch as undiciFetch, type Dispatcher as UndiciDispatcher } from "undici";
 import { getActiveProxy, getWebSearchConfigPath, isProxyBypassedUrl, type ProxiedRequestInit } from "./utils.ts";
 
 const DEFAULT_MAX_REDIRECTS = 5;
@@ -148,8 +148,8 @@ interface ValidationOptions {
 	 */
 	allowRanges?: string[];
 	/**
-	 * Kept for config compatibility. This does not bypass DNS preflight because
-	 * HTTP(S)_PROXY does not guarantee that the active fetch transport uses it.
+	 * Use HTTP(S)_PROXY for direct fetches when configured; targets still require
+	 * local DNS validation and are pinned to the validated address per request.
 	 */
 	trustEnvProxy?: boolean;
 	/** Allow loopback URLs for explicit provider base endpoints, not fetched targets. */
@@ -261,7 +261,63 @@ function createPinnedAgent(pinnedAddresses: Map<string, LookupAddress[]>): Agent
 type UndiciFetch = typeof undiciFetch;
 type ProxyAwareFetch = typeof fetch & { __piWebAccessProxyFetch?: boolean };
 
-function fetchWithPinnedDispatcher(url: URL, init: RequestInit, dispatcher?: Agent): Promise<Response> {
+function withOriginalHostHeader(headers: UndiciDispatcher.DispatchOptions["headers"], host: string): Record<string, string | string[]> {
+	const result: Record<string, string | string[]> = {};
+	if (Array.isArray(headers)) {
+		for (let index = 0; index + 1 < headers.length; index += 2) {
+			const name = headers[index];
+			if (name && name.toLowerCase() !== "host") result[name] = headers[index + 1];
+		}
+	} else if (headers && typeof headers === "object" && typeof (headers as { [Symbol.iterator]?: unknown })[Symbol.iterator] === "function") {
+		for (const [name, value] of headers as Iterable<[string, string | string[] | undefined]>) {
+			if (name.toLowerCase() !== "host" && value !== undefined) result[name] = value;
+		}
+	} else if (headers && typeof headers === "object") {
+		for (const [name, value] of Object.entries(headers)) {
+			if (name.toLowerCase() !== "host" && value !== undefined) result[name] = value as string | string[];
+		}
+	}
+	result.host = host;
+	return result;
+}
+
+class PinnedEnvHttpProxyAgent extends EnvHttpProxyAgent {
+	private readonly originalOrigin: string;
+	private readonly originalHost: string;
+	private readonly pinnedAddress?: string;
+
+	constructor(url: URL, pinnedAddress?: string) {
+		super({
+			noProxy: "",
+			...(url.protocol === "https:" ? { requestTls: { servername: url.hostname } } : {}),
+		});
+		this.originalOrigin = url.origin;
+		this.originalHost = url.host;
+		this.pinnedAddress = pinnedAddress;
+	}
+
+	override dispatch(options: UndiciDispatcher.DispatchOptions, handler: UndiciDispatcher.DispatchHandler): boolean {
+		const origin = new URL(String(options.origin ?? this.originalOrigin));
+		if (origin.origin !== this.originalOrigin) throw new Error(`Proxy dispatcher origin mismatch: ${origin.origin}`);
+		if (this.pinnedAddress) {
+			origin.hostname = this.pinnedAddress.includes(":") ? `[${this.pinnedAddress}]` : this.pinnedAddress;
+		}
+		return super.dispatch({
+			...options,
+			origin: origin.origin,
+			headers: withOriginalHostHeader(options.headers, this.originalHost),
+		}, handler);
+	}
+}
+
+function hasEnvironmentProxy(url: URL): boolean {
+	const httpProxy = process.env.http_proxy ?? process.env.HTTP_PROXY;
+	if (url.protocol === "http:") return Boolean(httpProxy);
+	const httpsProxy = process.env.https_proxy ?? process.env.HTTPS_PROXY;
+	return Boolean(httpsProxy || httpProxy);
+}
+
+function fetchWithDispatcher(url: URL, init: RequestInit, dispatcher?: UndiciDispatcher): Promise<Response> {
 	const undiciInit = { ...init, ...(dispatcher ? { dispatcher } : {}) };
 	return undiciFetch(
 		url as unknown as Parameters<UndiciFetch>[0],
@@ -284,6 +340,7 @@ export async function fetchRemoteUrl(
 	const maxRedirects = options.maxRedirects ?? DEFAULT_MAX_REDIRECTS;
 	const pinnedAddresses = new Map<string, LookupAddress[]>();
 	let agent: Agent | undefined;
+	let activeEnvProxyAgent: PinnedEnvHttpProxyAgent | undefined;
 	let currentTarget = await validateRemoteTarget(url, options);
 	let current = currentTarget.url;
 	let requestInit = init;
@@ -293,31 +350,45 @@ export async function fetchRemoteUrl(
 	const closeAgent = () => {
 		if (agent) void agent.close().catch(() => {});
 	};
+	const closeEnvProxyAgent = () => {
+		if (activeEnvProxyAgent) void activeEnvProxyAgent.close().catch(() => {});
+		activeEnvProxyAgent = undefined;
+	};
 
 	try {
 		for (let redirects = 0; redirects <= maxRedirects; redirects++) {
 			const preparedInit = options.beforeRequest ? await options.beforeRequest(current, requestInit) : requestInit;
 			const fetchOverride = options.fetch && options.fetch !== fetch ? options.fetch : undefined;
 			const useProxyTransport = !fetchOverride && shouldUseConfiguredProxyTransport(current, preparedInit);
-			const dispatcher = currentTarget.addresses && !useProxyTransport ? getPinnedAgent() : undefined;
-			const fetchInit = { ...preparedInit, redirect: "manual", ...(dispatcher ? { dispatcher } : {}) } as RequestInit & { dispatcher?: Agent };
+			const useEnvProxyTransport = !fetchOverride && !useProxyTransport && options.trustEnvProxy === true && hasEnvironmentProxy(current) && !isProxyBypassedUrl(current);
+			activeEnvProxyAgent = useEnvProxyTransport
+				? new PinnedEnvHttpProxyAgent(current, currentTarget.addresses?.[0]?.address)
+				: undefined;
+			const dispatcher = currentTarget.addresses && !useProxyTransport && !activeEnvProxyAgent ? getPinnedAgent() : activeEnvProxyAgent;
+			const fetchInit = { ...preparedInit, redirect: "manual", ...(dispatcher ? { dispatcher } : {}) } as RequestInit & { dispatcher?: UndiciDispatcher };
 			const response = fetchOverride
 				? await fetchOverride(current, fetchInit)
 				: useProxyTransport
 					? await fetch(current, fetchInit)
-					: await fetchWithPinnedDispatcher(current, fetchInit, dispatcher);
+					: await fetchWithDispatcher(current, fetchInit, dispatcher);
 			if (!REDIRECT_STATUSES.has(response.status)) {
 				closeAgent();
+				closeEnvProxyAgent();
 				return response;
 			}
 
 			const location = response.headers.get("location");
 			if (!location) {
 				closeAgent();
+				closeEnvProxyAgent();
 				return response;
 			}
 			if (redirects === maxRedirects) throw new Error(`Too many redirects fetching ${current.toString()}`);
 			await response.body?.cancel().catch(() => {});
+			if (activeEnvProxyAgent) {
+				await activeEnvProxyAgent.close();
+				activeEnvProxyAgent = undefined;
+			}
 
 			const from = current;
 			currentTarget = await validateRemoteTarget(new URL(location, current), options);
@@ -333,6 +404,7 @@ export async function fetchRemoteUrl(
 		throw new Error(`Too many redirects fetching ${current.toString()}`);
 	} catch (error) {
 		if (agent) void agent.destroy().catch(() => {});
+		if (activeEnvProxyAgent) void activeEnvProxyAgent.destroy(error instanceof Error ? error : new Error(String(error))).catch(() => {});
 		throw error;
 	}
 }
