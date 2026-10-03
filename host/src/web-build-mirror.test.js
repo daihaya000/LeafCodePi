@@ -902,6 +902,26 @@ test("the Linux build guard uses ss and ps", () => {
   assert.deepEqual(calls, ["ss", "ps"]);
 });
 
+test("the Linux build guard recognizes a renamed next-server by its working directory", () => {
+  const exec = (command) => {
+    if (command === "ss") {
+      return `LISTEN 0 511 100.64.0.1:3010 0.0.0.0:* users:(("next-server (v1",pid=4242,fd=21))`;
+    }
+    if (command === "ps") return "next-server (v16.3.1)";
+    throw new Error(`unexpected command: ${command}`);
+  };
+  const serving = (pid) => (pid === 4242 ? MIRROR : null);
+  assert.equal(
+    productionWebUiIsIdle({ platform: "linux", port: 3010, mirrorRoot: MIRROR, exec, cwdOf: serving }),
+    false,
+  );
+  const elsewhere = () => join(tmpdir(), "other-repo", "web");
+  assert.equal(
+    productionWebUiIsIdle({ platform: "linux", port: 3010, mirrorRoot: MIRROR, exec, cwdOf: elsewhere }),
+    true,
+  );
+});
+
 test("webUiPort falls back to 3010 for absent or invalid values", () => {
   assert.equal(webUiPort({ LEAFCODE_PI_PORT: "3100" }), 3100);
   assert.equal(webUiPort({}), 3010);
