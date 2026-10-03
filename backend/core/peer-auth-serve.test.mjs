@@ -150,6 +150,28 @@ test("rate limit returns 429 with Retry-After and is audited", async () => {
   } finally { await f.cleanup(); }
 });
 
+test("unauthenticated requests share a rate limit without blocking a valid peer", async () => {
+  const f = await fixture({ limit: 1, storedByAccount: { null: { anthropic: { type: "api_key", key: "k" } } } });
+  try {
+    const unauthorized = await f.service.list({ authorization: undefined });
+    assert.equal(unauthorized.status, 401);
+
+    const limited = await f.service.resolve({
+      authorization: "Bearer invalid-token",
+      body: { providerId: "anthropic", accountId: null },
+    });
+    assert.equal(limited.status, 429);
+    assert.equal(limited.headers["Retry-After"], "60");
+
+    const valid = await f.service.resolve({
+      authorization: f.auth,
+      body: { providerId: "anthropic", accountId: null },
+    });
+    assert.equal(valid.status, 200);
+    assert.deepEqual((await f.audit()).map((entry) => entry.result), ["unauthorized", "ok"]);
+  } finally { await f.cleanup(); }
+});
+
 test("list reports every account that holds a granted provider, with per-account providers and no secrets", async () => {
   const f = await fixture({
     providers: ["anthropic"],

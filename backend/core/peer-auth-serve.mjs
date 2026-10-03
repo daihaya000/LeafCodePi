@@ -7,9 +7,13 @@ import { parsePeerBearer, parsePeerResolveRequest, publicPeerCredential, publicP
 /** A peer needs this much remaining OAuth validity so its own SDK never tries to refresh. */
 export const PEER_MIN_OAUTH_VALIDITY_MS = 10 * 60 * 1000;
 const NO_STORE = { "Cache-Control": "no-store" };
+const UNAUTHENTICATED_LIMIT_KEY = "peer-auth:unauthenticated";
 
 const reply = (status, body, headers = {}) => ({ status, body, headers: { ...NO_STORE, ...headers } });
 const failure = (status, code, headers) => reply(status, { error: code }, headers);
+const rateLimited = (taken) => failure(429, "rate-limited", {
+  "Retry-After": String(Math.max(1, Math.ceil(taken.retryAfterMs / 1000))),
+});
 
 /**
  * @param {{
@@ -26,18 +30,22 @@ const failure = (status, code, headers) => reply(status, { error: code }, header
 export function createPeerAuthService(deps) {
   const now = deps.now ?? (() => Date.now());
 
-  /** Shared gate: bearer -> grant -> rate limit. Returns { grant } or a ready response. */
+  /** Shared gate: invalid credentials share a limit key; valid grants are limited by peer id. */
   const gate = (authorization, action) => {
     const token = parsePeerBearer(authorization);
     const grant = token ? deps.grants.verify(token) : null;
     if (!grant) {
+      // No trusted client IP is available here; group all invalid credentials under one bounded key
+      // instead of trusting spoofable forwarded headers. Over-limit attempts are not audited again.
+      const taken = deps.limiter.take(UNAUTHENTICATED_LIMIT_KEY);
+      if (!taken.ok) return { response: rateLimited(taken) };
       deps.audit.record({ action: "denied", result: "unauthorized" });
       return { response: failure(401, "unauthorized") };
     }
     const taken = deps.limiter.take(grant.id);
     if (!taken.ok) {
       deps.audit.record({ peerId: grant.id, action, result: "rate-limited" });
-      return { response: failure(429, "rate-limited", { "Retry-After": String(Math.max(1, Math.ceil(taken.retryAfterMs / 1000))) }) };
+      return { response: rateLimited(taken) };
     }
     return { grant };
   };
