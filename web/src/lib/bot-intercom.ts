@@ -462,7 +462,8 @@ function mergeWithOnDiskMailbox(botId: string, state: InboxState): InboxState {
   for (const message of onDisk.messages) {
     const mine = messages.get(message.id);
     // Our copy is newer when it was already carrying a delivery update.
-    messages.set(message.id, mine?.delivery !== message.delivery ? mine : message);
+    if (mine && mine.delivery !== message.delivery) messages.set(message.id, mine);
+    else messages.set(message.id, message);
   }
   const merged = [...messages.values()].sort((a, b) => a.createdAt - b.createdAt);
   while (merged.length > BOT_INTERCOM_MAILBOX_MAX) merged.shift();

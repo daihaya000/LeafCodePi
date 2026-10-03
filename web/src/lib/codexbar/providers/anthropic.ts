@@ -6,7 +6,7 @@
  * （platform.claude.com）でプリペイドのクレジット残高を表示する。
  */
 
-import { existsSync, readFileSync, unlinkSync } from "node:fs";
+import { closeSync, existsSync, mkdirSync, openSync, readFileSync, statSync, unlinkSync, writeSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import {
@@ -124,6 +124,52 @@ function persistTokens(
 /** One refresh per credentials file at a time: the IdP rotates refresh tokens, so a second concurrent use of the same one would invalidate the first result. */
 const refreshInFlight = new Map<string, Promise<ClaudeCredentials | null>>();
 
+/**
+ * Cross-process refresh lock. The IdP rotates the refresh token, so the CLI and the
+ * WebUI must not use the same one concurrently. A pid-stamped lock file serializes
+ * them; a stale lock (dead process or old mtime) is taken over.
+ */
+const REFRESH_LOCK_STALE_MS = 30_000;
+
+async function withRefreshLock<T>(path: string, run: () => Promise<T>): Promise<T> {
+  const lockPath = `${path}.leafcode-refresh.lock`;
+  const deadline = Date.now() + REFRESH_LOCK_STALE_MS;
+  let fd: number | undefined;
+  for (;;) {
+    try {
+      mkdirSync(dirname(lockPath), { recursive: true, mode: 0o700 });
+      fd = openSync(lockPath, "wx", 0o600);
+      writeSync(fd, String(process.pid));
+      break;
+    } catch {
+      if (Date.now() >= deadline) {
+        // Another holder is still working; run without the lock rather than block the
+        // usage panel forever. The single-flight map already covers this process.
+        return run();
+      }
+      // Take over a lock left behind by a process that died mid-refresh.
+      try {
+        const age = Date.now() - statSync(lockPath).mtimeMs;
+        if (age > REFRESH_LOCK_STALE_MS) unlinkSync(lockPath);
+      } catch {
+        // The holder released it between the failed create and this stat.
+      }
+      await new Promise<void>((done) => { setTimeout(done, 25); });
+    }
+  }
+  return run().finally(() => {
+    if (fd !== undefined) {
+      try { closeSync(fd); } catch { /* ignore */ }
+    }
+    try { unlinkSync(lockPath); } catch { /* already released */ }
+  });
+}
+
+/** Test-only: run a callback under the same cross-process refresh lock. */
+export function __withRefreshLockForTests<T>(path: string, run: () => Promise<T>): Promise<T> {
+  return withRefreshLock(path, run);
+}
+
 function tryRefreshTokens(
   creds: ClaudeCredentials,
   signal?: AbortSignal,
@@ -132,7 +178,7 @@ function tryRefreshTokens(
   const key = credentialsPathOverride ?? credentialsPath();
   const pending = refreshInFlight.get(key);
   if (pending) return pending;
-  const run = refreshTokensOnce(creds, signal, credentialsPathOverride).finally(() => {
+  const run = withRefreshLock(key, () => refreshTokensOnce(creds, signal, credentialsPathOverride)).finally(() => {
     if (refreshInFlight.get(key) === run) refreshInFlight.delete(key);
   });
   refreshInFlight.set(key, run);
