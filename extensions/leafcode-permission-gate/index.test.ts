@@ -734,6 +734,50 @@ describe("LeafCode permission gate", () => {
       rmSync(appDir, { recursive: true, force: true });
     }
   });
+  it("refuses an MCP tool the server declares destructive in deny mode, and leaves the others alone", async () => {
+    const cwd = mkdtempSync(join(tmpdir(), "leafcode-permission-gate-mcp-"));
+    const appDir = mkdtempSync(join(tmpdir(), "leafcode-permission-gate-mcp-data-"));
+    const previousDataDir = process.env.LEAFCODE_PI_DATA_DIR;
+    process.env.LEAFCODE_PI_DATA_DIR = appDir;
+    const handlers = new Map<string, Handler>();
+    const pi = {
+      on: (name: string, handler: Handler) => handlers.set(name, handler),
+      registerCommand: () => undefined,
+      getAllTools: () => [
+        { name: "mcp__fixture__delete", annotations: { destructiveHint: true } },
+        { name: "mcp__fixture__inspect", annotations: { readOnlyHint: true } },
+        { name: "mcp__fixture__plain" },
+      ],
+    } as unknown as ExtensionAPI;
+    permissionGate(pi);
+    const sessionManager = { getSessionId: () => "mcp-session", getSessionName: () => "MCP" };
+    const ctx = {
+      cwd, hasUI: true, sessionManager,
+      ui: { select: async () => "No", notify: () => undefined },
+    } as unknown as ExtensionContext;
+    try {
+      writeFileSync(join(appDir, "permission-gate.json"), JSON.stringify({ mode: "deny" }), "utf8");
+      await handlers.get("session_start")?.({}, ctx);
+      const blocked = await handlers.get("tool_call")?.({ toolName: "mcp__fixture__delete", input: {} }, ctx);
+      assert.equal((blocked as { block?: boolean })?.block, true);
+      assert.match((blocked as { reason?: string })?.reason ?? "", /declares it destructive/);
+      for (const toolName of ["mcp__fixture__inspect", "mcp__fixture__plain"]) {
+        const allowed = await handlers.get("tool_call")?.({ toolName, input: {} }, ctx);
+        assert.notEqual((allowed as { block?: boolean } | undefined)?.block, true, `${toolName} must stay callable`);
+      }
+      // Ask mode keeps today's behavior: no new dialog for MCP tools.
+      writeFileSync(join(appDir, "permission-gate.json"), JSON.stringify({ mode: "ask" }), "utf8");
+      await handlers.get("session_start")?.({}, ctx);
+      const asked = await handlers.get("tool_call")?.({ toolName: "mcp__fixture__delete", input: {} }, ctx);
+      assert.notEqual((asked as { block?: boolean } | undefined)?.block, true);
+    } finally {
+      if (previousDataDir === undefined) delete process.env.LEAFCODE_PI_DATA_DIR;
+      else process.env.LEAFCODE_PI_DATA_DIR = previousDataDir;
+      rmSync(cwd, { recursive: true, force: true });
+      rmSync(appDir, { recursive: true, force: true });
+    }
+  });
+
   it("applies deny across separate ExtensionContext instances (Pi createContext)", async () => {
     const cwd = mkdtempSync(join(tmpdir(), "leafcode-permission-gate-project-"));
     const appDir = mkdtempSync(join(tmpdir(), "leafcode-permission-gate-data-"));

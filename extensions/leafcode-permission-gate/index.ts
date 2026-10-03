@@ -1439,6 +1439,14 @@ export default function (pi: ExtensionAPI): void {
     return result;
   };
 
+  /** Whether a tool's server declares it destructive. Read live: MCP tools register when a
+   * server connects, long after this extension loaded. */
+  const isDeclaredDestructive = (toolName: string): boolean => {
+    if (typeof pi.getAllTools !== "function") return false;
+    const tool = pi.getAllTools().find((entry) => entry.name === toolName);
+    return tool?.annotations?.destructiveHint === true;
+  };
+
   pi.on("tool_call", async (event, ctx) => {
     normalizeSkillPath(event, ctx);
     const config = readConfig();
@@ -1498,6 +1506,14 @@ export default function (pi: ExtensionAPI): void {
       } catch {
         return { block: true, reason: "Computer-use action blocked (approval failed)" };
       }
+    }
+
+    // A server may declare that one of its tools is destructive. "Deny" means nothing runs without
+    // an approval this gate can never grant, and an MCP tool call has no approval path here, so an
+    // explicit destructive declaration is refused. Tools without the annotation keep today's behavior,
+    // and an ask-mode session still runs them: turning that into a dialog is a separate decision.
+    if (mode === "deny" && isDeclaredDestructive(event.toolName)) {
+      return { block: true, reason: "MCP tool blocked (the server declares it destructive; permission mode: deny)" };
     }
 
     if (event.toolName === "bash" || event.toolName === "powershell") {
