@@ -56,6 +56,52 @@ function observed(processGroupId: number): ProcessTreeTerminalV1 {
 	return { state: "observed", mechanism: "posix-process-group", processGroupId, verifiedAt: Date.now() };
 }
 
+function observedWindowsTree(processId: number): ProcessTreeTerminalV1 {
+	return { state: "observed", mechanism: "windows-taskkill-tree", processId, verifiedAt: Date.now() };
+}
+
+function processAlive(pid: number): boolean {
+	try {
+		process.kill(pid, 0);
+		return true;
+	} catch (error) {
+		// EPERM means the process exists but this user cannot signal it.
+		return (error as NodeJS.ErrnoException).code !== "ESRCH";
+	}
+}
+
+async function waitUntilProcessGone(pid: number, timeoutMs: number): Promise<boolean> {
+	const deadline = Date.now() + timeoutMs;
+	while (processAlive(pid)) {
+		if (Date.now() >= deadline) return false;
+		await new Promise<void>((resolve) => setTimeout(resolve, VERIFY_INTERVAL_MS));
+	}
+	return true;
+}
+
+/**
+ * Windows has no process groups, so a single PID signal orphans children.
+ * `taskkill /T` walks the child tree for us; the parent PID is polled until it
+ * is gone so the result stays an observation rather than an assumption. A
+ * nonzero taskkill status only matters while the process is still alive —
+ * taskkill reports "already gone" with a localized message.
+ */
+function taskkillTree(pid: number): SignalResult {
+	if (!processAlive(pid)) return "absent";
+	const result = spawnSync("taskkill", ["/pid", String(pid), "/T", "/F"], {
+		encoding: "utf-8",
+		windowsHide: true,
+	});
+	if (result.error) {
+		return (result.error as NodeJS.ErrnoException).code === "ENOENT"
+			? "absent"
+			: { diagnostic: diagnostic(result.error) };
+	}
+	if (result.status === 0) return "sent";
+	if (!processAlive(pid)) return "absent";
+	return { diagnostic: result.stderr.trim() || result.stdout.trim() || `taskkill exited with ${result.status}` };
+}
+
 /** Owns one writer process group and arbitrates its cleanup exactly once. */
 export interface OwnedProcessTreeController {
 	terminate(): Promise<ProcessTreeTerminalV1>;
@@ -74,8 +120,15 @@ export function createOwnedProcessTreeController(
 		if (termination) return termination;
 		termination = (async () => {
 			if (!posixGroupOwned) {
-				signalProcess(target, "SIGTERM");
-				return { state: "unknown", reason: "unsupported-platform" };
+				const killed = taskkillTree(pid);
+				if (killed !== "sent" && killed !== "absent") {
+					return { state: "unknown", reason: "signal-failed", diagnostic: killed.diagnostic };
+				}
+				const gone = await waitUntilProcessGone(pid, options.killVerifyMs ?? DEFAULT_KILL_VERIFY_MS);
+				if (!gone) {
+					return { state: "unknown", reason: "verification-failed", diagnostic: `Process ${pid} is still running after taskkill /T.` };
+				}
+				return observedWindowsTree(pid);
 			}
 			const term = signalProcess(target, "SIGTERM");
 			if (term !== "sent" && term !== "absent") {

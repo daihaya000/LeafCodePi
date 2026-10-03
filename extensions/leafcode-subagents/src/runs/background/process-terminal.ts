@@ -44,6 +44,13 @@ function validProcessInstance(value: unknown, kind?: "runner" | "pi-writer"): va
 	if (value.kind === "runner") return value.attempt === undefined;
 	if (typeof value.attempt !== "number" || !Number.isInteger(value.attempt) || value.attempt < 0 || !isRecord(value.processTree)) return false;
 	if (value.processTree.state === "observed") {
+		if (value.processTree.mechanism === "windows-taskkill-tree") {
+			return typeof value.processTree.processId === "number"
+				&& Number.isInteger(value.processTree.processId)
+				&& value.processTree.processId > 0
+				&& typeof value.processTree.verifiedAt === "number"
+				&& Number.isFinite(value.processTree.verifiedAt);
+		}
 		return value.processTree.mechanism === "posix-process-group"
 			&& typeof value.processTree.processGroupId === "number"
 			&& Number.isInteger(value.processTree.processGroupId)

@@ -385,6 +385,12 @@ export type ProcessTreeTerminalV1 =
 		verifiedAt: number;
 	}
 	| {
+		state: "observed";
+		mechanism: "windows-taskkill-tree";
+		processId: number;
+		verifiedAt: number;
+	}
+	| {
 		state: "unknown";
 		reason: "unsupported-platform" | "signal-failed" | "verification-failed";
 		diagnostic?: string;
