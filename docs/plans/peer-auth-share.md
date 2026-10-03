@@ -54,7 +54,7 @@
   - `list`: A の list（キャッシュ）、`delete`: no-op
   - A 不達時は期限内キャッシュを返し、期限切れなら auth エラー
 - ピアアカウント: `accounts.json` のスキーマは変更しない。`~/.pi/agent/accounts/<id>/peer.json` の存在で分岐し、`accountRuntimeManager` が `ModelRuntime.create({ credentials: store, modelsStorePath })` を生成（`authPath` なし）
-- `peer.json`: `{ version: 1, peerUrl, peerAccountId, providers[], token, tokenId, createdAt }`（Pi 管理下の agent ディレクトリに保存）。書込みは auth.json と同じ 0o600・原子的置換とし、Windows では既存の Pi credential と同じ user ACL に従う
+- `peer.json`: `{ version: 1, peerUrl, peerAccountId, providers[], token, createdAt }`（Pi 管理下の agent ディレクトリに保存）。書込みは auth.json と同じ 0o600・原子的置換とし、Windows では既存の Pi credential と同じ user ACL に従う
 - アカウント UI: A へ接続テスト → list 取得 → 共有 provider 選択（`AccountProviderId` ∩ A の共有範囲）→ `peer.json` と `accounts.json` を登録。peer アカウントではログイン / ログアウト UI を無効化
 - A 停止時: 該当 peer アカウントは認証エラー。UI に「接続元 LCP: オフライン」を表示
 - `peer.json` 変更時は当該アカウントの runtime を破棄して再生成する。実行中タスクが参照しているアカウントの変更は 409（既存 `deleteAccount` と同じ規則）
@@ -73,6 +73,29 @@
 4. 統合: 別 dataDir / agentDir の 2 プロセス（loopback HTTP、実 auth.json）で resolve → remote store → リクエスト認証解決を検証。A 停止・トークン失効・allowlist 外を確認
 5. prod build、実機 2 台（Tailscale）で検証、docs 更新
 
+## 実装状況（2026-10-03）
+
+**実装済み（単体・統合テストあり。prod 再ビルドと実機 2 台は未実施）**
+
+- `shared/peer-auth-wire.{mjs,d.mts,test.mjs}`: ベアラー解析、resolve 要求の厳格検証、公開 credential の整形（refresh 除去）、list/resolve 応答の検証
+- `backend/core/peer-auth-grants.{mjs,d.mts}`: トークン生成（32B base64url）・SHA-256 のみ保存・timing-safe 検証・有効化トグル・作成/失効/一覧・原子的書込み
+- `backend/core/peer-auth-audit.{mjs,d.mts}`: JSONL 監査（上限 1000 行、秘密なし）とピア単位の固定窓レート制限
+- `backend/core/peer-auth-serve.{mjs,d.mts}`: 認証 → レート → アカウント束縛/allowlist → OAuth は `getAuth(minOAuthValidityMs=10分)` で A 側 refresh 後に再読込 → 公開 credential 化 → 監査。エラーは不透明な 503、全応答 no-store
+- `backend/core/peer-auth-remote-store.{mjs,d.mts}`: B 側 CredentialStore（キャッシュ・同時 read 統合・modify で再解決・401/403 はキャッシュ破棄）
+- `backend/core/peer-auth-config.{mjs,d.mts}`: peer.json の検証・0o600 での原子的書込み・除去
+- `backend/core/peer-auth-integration.test.mjs`: 実 loopback HTTP・実 auth.json での A↔B 検証（refresh 非漏洩・拒否・A 停止）
+- Web: `/api/peer-auth/list|resolve`（peer token、公開パスはこの 2 つのみ）と `/api/peer-auth/peers|import`（WebUI 認証下）、`lib/peer-auth/{runtime,admin,import,account-runtime-options}`
+- harness: `accountRuntimeManager` の peer 分岐（`credentials` で生成、`authPath` なし）。`accounts.ts` の `accountStoredProviders` が peer.json の providers を保存済みとして返す
+- UI: A 側 `PeerShareSettings`（共有トグル・アカウント選択・provider 選択・トークン 1 回表示・失効・平文 HTTP 警告）、B 側 `PeerImportSettings`（URL/トークン/名前 → 取込）
+
+**未実施（残）**
+
+- prod 再ビルド・再起動による実表示確認（他セッション作業中のため保留）
+- 実機 2 台（Tailscale / LAN）での end-to-end（共有 → 取込 → モデル実行、A 停止・失効の実挙動）
+- peer アカウントでのログイン / ログアウト UI の無効化
+- A 停止時の「接続元 LCP: オフライン」表示（現状は通常のエラー表示）
+- peer.json 変更時の runtime 再生成と、実行中タスクがある場合の 409
+
 ## 検証
 
 - vitest: schema parse、hash / timing-safe 比較、allowlist、レート制限、監査記録、remote store のキャッシュ・失敗時挙動・refresh 委譲、peer 分岐、route tests（既存 `route.test.ts` パターン）
@@ -84,5 +107,5 @@
 - Codemode の `models.getModelOfType` 等も `ModelRuntime` の認証を使うため、peer アカウントの runtime でもそのまま動く想定（実装時に確認）
 - 平文 HTTP（信頼網前提。TLS は v2 以降）
 - ローテーション: A の refresh は Web / Backend 間のファイルロックで直列化される既存機構に依存。machine 間は B が refresh しないため競合しない
-- peer アカウントの codexbar 利用量表示など、A 固有の付随情報は共有されない（モデル実行は可）
+- peer アカウントの codexbar 利用量表示など、A 固有の付随情報は共有されない（モデル実行は可）。peer アカウントのログイン/ログアウト UI 無効化とオフライン表示は未実装（上記「未実施」）
 - 他セッション WIP と分離するため、settings store / `setting-validation.ts` は変更しない
