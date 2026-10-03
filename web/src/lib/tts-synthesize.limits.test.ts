@@ -11,6 +11,7 @@ describe("synthesizeTts limits", () => {
     expect([...result.audio]).toEqual([1, 2, 3]);
     const init = (fetchMock.mock.calls[0] as unknown as [string, RequestInit])[1];
     expect(init.signal).toBeInstanceOf(AbortSignal);
+    expect(init.redirect).toBe("error");
   });
 
   it("rejects an oversized declared Content-Length without buffering it", async () => {

@@ -33,6 +33,20 @@ function asTrimmed(value: unknown): string {
   return typeof value === "string" ? value.trim() : "";
 }
 
+/** Unauthenticated access is limited to the default local AivisSpeech/VOICEVOX endpoints. */
+export function isSafeUnauthenticatedTtsUrl(value: string): boolean {
+  try {
+    const url = new URL(value.trim());
+    if (url.protocol !== "http:" || !["10101", "50021"].includes(url.port)) return false;
+    if (url.pathname !== "/" || url.search || url.hash || url.username || url.password) return false;
+    let hostname = url.hostname.toLowerCase().replace(/\.$/, "");
+    if (hostname.startsWith("[") && hostname.endsWith("]")) hostname = hostname.slice(1, -1);
+    return hostname === "localhost" || hostname === "::1" || hostname === "127.0.0.1";
+  } catch {
+    return false;
+  }
+}
+
 export function normalizeTtsConfig(raw: Partial<TtsConfigDto> | null | undefined): TtsConfigDto {
   return {
     enabled: raw?.enabled === true,

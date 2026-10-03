@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getBot } from "@/lib/bots";
-import { readTtsConfig } from "@/lib/tts-config";
+import { isWebUiRequestAuthorized } from "@/lib/webui-auth";
+import { isSafeUnauthenticatedTtsUrl, readTtsConfig } from "@/lib/tts-config";
 import { synthesizeTts, TtsSynthesizeError } from "@/lib/tts-synthesize";
 
 export const runtime = "nodejs";
@@ -8,6 +9,10 @@ export const dynamic = "force-dynamic";
 
 /** 本文は最大2000文字。読み上げチャンクは90文字程度なので十分な上限。 */
 const MAX_TEXT = 2000;
+
+function unauthorized() {
+  return NextResponse.json({ error: "Unauthorized" }, { status: 401, headers: { "Cache-Control": "no-store" } });
+}
 
 export async function POST(req: NextRequest) {
   const body = (await req.json().catch(() => null)) as { text?: unknown; botId?: unknown } | null;
@@ -23,6 +28,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: `text は${MAX_TEXT}文字以内です` }, { status: 400 });
   }
   const config = readTtsConfig();
+  if (config.url && !isSafeUnauthenticatedTtsUrl(config.url) && !isWebUiRequestAuthorized(req)) return unauthorized();
   const bot = botId ? getBot(botId) : undefined;
   if (botId && !bot) {
     return NextResponse.json({ error: "ボットが見つかりません" }, { status: 404 });

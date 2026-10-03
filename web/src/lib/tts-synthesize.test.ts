@@ -17,9 +17,10 @@ describe("synthesizeTts", () => {
   });
 
   it("パス無しURLはVOICEVOX系（audio_query→synthesis）で合成する", async () => {
-    const fetchMock = vi.fn(async (url: string) =>
-      String(url).includes("audio_query") ? new Response(JSON.stringify({}), { status: 200 }) : wavResponse(),
-    );
+    const fetchMock = vi.fn(async (url: string, init: RequestInit) => {
+      expect(init.redirect).toBe("error");
+      return String(url).includes("audio_query") ? new Response(JSON.stringify({}), { status: 200 }) : wavResponse();
+    });
     vi.stubGlobal("fetch", fetchMock);
     const result = await synthesizeTts("こんにちは", "http://127.0.0.1:10101", "1878365379");
     expect(result.contentType).toBe("audio/wav");
@@ -29,13 +30,16 @@ describe("synthesizeTts", () => {
 
   it("/v1/audio/speech はOpenAI互換ボディで1回POSTする", async () => {
     let sentBody = "";
+    let redirect: RequestRedirect | undefined;
     const fetchMock = vi.fn(async (_url: string, init: RequestInit) => {
       sentBody = String(init.body);
+      redirect = init.redirect;
       return wavResponse();
     });
     vi.stubGlobal("fetch", fetchMock);
     await synthesizeTts("はい", "http://127.0.0.1:18080/v1/audio/speech", "ryan");
     expect(JSON.parse(sentBody)).toMatchObject({ model: "tts-1", input: "はい", voice: "ryan" });
+    expect(redirect).toBe("error");
   });
 
   it("エンジン停止中は接続エラー", async () => {

@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
-import { readTtsConfig } from "@/lib/tts-config";
+import { isWebUiRequestAuthorized } from "@/lib/webui-auth";
+import { isSafeUnauthenticatedTtsUrl, readTtsConfig } from "@/lib/tts-config";
 import {
   detectTtsBackend,
   normalizeTtsUrl,
@@ -9,17 +10,23 @@ import {
 
 const FETCH_TIMEOUT_MS = 2500;
 
+function unauthorized() {
+  return NextResponse.json({ error: "Unauthorized" }, { status: 401, headers: { "Cache-Control": "no-store" } });
+}
+
 /** Return the installed AivisSpeech styles without exposing the engine's raw metadata. */
-export async function GET() {
+export async function GET(request: Request) {
   const config = readTtsConfig();
   if (detectTtsBackend(config.url) !== "aivis") {
     return NextResponse.json<TtsVoicesDto>({ voices: [] });
   }
+  if (!isSafeUnauthenticatedTtsUrl(config.url) && !isWebUiRequestAuthorized(request)) return unauthorized();
 
   const url = `${normalizeTtsUrl(config.url)}/speakers`;
   try {
     const response = await fetch(url, {
       cache: "no-store",
+      redirect: "error",
       signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
     });
     if (!response.ok) {

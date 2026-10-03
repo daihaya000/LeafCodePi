@@ -6,6 +6,7 @@ const mocks = vi.hoisted(() => ({
   readTtsConfig: vi.fn(),
   writeTtsConfig: vi.fn(),
   ttsHostCapabilities: vi.fn(),
+  isSafeUnauthenticatedTtsUrl: vi.fn(),
 }));
 vi.mock("@/lib/tts-config", () => mocks);
 
@@ -19,17 +20,19 @@ beforeEach(() => {
   mocks.readTtsConfig.mockReset().mockReturnValue({ enabled: true, voice: "", rate: 10, url: "http://127.0.0.1:10101" });
   mocks.writeTtsConfig.mockReset().mockReturnValue({ enabled: true, voice: "", rate: 10, url: "http://127.0.0.1:10101" });
   mocks.ttsHostCapabilities.mockReset().mockReturnValue({ hostPlatform: "linux", sapiAvailable: false });
+  mocks.isSafeUnauthenticatedTtsUrl.mockReset();
 });
 
 afterEach(() => vi.unstubAllEnvs());
 
 describe("/api/settings/tts", () => {
-  it("allows authenticated URL changes", async () => {
+  it("allows authenticated non-loopback URL changes", async () => {
+    mocks.isSafeUnauthenticatedTtsUrl.mockReturnValue(false);
     const patchResponse = await PATCH(new NextRequest("http://lcp.test/api/settings/tts", {
-      method: "PATCH", headers: { ...authHeaders, "content-type": "application/json" }, body: JSON.stringify({ url: "http://127.0.0.1:10101" }),
+      method: "PATCH", headers: { ...authHeaders, "content-type": "application/json" }, body: JSON.stringify({ url: "http://10.0.0.5:10101" }),
     }));
     expect(patchResponse.status).toBe(200);
-    expect(mocks.writeTtsConfig).toHaveBeenCalledWith({ url: "http://127.0.0.1:10101" });
+    expect(mocks.writeTtsConfig).toHaveBeenCalledWith({ url: "http://10.0.0.5:10101" });
   });
 
   it("blocks unauthenticated URL changes but keeps local TTS settings usable", async () => {
@@ -38,12 +41,18 @@ describe("/api/settings/tts", () => {
     const getResponse = await GET();
     const safePatch = await PATCH(new NextRequest("http://lcp.test/api/settings/tts", { method: "PATCH", body: JSON.stringify({ enabled: true }) }));
     const clearUrl = await PATCH(new NextRequest("http://lcp.test/api/settings/tts", { method: "PATCH", body: JSON.stringify({ url: "" }) }));
-    const unsafePatch = await PATCH(new NextRequest("http://lcp.test/api/settings/tts", { method: "PATCH", body: JSON.stringify({ url: "http://127.0.0.1:9" }) }));
+    mocks.isSafeUnauthenticatedTtsUrl.mockReturnValue(true);
+    const localUrlPatch = await PATCH(new NextRequest("http://lcp.test/api/settings/tts", { method: "PATCH", body: JSON.stringify({ url: "http://127.0.0.1:10101" }) }));
+    mocks.isSafeUnauthenticatedTtsUrl.mockReturnValue(false);
+    const unsafeLoopbackPatch = await PATCH(new NextRequest("http://lcp.test/api/settings/tts", { method: "PATCH", body: JSON.stringify({ url: "http://127.0.0.1:18080" }) }));
+    const unsafePatch = await PATCH(new NextRequest("http://lcp.test/api/settings/tts", { method: "PATCH", body: JSON.stringify({ url: "http://10.0.0.9:10101" }) }));
     expect(getResponse.status).toBe(200);
     expect(safePatch.status).toBe(200);
     expect(clearUrl.status).toBe(200);
+    expect(localUrlPatch.status).toBe(200);
+    expect(unsafeLoopbackPatch.status).toBe(401);
     expect(unsafePatch.status).toBe(401);
-    expect(mocks.writeTtsConfig).toHaveBeenCalledTimes(2);
-    expect(mocks.writeTtsConfig).not.toHaveBeenCalledWith({ url: "http://127.0.0.1:9" });
+    expect(mocks.writeTtsConfig).toHaveBeenCalledTimes(3);
+    expect(mocks.writeTtsConfig).not.toHaveBeenCalledWith({ url: "http://10.0.0.9:10101" });
   });
 });

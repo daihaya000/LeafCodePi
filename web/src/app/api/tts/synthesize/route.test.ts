@@ -7,9 +7,12 @@ import { createBot, patchBot } from "@/lib/bots";
 import { writeTtsConfig } from "@/lib/tts-config";
 import { POST } from "./route";
 
-function request(text: unknown, botId?: string): NextRequest {
+const WEBUI_TOKEN = "tts-synthesis-webui-token";
+
+function request(text: unknown, botId?: string, token?: string): NextRequest {
   return new NextRequest("http://localhost/api/tts/synthesize", {
     method: "POST",
+    headers: token ? { authorization: `Bearer ${token}` } : undefined,
     body: JSON.stringify({ text, ...(botId ? { botId } : {}) }),
   });
 }
@@ -20,6 +23,8 @@ describe("POST /api/tts/synthesize", () => {
   beforeEach(() => {
     root = mkdtempSync(join(tmpdir(), "leafcode-api-tts-"));
     vi.stubEnv("LEAFCODE_PI_DATA_DIR", root);
+    vi.stubEnv("LEAFCODE_PI_WEBUI_AUTH", "");
+    vi.stubEnv("LEAFCODE_PI_WEBUI_TOKEN", "");
   });
 
   afterEach(() => {
@@ -57,12 +62,14 @@ describe("POST /api/tts/synthesize", () => {
     const bot = createBot({ name: "TTS bot" });
     patchBot(bot.id, { ttsVoice: "1257529344" });
     writeTtsConfig({ enabled: true, url: "http://127.0.0.1:18080/v1/audio/speech", voice: "871574624" });
+    vi.stubEnv("LEAFCODE_PI_WEBUI_AUTH", "required");
+    vi.stubEnv("LEAFCODE_PI_WEBUI_TOKEN", WEBUI_TOKEN);
     let sentBody = "";
     vi.stubGlobal("fetch", vi.fn(async (_url: string, init: RequestInit) => {
       sentBody = String(init.body);
       return new Response(Buffer.from([1, 2, 3]), { status: 200, headers: { "content-type": "audio/wav" } });
     }));
-    const response = await POST(request("こんにちは", bot.id));
+    const response = await POST(request("こんにちは", bot.id, WEBUI_TOKEN));
     expect(response.status).toBe(200);
     expect(JSON.parse(sentBody)).toMatchObject({ model: "tts-1", voice: "1257529344", input: "こんにちは" });
   });
@@ -70,14 +77,34 @@ describe("POST /api/tts/synthesize", () => {
   it("Botに音声指定がなければグローバル音声を使う", async () => {
     const bot = createBot({ name: "TTS bot" });
     writeTtsConfig({ enabled: true, url: "http://127.0.0.1:18080/v1/audio/speech", voice: "871574624" });
+    vi.stubEnv("LEAFCODE_PI_WEBUI_AUTH", "required");
+    vi.stubEnv("LEAFCODE_PI_WEBUI_TOKEN", WEBUI_TOKEN);
     let sentBody = "";
     vi.stubGlobal("fetch", vi.fn(async (_url: string, init: RequestInit) => {
       sentBody = String(init.body);
       return new Response(Buffer.from([1, 2, 3]), { status: 200, headers: { "content-type": "audio/wav" } });
     }));
-    const response = await POST(request("こんにちは", bot.id));
+    const response = await POST(request("こんにちは", bot.id, WEBUI_TOKEN));
     expect(response.status).toBe(200);
     expect(JSON.parse(sentBody)).toMatchObject({ voice: "871574624" });
+  });
+
+  it("requires WebUI auth before contacting non-default TTS targets", async () => {
+    const fetchMock = vi.fn(async () => new Response(Buffer.from([1, 2, 3]), { status: 200, headers: { "content-type": "audio/wav" } }));
+    vi.stubGlobal("fetch", fetchMock);
+    writeTtsConfig({ enabled: true, url: "http://127.0.0.1:18080/v1/audio/speech" });
+    const deniedLoopback = await POST(request("こんにちは"));
+    expect(deniedLoopback.status).toBe(401);
+    expect(fetchMock).not.toHaveBeenCalled();
+    writeTtsConfig({ enabled: true, url: "http://10.0.0.8:18080/v1/audio/speech" });
+    const deniedRemote = await POST(request("こんにちは"));
+    expect(deniedRemote.status).toBe(401);
+    expect(fetchMock).not.toHaveBeenCalled();
+
+    vi.stubEnv("LEAFCODE_PI_WEBUI_AUTH", "required");
+    vi.stubEnv("LEAFCODE_PI_WEBUI_TOKEN", WEBUI_TOKEN);
+    const allowed = await POST(request("こんにちは", undefined, WEBUI_TOKEN));
+    expect(allowed.status).toBe(200);
   });
 
   it("空文は400", async () => {

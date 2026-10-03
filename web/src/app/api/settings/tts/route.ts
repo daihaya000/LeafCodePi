@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { isWebUiRequestAuthorized } from "@/lib/webui-auth";
-import { readTtsConfig, writeTtsConfig, ttsHostCapabilities, type TtsConfigDto, type TtsSettingsDto } from "@/lib/tts-config";
+import { isSafeUnauthenticatedTtsUrl, readTtsConfig, writeTtsConfig, ttsHostCapabilities, type TtsConfigDto, type TtsSettingsDto } from "@/lib/tts-config";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -34,6 +34,6 @@ export async function PATCH(req: NextRequest) {
   if (body.rate !== undefined && (typeof body.rate !== "number" || !Number.isFinite(body.rate))) {
     return NextResponse.json({ error: "rate は number です" }, { status: 400 });
   }
-  if (typeof body.url === "string" && body.url.trim() && !isWebUiRequestAuthorized(req)) return unauthorized();
+  if (typeof body.url === "string" && body.url.trim() && !isSafeUnauthenticatedTtsUrl(body.url) && !isWebUiRequestAuthorized(req)) return unauthorized();
   return NextResponse.json(dto(writeTtsConfig(body)), { headers: { "Cache-Control": "no-store" } });
 }

@@ -86,7 +86,11 @@ async function synthesizeVoicevox(baseUrl: string, text: string, voice: string):
   const root = baseUrl.replace(/\/+$/, "");
   let queryRes: Response;
   try {
-    queryRes = await fetch(`${root}/audio_query?text=${encodeURIComponent(text)}&speaker=${speaker}`, { method: "POST", signal: timeoutSignal() });
+    queryRes = await fetch(`${root}/audio_query?text=${encodeURIComponent(text)}&speaker=${speaker}`, {
+      method: "POST",
+      redirect: "error",
+      signal: timeoutSignal(),
+    });
   } catch {
     throw new TtsSynthesizeError("合成エンジンに接続できません（停止中？）");
   }
@@ -97,6 +101,7 @@ async function synthesizeVoicevox(baseUrl: string, text: string, voice: string):
       method: "POST",
       headers: { "content-type": "application/json" },
       body: await queryRes.text(),
+      redirect: "error",
       signal: timeoutSignal(),
     });
   } catch {
@@ -116,6 +121,7 @@ export async function synthesizeTts(text: string, url: string, voice: string): P
       method: "POST",
       headers: { "content-type": "application/json" },
       body: buildBody(url, clean, voice.trim()),
+      redirect: "error",
       signal: timeoutSignal(),
     });
   } catch {

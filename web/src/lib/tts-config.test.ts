@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import assert from "node:assert/strict";
 import { afterEach, beforeEach, describe, it } from "vitest";
-import { TTS_CONFIG_FILE, readTtsConfig, ttsHostCapabilities, writeTtsConfig } from "./tts-config";
+import { isSafeUnauthenticatedTtsUrl, TTS_CONFIG_FILE, readTtsConfig, ttsHostCapabilities, writeTtsConfig } from "./tts-config";
 
 describe("tts-config", () => {
   let previousDataDir: string | undefined;
@@ -69,6 +69,15 @@ describe("tts-config", () => {
   it("ignores corrupt json", () => {
     writeFileSync(join(data, TTS_CONFIG_FILE), "{not-json", "utf8");
     assert.deepEqual(readTtsConfig(), { enabled: false, voice: "", rate: 10, url: "" });
+  });
+
+  it("allows only known local engine endpoints without auth", () => {
+    for (const url of ["http://127.0.0.1:10101", "http://127.0.0.1:50021", "http://localhost:50021", "http://[::1]:10101"]) {
+      assert.equal(isSafeUnauthenticatedTtsUrl(url), true, url);
+    }
+    for (const url of ["http://10.0.0.2:10101", "http://127.0.0.2:50021", "https://localhost:10101", "http://127.0.0.1:18080", "http://localhost:10101/v1/tts", "http://voice.localhost:10101", "file:///tmp/tts"]) {
+      assert.equal(isSafeUnauthenticatedTtsUrl(url), false, url);
+    }
   });
 
   it("reports SAPI availability from the host platform", () => {
