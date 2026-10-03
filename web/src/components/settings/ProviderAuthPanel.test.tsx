@@ -787,25 +787,30 @@ describe("ProviderAuthPanel provider-scoped accounts", () => {
     confirmSpy.mockRestore();
   });
 
-  it("orders providers by name regardless of the model catalog order", async () => {
-    fetchMock.mockImplementation((input: RequestInfo | URL) => {
-      const url = String(input);
-      if (url.endsWith("/api/provider-models")) {
-        return Promise.resolve(
-          jsonResponse({
-            providers: [
-              { id: "openai-codex", enabled: true },
-              { id: "anthropic", enabled: true },
-            ],
-          }),
-        );
-      }
-      if (url.endsWith("/api/accounts")) {
-        return Promise.resolve(jsonResponse({ accounts: [] }));
-      }
-      return Promise.resolve(jsonResponse({ providers: [] }));
+  it("pins priority providers first and sorts the rest by name", async () => {
+    mockAccountsApi();
+    const make = (id: string, name: string) => ({
+      id,
+      name,
+      authenticated: true,
+      authSource: "stored" as const,
+      oauthAvailable: true,
+      highlighted: true,
     });
-    render(<ProviderAuthPanel providers={providers} onChanged={() => {}} />);
+    render(
+      <ProviderAuthPanel
+        providers={[
+          make("zeta", "Zeta"),
+          make("cursor", "Cursor"),
+          make("opencode-go", "OpenCode Go"),
+          make("beta", "Beta"),
+          make("anthropic", "Anthropic"),
+          make("kana", "\u3042\u3044\u3046"),
+          make("openai-codex", "OpenAI Codex"),
+        ]}
+        onChanged={() => {}}
+      />,
+    );
 
     const heading = screen.getByRole("heading", { name: "プロバイダー" });
     const providerList = heading.parentElement?.querySelector("ul");
@@ -814,7 +819,15 @@ describe("ProviderAuthPanel provider-scoped accounts", () => {
         Array.from(providerList?.children ?? []).map(
           (row) => row.querySelector("span.text-sm.font-medium")?.textContent,
         ),
-      ).toEqual(["Anthropic", "OpenAI Codex"]);
+      ).toEqual([
+        "OpenAI Codex",
+        "Anthropic",
+        "OpenCode Go",
+        "Cursor",
+        "Beta",
+        "Zeta",
+        "\u3042\u3044\u3046",
+      ]);
     });
   });
 

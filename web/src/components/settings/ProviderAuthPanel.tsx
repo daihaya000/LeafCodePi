@@ -63,7 +63,10 @@ type ResetCreditsConsumeResponse = {
   message: string;
 };
 
-/** プロバイダーカードは表示名の照合順（日本語は50音、英字はABC）で固定する。 */
+/** 先頭に固定表示するプロバイダー（この順）。 */
+const PRIORITY_PROVIDER_IDS = ["openai-codex", "anthropic", "opencode-go", "cursor"];
+
+/** プロバイダーカードは優先プロバイダーを先頭に、残りは表示名の照合順（日本語は50音、英字はABC）で固定する。 */
 const providerNameCollator = new Intl.Collator("ja", {
   numeric: true,
   sensitivity: "base",
@@ -73,7 +76,12 @@ function compareProvidersByName(
   a: { id: string; name: string },
   b: { id: string; name: string },
 ): number {
+  const rank = (id: string) => {
+    const index = PRIORITY_PROVIDER_IDS.indexOf(id);
+    return index < 0 ? PRIORITY_PROVIDER_IDS.length : index;
+  };
   return (
+    rank(a.id) - rank(b.id) ||
     providerNameCollator.compare(a.name, b.name) ||
     providerNameCollator.compare(a.id, b.id)
   );
