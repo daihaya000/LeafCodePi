@@ -1,7 +1,6 @@
-import { chmodSync, copyFileSync, renameSync, unlinkSync, writeFileSync } from "node:fs";
+import { chmodSync, closeSync, copyFileSync, mkdirSync, openSync, renameSync, statSync, unlinkSync, writeFileSync, writeSync } from "node:fs";
 import { randomUUID } from "node:crypto";
 import { dirname } from "node:path";
-import { mkdirSync } from "node:fs";
 import { lookup as osLookup, promises as dnsPromises } from "node:dns";
 import { Agent, fetch as undiciFetch, type RequestInit as UndiciRequestInit } from "undici";
 
@@ -199,6 +198,46 @@ export function singleFlight<T>(key: string, run: () => Promise<T>): Promise<T> 
   });
   singleFlights.set(key, started);
   return started;
+}
+
+/**
+ * Cross-process refresh lock. OAuth refresh tokens rotate, so the CLI and the WebUI
+ * must not spend the same one concurrently. A pid-stamped lock file serializes them
+ * across processes; a stale lock (dead process or old mtime) is taken over, and the
+ * wait is bounded so a stuck holder cannot freeze the usage panel.
+ */
+const REFRESH_LOCK_STALE_MS = 30_000;
+
+export async function withRefreshFileLock<T>(path: string, run: () => Promise<T>): Promise<T> {
+  const lockPath = `${path}.leafcode-refresh.lock`;
+  const deadline = Date.now() + REFRESH_LOCK_STALE_MS;
+  let fd: number | undefined;
+  for (;;) {
+    try {
+      mkdirSync(dirname(lockPath), { recursive: true, mode: 0o700 });
+      fd = openSync(lockPath, "wx", 0o600);
+      writeSync(fd, String(process.pid));
+      break;
+    } catch {
+      if (Date.now() >= deadline) {
+        // Still held after the bound: run unlocked rather than hang the panel. The
+        // in-process single-flight already covers the common same-process case.
+        return run();
+      }
+      try {
+        if (Date.now() - statSync(lockPath).mtimeMs > REFRESH_LOCK_STALE_MS) unlinkSync(lockPath);
+      } catch {
+        // The holder released it between the failed create and this stat.
+      }
+      await new Promise<void>((done) => { setTimeout(done, 25); });
+    }
+  }
+  return run().finally(() => {
+    if (fd !== undefined) {
+      try { closeSync(fd); } catch { /* ignore */ }
+    }
+    try { unlinkSync(lockPath); } catch { /* already released */ }
+  });
 }
 
 export function cleanApiKey(raw: string | null | undefined): string | null {

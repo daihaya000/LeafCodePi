@@ -22,6 +22,7 @@ import {
   flexibleNumber,
   singleFlight,
   windowTitle,
+  withRefreshFileLock,
 } from "@/lib/codexbar/utils";
 import {
   piAuthPathFor,
@@ -147,7 +148,8 @@ function tryRefreshTokens(
 ): Promise<CodexAuth | null> {
   if (!auth.refreshToken) return Promise.resolve(null);
   // The IdP rotates refresh tokens: share one refresh per auth file among concurrent pollers.
-  return singleFlight(`codex-cli:${authPath()}`, () => refreshTokensOnce(auth, signal));
+  const key = `codex-cli:${authPath()}`;
+  return singleFlight(key, () => withRefreshFileLock(key, () => refreshTokensOnce(auth, signal)));
 }
 
 async function refreshTokensOnce(
@@ -376,7 +378,7 @@ function tryRefreshTokensInPi(
 ): Promise<CodexAuth | null> {
   if (!auth.refreshToken) return Promise.resolve(null);
   const key = `codex-pi:${authPathOverride ?? piAuthPathFor("openai-codex")}`;
-  return singleFlight(key, () => refreshTokensInPiOnce(auth, signal, authPathOverride));
+  return singleFlight(key, () => withRefreshFileLock(key, () => refreshTokensInPiOnce(auth, signal, authPathOverride)));
 }
 
 async function refreshTokensInPiOnce(

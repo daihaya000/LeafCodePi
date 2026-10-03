@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { __withRefreshLockForTests } from "./anthropic";
+import { withRefreshFileLock } from "../utils";
 
 let dir = "";
 let credentials: string;
@@ -53,5 +54,22 @@ describe("cross-process refresh lock", () => {
     await __withRefreshLockForTests(credentials, async () => { ran = true; });
     expect(ran).toBe(true);
     expect(existsSync(lockPath)).toBe(false);
+  });
+});
+
+describe("codex refresh uses the same cross-process lock", () => {
+  it("serializes a codex-style auth file the same way", async () => {
+    // The provider passes its single-flight key (which includes the prefix) as the
+    // lock path, so a codex refresh and an anthropic refresh on different files stay apart.
+    const key = `${credentials}.codex-cli`;
+    const order: string[] = [];
+    const first = withRefreshFileLock(key, async () => {
+      order.push("first-start");
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      order.push("first-end");
+    });
+    const second = withRefreshFileLock(key, async () => { order.push("second-start"); });
+    await Promise.all([first, second]);
+    expect(order).toEqual(["first-start", "first-end", "second-start"]);
   });
 });
