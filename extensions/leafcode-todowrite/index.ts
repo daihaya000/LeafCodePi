@@ -37,6 +37,9 @@ const EXEMPT_TOOLS = new Set([
   "todowrite",
   "question",
   "tool_search",
+  // A container only: the calls its script makes reach this gate as their own tool_call events
+  // (with parentToolCallId) and are classified one by one, so the script itself changes nothing.
+  "codemode",
   "memory_search",
   "session_search",
   "structured_output",
