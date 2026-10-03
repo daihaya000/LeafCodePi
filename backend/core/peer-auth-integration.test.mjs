@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import test from "node:test";
 import { createPeerAuditLog, createPeerRateLimiter } from "./peer-auth-audit.mjs";
+import { ModelRuntime } from "@earendil-works/pi-coding-agent";
 import { createPeerGrantStore } from "./peer-auth-grants.mjs";
 import { createRemotePeerCredentialStore } from "./peer-auth-remote-store.mjs";
 import { createPeerAuthService } from "./peer-auth-serve.mjs";
@@ -85,8 +86,10 @@ test("B obtains a refreshed OAuth credential from A and never sees A's refresh t
     assert.deepEqual(await b.list(), [{ providerId: "anthropic", type: "oauth" }, { providerId: "openrouter", type: "api_key" }]);
     assert.equal(a.state.bodies.some((body) => body.includes(REFRESH_SECRET)), false);
     assert.equal(JSON.stringify(a.audit.read()).includes("access-1"), false);
-    assert.deepEqual(a.audit.read().map((entry) => [entry.action, entry.providerId, entry.result]),
-      [["resolve", "anthropic", "ok"], ["resolve", "openrouter", "ok"], ["list", null, "ok"]]);
+    // The store asks the metadata list before resolving, so the first audit entry is that list.
+    assert.deepEqual(a.audit.read().filter((entry) => entry.action !== "list").map((entry) => [entry.action, entry.providerId, entry.result]),
+      [["resolve", "anthropic", "ok"], ["resolve", "openrouter", "ok"]]);
+    assert.equal(a.audit.read().every((entry) => entry.action !== "list" || entry.result === "ok"), true);
   } finally { await a.cleanup(); }
 });
 
@@ -108,7 +111,8 @@ test("a provider outside the grant, a revoked grant and disabled sharing are all
   try {
     const { grant, token } = a.grants.create({ label: "b", providers: ["anthropic"] });
     const b = createRemotePeerCredentialStore({ peerUrl: a.url, token });
-    await assert.rejects(b.read("openrouter"), /\(403\)/);
+    // A provider outside the grant is simply absent (the store asks the list first).
+    assert.equal(await b.read("openrouter"), undefined);
     assert.equal((await b.read("anthropic")).type, "oauth");
     a.grants.setEnabled(false);
     await assert.rejects(createRemotePeerCredentialStore({ peerUrl: a.url, token }).read("anthropic"), /\(401\)/);
@@ -134,6 +138,29 @@ test("when A goes away B keeps using a still-valid token and fails once it expir
   } finally { await a.cleanup(false); }
 });
 
+test("the real SDK marks a peer account's granted provider as configured, so its models appear", async () => {
+  const a = await startA({ stored: { openrouter: { type: "api_key", key: "k" } } });
+  try {
+    const { token } = a.grants.create({ label: "b", providers: ["openrouter"] });
+    const store = createRemotePeerCredentialStore({ peerUrl: a.url, token });
+    const runtime = await ModelRuntime.create({
+      credentials: store,
+      authPath: join(dirname(a.authPath), "b-auth.json"),
+      modelsStorePath: join(dirname(a.authPath), "b-models-store.json"),
+      allowModelNetwork: false,
+    });
+    // The availability refresh probes every provider; only the granted one may become configured.
+    assert.equal(runtime.hasConfiguredAuth("openrouter"), true);
+    assert.equal(runtime.getProviderAuthStatus("openrouter").configured, true);
+    assert.ok(runtime.getModels("openrouter").length > 0);
+    assert.equal(runtime.hasConfiguredAuth("anthropic"), false);
+    assert.deepEqual((await runtime.getAuth("openrouter"))?.auth?.apiKey, "k");
+    // Probing providers the peer does not offer must not reach resolve (or the audit) at all.
+    assert.deepEqual(a.audit.read().filter((entry) => entry.action !== "list").map((entry) => [entry.providerId, entry.result]),
+      [["openrouter", "ok"]]);
+  } finally { await a.cleanup(); }
+});
+
 test("every account that holds a granted provider is shared, and B resolves each account separately", async () => {
   const a = await startA({
     stored: { anthropic: { type: "api_key", key: "k-default" } },
@@ -155,6 +182,6 @@ test("every account that holds a granted provider is shared, and B resolves each
     assert.deepEqual(await read(null), { type: "api_key", key: "k-default" });
     assert.deepEqual(await read("accA"), { type: "api_key", key: "k-a" });
     assert.deepEqual(await read("accB"), { type: "api_key", key: "k-b" });
-    await assert.rejects(createRemotePeerCredentialStore({ peerUrl: a.url, token, accountId: "accA" }).read("openrouter"), /\(403\)/);
+    assert.equal(await createRemotePeerCredentialStore({ peerUrl: a.url, token, accountId: "accA" }).read("openrouter"), undefined);
   } finally { await a.cleanup(); }
 });

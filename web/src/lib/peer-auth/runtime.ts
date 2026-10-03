@@ -52,8 +52,10 @@ function createDeps(): PeerAuthServiceDeps {
       return path ? storedProviderTypes(path) : [];
     },
     listAccounts: () => [
-      { accountId: null, label: "default" },
-      ...listAccounts().map((account) => ({ accountId: account.id, label: account.label })),
+      { accountId: null, label: "既定" },
+      ...listAccounts()
+        .filter((account) => account.enabled !== false)
+        .map((account) => ({ accountId: account.id, label: account.label })),
     ],
   };
 }

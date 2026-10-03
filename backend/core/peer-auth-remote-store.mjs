@@ -90,7 +90,7 @@ export function createRemotePeerCredentialStore(options) {
     return pending;
   };
 
-  /** One cached GET of the peer's metadata list, shared by list() and listAccounts(). */
+  /** One cached GET of the peer's metadata list, shared by list()/listAccounts()/read(). */
   const fetchList = (signal) => {
     if (listCache && listCache.at + 30_000 > now()) return Promise.resolve(listCache.value);
     if (!listInflight) {
@@ -108,10 +108,28 @@ export function createRemotePeerCredentialStore(options) {
     return listInflight;
   };
 
+  /**
+   * The SDK probes every provider at runtime creation. Asking the metadata list first keeps a provider
+   * the peer does not offer from becoming a failing resolve (which would abort the whole refresh), and
+   * avoids a request per unrelated provider.
+   */
+  const peerOffers = async (providerId, signal) => {
+    const list = await fetchList(signal);
+    return list.providers.some((entry) => entry.providerId === providerId);
+  };
+
   return {
     async read(providerId, readOptions) {
       const cached = cache.get(providerId);
       if (usable(cached, refreshMarginMs)) return cached.credential;
+      try {
+        if (!await peerOffers(providerId, readOptions?.signal)) {
+          cache.delete(providerId);
+          return undefined;
+        }
+      } catch {
+        // The list is unreachable; resolve below reports the real failure (or serves a cached token).
+      }
       try {
         return await resolve(providerId, readOptions?.signal);
       } catch (error) {
