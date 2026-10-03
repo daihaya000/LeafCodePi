@@ -54,7 +54,7 @@ test("the CLI prints one JSON report and exits with the report result", async (t
   const skipped = spawnSync(process.execPath, [SCRIPT, "--json", "--skip-storage"], { env, encoding: "utf8", timeout: 25_000 });
   assert.equal(skipped.status, 0, skipped.stderr);
   const parsed = JSON.parse(skipped.stdout.trim());
-  assert.equal(parsed.ok, true); assert.equal(parsed.storage, "skipped"); assert.equal(parsed.adapterPresent, true);
+  assert.equal(parsed.ok, true); assert.equal(parsed.storage, "skipped");
   // With the real attestation the exit code follows the report instead of crashing either way.
   const attested = spawnSync(process.execPath, [SCRIPT, "--json"], { env, encoding: "utf8", timeout: 25_000 });
   const report = JSON.parse(attested.stdout.trim());

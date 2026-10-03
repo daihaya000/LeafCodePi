@@ -25,34 +25,42 @@ export function isReplacedPackageSource(entry, replacedPackageNames) {
 
 /**
  * Bundled forks replace their upstream extension. `skipDiscovery` also drops the
- * npm package from the loader search, which avoids its module import entirely
- * (pi-mcp-adapter costs ~0.4s per cwd cache clear). The user's settings.json is
+ * npm package from the loader search, which avoids its module import entirely.
+ * The retired MCP pair is always excluded. The user's settings.json is
  * never modified; the exclusion only applies inside this loader.
  */
 export const FORK_REPLACED_EXTENSIONS = [
   { fork: "leafcode-subagents", upstream: "pi-subagents", skipDiscovery: false },
   { fork: "leafcode-intercom", upstream: "pi-intercom", skipDiscovery: true },
-  { fork: "leafcode-mcp-adapter", upstream: "pi-mcp-adapter", skipDiscovery: true },
   { fork: "leafcode-computer-use", upstream: "@injaneity/pi-computer-use", skipDiscovery: true },
   { fork: "pi-anthropic-auth", upstream: "@gotgenes/pi-anthropic-auth", skipDiscovery: true },
 ];
 
-/** npm packages excluded from discovery because a bundled fork replaces them. */
+/**
+ * MCP extensions retired with the native cutover. The bundled adapter is deleted, so neither it nor
+ * its upstream may load: a second MCP implementation would run next to the native runtime, and a
+ * stale global copy of the fork would keep the old writers/auth store alive.
+ */
+export const RETIRED_MCP_EXTENSIONS = ["leafcode-mcp-adapter", "pi-mcp-adapter"];
+
+/** npm packages excluded from discovery because a bundled fork replaces them, plus the retired MCP pair. */
 export function replacedUpstreamPackages(bundledNames) {
-  return new Set(
-    FORK_REPLACED_EXTENSIONS.filter(
+  return new Set([
+    ...FORK_REPLACED_EXTENSIONS.filter(
       (entry) => entry.skipDiscovery && bundledNames.has(entry.fork),
     ).map((entry) => entry.upstream),
-  );
+    "pi-mcp-adapter",
+  ]);
 }
 
-/** Keep one copy of every extension: drop replaced upstreams and stale bundled duplicates. */
+/** Keep one copy of every extension: drop replaced upstreams, retired MCP copies and stale duplicates. */
 export function keepsLoadedExtension(extensionPath, bundled) {
   const key = basenameKey(extensionPath);
   const replacedByFork = FORK_REPLACED_EXTENSIONS.some(
     (entry) => bundled.names.has(entry.fork) && key === entry.upstream,
   );
   if (replacedByFork) return false;
+  if (RETIRED_MCP_EXTENSIONS.includes(key)) return false;
   if (bundled.names.has("leafcode-computer-use") &&
       (key === "pi-computer-use" || /(?:^|[\\/])pi-computer-use(?:[\\/]|$)/i.test(extensionPath))) return false;
   // An entry such as leafcode-memory/src/index.ts is keyed "src"; match its package directory too.

@@ -279,14 +279,14 @@ describe("listExtensions / setExtensionEnabled", () => {
     assert.equal(enabled.extensions.find((entry) => entry.name === "pi-anthropic-auth")?.enabled, true);
   });
 
-  it("hides the legacy MCP adapter when the bundled fork is present", () => {
+  it("hides the retired MCP adapters even when a stale copy is installed", () => {
     const { agentDir: agent } = fixture();
     const bundledRoot = join(data, "repo-extensions");
-    writeExtension(bundledRoot, "leafcode-mcp-adapter");
+    writeExtension(join(agent, "extensions"), "leafcode-mcp-adapter");
     writeExtension(join(agent, "extensions"), "pi-mcp-adapter");
 
     const listed = listExtensions(agent, { bundledDir: bundledRoot });
-    expectNames(listed.extensions, ["leafcode-mcp-adapter", "one"]);
+    expectNames(listed.extensions, ["one"]);
   });
 
   it("hides the legacy intercom when the bundled fork is present", () => {
@@ -348,7 +348,7 @@ describe("listExtensions / setExtensionEnabled", () => {
 
   it("discovers extensions from npm packages (settings.json packages)", () => {
     const { agentDir: agent } = fixture();
-    const pkgDir = join(agent, "npm", "node_modules", "pi-mcp-adapter");
+    const pkgDir = join(agent, "npm", "node_modules", "pi-fixture-extension");
     mkdirSync(pkgDir, { recursive: true });
     writeFileSync(
       join(pkgDir, "package.json"),
@@ -358,13 +358,13 @@ describe("listExtensions / setExtensionEnabled", () => {
     writeFileSync(join(pkgDir, "index.ts"), "export default () => {};\n", "utf8");
     writeFileSync(
       join(agent, "settings.json"),
-      JSON.stringify({ packages: ["npm:pi-mcp-adapter"] }),
+      JSON.stringify({ packages: ["npm:pi-fixture-extension"] }),
       "utf8",
     );
 
     const listed = listExtensions(agent);
-    assert.equal(listed.extensions.find((e) => e.name === "pi-mcp-adapter")?.filePath, join(pkgDir, "index.ts"));
-    expectNames(listed.extensions, ["one", "pi-mcp-adapter"]);
+    assert.equal(listed.extensions.find((e) => e.name === "pi-fixture-extension")?.filePath, join(pkgDir, "index.ts"));
+    expectNames(listed.extensions, ["one", "pi-fixture-extension"]);
   });
 
   it("discovers extensions from local packages (settings.json packages)", () => {

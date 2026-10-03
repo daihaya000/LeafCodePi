@@ -562,7 +562,7 @@ export function McpSettings() {
         </Button>
       </div>
       <p className="text-xs text-muted">
-        リポジトリ同梱のMCP定義と、leafcode-mcp-adapter が読むユーザー設定（
+        リポジトリ同梱のMCP定義（<span>backend/core/mcp-defaults.json</span>）と、Pi が読むユーザー設定（
         <span>~/.pi/agent/mcp.json</span>
         ）の有効／無効と認証情報を管理します。組み込み定義はユーザー設定で上書きでき、秘密情報は表示せずOS資格情報ストアへ保存します。
       </p>

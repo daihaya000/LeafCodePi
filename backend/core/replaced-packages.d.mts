@@ -4,6 +4,9 @@
  */
 export function isReplacedPackageSource(entry: unknown, replacedPackageNames: ReadonlySet<string>): boolean;
 
+/** MCP extensions retired with the native cutover; always excluded, even as stale copies. */
+export const RETIRED_MCP_EXTENSIONS: ReadonlyArray<string>;
+
 /** Bundled forks and the npm packages they replace. */
 export const FORK_REPLACED_EXTENSIONS: ReadonlyArray<{
   fork: string;

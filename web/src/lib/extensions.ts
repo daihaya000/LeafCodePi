@@ -12,7 +12,7 @@
  *   and subdirs with a package.json "pi.extensions" manifest)
  * - ~/.pi/agent/git/<host>/<owner>/<repo> for entries declared by installed
  *   git packages (settings.json "packages"), such as ponytail.
- * - ~/.pi/agent/npm/node_modules/<name> for installed npm packages (e.g. leafcode-mcp-adapter).
+ * - ~/.pi/agent/npm/node_modules/<name> for installed npm packages (e.g. leafcode-intercom).
  */
 
 import {
@@ -108,10 +108,12 @@ const RETIRED_EXTENSION_NAMES = new Set([
   "leafcode-collaboration",
   "leafcode-commit-guard",
   "settle-followup-claim",
+  // Retired with the native MCP cutover: a stale global copy must never come back.
+  "leafcode-mcp-adapter",
+  "pi-mcp-adapter",
 ]);
 const BUNDLED_REPLACEMENTS = new Map([
   ["pi-intercom", "leafcode-intercom"],
-  ["pi-mcp-adapter", "leafcode-mcp-adapter"],
 ]);
 
 const TEST_FILE_PATTERN = /\.(?:test|spec)\.(?:ts|js|mjs|cjs)$/i;

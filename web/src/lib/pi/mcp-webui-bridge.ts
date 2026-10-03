@@ -26,7 +26,8 @@ export type McpOAuthWebUiAuthResponse =
 export type McpWebUiAuthResponse = McpCredentialWebUiAuthResponse | McpOAuthWebUiAuthResponse;
 export type McpWebUiAuthHandler = (request: McpWebUiAuthRequest) => Promise<McpWebUiAuthResponse>;
 
-/** Must match extensions/leafcode-mcp-adapter/mcp-webui-bridge.ts. */
+/** Must match the (now retired) adapter bridge contract; kept so a stale adapter copy cannot
+ * silently bypass the native refusal. */
 const GLOBAL_KEY = "__leafcodeMcpWebUiAuthHandler" as const;
 type McpWebUiGlobal = typeof globalThis & {
   [GLOBAL_KEY]?: McpWebUiAuthHandler | null;

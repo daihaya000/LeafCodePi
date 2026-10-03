@@ -70,18 +70,18 @@ describe("session extension replacement", () => {
 
   it("skips discovery only for the npm packages a bundled fork replaces", () => {
     assert.deepEqual(
-      [...replacedUpstreamPackages(new Set(["leafcode-intercom", "leafcode-mcp-adapter"]))],
+      [...replacedUpstreamPackages(new Set(["leafcode-intercom"]))],
       ["pi-intercom", "pi-mcp-adapter"],
     );
     // The subagents fork keeps its upstream discoverable; only loaded copies are dropped.
-    assert.deepEqual([...replacedUpstreamPackages(new Set(["leafcode-subagents"]))], []);
+    assert.deepEqual([...replacedUpstreamPackages(new Set(["leafcode-subagents"]))], ["pi-mcp-adapter"]);
     assert.deepEqual(
       [...replacedUpstreamPackages(new Set(["leafcode-computer-use"]))],
-      ["@injaneity/pi-computer-use"],
+      ["@injaneity/pi-computer-use", "pi-mcp-adapter"],
     );
-    assert.deepEqual([...replacedUpstreamPackages(new Set())], []);
+    assert.deepEqual([...replacedUpstreamPackages(new Set())], ["pi-mcp-adapter"], "the retired MCP upstream stays excluded");
     const anthropic = replacedUpstreamPackages(new Set(["pi-anthropic-auth"]));
-    assert.deepEqual([...anthropic], ["@gotgenes/pi-anthropic-auth"]);
+    assert.deepEqual([...anthropic], ["@gotgenes/pi-anthropic-auth", "pi-mcp-adapter"]);
     assert.equal(isReplacedPackageSource("npm:@gotgenes/pi-anthropic-auth@3.3.3", anthropic), true);
     assert.equal(isReplacedPackageSource({ source: "npm:@gotgenes/pi-anthropic-auth" }, anthropic), true);
     assert.equal(isReplacedPackageSource("npm:@other/pi-anthropic-auth", anthropic), false);
@@ -95,7 +95,7 @@ describe("session extension replacement", () => {
     const index = bundled("leafcode-subagents", "leafcode-intercom");
     assert.equal(keepsLoadedExtension("/npm/pi-subagents/index.js", index), false);
     assert.equal(keepsLoadedExtension("/npm/pi-intercom/index.js", index), false);
-    assert.equal(keepsLoadedExtension("/npm/pi-mcp-adapter/index.js", index), true);
+    assert.equal(keepsLoadedExtension("/npm/pi-mcp-adapter/index.js", index), false, "the retired MCP upstream is never loaded");
     const computerUse = bundled("leafcode-computer-use");
     assert.equal(keepsLoadedExtension("/npm/@injaneity/pi-computer-use/extensions/computer-use.ts", computerUse), false);
     assert.equal(keepsLoadedExtension("/home/.pi/agent/extensions/pi-computer-use.ts", computerUse), false);

@@ -44,11 +44,11 @@ test("a package whose name carries an @ only as its scope separator is matched w
 });
 
 test("only the forks that skip discovery exclude their upstream package", () => {
-  assert.deepEqual([...replacedUpstreamPackages(new Set(["leafcode-intercom", "leafcode-mcp-adapter"]))], ["pi-intercom", "pi-mcp-adapter"]);
-  assert.deepEqual([...replacedUpstreamPackages(new Set(["leafcode-subagents"]))], [], "the subagents fork keeps its upstream discoverable");
-  assert.deepEqual([...replacedUpstreamPackages(new Set(["leafcode-computer-use"]))], ["@injaneity/pi-computer-use"]);
-  assert.deepEqual([...replacedUpstreamPackages(new Set(["pi-anthropic-auth"]))], ["@gotgenes/pi-anthropic-auth"]);
-  assert.deepEqual([...replacedUpstreamPackages(new Set())], []);
+  assert.deepEqual([...replacedUpstreamPackages(new Set(["leafcode-intercom"]))], ["pi-intercom", "pi-mcp-adapter"]);
+  assert.deepEqual([...replacedUpstreamPackages(new Set(["leafcode-subagents"]))], ["pi-mcp-adapter"], "the subagents fork keeps its upstream discoverable");
+  assert.deepEqual([...replacedUpstreamPackages(new Set(["leafcode-computer-use"]))], ["@injaneity/pi-computer-use", "pi-mcp-adapter"]);
+  assert.deepEqual([...replacedUpstreamPackages(new Set(["pi-anthropic-auth"]))], ["@gotgenes/pi-anthropic-auth", "pi-mcp-adapter"]);
+  assert.deepEqual([...replacedUpstreamPackages(new Set())], ["pi-mcp-adapter"], "the retired MCP upstream is excluded unconditionally");
 });
 
 const bundled = (...names) => ({
@@ -60,7 +60,8 @@ test("a replaced upstream and a stale copy of a bundled extension are dropped", 
   const index = bundled("leafcode-subagents", "leafcode-intercom");
   assert.equal(keepsLoadedExtension("/npm/pi-subagents/index.js", index), false);
   assert.equal(keepsLoadedExtension("/npm/pi-intercom/index.js", index), false);
-  assert.equal(keepsLoadedExtension("/npm/pi-mcp-adapter/index.js", index), true, "a fork that is not bundled does not drop its upstream");
+  assert.equal(keepsLoadedExtension("/npm/pi-mcp-adapter/index.js", index), false, "the retired MCP upstream is never loaded");
+  assert.equal(keepsLoadedExtension("/npm/leafcode-mcp-adapter/index.js", index), false, "a stale copy of the retired fork is never loaded");
   assert.equal(keepsLoadedExtension("/other/leafcode-subagents/index.ts", index), false);
   assert.equal(keepsLoadedExtension(resolve("/repo/extensions/leafcode-subagents/index.ts"), index), true, "the bundled copy itself is kept");
 });

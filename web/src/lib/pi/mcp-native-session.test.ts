@@ -54,19 +54,17 @@ async function loadWith(active: boolean) {
 }
 
 describe("native MCP session selection", () => {
-  it("keeps the bundled adapter and no native factory by default", async () => {
-    const { nativeMcp, loaded, index } = await loadWith(false);
+  it("loads no MCP extension by default (the adapter is retired)", async () => {
+    const { nativeMcp, loaded } = await loadWith(false);
     assert.equal(nativeMcp.active, false);
-    assert.equal(index.names.has("leafcode-mcp-adapter"), true);
-    assert.equal(loaded.extensions.some((extension) => basenameKey(extension.path) === "leafcode-mcp-adapter"), true);
+    assert.equal(loaded.extensions.some((extension) => basenameKey(extension.path) === "leafcode-mcp-adapter"), false);
     assert.equal(loaded.extensions.some((extension) => extension.tools.has("codemode")), false);
   }, 30_000);
 
-  it("loads native MCP/codemode/tool_search instead of the adapter, still excluding the replaced upstream", async () => {
+  it("loads native MCP/codemode/tool_search and keeps the retired MCP extensions out", async () => {
     const { nativeMcp, loaded, index } = await loadWith(true);
     assert.equal(nativeMcp.active, true); assert.equal(nativeMcp.factories.length, 3);
     assert.deepEqual(loaded.errors, []);
-    assert.equal(index.names.has("leafcode-mcp-adapter"), true);
     assert.equal(replacedUpstreamPackages(index.names).has("pi-mcp-adapter"), true);
     assert.equal(loaded.extensions.some((extension) => basenameKey(extension.path) === "leafcode-mcp-adapter"), false);
     assert.equal(loaded.extensions.some((extension) => extension.tools.has("codemode")), true);

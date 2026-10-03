@@ -10,7 +10,6 @@
  * `--json` prints one machine-readable object (still no secrets/paths/tokens). `--timeout-ms=N`
  * raises the per-server handshake timeout (default 30s; browser-use needs well over 10s to boot).
  */
-import { existsSync } from "node:fs";
 import { dirname, isAbsolute, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { homedir } from "node:os";
@@ -25,14 +24,13 @@ import { isNativeMcpRequested, runEnvCommand } from "./mcp-native-activation.mjs
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const BUNDLED_CONFIG = resolve(HERE, "..", "core", "mcp-defaults.json");
-const ADAPTER_ENTRY = resolve(HERE, "..", "..", "extensions", "leafcode-mcp-adapter", "index.ts");
 
 /** Runs the check and returns a report. Never throws for an expected refusal. */
 export async function runNativeMcpCheck(options = {}) {
   const env = options.env ?? process.env;
   const agentDir = options.agentDir ?? getAgentDir();
   const skipStorage = options.skipStorage === true;
-  const report = { ok: false, nativeRequested: isNativeMcpRequested(env), storage: "skipped", servers: [], connect: null, issues: [], adapterPresent: existsSync(options.adapterEntry ?? ADAPTER_ENTRY) };
+  const report = { ok: false, nativeRequested: isNativeMcpRequested(env), storage: "skipped", servers: [], connect: null, issues: [] };
 
   if (!skipStorage) {
     const configPath = resolve(agentDir, "mcp.json"), credentialPath = resolve(agentDir, "mcp-auth.json");
@@ -128,7 +126,7 @@ function main() {
     } else {
       process.stdout.write(`native flag requested: ${report.nativeRequested}\n`);
       process.stdout.write(`storage attestation: ${report.storage}${options.skipStorage ? " (SKIPPED: not acceptance)" : ""}\n`);
-      process.stdout.write(`bundled adapter present: ${report.adapterPresent}\n`);
+      process.stdout.write(`bundled defaults: ${report.servers.length > 0 ? "loaded" : "none"}\n`);
       for (const server of report.servers) process.stdout.write(`server ${server.name}: ${server.transport} ${server.exposure}${server.enabled ? "" : " (off)"}\n`);
       if (report.connect) {
         for (const [name, value] of Object.entries(report.connect.servers ?? {})) {
