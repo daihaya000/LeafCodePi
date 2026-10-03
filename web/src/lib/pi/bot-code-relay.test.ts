@@ -29,7 +29,7 @@ vi.mock("@/lib/store", () => ({
   getProject: (id: string) => store.projects.find((project) => project.id === id),
   listProjects: () => store.projects.filter((project) => !project.archived),
 }));
-import { BOT_CODE_RESULT, BOT_CODE_TOOL, botCodeReportText, cancelBotCodeRequests, cancelRoomCodeRequests, createBotCodeRelay, hasBotCodeReport, isBotCodeOriginTask, isRoomDelegatedCodeTask, listBotCodeRequests, MAX_AUTO_CODE_CHAIN, MAX_CODE_REPORT_REQUEST_CHARS, pendingRoomCodeRequestForRoom, pendingRoomCodeRequestForTurn, queueBotCodePrompt, roomCodeRequestsForTurn, roomForCodeOrigin, runUserBotCodeRequest, stopBotCodeRequest, stopBotCodeRequestForTask, truncateCodeReportRequest, type CodeRequest } from "./bot-code-relay";
+import { BOT_CODE_RESULT, BOT_CODE_TOOL, __resetBotCodeRequestCacheForTests, botCodeRequestCacheStats, botCodeReportText, cancelBotCodeRequests, cancelRoomCodeRequests, createBotCodeRelay, hasBotCodeReport, isBotCodeOriginTask, isRoomDelegatedCodeTask, listBotCodeRequests, MAX_AUTO_CODE_CHAIN, MAX_CODE_REPORT_REQUEST_CHARS, pendingRoomCodeRequestForRoom, pendingRoomCodeRequestForTurn, queueBotCodePrompt, roomCodeRequestsForTurn, roomForCodeOrigin, runUserBotCodeRequest, stopBotCodeRequest, stopBotCodeRequestForTask, truncateCodeReportRequest, type CodeRequest } from "./bot-code-relay";
 
 type Dependencies = Parameters<typeof createBotCodeRelay>[0];
 let relay: ReturnType<typeof createBotCodeRelay>;
@@ -95,7 +95,7 @@ beforeEach(() => {
   };
   relay = createBotCodeRelay(deps);
 });
-afterEach(() => { relay.dispose(); rmSync(store.root, { recursive: true, force: true }); vi.restoreAllMocks(); });
+afterEach(() => { __resetBotCodeRequestCacheForTests(); relay.dispose(); rmSync(store.root, { recursive: true, force: true }); vi.restoreAllMocks(); });
 
 describe("Bot-only tool schemas stay llama.cpp-safe", () => {
   // llama.cpp compiles tool schemas into GBNF; a nested string with maxLength >= 2000
@@ -142,6 +142,27 @@ describe("Bot-only tool schemas stay llama.cpp-safe", () => {
 });
 
 describe("Bot ⇄ Code relay", () => {
+  it("re-reads the outbox only for records that changed on disk", async () => {
+    const code = task("code", { kind: "code", botId: "one", status: "working" });
+    store.tasks.set(code.id, code);
+    const request = queueBotCodePrompt("one", code, "作業して");
+
+    listBotCodeRequests("one");
+    const first = botCodeRequestCacheStats();
+    expect(first.reads).toBeGreaterThan(0);
+
+    listBotCodeRequests("one");
+    expect(botCodeRequestCacheStats().reads).toBe(first.reads);
+    expect(botCodeRequestCacheStats().hits).toBe(first.hits + 1);
+
+    // A rewritten record must be re-read even when it keeps its id.
+    const path = join(store.root, "bot-code-requests", `${request.id}.json`);
+    const stored = JSON.parse(readFileSync(path, "utf8")) as CodeRequest;
+    writeFileSync(path, `${JSON.stringify({ ...stored, userIntervention: false, state: "queued", prompt: "差し替え" })}\n`, "utf8");
+    expect(listBotCodeRequests("one")[0]).toMatchObject({ state: "queued", prompt: "差し替え" });
+    expect(botCodeRequestCacheStats().reads).toBe(first.reads + 1);
+  });
+
   it("ignores a corrupted request file instead of throwing", async () => {
     const dir = join(store.root, "bot-code-requests");
     mkdirSync(dir, { recursive: true });

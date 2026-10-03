@@ -1,5 +1,5 @@
 import { createHash, randomBytes } from "node:crypto";
-import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, statSync, unlinkSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, statSync, unlinkSync, writeFileSync, type BigIntStats } from "node:fs";
 import { join } from "node:path";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
@@ -289,12 +289,66 @@ function read(id: string): CodeRequest | undefined {
     return undefined;
   }
 }
+/**
+ * Polling reads the whole outbox, so unchanged records must not be re-read and
+ * re-parsed every tick. `save()` always lands through a fresh temp file plus
+ * `rename`, so the inode changes on every write; size plus mtime cover the
+ * remaining in-place cases. Cached values are cloned out because callers
+ * mutate what `read()` returns before saving it again.
+ */
+interface CachedCodeRequest { ino: bigint; size: bigint; mtimeNs: bigint; value: CodeRequest; }
+const codeRequestCache = new Map<string, CachedCodeRequest>();
+const codeRequestCacheStats = { reads: 0, hits: 0 };
 function requests(): CodeRequest[] {
-  if (!existsSync(root())) return [];
-  return readdirSync(root()).filter((name) => /^[a-f0-9]{64}\.json$/.test(name)).flatMap((name) => {
-    const request = read(name.slice(0, -5));
-    return request ? [request] : [];
-  });
+  const dir = root();
+  if (!existsSync(dir)) {
+    codeRequestCache.clear();
+    return [];
+  }
+  const listed: CodeRequest[] = [];
+  const present = new Set<string>();
+  for (const name of readdirSync(dir)) {
+    if (!/^[a-f0-9]{64}\.json$/.test(name)) continue;
+    const id = name.slice(0, -5);
+    const path = join(dir, name);
+    let stat: BigIntStats;
+    try {
+      stat = statSync(path, { bigint: true });
+    } catch {
+      codeRequestCache.delete(id);
+      continue;
+    }
+    const cached = codeRequestCache.get(id);
+    if (cached && cached.ino === stat.ino && cached.size === stat.size && cached.mtimeNs === stat.mtimeNs) {
+      codeRequestCacheStats.hits += 1;
+      present.add(id);
+      listed.push(structuredClone(cached.value));
+      continue;
+    }
+    codeRequestCache.delete(id);
+    try {
+      codeRequestCacheStats.reads += 1;
+      const value = JSON.parse(readFileSync(path, "utf8")) as CodeRequest;
+      if (value.id !== id || typeof value.botId !== "string" || typeof value.originTaskId !== "string") continue;
+      codeRequestCache.set(id, { ino: stat.ino, size: stat.size, mtimeNs: stat.mtimeNs, value });
+      present.add(id);
+      listed.push(value);
+    } catch {
+      // 書き込み途中・破損レコードは無いものとして扱う（ポーリング全体を止めない）。
+    }
+  }
+  for (const id of codeRequestCache.keys()) if (!present.has(id)) codeRequestCache.delete(id);
+  return listed;
+}
+/** Test-only: drop memoized outbox records and read counters. */
+export function __resetBotCodeRequestCacheForTests(): void {
+  codeRequestCache.clear();
+  codeRequestCacheStats.reads = 0;
+  codeRequestCacheStats.hits = 0;
+}
+/** Test-only: how many outbox records were re-read versus served from the cache. */
+export function botCodeRequestCacheStats(): { reads: number; hits: number } {
+  return { ...codeRequestCacheStats };
 }
 // The terminal-state rule lives in backend core.
 function active(request: CodeRequest): boolean { return isActiveCodeRequest(request); }
