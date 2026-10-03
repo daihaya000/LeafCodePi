@@ -76,7 +76,8 @@ test("observed revision/storage/process failures close a binding permanently; fa
   const owner = owned(t, { ...f.options, assertProcessOwner() { if (!processValid) throw Error("private process"); }, assertPrivateStorage() { if (!storageValid) throw Error("private ACL"); } });
   const first = await owner.prepare(); await writeFile(f.configPath, Buffer.concat([original, Buffer.from("\n")])); assert.throws(first.loadConfig, safe);
   await writeFile(f.configPath, original); assert.throws(first.loadConfig, safe);
-  const second = await owner.prepare(); storageValid = false; assert.throws(second.loadConfig, safe); storageValid = true; assert.throws(second.loadConfig, safe);
+  const second = await owner.prepare(); storageValid = false; await assert.rejects(owner.prepare(), safe); assert.throws(second.loadConfig, safe);
+  storageValid = true; assert.throws(second.loadConfig, safe);
   const third = await owner.prepare(); processValid = false; assert.throws(third.loadConfig, safe); await assert.rejects(owner.prepare(), safe);
   processValid = true; assert.throws(third.loadConfig, safe); (await owner.prepare()).assertOwner();
 });
@@ -100,12 +101,12 @@ test("missing user files remain absent; invalid loader data/async storage acknow
   await assert.rejects(asyncStorage.prepare(), safe); await new Promise((r) => setImmediate(r));
 });
 
-test("swallowed private-attestor reentrancy fences a binding without recursively re-reading storage", async (t) => {
-  const f = await fixture(t); let binding, reenter = false, calls = 0;
-  const owner = owned(t, { ...f.options, assertPrivateStorage() { if (reenter) { calls++; try { binding.assertOwner(); } catch { /* swallowed */ } } } });
-  binding = await owner.prepare(); reenter = true;
-  assert.throws(binding.loadConfig, safe); assert.equal(calls, 1); assert.throws(binding.loadConfig, safe);
-  reenter = false; (await owner.prepare()).assertOwner();
+test("per-call ownership checks never re-read storage ACLs (the Windows attestor blocks the event loop)", async (t) => {
+  const f = await fixture(t); let calls = 0;
+  const owner = owned(t, { ...f.options, assertPrivateStorage() { calls++; } });
+  const binding = await owner.prepare(); const afterPrepare = calls; assert.ok(afterPrepare > 0, "preparation attests storage");
+  for (let i = 0; i < 5; i++) { binding.assertOwner(); binding.loadConfig(); }
+  assert.equal(calls, afterPrepare);
 });
 
 test("nested preparation cannot deadlock and terminal disposal fences pending work/bindings while drain still settles", async (t) => {

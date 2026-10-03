@@ -73,11 +73,13 @@ export function createBackendMcpConfigOwner(options) {
           const checkRevision = createBackendMcpConfigRevisionCheck({ agentDir, bundledConfigPath,
             expectedSha256: prepared.sourceSha256, expectedBundledSha256: prepared.bundledSha256, assertRuntimeOwner: lease.assertOwner });
           let binding, verifying = false;
+          // Storage ACLs are attested at preparation and by the writer, not here: verify() runs on every
+          // tool call/turn, and the Windows attestor blocks the event loop for over a second per call.
           const verify = () => {
             try {
               if (closed || ticket !== sequence || verifying) throw unavailable();
               verifying = true;
-              checkRevision(); attest(); checkRevision();
+              checkRevision();
               if (closed || ticket !== sequence) throw unavailable();
             } catch { lease.revoke(); throw unavailable(); }
             finally { verifying = false; }
