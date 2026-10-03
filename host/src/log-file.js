@@ -45,9 +45,14 @@ export function createLogFileWriter(dir, deps = {}) {
         writesSinceSync = 0;
       }
       if (knownSize < maxBytes) return;
-      const rotated = `${file}.1`;
-      if (exists(rotated)) unlink(rotated);
-      rename(file, rotated);
+      // Keep two generations: with only `.1` the previous archive is deleted on the
+      // next rotation, so a reader that opened the rotated file mid-rotation can find
+      // it already unlinked. `.2` keeps the older copy around long enough to finish.
+      const oldest = `${file}.2`;
+      const previous = `${file}.1`;
+      if (exists(oldest)) unlink(oldest);
+      if (exists(previous)) rename(previous, oldest);
+      rename(file, previous);
       knownSize = 0;
       writesSinceSync = 0;
     } catch {

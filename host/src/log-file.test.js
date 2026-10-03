@@ -50,3 +50,22 @@ test("rotates by tracked size without a stat per line", () => {
   assert.ok(calls.stat <= 2, `stat was called ${calls.stat} times`);
   assert.ok((sizes.get(file) ?? 0) < 200 + 100);
 });
+
+test("keeps two generations so a rotated file outlives one more rotation", () => {
+  const calls = { rename: 0, unlink: 0 };
+  const sizes = new Map();
+  const file = join("C:/logs", "host.log");
+  const writer = createLogFileWriter("C:/logs", {
+    mkdirSync: () => {},
+    platform: "win32",
+    maxBytes: 200,
+    existsSync: (path) => sizes.has(path),
+    statSync: (path) => ({ size: sizes.get(path) ?? 0 }),
+    appendFileSync: (path, data) => { sizes.set(path, (sizes.get(path) ?? 0) + Buffer.byteLength(data)); },
+    renameSync: (from, to) => { calls.rename += 1; sizes.set(to, sizes.get(from)); sizes.delete(from); },
+    unlinkSync: (path) => { calls.unlink += 1; sizes.delete(path); },
+  });
+  for (let i = 0; i < 30; i += 1) writer.write({ ts: 0, source: "host", level: "log", text: "x".repeat(40) });
+  assert.ok(calls.rename >= 3, "each rotation shifts .1 to .2 before the new .1 is written");
+  assert.equal(sizes.has(`${file}.2`), true);
+});
