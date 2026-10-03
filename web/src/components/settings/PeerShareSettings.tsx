@@ -4,10 +4,9 @@ import { useCallback, useEffect, useState } from "react";
 import { Badge, Button, Switch } from "@/components/ui";
 import { getJson, sendJson } from "@/lib/client";
 
-type Grant = { id: string; label: string; accountId: string | null; providers: string[]; createdAt: string };
+type Grant = { id: string; label: string; providers: string[]; createdAt: string };
 type Snapshot = { enabled: boolean; authRequired: boolean; grants: Grant[] };
-type ProviderOption = { id: string; name: string };
-type AccountOption = { id: string; label: string };
+type ProviderOption = { id: string; name: string; accounts: number };
 
 const LABEL_MAX = 100;
 
@@ -15,8 +14,6 @@ const LABEL_MAX = 100;
 export function PeerShareSettings() {
   const [snapshot, setSnapshot] = useState<Snapshot | null>(null);
   const [providers, setProviders] = useState<ProviderOption[]>([]);
-  const [accounts, setAccounts] = useState<AccountOption[]>([]);
-  const [accountId, setAccountId] = useState("");
   const [label, setLabel] = useState("");
   const [selected, setSelected] = useState<string[]>([]);
   const [issued, setIssued] = useState<{ label: string; token: string } | null>(null);
@@ -26,19 +23,39 @@ export function PeerShareSettings() {
 
   const reload = useCallback(() => {
     setLoading(true);
-    void Promise.all([
-      getJson<Snapshot>("/api/peer-auth/peers"),
-      getJson<{ providers: { id: string; name: string; authenticated: boolean }[] }>("/api/providers"),
-      getJson<{ accounts: { id: string; label: string; enabled?: boolean }[] }>("/api/accounts"),
-    ])
-      .then(([next, auth, accountList]) => {
+    void (async () => {
+      try {
+        const [next, auth, accountList] = await Promise.all([
+          getJson<Snapshot>("/api/peer-auth/peers"),
+          getJson<{ providers: { id: string; name: string; authenticated: boolean }[] }>("/api/providers"),
+          getJson<{ accounts: { id: string; label: string; enabled?: boolean }[] }>("/api/accounts"),
+        ]);
+        // Every account that holds a provider can be shared, so count them across accounts.
+        const accounts = accountList.accounts.filter((account) => account.enabled !== false);
+        const statuses = await Promise.all(
+          accounts.map((account) =>
+            getJson<{ providers?: string[] }>(`/api/accounts/${encodeURIComponent(account.id)}/auth-status`)
+              .catch(() => ({ providers: [] as string[] })),
+          ),
+        );
+        const counts = new Map<string, number>();
+        for (const provider of auth.providers) {
+          if (provider.authenticated) counts.set(provider.id, (counts.get(provider.id) ?? 0) + 1);
+        }
+        for (const status of statuses) {
+          for (const id of status.providers ?? []) counts.set(id, (counts.get(id) ?? 0) + 1);
+        }
         setSnapshot(next);
-        setProviders(auth.providers.filter((provider) => provider.authenticated).map(({ id, name }) => ({ id, name })));
-        setAccounts(accountList.accounts.filter((account) => account.enabled !== false).map(({ id, label }) => ({ id, label })));
+        setProviders(auth.providers
+          .filter((provider) => (counts.get(provider.id) ?? 0) > 0)
+          .map((provider) => ({ id: provider.id, name: provider.name, accounts: counts.get(provider.id) ?? 0 })));
         setError(null);
-      })
-      .catch((err) => setError(err instanceof Error ? err.message : "共有設定の読み込みに失敗しました"))
-      .finally(() => setLoading(false));
+      } catch (err) {
+        setError(err instanceof Error ? err.message : "共有設定の読み込みに失敗しました");
+      } finally {
+        setLoading(false);
+      }
+    })();
   }, []);
 
   useEffect(() => {
@@ -64,7 +81,7 @@ export function PeerShareSettings() {
 
   const create = () =>
     run(async () => {
-      const result = await sendJson<{ grant: Grant; token: string }>("/api/peer-auth/peers", { label: label.trim(), providers: selected, accountId: accountId || null }, "POST");
+      const result = await sendJson<{ grant: Grant; token: string }>("/api/peer-auth/peers", { label: label.trim(), providers: selected }, "POST");
       setIssued({ label: result.grant.label, token: result.token });
       setLabel("");
       setSelected([]);
@@ -122,23 +139,8 @@ export function PeerShareSettings() {
           />
         </label>
 
-        <label className="block text-sm">
-          <span className="mb-1.5 block text-muted">共有するアカウント</span>
-          <select
-            value={accountId}
-            disabled={disabled}
-            onChange={(event) => setAccountId(event.target.value)}
-            className="min-h-11 w-full rounded-lg border border-border bg-surface-2 px-3 text-sm outline-none focus:border-border-strong disabled:opacity-50"
-          >
-            <option value="">既定（~/.pi/agent/auth.json）</option>
-            {accounts.map((account) => (
-              <option key={account.id} value={account.id}>{account.label}</option>
-            ))}
-          </select>
-        </label>
-
         <fieldset className="text-sm" disabled={disabled}>
-          <legend className="mb-1.5 text-muted">共有するプロバイダ（既定アカウントでログイン済みのもの）</legend>
+          <legend className="mb-1.5 text-muted">共有するプロバイダ（そのプロバイダを持つ全アカウントが対象）</legend>
           {providers.length === 0 ? (
             <p className="text-xs text-muted">共有できるログイン済みプロバイダがありません。</p>
           ) : (
@@ -152,7 +154,7 @@ export function PeerShareSettings() {
                       setSelected((current) => (event.target.checked ? [...current, provider.id] : current.filter((id) => id !== provider.id)))
                     }
                   />
-                  <span>{provider.name}</span>
+                  <span>{provider.name}（{provider.accounts}アカウント）</span>
                 </label>
               ))}
             </div>
@@ -180,9 +182,7 @@ export function PeerShareSettings() {
             <li key={grant.id} className="flex flex-wrap items-center justify-between gap-2 px-3 py-2">
               <div className="min-w-0">
                 <p className="truncate text-sm font-medium">{grant.label}</p>
-                <p className="text-xs text-muted">
-                  {grant.providers.join("、")}（{grant.accountId ? accounts.find((account) => account.id === grant.accountId)?.label ?? grant.accountId : "既定"}）
-                </p>
+                <p className="text-xs text-muted">{grant.providers.join("、")}</p>
               </div>
               <Button type="button" variant="ghost" size="sm" disabled={disabled} onClick={() => void revoke(grant)}>
                 失効

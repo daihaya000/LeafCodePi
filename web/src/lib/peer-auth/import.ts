@@ -15,14 +15,21 @@ import {
 export type PeerImportResult = { status: number; body: unknown };
 
 type Deps = {
-  listShared(options: { peerUrl: string; token: string }): Promise<{ providerId: string; type: string }[]>;
+  listShared(options: { peerUrl: string; token: string }): Promise<{
+    providers: { providerId: string; type: string }[];
+    accounts: { accountId: string | null; label: string; providers: string[] }[];
+  }>;
   createAccount: typeof createAccount;
   deleteAccount: typeof deleteAccount;
-  writeConfig(accountId: string, config: { peerUrl: string; peerAccountId: null; providers: string[]; token: string }): Promise<void>;
+  writeConfig(accountId: string, config: { peerUrl: string; peerAccountId: string | null; providers: string[]; token: string }): Promise<void>;
 };
 
 const defaultDeps: Deps = {
-  listShared: ({ peerUrl, token }) => createRemotePeerCredentialStore({ peerUrl, token }).list(),
+  async listShared({ peerUrl, token }) {
+    const store = createRemotePeerCredentialStore({ peerUrl, token });
+    const [providers, accounts] = await Promise.all([store.list(), store.listAccounts()]);
+    return { providers, accounts };
+  },
   createAccount,
   deleteAccount,
   async writeConfig(accountId, config) {
@@ -37,12 +44,14 @@ const plain = (value: unknown): value is Record<string, unknown> =>
 /**
  * Creates an account whose credentials come from another LCP (docs/plans/peer-auth-share.md).
  * The connection is tested first (a bad URL or token creates nothing), the providers are the ones the
- * peer shares that this LCP can route to, and the token is stored only in the account's peer.json.
+ * peer shares that this LCP can route to, and one local account is created per account the peer
+ * offers so this LCP can route across them (integrated mode). The token is stored only in peer.json.
  */
 export async function importPeerAccount(input: unknown, deps: Deps = defaultDeps): Promise<PeerImportResult> {
   if (!plain(input) || Object.keys(input).some((key) => !["peerUrl", "token", "label", "providers"].includes(key))) {
     return fail(400, "invalid request");
-  }  const peerUrl = normalizePeerUrl(input.peerUrl);
+  }
+  const peerUrl = normalizePeerUrl(input.peerUrl);
   const token = input.token;
   if (!peerUrl) return fail(400, "peerUrl is invalid");
   if (typeof token !== "string" || parsePeerBearer(`Bearer ${token}`) !== token) return fail(400, "token is invalid");
@@ -50,7 +59,7 @@ export async function importPeerAccount(input: unknown, deps: Deps = defaultDeps
     return fail(400, "providers are invalid");
   }
 
-  let shared: { providerId: string; type: string }[];
+  let shared: Awaited<ReturnType<Deps["listShared"]>>;
   try {
     shared = await deps.listShared({ peerUrl, token });
   } catch {
@@ -58,26 +67,33 @@ export async function importPeerAccount(input: unknown, deps: Deps = defaultDeps
   }
 
   const routable = new Set<string>(ACCOUNT_PROVIDER_IDS);
-  const available = shared.map((entry) => entry.providerId).filter((id) => routable.has(id));
   const requested = input.providers as string[] | undefined;
-  const providers = (requested ? available.filter((id) => requested.includes(id)) : available) as AccountProviderId[];
-  if (providers.length === 0) return fail(400, "no shared provider can be used on this LCP");
+  const plan = shared.accounts.flatMap((account) => {
+    const providers = account.providers.filter(
+      (id) => routable.has(id) && (!requested || requested.includes(id)),
+    );
+    return providers.length ? [{ accountId: account.accountId, label: account.label, providers }] : [];
+  });
+  if (plan.length === 0) return fail(400, "no shared provider can be used on this LCP");
 
-  let account: AccountRecord;
+  const base = typeof input.label === "string" ? input.label.trim() : "";
+  const created: AccountRecord[] = [];
   try {
-    account = deps.createAccount({ label: input.label, providers });
+    for (const entry of plan) {
+      const label = `${base}（${entry.label}）`.slice(0, 100);
+      const account = deps.createAccount({ label, providers: entry.providers as AccountProviderId[] });
+      created.push(account);
+      await deps.writeConfig(account.id, { peerUrl, peerAccountId: entry.accountId, providers: entry.providers, token });
+    }
   } catch (error) {
+    // Never leave accounts that look local but have no credentials behind.
+    for (const account of created) {
+      try { deps.deleteAccount(account.id); } catch { /* best effort */ }
+    }
     const status = (error as { status?: unknown }).status;
     return status === 400 && error instanceof Error ? fail(400, error.message) : fail(500, "internal error");
   }
-  try {
-    await deps.writeConfig(account.id, { peerUrl, peerAccountId: null, providers, token });
-  } catch {
-    // Never leave an account that looks local but has no credentials behind.
-    try { deps.deleteAccount(account.id); } catch { /* best effort */ }
-    return fail(500, "internal error");
-  }
-  return { status: 201, body: { account } };
+  return { status: 201, body: { accounts: created } };
 }
 
 export type PeerAccountRow = {

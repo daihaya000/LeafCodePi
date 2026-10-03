@@ -33,8 +33,11 @@ describe("PeerImportSettings", () => {
     expect(button.disabled).toBe(true);
   });
 
-  it("posts trimmed values, clears the token from the form and reports success", async () => {
-    sendJson.mockResolvedValue({ account: { label: "main", providers: ["anthropic", "openai-codex"] } });
+  it("posts trimmed values, clears the token from the form and reports every created account", async () => {
+    sendJson.mockResolvedValue({ accounts: [
+      { label: "X870（既定）", providers: ["anthropic"] },
+      { label: "X870（仕事用）", providers: ["openai-codex"] },
+    ] });
     const onImported = vi.fn();
     render(<PeerImportSettings onImported={onImported} />);
     fill();
@@ -44,7 +47,7 @@ describe("PeerImportSettings", () => {
       { peerUrl: "http://100.64.0.2:3000", token: "TOKEN", label: "main" },
       "POST",
     ));
-    expect((await screen.findByRole("status")).textContent).toContain("「main」を追加しました（anthropic、openai-codex）");
+    expect((await screen.findByRole("status")).textContent).toContain("「main」として2件追加しました（X870（既定）、X870（仕事用））");
     expect((screen.getByLabelText("トークン") as HTMLInputElement).value).toBe("");
     expect((screen.getByLabelText("共有元のURL") as HTMLInputElement).value).toBe("");
     expect(onImported).toHaveBeenCalledTimes(1);

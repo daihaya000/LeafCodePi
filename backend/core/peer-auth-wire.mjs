@@ -66,8 +66,10 @@ export function publicPeerList(value) {
   const accounts = [];
   for (const entry of value.accounts) {
     if (!plain(entry) || typeof entry.label !== "string" || entry.label.length > 100
-      || (entry.accountId !== null && (typeof entry.accountId !== "string" || !ACCOUNT_ID.test(entry.accountId)))) return null;
-    accounts.push({ accountId: entry.accountId, label: entry.label });
+      || (entry.accountId !== null && (typeof entry.accountId !== "string" || !ACCOUNT_ID.test(entry.accountId)))
+      || !Array.isArray(entry.providers)
+      || !entry.providers.every((id) => typeof id === "string" && PROVIDER_ID.test(id))) return null;
+    accounts.push({ accountId: entry.accountId, label: entry.label, providers: [...new Set(entry.providers)] });
   }
   return { providers, accounts };
 }

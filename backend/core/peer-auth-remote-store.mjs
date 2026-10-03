@@ -39,6 +39,7 @@ export function createRemotePeerCredentialStore(options) {
   const cache = new Map();
   const inflight = new Map();
   let listCache = null;
+  let listInflight = null;
 
   const request = async (path, init, signal) => {
     const response = await doFetch(`${base}${path}`, {
@@ -89,6 +90,24 @@ export function createRemotePeerCredentialStore(options) {
     return pending;
   };
 
+  /** One cached GET of the peer's metadata list, shared by list() and listAccounts(). */
+  const fetchList = (signal) => {
+    if (listCache && listCache.at + 30_000 > now()) return Promise.resolve(listCache.value);
+    if (!listInflight) {
+      listInflight = (async () => {
+        let response;
+        try { response = await request(LIST_PATH, { method: "GET" }, signal); } catch { throw unavailable(); }
+        if (!response.ok) throw unavailable(response.status);
+        let parsed = null;
+        try { parsed = publicPeerList(await response.json()); } catch { /* invalid body */ }
+        if (!parsed) throw unavailable();
+        listCache = { at: now(), value: parsed };
+        return parsed;
+      })().finally(() => { listInflight = null; });
+    }
+    return listInflight;
+  };
+
   return {
     async read(providerId, readOptions) {
       const cached = cache.get(providerId);
@@ -103,16 +122,14 @@ export function createRemotePeerCredentialStore(options) {
     },
 
     async list(listOptions) {
-      if (listCache && listCache.at + 30_000 > now()) return listCache.value;
-      let response;
-      try { response = await request(LIST_PATH, { method: "GET" }, listOptions?.signal); } catch { throw unavailable(); }
-      if (!response.ok) throw unavailable(response.status);
-      let parsed = null;
-      try { parsed = publicPeerList(await response.json()); } catch { /* invalid body */ }
-      if (!parsed) throw unavailable();
-      const value = parsed.providers.map(({ providerId, type }) => ({ providerId, type }));
-      listCache = { at: now(), value };
-      return value;
+      const value = await fetchList(listOptions?.signal);
+      return value.providers.map(({ providerId, type }) => ({ providerId, type }));
+    },
+
+    /** Accounts the sharing LCP offers, each with the providers it holds. Metadata only. */
+    async listAccounts(listOptions) {
+      const value = await fetchList(listOptions?.signal);
+      return value.accounts.map((account) => ({ ...account, providers: [...account.providers] }));
     },
 
     /** Never runs `fn`: the SDK's callback would refresh with the peer's token, which only A may do. */

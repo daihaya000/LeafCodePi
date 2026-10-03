@@ -42,13 +42,21 @@ test("resolve response requires exactly one valid credential", () => {
 });
 
 test("list is metadata only and validated", () => {
-  const list = { providers: [{ providerId: "anthropic", type: "oauth", secret: "x" }], accounts: [{ accountId: null, label: "default", token: "x" }, { accountId: "a1", label: "work" }] };
+  const list = { providers: [{ providerId: "anthropic", type: "oauth", secret: "x" }], accounts: [
+    { accountId: null, label: "default", providers: ["anthropic", "anthropic"], token: "x" },
+    { accountId: "a1", label: "work", providers: ["openai-codex"] },
+  ] };
   assert.deepEqual(publicPeerList(list), {
     providers: [{ providerId: "anthropic", type: "oauth" }],
-    accounts: [{ accountId: null, label: "default" }, { accountId: "a1", label: "work" }],
+    accounts: [
+      { accountId: null, label: "default", providers: ["anthropic"] },
+      { accountId: "a1", label: "work", providers: ["openai-codex"] },
+    ],
   });
   assert.equal(publicPeerList({ providers: [{ providerId: "a b", type: "oauth" }], accounts: [] }), null);
   assert.equal(publicPeerList({ providers: [{ providerId: "a", type: "x" }], accounts: [] }), null);
-  assert.equal(publicPeerList({ providers: [], accounts: [{ accountId: "bad id", label: "l" }] }), null);
+  assert.equal(publicPeerList({ providers: [], accounts: [{ accountId: "bad id", label: "l", providers: ["a"] }] }), null);
+  assert.equal(publicPeerList({ providers: [], accounts: [{ accountId: null, label: "l" }] }), null);
+  assert.equal(publicPeerList({ providers: [], accounts: [{ accountId: null, label: "l", providers: ["bad id"] }] }), null);
   assert.equal(publicPeerList({ providers: [] }), null);
 });

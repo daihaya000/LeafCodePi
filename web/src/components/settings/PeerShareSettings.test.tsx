@@ -6,10 +6,11 @@ import { PeerShareSettings } from "./PeerShareSettings";
 const { getJson, sendJson } = vi.hoisted(() => ({ getJson: vi.fn(), sendJson: vi.fn() }));
 vi.mock("@/lib/client", () => ({ getJson, sendJson }));
 
-const grant = { id: "g1", label: "laptop", accountId: null, providers: ["anthropic"], createdAt: "2026-10-03T00:00:00Z" };
+const grant = { id: "g1", label: "laptop", providers: ["anthropic"], createdAt: "2026-10-03T00:00:00Z" };
 const providers = { providers: [
   { id: "anthropic", name: "Anthropic", authenticated: true },
   { id: "openrouter", name: "OpenRouter", authenticated: false },
+  { id: "openai-codex", name: "OpenAI Codex", authenticated: false },
 ] };
 const accounts = { accounts: [
   { id: "acc-1", label: "仕事用", enabled: true },
@@ -20,6 +21,10 @@ function serve(snapshot: unknown) {
   getJson.mockImplementation(async (path: string) => {
     if (path === "/api/providers") return providers;
     if (path === "/api/accounts") return accounts;
+    if (path.startsWith("/api/accounts/")) {
+      const id = decodeURIComponent(path.split("/")[3]);
+      return { providers: id === "acc-1" ? ["openai-codex"] : [] };
+    }
     return snapshot;
   });
 }
@@ -32,46 +37,32 @@ describe("PeerShareSettings", () => {
     sendJson.mockReset();
   });
 
-  it("offers only logged-in providers and warns that traffic is unencrypted", async () => {
+  it("offers the providers held by some account, with account counts, and warns that traffic is unencrypted", async () => {
     render(<PeerShareSettings />);
-    expect(await screen.findByLabelText("Anthropic")).toBeTruthy();
-    expect(screen.queryByLabelText("OpenRouter")).toBeNull();
+    expect(await screen.findByLabelText(/Anthropic（1アカウント）/)).toBeTruthy();
+    expect(screen.getByLabelText(/OpenAI Codex（1アカウント）/)).toBeTruthy();
+    // Held by nobody, and the disabled account is not counted.
+    expect(screen.queryByLabelText(/OpenRouter/)).toBeNull();
     expect(screen.getByText(/暗号化されずに流れます/)).toBeTruthy();
   });
 
-  it("creates a grant, shows the token once, and never renders it again after closing", async () => {
+  it("creates a provider-scoped grant and shows the token once", async () => {
     const token = "T".repeat(43);
     sendJson.mockResolvedValue({ grant, token });
     render(<PeerShareSettings />);
     fireEvent.change(await screen.findByLabelText("共有先の名前"), { target: { value: " laptop " } });
     const add = screen.getByRole("button", { name: "共有先を追加" }) as HTMLButtonElement;
     expect(add.disabled).toBe(true);
-    fireEvent.click(screen.getByLabelText("Anthropic"));
+    fireEvent.click(screen.getByLabelText(/Anthropic/));
     expect(add.disabled).toBe(false);
     serve({ enabled: false, authRequired: true, grants: [grant] });
     fireEvent.click(add);
-    await waitFor(() => expect(sendJson).toHaveBeenCalledWith("/api/peer-auth/peers", { label: "laptop", providers: ["anthropic"], accountId: null }, "POST"));
+    await waitFor(() => expect(sendJson).toHaveBeenCalledWith("/api/peer-auth/peers", { label: "laptop", providers: ["anthropic"] }, "POST"));
     expect((await screen.findByTestId("peer-token")).textContent).toBe(token);
     fireEvent.click(screen.getByRole("button", { name: "閉じる" }));
     expect(screen.queryByText(token)).toBeNull();
     expect(screen.getByText("laptop")).toBeTruthy();
-  });
-
-  it("shares an added account when one is selected, and labels the grant with it", async () => {
-    const withAccount = { ...grant, accountId: "acc-1" };
-    sendJson.mockResolvedValue({ grant: withAccount, token: "T".repeat(43) });
-    render(<PeerShareSettings />);
-    await screen.findByLabelText("Anthropic");
-    const select = screen.getByLabelText("共有するアカウント") as HTMLSelectElement;
-    // 停止中のアカウントは選べない
-    expect(Array.from(select.options).map((option) => option.textContent)).toEqual(["既定（~/.pi/agent/auth.json）", "仕事用"]);
-    fireEvent.change(select, { target: { value: "acc-1" } });
-    fireEvent.change(screen.getByLabelText("共有先の名前"), { target: { value: "laptop" } });
-    fireEvent.click(screen.getByLabelText("Anthropic"));
-    serve({ enabled: true, authRequired: true, grants: [withAccount] });
-    fireEvent.click(screen.getByRole("button", { name: "共有先を追加" }));
-    await waitFor(() => expect(sendJson).toHaveBeenCalledWith("/api/peer-auth/peers", { label: "laptop", providers: ["anthropic"], accountId: "acc-1" }, "POST"));
-    expect((await screen.findByText("anthropic（仕事用）")).textContent).toBe("anthropic（仕事用）");
+    expect(screen.getByText("anthropic")).toBeTruthy();
   });
 
   it("revokes a grant by id", async () => {
@@ -102,7 +93,7 @@ describe("PeerShareSettings", () => {
     sendJson.mockRejectedValue(new Error("label is invalid"));
     render(<PeerShareSettings />);
     fireEvent.change(await screen.findByLabelText("共有先の名前"), { target: { value: "x" } });
-    fireEvent.click(screen.getByLabelText("Anthropic"));
+    fireEvent.click(screen.getByLabelText(/Anthropic/));
     fireEvent.click(screen.getByRole("button", { name: "共有先を追加" }));
     expect((await screen.findByRole("alert")).textContent).toBe("label is invalid");
   });

@@ -39,16 +39,17 @@ export function PeerImportSettings({ onImported }: { onImported?: () => void }) 
     setError(null);
     setNotice(null);
     try {
-      const result = await sendJson<{ account: { label: string; providers: string[] } }>(
+      const result = await sendJson<{ accounts: { label: string; providers: string[] }[] }>(
         "/api/peer-auth/import",
         { peerUrl: peerUrl.trim(), token: token.trim(), label: label.trim() },
         "POST",
       );
-      // The token now lives only in the new account's peer.json; never keep it in the form.
+      // The token now lives only in the new accounts' peer.json; never keep it in the form.
       setToken("");
       setPeerUrl("");
       setLabel("");
-      setNotice(`「${result.account.label}」を追加しました（${result.account.providers.join("、")}）。`);
+      const names = result.accounts.map((account) => account.label).join("、");
+      setNotice(`「${label.trim()}」として${result.accounts.length}件追加しました（${names}）。`);
       loadPeers();
       onImported?.();
     } catch (err) {

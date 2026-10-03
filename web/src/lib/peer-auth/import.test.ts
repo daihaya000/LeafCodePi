@@ -2,39 +2,59 @@ import { describe, expect, it, vi } from "vitest";
 import { importPeerAccount, listPeerAccounts } from "./import";
 
 const TOKEN = "t".repeat(43);
-const record = { id: "acc-1", label: "peer", enabled: true, providers: ["anthropic"], createdAt: "t", updatedAt: "t" };
+const shared = {
+  providers: [
+    { providerId: "anthropic", type: "oauth" },
+    { providerId: "openai-codex", type: "oauth" },
+    { providerId: "unknown-provider", type: "api_key" },
+  ],
+  accounts: [
+    { accountId: null, label: "既定", providers: ["anthropic"] },
+    { accountId: "a2", label: "仕事用", providers: ["openai-codex", "unknown-provider"] },
+    { accountId: "a3", label: "未使用", providers: ["unknown-provider"] },
+  ],
+};
 
 function deps(overrides: Record<string, unknown> = {}) {
+  let created = 0;
   return {
-    listShared: vi.fn(async () => [{ providerId: "anthropic", type: "oauth" }, { providerId: "unknown-provider", type: "api_key" }, { providerId: "openrouter", type: "api_key" }]),
-    createAccount: vi.fn(() => record),
+    listShared: vi.fn(async () => shared),
+    createAccount: vi.fn(({ label, providers }: { label: string; providers: string[] }) => ({
+      id: `acc-${++created}`, label, enabled: true, providers, createdAt: "t", updatedAt: "t",
+    })),
     deleteAccount: vi.fn(),
     writeConfig: vi.fn(async () => undefined),
     ...overrides,
-  } as never;
+  } as unknown as Record<string, ReturnType<typeof vi.fn>>;
 }
 
-const valid = { peerUrl: "http://100.64.0.2:3000/ignored", token: TOKEN, label: "peer" };
+const valid = { peerUrl: "http://100.64.0.2:3000/ignored", token: TOKEN, label: "X870" };
 
 describe("importPeerAccount", () => {
-  it("tests the connection, keeps only providers this LCP can route, and stores the token in peer.json only", async () => {
-    const d = deps() as unknown as Record<string, ReturnType<typeof vi.fn>>;
+  it("creates one account per sharing-LCP account, with that account's routable providers", async () => {
+    const d = deps();
     const result = await importPeerAccount(valid, d as never);
     expect(result.status).toBe(201);
     expect(d.listShared).toHaveBeenCalledWith({ peerUrl: "http://100.64.0.2:3000", token: TOKEN });
-    expect(d.createAccount).toHaveBeenCalledWith({ label: "peer", providers: ["anthropic", "openrouter"] });
-    expect(d.writeConfig).toHaveBeenCalledWith("acc-1", { peerUrl: "http://100.64.0.2:3000", peerAccountId: null, providers: ["anthropic", "openrouter"], token: TOKEN });
+    // The third account only holds an unroutable provider, so it is skipped entirely.
+    expect(d.createAccount).toHaveBeenCalledTimes(2);
+    expect(d.createAccount).toHaveBeenNthCalledWith(1, { label: "X870（既定）", providers: ["anthropic"] });
+    expect(d.createAccount).toHaveBeenNthCalledWith(2, { label: "X870（仕事用）", providers: ["openai-codex"] });
+    expect(d.writeConfig).toHaveBeenNthCalledWith(1, "acc-1", { peerUrl: "http://100.64.0.2:3000", peerAccountId: null, providers: ["anthropic"], token: TOKEN });
+    expect(d.writeConfig).toHaveBeenNthCalledWith(2, "acc-2", { peerUrl: "http://100.64.0.2:3000", peerAccountId: "a2", providers: ["openai-codex"], token: TOKEN });
+    expect((result.body as { accounts: unknown[] }).accounts).toHaveLength(2);
     expect(JSON.stringify(result.body)).not.toContain(TOKEN);
   });
 
-  it("narrows to the requested providers", async () => {
-    const d = deps() as unknown as Record<string, ReturnType<typeof vi.fn>>;
-    await importPeerAccount({ ...valid, providers: ["openrouter", "gemini"] }, d as never);
-    expect(d.createAccount).toHaveBeenCalledWith({ label: "peer", providers: ["openrouter"] });
+  it("narrows to the requested providers per account", async () => {
+    const d = deps();
+    await importPeerAccount({ ...valid, providers: ["openai-codex", "gemini"] }, d as never);
+    expect(d.createAccount).toHaveBeenCalledTimes(1);
+    expect(d.createAccount).toHaveBeenCalledWith({ label: "X870（仕事用）", providers: ["openai-codex"] });
   });
 
   it("rejects bad input before contacting the peer", async () => {
-    const d = deps() as unknown as Record<string, ReturnType<typeof vi.fn>>;
+    const d = deps();
     for (const input of [null, [], { ...valid, extra: 1 }, { ...valid, peerUrl: "ftp://x" }, { ...valid, token: "short" },
       { ...valid, providers: "anthropic" }, { ...valid, providers: [1] }]) {
       expect((await importPeerAccount(input, d as never)).status).toBe(400);
@@ -44,7 +64,7 @@ describe("importPeerAccount", () => {
   });
 
   it("creates nothing when the peer is unreachable or rejects the token (502, opaque)", async () => {
-    const d = deps({ listShared: vi.fn(async () => { throw new Error(`Peer auth request failed (401) ${TOKEN}`); }) }) as unknown as Record<string, ReturnType<typeof vi.fn>>;
+    const d = deps({ listShared: vi.fn(async () => { throw new Error(`Peer auth request failed (401) ${TOKEN}`); }) });
     const result = await importPeerAccount(valid, d as never);
     expect(result.status).toBe(502);
     expect(JSON.stringify(result.body)).not.toContain(TOKEN);
@@ -52,23 +72,24 @@ describe("importPeerAccount", () => {
   });
 
   it("returns 400 and creates nothing when no shared provider is usable here", async () => {
-    const d = deps({ listShared: vi.fn(async () => [{ providerId: "unknown-provider", type: "oauth" }]) }) as unknown as Record<string, ReturnType<typeof vi.fn>>;
+    const d = deps({ listShared: vi.fn(async () => ({ providers: [], accounts: [{ accountId: null, label: "既定", providers: ["unknown-provider"] }] })) });
     expect((await importPeerAccount(valid, d as never)).status).toBe(400);
     expect(d.createAccount).not.toHaveBeenCalled();
   });
 
-  it("surfaces account validation messages (400) and keeps other failures opaque", async () => {
-    const invalid = deps({ createAccount: vi.fn(() => { throw Object.assign(new Error("label が不正です"), { status: 400 }); }) });
-    expect(await importPeerAccount(valid, invalid)).toEqual({ status: 400, body: { error: "label が不正です" } });
-    const broken = deps({ createAccount: vi.fn(() => { throw new Error("EACCES /secret"); }) });
-    expect(await importPeerAccount(valid, broken)).toEqual({ status: 500, body: { error: "internal error" } });
-  });
-
-  it("rolls the account back when writing peer.json fails", async () => {
-    const d = deps({ writeConfig: vi.fn(async () => { throw new Error("disk full"); }) }) as unknown as Record<string, ReturnType<typeof vi.fn>>;
+  it("rolls every created account back when one peer.json write fails", async () => {
+    const d = deps({ writeConfig: vi.fn(async (id: string) => { if (id === "acc-2") throw new Error("disk full"); }) });
     const result = await importPeerAccount(valid, d as never);
     expect(result).toEqual({ status: 500, body: { error: "internal error" } });
     expect(d.deleteAccount).toHaveBeenCalledWith("acc-1");
+    expect(d.deleteAccount).toHaveBeenCalledWith("acc-2");
+  });
+
+  it("surfaces account validation messages (400) and keeps other failures opaque", async () => {
+    const invalid = deps({ createAccount: vi.fn(() => { throw Object.assign(new Error("label が不正です"), { status: 400 }); }) });
+    expect(await importPeerAccount(valid, invalid as never)).toEqual({ status: 400, body: { error: "label が不正です" } });
+    const broken = deps({ createAccount: vi.fn(() => { throw new Error("EACCES /secret"); }) });
+    expect(await importPeerAccount(valid, broken as never)).toEqual({ status: 500, body: { error: "internal error" } });
   });
 });
 

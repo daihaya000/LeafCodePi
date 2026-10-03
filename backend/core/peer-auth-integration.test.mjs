@@ -1,8 +1,8 @@
 import assert from "node:assert/strict";
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { createServer } from "node:http";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import test from "node:test";
 import { createPeerAuditLog, createPeerRateLimiter } from "./peer-auth-audit.mjs";
 import { createPeerGrantStore } from "./peer-auth-grants.mjs";
@@ -14,30 +14,37 @@ import { createPeerAuthService } from "./peer-auth-serve.mjs";
 
 const REFRESH_SECRET = "REFRESH-TOKEN-MUST-NEVER-LEAVE-A";
 
-async function startA({ stored }) {
+async function startA({ stored, extraAccounts = {} }) {
   const root = await mkdtemp(join(tmpdir(), "leafcode-peer-integration-"));
-  const authPath = join(root, "auth.json");
-  await writeFile(authPath, JSON.stringify(stored), "utf8");
+  const authPathFor = (accountId) => (accountId === null ? join(root, "auth.json") : join(root, "accounts", accountId, "auth.json"));
+  await writeFile(authPathFor(null), JSON.stringify(stored), "utf8");
+  for (const [accountId, credentials] of Object.entries(extraAccounts)) {
+    await mkdir(dirname(authPathFor(accountId)), { recursive: true });
+    await writeFile(authPathFor(accountId), JSON.stringify(credentials), "utf8");
+  }
   const grants = createPeerGrantStore({ path: join(root, "peer-auth.json") });
   grants.setEnabled(true);
   const audit = createPeerAuditLog({ path: join(root, "audit.jsonl") });
   const state = { time: Date.now(), refreshes: 0, bodies: [] };
-  const readAuth = async () => JSON.parse(await readFile(authPath, "utf8"));
+  const readAuth = async (accountId = null) => JSON.parse(await readFile(authPathFor(accountId), "utf8"));
   const service = createPeerAuthService({
     grants, audit, limiter: createPeerRateLimiter({ limit: 1000 }), now: () => state.time,
-    readStoredCredential: async (providerId) => (await readAuth())[providerId],
-    getAuth: async (providerId, _account, { minOAuthValidityMs }) => {
-      const auth = await readAuth();
+    readStoredCredential: async (providerId, accountId) => (await readAuth(accountId))[providerId],
+    getAuth: async (providerId, accountId, { minOAuthValidityMs }) => {
+      const auth = await readAuth(accountId);
       const credential = auth[providerId];
       if (credential?.type === "oauth" && credential.expires - state.time < minOAuthValidityMs) {
         state.refreshes += 1;
         auth[providerId] = { ...credential, access: `access-${state.refreshes}`, refresh: `${REFRESH_SECRET}-${state.refreshes}`, expires: state.time + 60 * 60_000 };
-        await writeFile(authPath, JSON.stringify(auth), "utf8");
+        await writeFile(authPathFor(accountId), JSON.stringify(auth), "utf8");
       }
       return undefined;
     },
-    listStoredProviders: async () => Object.entries(await readAuth()).map(([providerId, credential]) => ({ providerId, type: credential.type })),
-    listAccounts: async () => [{ accountId: null, label: "default" }],
+    listStoredProviders: async (accountId) => Object.entries(await readAuth(accountId)).map(([providerId, credential]) => ({ providerId, type: credential.type })),
+    listAccounts: async () => [
+      { accountId: null, label: "default" },
+      ...Object.keys(extraAccounts).map((accountId) => ({ accountId, label: accountId })),
+    ],
   });
   const server = createServer(async (request, response) => {
     let body = "";
@@ -56,7 +63,7 @@ async function startA({ stored }) {
   await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
   const url = `http://127.0.0.1:${server.address().port}`;
   return {
-    grants, audit, state, url, authPath,
+    grants, audit, state, url, authPath: authPathFor(null),
     stop: () => new Promise((resolve) => { server.close(resolve); server.closeAllConnections(); }),
     cleanup: async (running = true) => { if (running) await new Promise((resolve) => { server.close(resolve); server.closeAllConnections(); }).catch(() => undefined); await rm(root, { recursive: true, force: true }); },
   };
@@ -125,4 +132,29 @@ test("when A goes away B keeps using a still-valid token and fails once it expir
     time = first.expires + 1;
     await assert.rejects(b.read("anthropic"), /Peer auth request failed/);
   } finally { await a.cleanup(false); }
+});
+
+test("every account that holds a granted provider is shared, and B resolves each account separately", async () => {
+  const a = await startA({
+    stored: { anthropic: { type: "api_key", key: "k-default" } },
+    extraAccounts: {
+      accA: { anthropic: { type: "api_key", key: "k-a" }, openrouter: { type: "api_key", key: "k-or" } },
+      accB: { anthropic: { type: "api_key", key: "k-b" } },
+    },
+  });
+  try {
+    const { token } = a.grants.create({ label: "b", providers: ["anthropic"] });
+    const b = createRemotePeerCredentialStore({ peerUrl: a.url, token });
+    // Only anthropic is granted, so openrouter on accA is invisible and per-account providers are exact.
+    assert.deepEqual(await b.listAccounts(), [
+      { accountId: null, label: "default", providers: ["anthropic"] },
+      { accountId: "accA", label: "accA", providers: ["anthropic"] },
+      { accountId: "accB", label: "accB", providers: ["anthropic"] },
+    ]);
+    const read = (accountId) => createRemotePeerCredentialStore({ peerUrl: a.url, token, accountId }).read("anthropic");
+    assert.deepEqual(await read(null), { type: "api_key", key: "k-default" });
+    assert.deepEqual(await read("accA"), { type: "api_key", key: "k-a" });
+    assert.deepEqual(await read("accB"), { type: "api_key", key: "k-b" });
+    await assert.rejects(createRemotePeerCredentialStore({ peerUrl: a.url, token, accountId: "accA" }).read("openrouter"), /\(403\)/);
+  } finally { await a.cleanup(); }
 });

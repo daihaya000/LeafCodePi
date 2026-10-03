@@ -34,12 +34,11 @@ export function createPeerAdmin({ store, authRequired }: Deps) {
     get: (): PeerAdminResult => guard(() => ({ status: 200, body: snapshot() })),
 
     create: (body: unknown): PeerAdminResult => guard(() => {
-      if (!plain(body) || Object.keys(body).some((key) => !["label", "accountId", "providers"].includes(key))) {
+      if (!plain(body) || Object.keys(body).some((key) => !["label", "providers"].includes(key))) {
         return fail(400, "invalid request");
       }
       const { grant, token } = store.create({
         label: body.label as string,
-        accountId: body.accountId === undefined ? null : (body.accountId as string | null),
         providers: body.providers as string[],
       });
       return { status: 201, body: { grant, token } };

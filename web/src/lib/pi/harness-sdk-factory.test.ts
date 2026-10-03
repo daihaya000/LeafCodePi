@@ -148,7 +148,7 @@ describe("harness SDK factory connection", () => {
       allowModelNetwork: true,
       modelRefreshTimeoutMs: 8_000,
     });
-    expect(Object.keys(peerOptions.credentials!).sort()).toEqual(["delete", "list", "modify", "read"]);
+    expect(Object.keys(peerOptions.credentials!).sort()).toEqual(["delete", "list", "listAccounts", "modify", "read"]);
     expect(create).toHaveBeenCalledWith({
       authPath: accountAuthPath(local.id, join(root, "agent")),
       modelsStorePath: accountModelsStorePath(local.id, join(root, "agent")),

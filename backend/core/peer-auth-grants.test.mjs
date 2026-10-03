@@ -26,7 +26,6 @@ test("the token is returned once and only its hash is persisted", async () => {
     const { grant, token } = store.create({ label: " laptop ", providers: ["anthropic", "anthropic", "openai-codex"] });
     assert.equal(grant.label, "laptop");
     assert.deepEqual(grant.providers, ["anthropic", "openai-codex"]);
-    assert.equal(grant.accountId, null);
     assert.equal("tokenSha256" in grant, false);
     const raw = await readFile(path, "utf8");
     assert.equal(raw.includes(token), false);
@@ -39,12 +38,12 @@ test("verify requires sharing to be enabled, then matches only the issued token"
   const { store, cleanup } = await fixture();
   try {
     const first = store.create({ label: "a", providers: ["anthropic"] });
-    const second = store.create({ label: "b", accountId: "acc_1", providers: ["openai-codex"] });
+    const second = store.create({ label: "b", providers: ["openai-codex"] });
     assert.equal(store.isEnabled(), false);
     assert.equal(store.verify(first.token), null);
     store.setEnabled(true);
     assert.equal(store.verify(first.token)?.id, first.grant.id);
-    assert.equal(store.verify(second.token)?.accountId, "acc_1");
+    assert.deepEqual(store.verify(second.token)?.providers, ["openai-codex"]);
     for (const bad of [generatePeerToken(), "", undefined, 5, "x".repeat(513), `${first.token}x`]) assert.equal(store.verify(bad), null);
     store.setEnabled(false);
     assert.equal(store.verify(first.token), null);
@@ -68,7 +67,7 @@ test("invalid input is rejected with status 400 and nothing is written", async (
   try {
     for (const input of [
       { label: "", providers: ["a"] }, { label: "x".repeat(101), providers: ["a"] }, { label: "l", providers: [] },
-      { label: "l", providers: ["bad id"] }, { label: "l", providers: "a" }, { label: "l", accountId: "../x", providers: ["a"] },
+      { label: "l", providers: ["bad id"] }, { label: "l", providers: "a" },
     ]) assert.throws(() => store.create(input), (error) => error.status === 400);
     assert.throws(() => store.setEnabled("yes"), (error) => error.status === 400);
     assert.deepEqual(await readdir(root), []);

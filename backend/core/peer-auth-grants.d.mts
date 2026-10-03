@@ -1,11 +1,10 @@
 export type PeerGrant = {
   id: string;
   label: string;
-  accountId: string | null;
   providers: string[];
   createdAt: string;
 };
-export type PeerGrantInput = { label: string; accountId?: string | null; providers: string[] };
+export type PeerGrantInput = { label: string; providers: string[] };
 export type PeerGrantStore = {
   isEnabled(): boolean;
   setEnabled(enabled: boolean): void;

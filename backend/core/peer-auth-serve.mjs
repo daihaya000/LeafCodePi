@@ -48,17 +48,28 @@ export function createPeerAuthService(deps) {
       if (checked.response) return checked.response;
       const { grant } = checked;
       try {
-        const stored = await deps.listStoredProviders(grant.accountId);
-        const accounts = (await deps.listAccounts()).filter((account) => account.accountId === grant.accountId);
+        // Every account that holds one of the granted providers is shared; the peer sees them per account.
+        const providers = new Map();
+        const accounts = [];
+        for (const account of await deps.listAccounts()) {
+          const stored = (await deps.listStoredProviders(account.accountId))
+            .filter((entry) => grant.providers.includes(entry.providerId));
+          if (stored.length === 0) continue;
+          for (const entry of stored) {
+            // The same provider can be OAuth in one account and an API key in another; report the first.
+            if (!providers.has(entry.providerId)) providers.set(entry.providerId, entry.type);
+          }
+          accounts.push({ accountId: account.accountId, label: account.label, providers: stored.map((entry) => entry.providerId) });
+        }
         const list = publicPeerList({
-          providers: stored.filter((entry) => grant.providers.includes(entry.providerId)),
+          providers: [...providers].map(([providerId, type]) => ({ providerId, type })),
           accounts,
         });
         if (!list) throw new Error("invalid list");
-        deps.audit.record({ peerId: grant.id, action: "list", accountId: grant.accountId, result: "ok" });
+        deps.audit.record({ peerId: grant.id, action: "list", result: "ok" });
         return reply(200, list);
       } catch {
-        deps.audit.record({ peerId: grant.id, action: "list", accountId: grant.accountId, result: "error" });
+        deps.audit.record({ peerId: grant.id, action: "list", result: "error" });
         return failure(503, "unavailable");
       }
     },
@@ -69,16 +80,29 @@ export function createPeerAuthService(deps) {
       const { grant } = checked;
       const parsed = parsePeerResolveRequest(body);
       if (!parsed.ok) return failure(400, "bad-request");
-      const { providerId, accountId: requested } = parsed.value;
-      // A grant is bound to one account; null/omitted means "the granted one".
-      if (requested !== null && requested !== grant.accountId) {
-        deps.audit.record({ peerId: grant.id, action: "resolve", providerId, accountId: requested, result: "forbidden" });
-        return failure(403, "forbidden");
-      }
-      const accountId = grant.accountId;
+      const { providerId, accountId } = parsed.value;
       if (!grant.providers.includes(providerId)) {
         deps.audit.record({ peerId: grant.id, action: "resolve", providerId, accountId, result: "forbidden" });
         return failure(403, "forbidden");
+      }
+      // The peer chooses one of the shared accounts. An account that does not hold this provider is
+      // refused before any ambient auth could answer for it.
+      try {
+        const known = (await deps.listAccounts()).some((account) => account.accountId === accountId);
+        const storedForAccount = known ? await deps.listStoredProviders(accountId) : [];
+        if (!known) {
+          deps.audit.record({ peerId: grant.id, action: "resolve", providerId, accountId, result: "forbidden" });
+          return failure(403, "forbidden");
+        }
+        // Named accounts must hold the credential themselves; only the default account may fall back
+        // to ambient auth (environment/ADC), which would otherwise leak into every account.
+        if (accountId !== null && !storedForAccount.some((entry) => entry.providerId === providerId)) {
+          deps.audit.record({ peerId: grant.id, action: "resolve", providerId, accountId, result: "not-found" });
+          return failure(404, "not-found");
+        }
+      } catch {
+        deps.audit.record({ peerId: grant.id, action: "resolve", providerId, accountId, result: "error" });
+        return failure(503, "unavailable");
       }
       try {
         let stored = await deps.readStoredCredential(providerId, accountId);

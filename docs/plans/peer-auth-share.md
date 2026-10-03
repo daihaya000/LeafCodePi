@@ -29,7 +29,7 @@
 ### ワイヤ契約（`shared/peer-auth-*.mjs` + `.d.mts` + tests）
 
 - 認証: `Authorization: Bearer <peer token>`（全エンドポイント）
-- `GET /api/peer-auth/list` → `{ providers: [{ providerId, type }], accounts: [{ accountId, label }] }`（秘密なし）
+- `GET /api/peer-auth/list` → `{ providers: [{ providerId, type }], accounts: [{ accountId, label, providers }] }`（秘密なし。アカウントごとに、そのアカウントが持つ共有プロバイダを返す）
 - `POST /api/peer-auth/resolve` `{ providerId, accountId: string | null }`
   → `{ credential: { type: "api_key", key, env? } | { type: "oauth", access, expires } }`
   / 400 / 401 / 403 / 404 / 429 / 503
@@ -38,7 +38,7 @@
 ### A 側（共有元）
 
 - 有効化条件: 共有トグル ON かつ `webUiAuthRequired()`。未充足は 409（リモート公開時に WebUI 認証が必須という既存規則に合わせる）
-- グラント: ピアごとに `{ id, label, tokenSha256, accountId, providers[], createdAt }`。トークンは 32 byte base64url を生成時に 1 回だけ表示し、保存は hash のみ。失効・削除可
+- グラント: ピアごとに `{ id, label, tokenSha256, providers[], createdAt }`。**アカウント選択式は採用しない**: グラントはプロバイダ単位で、そのプロバイダを持つ全アカウント（既定＋追加）が共有対象になる。トークンは 32 byte base64url を生成時に 1 回だけ表示し、保存は hash のみ。失効・削除可
 - 保存: `dataDir/peer-auth.json`（グラント・設定）。監査: `dataDir/peer-auth-audit.jsonl`（`at` / `peerId` / `action` / `providerId` / `accountId` / `result` のみ、秘密なし、上限 1000 行）
 - 解決手順: `getRuntimeFor(accountId)` → `getAuth(providerId, { minOAuthValidityMs: 10分 })` で必要時に refresh・永続化 → `readStoredCredential(providerId, authPath)`（default は `agentDir/auth.json`、アカウントは `accounts/<id>/auth.json`）で credential を取得。OAuth は `{ type, access, expires }` に削減。API key は保存済み credential を優先し、無ければ `getAuth` の解決値（runtime API key 含む）から `{ type, key, env }` を返す。materialize 不可は 404/409
 - 保護: hash 後の timing-safe 比較、トークン単位レート制限（in-memory、既定 60 req/min）、本文サイズ上限、監査記録、CORS ヘッダなし
@@ -55,7 +55,7 @@
   - A 不達時は期限内キャッシュを返し、期限切れなら auth エラー
 - ピアアカウント: `accounts.json` のスキーマは変更しない。`~/.pi/agent/accounts/<id>/peer.json` の存在で分岐し、`accountRuntimeManager` が `ModelRuntime.create({ credentials: store, modelsStorePath })` を生成（`authPath` なし）
 - `peer.json`: `{ version: 1, peerUrl, peerAccountId, providers[], token, createdAt }`（Pi 管理下の agent ディレクトリに保存）。書込みは auth.json と同じ 0o600・原子的置換とし、Windows では既存の Pi credential と同じ user ACL に従う
-- アカウント UI: A へ接続テスト → list 取得 → 共有 provider 選択（`AccountProviderId` ∩ A の共有範囲）→ `peer.json` と `accounts.json` を登録。peer アカウントではログイン / ログアウト UI を無効化
+- アカウント UI: A へ接続テスト → list 取得 → **A のアカウントごとに 1 つずつローカルアカウントを作成**（ラベルは `共有先名（Aのアカウント名）`、providers はそのアカウントの共有範囲 ∩ ルーティング可能）。各 `peer.json` に `peerAccountId` を保存。peer アカウントではログイン / ログアウト UI を無効化
 - A 停止時: 該当 peer アカウントは認証エラー。UI に「接続元 LCP: オフライン」を表示
 - `peer.json` 変更時は当該アカウントの runtime を破棄して再生成する。実行中タスクが参照しているアカウントの変更は 409（既存 `deleteAccount` と同じ規則）
 
@@ -80,14 +80,14 @@
 - `backend/core/peer-auth-wire.{mjs,d.mts,test.mjs}`: ベアラー解析、resolve 要求の厳格検証、公開 credential の整形（refresh 除去）、list/resolve 応答の検証。Web 側は `@backend-core/peer-auth-wire.mjs` で参照する（prod ビルドは OneDrive 外のミラーで走り、そこでは `backend-core/` と `shared/` が兄弟になるため、相対 import で `shared/` を指す経路は使わない）
 - `backend/core/peer-auth-grants.{mjs,d.mts}`: トークン生成（32B base64url）・SHA-256 のみ保存・timing-safe 検証・有効化トグル・作成/失効/一覧・原子的書込み
 - `backend/core/peer-auth-audit.{mjs,d.mts}`: JSONL 監査（上限 1000 行、秘密なし）とピア単位の固定窓レート制限
-- `backend/core/peer-auth-serve.{mjs,d.mts}`: 認証 → レート → アカウント束縛/allowlist → OAuth は `getAuth(minOAuthValidityMs=10分)` で A 側 refresh 後に再読込 → 公開 credential 化 → 監査。エラーは不透明な 503、全応答 no-store
-- `backend/core/peer-auth-remote-store.{mjs,d.mts}`: B 側 CredentialStore（キャッシュ・同時 read 統合・modify で再解決・401/403 はキャッシュ破棄）
+- `backend/core/peer-auth-serve.{mjs,d.mts}`: 認証 → レート → allowlist（プロバイダ）→ 指定アカウントがそのプロバイダを保持するか検証 → OAuth は `getAuth(minOAuthValidityMs=10分)` で A 側 refresh 後に再読込 → 公開 credential 化 → 監査。既定アカウントのみ ambient 認証へのフォールバックを許す。エラーは不透明な 503、全応答 no-store。list は共有プロバイダを持つ全アカウントを返す
+- `backend/core/peer-auth-remote-store.{mjs,d.mts}`: B 側 CredentialStore（キャッシュ・同時 read 統合・modify で再解決・401/403 はキャッシュ破棄）と、A のアカウント一覧を返す `listAccounts()`
 - `backend/core/peer-auth-config.{mjs,d.mts}`: peer.json の検証・0o600 での原子的書込み・除去
 - `backend/core/peer-auth-integration.test.mjs`: 実 loopback HTTP・実 auth.json での A↔B 検証（refresh 非漏洩・拒否・A 停止）
 - `backend/core/peer-auth-sdk.test.mjs`: 実 SDK（`ModelRuntime` ＋ 組み込み anthropic プロバイダ）が peer ストアを受け入れ、残 5 分未満では `modify` 経由で再解決し、ローカル auth.json を読まないことを検証
 - Web: `/api/peer-auth/list|resolve`（peer token、公開パスはこの 2 つのみ）と `/api/peer-auth/peers|import`（WebUI 認証下、import は GET で到達性付き peer アカウント一覧）、`lib/peer-auth/{runtime,admin,import,account-runtime-options}`
 - harness: `accountRuntimeManager` の peer 分岐（`credentials` で生成、`authPath` なし）。`accounts.ts` の `accountStoredProviders` が peer.json の providers を保存済みとして返す
-- UI: A 側 `PeerShareSettings`（共有トグル・アカウント選択・provider 選択・トークン 1 回表示・失効・平文 HTTP 警告）、B 側 `PeerImportSettings`（URL/トークン/名前 → 取込）
+- UI: A 側 `PeerShareSettings`（共有トグル・プロバイダ選択（アカウント数付き・アカウント選択なし）・トークン 1 回表示・失効・平文 HTTP 警告）、B 側 `PeerImportSettings`（URL/トークン/名前 → 取込、作成されたアカウント一覧を表示）
 
 **未実施（残）**
 

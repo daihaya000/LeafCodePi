@@ -8,7 +8,6 @@ import { dataDir } from "./app-paths.mjs";
 // Writers are the Web process only, so the read-modify-write below is not cross-process locked.
 
 const PROVIDER_ID = /^[A-Za-z0-9._-]{1,64}$/;
-const ACCOUNT_ID = /^[A-Za-z0-9_-]{1,128}$/;
 const HASH = /^[0-9a-f]{64}$/;
 const MAX_GRANTS = 20;
 const MAX_PROVIDERS = 32;
@@ -25,15 +24,14 @@ function badRequest(message) {
   return Object.assign(new Error(message), { status: 400 });
 }
 
-const publicGrant = ({ id, label, accountId, providers, createdAt }) => ({
-  id, label, accountId, providers: [...providers], createdAt,
+const publicGrant = ({ id, label, providers, createdAt }) => ({
+  id, label, providers: [...providers], createdAt,
 });
 
 function validGrant(value) {
   return value && typeof value === "object" && typeof value.id === "string" && value.id.length > 0
     && typeof value.label === "string" && value.label.length <= LABEL_MAX
     && typeof value.tokenSha256 === "string" && HASH.test(value.tokenSha256)
-    && (value.accountId === null || (typeof value.accountId === "string" && ACCOUNT_ID.test(value.accountId)))
     && Array.isArray(value.providers) && value.providers.every((id) => typeof id === "string" && PROVIDER_ID.test(id))
     && typeof value.createdAt === "string";
 }
@@ -77,16 +75,15 @@ export function createPeerGrantStore(options = {}) {
     },
     list: () => read().grants.map(publicGrant),
     /** @returns {{ grant: object, token: string }} The token is never retrievable again. */
-    create({ label, accountId = null, providers }) {
+    create({ label, providers }) {
       if (typeof label !== "string" || !label.trim() || label.trim().length > LABEL_MAX) throw badRequest("label is invalid");
-      if (accountId !== null && (typeof accountId !== "string" || !ACCOUNT_ID.test(accountId))) throw badRequest("accountId is invalid");
       if (!Array.isArray(providers) || providers.length === 0 || providers.length > MAX_PROVIDERS
         || !providers.every((id) => typeof id === "string" && PROVIDER_ID.test(id))) throw badRequest("providers are invalid");
       const data = read();
       if (data.grants.length >= MAX_GRANTS) throw badRequest("too many grants");
       const token = generatePeerToken();
       const grant = {
-        id: randomUUID(), label: label.trim(), tokenSha256: hashPeerToken(token), accountId,
+        id: randomUUID(), label: label.trim(), tokenSha256: hashPeerToken(token),
         providers: [...new Set(providers)], createdAt: now().toISOString(),
       };
       data.grants.push(grant);

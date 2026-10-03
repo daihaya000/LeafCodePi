@@ -5,6 +5,7 @@ type StoreOptions = { signal?: AbortSignal };
 export type RemotePeerCredentialStore = {
   read(providerId: string, options?: StoreOptions): Promise<RemotePeerCredential | undefined>;
   list(options?: StoreOptions): Promise<{ providerId: string; type: "api_key" | "oauth" }[]>;
+  listAccounts(options?: StoreOptions): Promise<{ accountId: string | null; label: string; providers: string[] }[]>;
   modify(
     providerId: string,
     fn: (current: RemotePeerCredential | undefined) => Promise<RemotePeerCredential | undefined>,
