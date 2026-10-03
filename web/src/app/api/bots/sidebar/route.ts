@@ -3,7 +3,7 @@ import { botTaskId, listBots } from "@/lib/bots";
 import { listRooms } from "@/lib/rooms";
 import { getTask, listTasks } from "@/lib/store";
 import { readSessionLastMessage } from "@/lib/direct-session";
-import { listBotCodeRequests } from "@/lib/pi/bot-code-relay";
+import { listBotCodeRequestsForBots } from "@/lib/pi/bot-code-relay";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -27,6 +27,9 @@ export async function GET() {
     if (task.status === "working" && botId) counts.set(botId, (counts.get(botId) ?? 0) + 1);
   }
   const bots = listBots();
+  // One outbox read for every Bot: each listBotCodeRequests() call would enumerate
+  // the directory again, and the sidebar asks for all of them on every refresh.
+  const requestsByBot = listBotCodeRequestsForBots(bots.map((bot) => bot.id));
   const botPreviews = bots.map((bot) => {
     const task = getTask(botTaskId(bot.id));
     let preview: Preview = { lastMessageSummary: null, lastMessageAt: null };
@@ -43,7 +46,7 @@ export async function GET() {
         };
       }
     }
-    const codeInProgress = listBotCodeRequests(bot.id).some((request) => request.state === "starting" || request.state === "running");
+    const codeInProgress = (requestsByBot.get(bot.id) ?? []).some((request) => request.state === "starting" || request.state === "running");
     return { ...bot, ...preview, codeInProgress, codeSessionCount: counts.get(bot.id) ?? 0 };
   });
   const rooms = listRooms().map((room) => {

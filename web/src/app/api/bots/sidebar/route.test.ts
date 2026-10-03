@@ -7,14 +7,14 @@ const mocks = vi.hoisted(() => ({
   getTask: vi.fn(),
   listTasks: vi.fn(),
   readSessionLastMessage: vi.fn(),
-  listBotCodeRequests: vi.fn(),
+  listBotCodeRequestsForBots: vi.fn(),
   botTaskId: (id: string) => `bot:${id}`,
 }));
 vi.mock("@/lib/bots", () => ({ listBots: mocks.listBots, botTaskId: mocks.botTaskId }));
 vi.mock("@/lib/rooms", () => ({ listRooms: mocks.listRooms }));
 vi.mock("@/lib/store", () => ({ getTask: mocks.getTask, listTasks: mocks.listTasks }));
 vi.mock("@/lib/direct-session", () => ({ readSessionLastMessage: mocks.readSessionLastMessage }));
-vi.mock("@/lib/pi/bot-code-relay", () => ({ listBotCodeRequests: mocks.listBotCodeRequests }));
+vi.mock("@/lib/pi/bot-code-relay", () => ({ listBotCodeRequestsForBots: mocks.listBotCodeRequestsForBots }));
 
 import { GET } from "./route";
 
@@ -55,7 +55,7 @@ describe("GET /api/bots/sidebar", () => {
     mocks.listTasks.mockReturnValue([]);
     mocks.listBots.mockReturnValue([bot("one")]);
     mocks.getTask.mockReturnValue(task("bot:one"));
-    mocks.listBotCodeRequests.mockReturnValue([]);
+    mocks.listBotCodeRequestsForBots.mockReturnValue(new Map());
     mocks.readSessionLastMessage.mockReturnValue({
       text: "🎉".repeat(100),
       timestamp: 1_700_000_000_000,
@@ -80,9 +80,10 @@ describe("GET /api/bots/sidebar", () => {
     ]);
     mocks.listBots.mockReturnValue([bot("one"), bot("two")]);
     mocks.getTask.mockReturnValue(undefined);
-    mocks.listBotCodeRequests.mockImplementation((id: string) =>
-      id === "one" ? [{ state: "running" }] : [{ state: "ready" }, { state: "delivered" }, { state: "cancelled" }],
-    );
+    mocks.listBotCodeRequestsForBots.mockReturnValue(new Map([
+      ["one", [{ state: "running" }]],
+      ["two", [{ state: "ready" }, { state: "delivered" }, { state: "cancelled" }]],
+    ]));
     mocks.listRooms.mockReturnValue([]);
 
     const body = await (await GET()).json();

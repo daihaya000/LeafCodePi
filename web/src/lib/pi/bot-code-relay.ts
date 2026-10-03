@@ -370,6 +370,20 @@ export function listBotCodeRequests(botId: string): BotCodeRequestSummary[] {
   // The filter, projection and ordering live in backend core.
   return codeRequestSummaries(requests(), botId) as BotCodeRequestSummary[];
 }
+
+/**
+ * Summaries for several Bots from one outbox read. The sidebar asks for every Bot,
+ * and each call to requests() enumerates the directory; grouping keeps that to a
+ * single scan per refresh.
+ */
+export function listBotCodeRequestsForBots(botIds: readonly string[]): Map<string, BotCodeRequestSummary[]> {
+  const byBot = new Map<string, BotCodeRequestSummary[]>();
+  const all = requests();
+  for (const botId of botIds) {
+    byBot.set(botId, codeRequestSummaries(all, botId) as BotCodeRequestSummary[]);
+  }
+  return byBot;
+}
 export function roomForCodeOrigin(task: Pick<TaskSummary, "id" | "kind" | "botId"> | undefined | null) {
   if (task?.kind !== "bot" || !task.botId) return undefined;
   // The task id shape lives in backend core; the room lookup stays here.

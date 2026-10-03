@@ -29,7 +29,7 @@ vi.mock("@/lib/store", () => ({
   getProject: (id: string) => store.projects.find((project) => project.id === id),
   listProjects: () => store.projects.filter((project) => !project.archived),
 }));
-import { BOT_CODE_RESULT, BOT_CODE_TOOL, __resetBotCodeRequestCacheForTests, botCodeRequestCacheStats, botCodeReportText, cancelBotCodeRequests, cancelRoomCodeRequests, createBotCodeRelay, hasBotCodeReport, isBotCodeOriginTask, isRoomDelegatedCodeTask, listBotCodeRequests, MAX_AUTO_CODE_CHAIN, MAX_CODE_REPORT_REQUEST_CHARS, pendingRoomCodeRequestForRoom, pendingRoomCodeRequestForTurn, queueBotCodePrompt, roomCodeRequestsForTurn, roomForCodeOrigin, runUserBotCodeRequest, stopBotCodeRequest, stopBotCodeRequestForTask, truncateCodeReportRequest, type CodeRequest } from "./bot-code-relay";
+import { BOT_CODE_RESULT, BOT_CODE_TOOL, __resetBotCodeRequestCacheForTests, botCodeRequestCacheStats, botCodeReportText, cancelBotCodeRequests, cancelRoomCodeRequests, createBotCodeRelay, hasBotCodeReport, isBotCodeOriginTask, isRoomDelegatedCodeTask, listBotCodeRequests, listBotCodeRequestsForBots, MAX_AUTO_CODE_CHAIN, MAX_CODE_REPORT_REQUEST_CHARS, pendingRoomCodeRequestForRoom, pendingRoomCodeRequestForTurn, queueBotCodePrompt, roomCodeRequestsForTurn, roomForCodeOrigin, runUserBotCodeRequest, stopBotCodeRequest, stopBotCodeRequestForTask, truncateCodeReportRequest, type CodeRequest } from "./bot-code-relay";
 
 type Dependencies = Parameters<typeof createBotCodeRelay>[0];
 let relay: ReturnType<typeof createBotCodeRelay>;
@@ -1327,5 +1327,29 @@ describe("durable Bot report acknowledgement", () => {
   it("re-correlates a retried report after another request marker superseded the first one", () => {
     const other = { ...marker, details: { requestId: "other" } };
     expect(botCodeReportText([marker, other, marker, final], "request")).toBe("Report");
+  });
+});
+
+describe("listBotCodeRequestsForBots", () => {
+  it("groups every Bot's requests from one outbox read", () => {
+    const dir = join(store.root, "bot-code-requests");
+    mkdirSync(dir, { recursive: true });
+    const write = (botId: string, state: string) => {
+      const id = createHash("sha256").update(`${botId}-${state}`).digest("hex");
+      writeFileSync(join(dir, `${id}.json`), `${JSON.stringify({
+        id, botId, originTaskId: `bot:${botId}`, codeTaskId: `${botId}-task`,
+        state, queuedAt: 1, prompt: "p",
+      })}\n`, "utf8");
+    };
+    write("one", "running");
+    write("one", "ready");
+    write("two", "ready");
+
+    const grouped = listBotCodeRequestsForBots(["one", "two", "three"]);
+
+    expect(grouped.get("one")?.map((item) => item.state).sort()).toEqual(["ready", "running"]);
+    expect(grouped.get("two")?.map((item) => item.state)).toEqual(["ready"]);
+    // A Bot with no request resolves to an empty list, so callers need no fallback.
+    expect(grouped.get("three")).toEqual([]);
   });
 });
