@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -13,6 +14,7 @@ import { projectPiMessages } from "./messages";
  *
  * artifactsDir は既定でセッションファイルと同じ階層の `subagent-artifacts`。
  * `artifactDir: "temp" | "project"` 設定時は temp / プロジェクト配下になる。
+ * 共有 temp 配下は初回レコードの `parentSessionKey` が一致するものだけ列挙し、旧形式など所有者不明は除外する。
  */
 const TRANSCRIPT_SUFFIX = "_transcript.jsonl";
 /** ponytail: 末尾だけ読む。全文が必要になったらページングを足す。 */
@@ -24,6 +26,7 @@ type TranscriptRecord = {
   recordType?: unknown;
   runId?: unknown;
   agent?: unknown;
+  parentSessionKey?: unknown;
   childIndex?: unknown;
   ts?: unknown;
   toolName?: unknown;
@@ -50,6 +53,7 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 export type ParsedTranscript = {
   runId?: string;
   agent?: string;
+  parentSessionKey?: string;
   index?: number;
   /** Pi Message 配列（`projectPiMessages` にそのまま渡せる）。 */
   rawMessages: unknown[];
@@ -69,6 +73,7 @@ export function parseSubagentTranscript(text: string, options?: { truncated?: bo
   const openTools = new Map<string, string>();
   let runId: string | undefined;
   let agent: string | undefined;
+  let parentSessionKey: string | undefined;
   let index: number | undefined;
   let firstTsMs: number | undefined;
   let lastTsMs: number | undefined;
@@ -86,6 +91,7 @@ export function parseSubagentTranscript(text: string, options?: { truncated?: bo
     }
     runId ??= asString(record.runId);
     agent ??= asString(record.agent);
+    parentSessionKey ??= asString(record.parentSessionKey);
     if (index === undefined) index = asNumber(record.childIndex);
     const ts = asNumber(record.ts);
     if (ts !== undefined) {
@@ -119,6 +125,7 @@ export function parseSubagentTranscript(text: string, options?: { truncated?: bo
   return {
     runId,
     agent,
+    parentSessionKey,
     index,
     rawMessages,
     currentTool,
@@ -221,6 +228,45 @@ function readTranscriptTail(filePath: string, size: number): { text: string; tru
   }
 }
 
+const MAX_TRANSCRIPT_HEADER_BYTES = 8 * 1024;
+
+function isTempArtifactDir(dir: string): boolean {
+  return path.basename(dir) === "artifacts" && path.basename(path.dirname(dir)).startsWith("pi-subagents-");
+}
+
+function sessionFileKey(sessionFile: string): string {
+  const resolved = path.resolve(sessionFile);
+  const normalized = process.platform === "win32" ? resolved.toLowerCase() : resolved;
+  return createHash("sha256").update(normalized).digest("hex");
+}
+
+/** Read only the first record to identify temp artifact ownership before parsing its transcript. */
+function readTranscriptParentSessionKey(filePath: string): string | undefined {
+  let fd: number | undefined;
+  try {
+    fd = fs.openSync(filePath, "r");
+    const size = fs.fstatSync(fd).size;
+    if (size <= 0) return undefined;
+    const buffer = Buffer.alloc(Math.min(size, MAX_TRANSCRIPT_HEADER_BYTES));
+    const bytesRead = fs.readSync(fd, buffer, 0, buffer.length, 0);
+    const lineEnd = buffer.subarray(0, bytesRead).indexOf(0x0a);
+    if (lineEnd < 0) return undefined;
+    const record = JSON.parse(buffer.subarray(0, lineEnd).toString("utf-8")) as TranscriptRecord;
+    if (record.recordType !== "owner") return undefined;
+    return asString(record.parentSessionKey);
+  } catch {
+    return undefined;
+  } finally {
+    if (fd !== undefined) {
+      try {
+        fs.closeSync(fd);
+      } catch {
+        // Ownership could not be confirmed; callers fail closed.
+      }
+    }
+  }
+}
+
 type TranscriptCacheEntry = {
   mtimeMs: number;
   size: number;
@@ -256,15 +302,19 @@ function cacheTranscript(filePath: string, entry: TranscriptCacheEntry): void {
 export function listSubagentRuns(input: {
   sessionFile?: string | null;
   cwd?: string | null;
+  /** Temp root override for deterministic tests. */
+  tmpDir?: string;
   sinceMs?: number;
   nowMs?: number;
   limit?: number;
 }): SubagentRunDto[] {
   const nowMs = input.nowMs ?? Date.now();
   const limit = input.limit ?? MAX_RUNS;
-  const candidates: { filePath: string; mtimeMs: number; size: number }[] = [];
+  const candidates: { filePath: string; mtimeMs: number; size: number; temp: boolean }[] = [];
+  const expectedSessionKey = input.sessionFile ? sessionFileKey(input.sessionFile) : undefined;
 
-  for (const dir of subagentArtifactDirs({ sessionFile: input.sessionFile, cwd: input.cwd })) {
+  for (const dir of subagentArtifactDirs({ sessionFile: input.sessionFile, cwd: input.cwd, tmpDir: input.tmpDir })) {
+    const temp = isTempArtifactDir(dir);
     let entries: string[] = [];
     try {
       entries = fs.readdirSync(dir);
@@ -278,7 +328,12 @@ export function listSubagentRuns(input: {
         const stat = fs.statSync(filePath);
         if (!stat.isFile()) continue;
         if (input.sinceMs !== undefined && stat.mtimeMs < input.sinceMs) continue;
-        candidates.push({ filePath, mtimeMs: stat.mtimeMs, size: stat.size });
+        if (temp) {
+          if (!expectedSessionKey) continue;
+          const ownerSessionKey = readTranscriptParentSessionKey(filePath);
+          if (!ownerSessionKey || ownerSessionKey !== expectedSessionKey) continue;
+        }
+        candidates.push({ filePath, mtimeMs: stat.mtimeMs, size: stat.size, temp });
       } catch {
         // 消えた/読めないファイルは無視
       }
@@ -310,6 +365,13 @@ export function listSubagentRuns(input: {
       transcriptCache.delete(candidate.filePath);
       continue;
     }
+    // Re-check owner data from parsed records when available.
+    if (
+      candidate.temp &&
+      expectedSessionKey &&
+      parsed.parentSessionKey &&
+      parsed.parentSessionKey !== expectedSessionKey
+    ) continue;
     const { metaPath } = siblingArtifactPaths(candidate.filePath);
     const meta = readMeta(metaPath);
     // 停止判定はファイル更新時刻を下限に取る（レコードの ts が欠けても誤判定しない）。

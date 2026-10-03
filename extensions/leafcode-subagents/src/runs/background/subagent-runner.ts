@@ -170,6 +170,7 @@ interface SubagentRunConfig {
 	sessionDir?: string;
 	asyncDir: string;
 	sessionId?: string | null;
+	parentSessionFile?: string | null;
 	completionOwnerId?: string;
 	piPackageRoot?: string;
 	piArgv1?: string;
@@ -1160,6 +1161,7 @@ interface SingleStepContext {
 	sessionDir?: string;
 	artifactsDir?: string;
 	artifactConfig?: Partial<ArtifactConfig>;
+	parentSessionFile?: string | null;
 	id: string;
 	flatIndex: number;
 	flatStepCount: number;
@@ -1301,6 +1303,7 @@ async function runSingleStepInner(
 				agent: step.agent,
 				childIndex: ctx.flatIndex,
 				cwd: step.cwd ?? ctx.cwd,
+				parentSessionFile: ctx.parentSessionFile ?? undefined,
 			});
 		}
 	}
@@ -3817,7 +3820,7 @@ async function runSubagent(
 					previousOutput, placeholder, cwd, sessionEnabled,
 					outputs,
 					sessionDir: config.sessionDir ? path.join(config.sessionDir, `dynamic-${stepIndex}-${taskIdx}`) : undefined,
-					artifactsDir, artifactConfig, id,
+					artifactsDir, artifactConfig, parentSessionFile: config.parentSessionFile, id,
 					flatIndex: fi, flatStepCount: Math.max(statusPayload.steps.length, 1),
 					outputFile: path.join(asyncDir, `output-${fi}.log`),
 					steerInboxDir: stepSteerInboxDir(asyncDir, fi),
@@ -4214,7 +4217,7 @@ async function runSubagent(
 							previousOutput, placeholder, cwd: taskCwd, sessionEnabled,
 							outputs,
 							sessionDir: taskSessionDir,
-							artifactsDir, artifactConfig, id,
+							artifactsDir, artifactConfig, parentSessionFile: config.parentSessionFile, id,
 							flatIndex: fi, flatStepCount: Math.max(statusPayload.steps.length, 1),
 							outputFile: path.join(asyncDir, `output-${fi}.log`),
 							steerInboxDir: stepSteerInboxDir(asyncDir, fi),
@@ -4545,7 +4548,7 @@ async function runSubagent(
 				previousOutput, placeholder, cwd: singleCwd, sessionEnabled,
 				outputs: statusPayload.mode === "single" ? undefined : outputs,
 				sessionDir: config.sessionDir,
-				artifactsDir, artifactConfig, id,
+				artifactsDir, artifactConfig, parentSessionFile: config.parentSessionFile, id,
 				flatIndex, flatStepCount: Math.max(statusPayload.steps.length, 1),
 				outputFile: path.join(asyncDir, `output-${flatIndex}.log`),
 				steerInboxDir: stepSteerInboxDir(asyncDir, flatIndex),

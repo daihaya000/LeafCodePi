@@ -1704,6 +1704,7 @@ async function runSyncCompletionInner(
 				agent: agentName,
 				childIndex: options.index,
 				cwd: options.cwd ?? runtimeCwd,
+				parentSessionFile: options.parentSessionFile,
 			});
 			transcriptWriter.writeInitialUserMessage(`${PROMPT_REDACTED}; live Prompt Audit only.`);
 		}

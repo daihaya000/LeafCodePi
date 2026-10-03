@@ -129,6 +129,7 @@ interface AsyncExecutionContext {
 	completionOwnerId?: string;
 	/** Parent session id used by permission-system ask forwarding. */
 	parentSessionId?: string;
+	parentSessionFile?: string | null;
 	permissions?: PermissionConfig;
 	currentModelProvider?: string;
 	currentModel?: ParentModel;
@@ -1139,6 +1140,7 @@ export function executeAsyncChain(
 				sessionDir: sessionRoot ? path.join(sessionRoot, `async-${id}`) : undefined,
 				asyncDir,
 				sessionId: ctx.currentSessionId,
+				parentSessionFile: ctx.parentSessionFile,
 				completionOwnerId: ctx.completionOwnerId ?? currentCompletionOwnerId(),
 				...(capabilityCeiling ? { capabilityCeiling } : {}),
 				piPackageRoot,
@@ -1611,6 +1613,7 @@ export function executeAsyncSingle(
 				sessionDir: resolvedSessionDir,
 				asyncDir,
 				sessionId: ctx.currentSessionId,
+				parentSessionFile: ctx.parentSessionFile,
 				completionOwnerId: ctx.completionOwnerId ?? currentCompletionOwnerId(),
 				...(capabilityCeiling ? { capabilityCeiling } : {}),
 				piPackageRoot,

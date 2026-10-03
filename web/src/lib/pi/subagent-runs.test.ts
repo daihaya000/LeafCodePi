@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -12,6 +13,12 @@ import {
 import { projectPiMessages } from "./messages";
 
 /** createChildTranscriptWriter が実際に書く形のレコード。 */
+function sessionKey(sessionFile: string): string {
+  const resolved = path.resolve(sessionFile);
+  const normalized = process.platform === "win32" ? resolved.toLowerCase() : resolved;
+  return createHash("sha256").update(normalized).digest("hex");
+}
+
 function record(extra: Record<string, unknown>): string {
   return JSON.stringify({
     version: 1,
@@ -100,6 +107,11 @@ describe("parseSubagentTranscript", () => {
     expect(parsed.provider).toBe("anthropic");
   });
 
+  it("parses the opaque parent-session key", () => {
+    const key = sessionKey("C:/sessions/owner.jsonl");
+    expect(parseSubagentTranscript(record({ recordType: "owner", parentSessionKey: key })).parentSessionKey).toBe(key);
+  });
+
   it("reports the tool still running when tool_end is missing", () => {
     const partial = [
       record({ recordType: "tool_start", toolCallId: "call-9", toolName: "bash" }),
@@ -183,6 +195,26 @@ describe("listSubagentRuns", () => {
   it("honours the since filter", () => {
     const future = Date.now() + 60_000;
     expect(listSubagentRuns({ sessionFile, sinceMs: future })).toEqual([]);
+  });
+
+  it("returns only temp transcripts owned by the requested session", () => {
+    const tmpDir = path.join(root, "tmp");
+    const tempArtifactsDir = path.join(tmpDir, "pi-subagents-test", "artifacts");
+    fs.mkdirSync(tempArtifactsDir, { recursive: true });
+    const writeTempRun = (runId: string, ownerSessionFile?: string) => {
+      fs.writeFileSync(
+        path.join(tempArtifactsDir, `${runId}_agent_transcript.jsonl`),
+        `${record({ runId, ...(ownerSessionFile ? { recordType: "owner", parentSessionKey: sessionKey(ownerSessionFile) } : {}) })}\n`,
+        "utf-8",
+      );
+    };
+    writeTempRun("temp-owned", sessionFile);
+    writeTempRun("temp-foreign", path.join(root, "sessions", "other.jsonl"));
+    writeTempRun("temp-legacy");
+
+    const runs = listSubagentRuns({ sessionFile, cwd: path.join(root, "other-cwd"), tmpDir });
+    expect(runs.filter((run) => run.runId.startsWith("temp-")).map((run) => run.runId)).toEqual(["temp-owned"]);
+    expect(listSubagentRuns({ sessionFile: null, cwd: path.join(root, "other-cwd"), tmpDir })).toEqual([]);
   });
 
   it("returns nothing without a session file", () => {

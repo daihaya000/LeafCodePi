@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import type { Message } from "@earendil-works/pi-ai";
@@ -56,6 +57,8 @@ interface ChildTranscriptWriterInput {
 	agent: string;
 	childIndex?: number;
 	cwd: string;
+	/** Only its opaque SHA-256 key is persisted in the transcript. */
+	parentSessionFile?: string;
 	maxBytes?: number;
 }
 
@@ -100,6 +103,13 @@ function eventArgs(event: ChildTranscriptEvent): Record<string, unknown> {
 }
 
 export function createChildTranscriptWriter(input: ChildTranscriptWriterInput): ChildTranscriptWriter {
+	const parentSessionFile = input.parentSessionFile ? path.resolve(input.parentSessionFile) : undefined;
+	const normalizedParentSessionFile = parentSessionFile && process.platform === "win32"
+		? parentSessionFile.toLowerCase()
+		: parentSessionFile;
+	const parentSessionKey = normalizedParentSessionFile
+		? createHash("sha256").update(normalizedParentSessionFile).digest("hex")
+		: undefined;
 	let bytesWritten = 0;
 	let writeError: string | undefined;
 	let truncated = false;
@@ -210,6 +220,14 @@ export function createChildTranscriptWriter(input: ChildTranscriptWriterInput): 
 	return {
 		path: input.transcriptPath,
 		writeInitialUserMessage(prompt: string) {
+			if (parentSessionKey) {
+				// Keep owner metadata independent of prompt/path size for bounded temp scans.
+				writeRecord({
+					version: CHILD_TRANSCRIPT_ARTIFACT_VERSION,
+					recordType: "owner",
+					parentSessionKey,
+				});
+			}
 			writeRecord({
 				...baseRecord("message"),
 				sourceEventType: "initial_prompt",

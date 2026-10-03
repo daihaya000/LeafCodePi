@@ -1827,6 +1827,8 @@ export interface RunSyncOptions {
 	permissions?: import("../runs/shared/permissions.ts").PermissionConfig;
 	/** Session id of the direct parent session for permission-system ask forwarding. */
 	parentSessionId?: string;
+	/** Session file that owns this child run, used to scope temp artifacts. */
+	parentSessionFile?: string;
 	/** Private prompt-runtime steering transport for workflow-owned foreground children. */
 	steerInboxDir?: string;
 	steerCapabilityPath?: string;
