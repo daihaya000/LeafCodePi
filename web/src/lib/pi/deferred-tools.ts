@@ -1,4 +1,4 @@
-import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import type { ExtensionAPI, ToolDefinition } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import { COMPUTER_USE_TOOL_NAMES } from "@/lib/types";
 
@@ -22,9 +22,45 @@ const DEFERRED_TOOLS = [
 
 const deferredNames = new Set<string>(DEFERRED_TOOLS.map(({ name }) => name));
 
+/**
+ * The SDK's own `tool_search` (finds MCP tools by relevance). Only one tool can own the name, so the
+ * session keeps this tool's definition here and `registerDeferredTools` delegates to it for queries
+ * that are not about the optional tools above.
+ */
+export type NativeToolSearch = { definition?: ToolDefinition };
+
+/** Runs `factory` with its `tool_search` registration captured into `holder` instead of registered. */
+export function captureNativeToolSearch(
+  factory: (api: ExtensionAPI) => void | Promise<void>,
+  holder: NativeToolSearch,
+): (api: ExtensionAPI) => void | Promise<void> {
+  return (api) => {
+    const bound = new Map<unknown, unknown>();
+    const view = new Proxy({} as ExtensionAPI, {
+      get(_target, key) {
+        if (key === "registerTool") {
+          return (definition: ToolDefinition) => {
+            if (definition?.name === TOOL_SEARCH_NAME) {
+              holder.definition = definition;
+              return undefined;
+            }
+            return api.registerTool(definition);
+          };
+        }
+        const value = Reflect.get(api, key, api);
+        if (typeof value !== "function") return value;
+        if (!bound.has(value)) bound.set(value, value.bind(api));
+        return bound.get(value);
+      },
+    });
+    return factory(view);
+  };
+}
+
 export function registerDeferredTools(
   pi: ExtensionAPI,
   allowedTools?: readonly string[] | (() => readonly string[]),
+  nativeSearch?: NativeToolSearch,
 ): void {
   const currentAllowlist = () => {
     const names = typeof allowedTools === "function" ? allowedTools() : allowedTools;
@@ -33,11 +69,11 @@ export function registerDeferredTools(
   pi.registerTool({
     name: TOOL_SEARCH_NAME,
     label: "Tool Search",
-    description: "Find and activate optional tools: web_search (web research), source_check (fact checking), fetch_content (URL/PDF/GitHub/YouTube/video), get_search_content (stored search results), intercom (other sessions), session_search (past conversations), jev_judge (typed semantic judgments), bash (POSIX), memory_add/replace/remove, skill_manage. Call with the capability or exact tool name. Only permitted tools can be loaded.",
+    description: "Find and activate optional tools: web_search (web research), source_check (fact checking), fetch_content (URL/PDF/GitHub/YouTube/video), get_search_content (stored search results), intercom (other sessions), session_search (past conversations), jev_judge (typed semantic judgments), bash (POSIX), memory_add/replace/remove, skill_manage. Also finds MCP server tools by topic. Call with the capability or exact tool name. Only permitted tools can be loaded.",
     parameters: Type.Object({
       query: Type.String({ description: "Capability or optional tool to activate.", maxLength: 200 }),
     }),
-    async execute(_toolCallId, { query }) {
+    async execute(toolCallId, { query }, signal, onUpdate, ctx) {
       const normalized = query.toLowerCase().trim();
       const registered = new Set(pi.getAllTools().map(({ name }) => name));
       const allowed = currentAllowlist();
@@ -47,6 +83,11 @@ export function registerDeferredTools(
         .filter(({ name, keywords }) => allowed?.has(TOOL_SEARCH_NAME) !== false && registered.has(name) && allowed?.has(name) !== false &&
           (exact ? name === normalized : keywords.some((keyword) => normalized.includes(keyword))))
         .map(({ name }) => name);
+      // Nothing optional matched: the query may be about an MCP tool, which the SDK ranks and loads.
+      const native = nativeSearch?.definition;
+      if (matches.length === 0 && native && allowed?.has(TOOL_SEARCH_NAME) !== false) {
+        return native.execute(toolCallId, { query }, signal, onUpdate, ctx);
+      }
       const active = pi.getActiveTools();
       const added = matches.filter((name) => !active.includes(name));
       if (added.length > 0) pi.setActiveTools([...new Set([...active, ...added])]);

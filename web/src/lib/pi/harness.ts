@@ -184,7 +184,9 @@ import {
 } from "@/lib/skills";
 import type { SkillPermission } from "@/lib/skill-permission";
 import {
+  captureNativeToolSearch,
   COMPUTER_USE_TOOL_NAMES,
+  type NativeToolSearch,
   registerDeferredTools,
   TOOL_SEARCH_NAME,
 } from "@/lib/pi/deferred-tools";
@@ -3464,6 +3466,8 @@ export function sessionExtensionFactories(input: {
   hasBotSkills: boolean;
   botCodeTaskId?: string;
   roomHandoffTaskId?: string;
+  /** Holds the SDK's `tool_search` when native MCP is active, so `tool_search` has one owner. */
+  nativeToolSearch?: NativeToolSearch;
   getExtensions: () => ResourceExtensions;
 }): SessionExtensionFactory[] {
   const botSoulBotId = input.botSoulBotId;
@@ -3505,7 +3509,7 @@ export function sessionExtensionFactories(input: {
     input.botToolAllowlist
       ? (api: ExtensionAPI) => {
           const allowedTools = input.getBotToolAllowlist ?? (() => input.botToolAllowlist!);
-          registerDeferredTools(api, allowedTools);
+          registerDeferredTools(api, allowedTools, input.nativeToolSearch);
           // SDK reload rebuilds the registry from all registered Bot tools.
           // Reapply permissions, not just deferred-tool visibility.
           api.on("session_start", () => {
@@ -3513,8 +3517,8 @@ export function sessionExtensionFactories(input: {
           });
         }
       : input.agentToolAllowlist
-        ? (api: ExtensionAPI) => registerDeferredTools(api, input.agentToolAllowlist)
-        : registerDeferredTools,
+        ? (api: ExtensionAPI) => registerDeferredTools(api, input.agentToolAllowlist, input.nativeToolSearch)
+        : (api: ExtensionAPI) => registerDeferredTools(api, undefined, input.nativeToolSearch),
     registerJevTool,
     registerRequestImageCap,
     ...(input.taskId ? [registerGoalLoopTurnRouting(input.taskId)] : []),
@@ -3776,6 +3780,7 @@ async function createSession(options: {
     ? buildAgentResourceOptions(agentDefinition)
     : undefined;
   const botToolAllowlist = options.botTools;
+  const nativeToolSearch: NativeToolSearch = {};
   let createdSession: AgentSession | undefined = undefined;
   const resourceLoader: ResourceLoader = new pi.DefaultResourceLoader({
     cwd: options.cwd,
@@ -3785,7 +3790,8 @@ async function createSession(options: {
     additionalSkillPaths: bundledSkills,
     // Resolved per loader run: a reload after a config write must pick up the newly published provider
     // instead of re-running factories bound to a binding that write already retired.
-    extensionFactories: [nativeMcpExtensionFactory(options.cwd), ...sessionExtensionFactories({
+    extensionFactories: [captureNativeToolSearch(nativeMcpExtensionFactory(options.cwd), nativeToolSearch), ...sessionExtensionFactories({
+      nativeToolSearch,
       agentDir,
       botSoulBotId,
       botToolAllowlist,
