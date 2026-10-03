@@ -101,7 +101,7 @@
 
 - vitest: schema parse、hash / timing-safe 比較、allowlist、レート制限、監査記録、remote store のキャッシュ・失敗時挙動・refresh 委譲、peer 分岐、route tests（既存 `route.test.ts` パターン）
 - `tsc` / eslint の対象実行、`git diff --check`
-- 実 HTTP end-to-end（2026-10-03、隔離 dev インスタンス: `next dev --port 3131` ＋ 一時 dataDir/agentDir ＋ `LEAFCODE_PI_WEBUI_AUTH=required`、稼働中の本番ミラーには触れず）: 管理ルートでグラント作成(201)→共有有効化(200)→ peer トークンで list(200・メタデータのみ) → resolve(200・シードした API キー) → 実 `RemotePeerCredentialStore` で取得。トークン無しは 401、監査ログに秘密なしで記録された
+- 実 HTTP end-to-end（2026-10-03、隔離 dev インスタンス: `next dev --port 3131` ＋ 一時 dataDir/agentDir ＋ `LEAFCODE_PI_WEBUI_AUTH=required`、稼働中の本番ミラーには触れず）: 管理ルートでグラント作成(201)→共有有効化(200)→ peer トークンで list(200・メタデータのみ) → resolve(200・シードした API キー) → 実 `RemotePeerCredentialStore` で取得。トークン無しは 401、監査ログに秘密なしで記録された。同じインスタンスで B 側取込も検証: `POST /api/peer-auth/import` 201（provider は共有∩ルーティング可能に絞られる）→ `GET /api/peer-auth/import` 200（online: true）→ `auth-status` が `peer: true` → agent ディレクトリに peer.json（トークンはここだけ）→ `DELETE /api/accounts/<id>` 200 で peer.json が消えることを確認
 - 隔離ミラーでの prod ビルド成功（`✓ Compiled successfully in 44s`・static pages 6/6）
 - 実機: A でピア発行 → B へ取込 → B の peer アカウントでモデル実行。A の監査ログ確認。A 停止でエラー、再起動で回復、トークン失効で拒否を確認（未実施）
 
