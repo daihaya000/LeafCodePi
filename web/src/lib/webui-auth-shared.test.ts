@@ -32,6 +32,8 @@ describe("isPublicWebUiPath", () => {
     expect(isPublicWebUiPath("/api/health")).toBe(true);
     expect(isPublicWebUiPath("/_next/static/chunks/app.js")).toBe(true);
     expect(isPublicWebUiPath("/favicon.ico")).toBe(true);
+    expect(isPublicWebUiPath("/api/peer-auth/list")).toBe(true);
+    expect(isPublicWebUiPath("/api/peer-auth/resolve")).toBe(true);
   });
 
   it("keeps everything else protected", () => {
@@ -39,6 +41,9 @@ describe("isPublicWebUiPath", () => {
     expect(isPublicWebUiPath("/api/tasks")).toBe(false);
     expect(isPublicWebUiPath("/settings")).toBe(false);
     expect(isPublicWebUiPath("/apifake")).toBe(false);
+    // Grant management stays behind the WebUI token; only the peer-facing routes are public.
+    expect(isPublicWebUiPath("/api/peer-auth/peers")).toBe(false);
+    expect(isPublicWebUiPath("/api/peer-auth/list/x")).toBe(false);
   });
 });
 
