@@ -3,6 +3,13 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { afterEach, describe, it, vi } from "vitest";
+import { InMemoryCredentialStore, InMemoryModelsStore } from "@earendil-works/pi-ai";
+import { ModelRuntime } from "@earendil-works/pi-coding-agent";
+import {
+  EXPERIENTIALLABS_BASE_URL,
+  EXPERIENTIALLABS_PROVIDER_ID,
+  registerExperientialLabsProvider,
+} from "./experientiallabs-provider";
 import {
   __resetPiAgentDirCacheForTests,
   accountAuthPath,
@@ -305,6 +312,58 @@ describe("getRuntimeFor", () => {
 
     assert.deepEqual(second, first);
     assert.equal(modelReads, 1);
+  });
+
+  it("fetches Experiential Labs models in settings after API-key login", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "leafcode-pi-experientiallabs-catalog-"));
+    tempDirs.push(dir);
+    process.env.LEAFCODE_PI_DATA_DIR = dir;
+    useTestAgentDir(dir);
+    const id = EXPERIENTIALLABS_PROVIDER_ID;
+    const runtime = await ModelRuntime.create({
+      credentials: new InMemoryCredentialStore(),
+      modelsPath: null,
+      modelsStore: new InMemoryModelsStore(),
+      allowModelNetwork: false,
+    });
+    const fetchMock = vi.fn(async (url: string | URL | Request, options?: RequestInit) => {
+      assert.equal(url, `${EXPERIENTIALLABS_BASE_URL}/models`);
+      assert.equal((options?.headers as Record<string, string>).Authorization, "Bearer catalog-test-key");
+      return Response.json({ object: "list", data: [{ id: "qwen3.8-27b" }] });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    await registerExperientialLabsProvider(runtime);
+    await runtime.login(id, "api_key", {
+      prompt: async () => "catalog-test-key",
+      notify: () => undefined,
+    });
+    assert.equal(runtime.hasConfiguredAuth(id), true);
+    // SDK login only validates and saves auth; its catalog synchronization is offline.
+    assert.equal(fetchMock.mock.calls.length, 1);
+    assert.deepEqual(runtime.getModels(id), []);
+
+    (globalThis as Record<string, unknown>)[GLOBAL_KEY] = {
+      modelRuntime: {
+        getProvider: (providerId: string) => runtime.getProvider(providerId) ?? { id: providerId },
+        getProviders: () => [runtime.getProvider(id)!],
+        getModels: runtime.getModels.bind(runtime),
+        getModel: runtime.getModel.bind(runtime),
+        hasConfiguredAuth: runtime.hasConfiguredAuth.bind(runtime),
+        refresh: runtime.refresh.bind(runtime),
+      },
+      initPromise: null,
+      initError: null,
+      live: new Map(),
+      watchdogRegistered: true,
+      lastProviderSyncWarnings: [],
+    };
+
+    const rows = await listProviderModelsCatalog();
+    assert.equal(fetchMock.mock.calls.length, 2);
+    assert.equal(rows[0]?.id, id);
+    assert.equal(rows[0]?.models[0]?.id, "qwen3.8-27b");
+    assert.equal(rows[0]?.models[0]?.enabled, true);
+    assert.equal((await runtime.getAvailable(id))[0]?.id, "qwen3.8-27b");
   });
 
   it("refreshes an OrcaRouter account before building its provider catalog", async () => {

@@ -6319,7 +6319,10 @@ async function listProviderModelsCatalogUncached(): Promise<ProviderModelsRow[]>
   if (runtime) {
     // Settings のプロバイダー一覧は /api/models を経由しないため、認証後の
     // 動的カタログをここで再同期してからスナップショットを作る。
-    await syncOrcaRouterProvider(runtime);
+    await Promise.all([
+      syncOrcaRouterProvider(runtime),
+      syncExperientialLabsProvider(runtime),
+    ]);
     // マルチアカウント対応プロバイダーはアカウント専用。既定欄には出さない。
     const snapshot = providerModelSnapshot(runtime);
     state = await ensureProviderModelsKnown(snapshot.refs);
