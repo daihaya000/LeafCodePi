@@ -252,6 +252,46 @@ describe("bot intercom Phase B contract", () => {
     expect(getBotIntercomInbox(bob.id).unreadCount).toBe(0);
   });
 
+  it("keeps another process's message and read marker when this process appends", () => {
+    const alice = enableIntercom(createBot({ name: "Alice" }).id)!;
+    const bob = enableIntercom(createBot({ name: "Bob" }).id)!;
+    residents.add(alice.id);
+    residents.add(bob.id);
+    sendBotIntercom({ fromBotId: alice.id, to: bob.id, text: "from this process" });
+
+    // Another process appends a message and marks the mail read. Rewriting the
+    // file updates mtime, which is what the next read-modify-write observes.
+    const path = botIntercomMailboxPathForTests(bob.id);
+    const stored = JSON.parse(readFileSync(path, "utf8")) as {
+      lastReadAt: number;
+      messages: Array<{ id: string; fromBotId: string; toBotId: string; text: string; createdAt: number; depth: number }>;
+    };
+    stored.messages.push({
+      v: BOT_INTERCOM_SCHEMA_VERSION,
+      id: "other-process-message",
+      fromBotId: alice.id,
+      toBotId: bob.id,
+      text: "from the other process",
+      createdAt: Date.now() - 1,
+      depth: 0,
+    } as (typeof stored.messages)[number]);
+    stored.lastReadAt = Date.now() + 60_000;
+    writeFileSync(path, JSON.stringify(stored));
+
+    sendBotIntercom({ fromBotId: alice.id, to: bob.id, text: "second from this process" });
+
+    const written = JSON.parse(readFileSync(path, "utf8")) as {
+      lastReadAt: number;
+      messages: Array<{ text: string }>;
+    };
+    const texts = written.messages.map((message) => message.text);
+    expect(texts).toContain("from the other process");
+    expect(texts).toContain("second from this process");
+    // The later read marker survives, so the already-read message does not reappear.
+    expect(written.lastReadAt).toBeGreaterThan(0);
+    expect(getBotIntercomInbox(bob.id).unreadCount).toBe(0);
+  });
+
   it("returns an ask reply as the wait result and lists pending asks by Bot id", async () => {
     const alice = enableIntercom(createBot({ name: "Alice" }).id)!;
     const bob = enableIntercom(createBot({ name: "Bob" }).id)!;

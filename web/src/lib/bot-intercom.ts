@@ -435,13 +435,44 @@ function asPending(value: unknown): PendingAskRecord | null {
 
 function persistMailbox(botId: string, state: InboxState): void {
   if (!isBotId(botId)) return;
+  // Read-modify-write races the other process: if the file changed after our
+  // in-memory copy was loaded, merging first keeps their messages and the later
+  // read marker instead of writing our stale copy over them.
+  const merged = mergeWithOnDiskMailbox(botId, state);
   atomicWrite(mailboxPath(botId), {
     v: BOT_INTERCOM_SCHEMA_VERSION,
-    lastReadAt: state.lastReadAt,
-    messages: state.messages,
-    pendingAsks: state.pendingAsks,
+    lastReadAt: merged.lastReadAt,
+    messages: merged.messages,
+    pendingAsks: merged.pendingAsks,
   });
   inboxMtimes.set(botId, mailboxMtime(botId));
+}
+
+/**
+ * Union of the in-memory state and whatever another process wrote since the load.
+ * `lastReadAt` takes the later marker so a stale reader cannot re-show a message
+ * the other process already read.
+ */
+function mergeWithOnDiskMailbox(botId: string, state: InboxState): InboxState {
+  const mtime = mailboxMtime(botId);
+  if (mtime < 0 || mtime === inboxMtimes.get(botId)) return state;
+  const onDisk = loadMailbox(botId);
+  if (onDisk.messages.length === 0 && onDisk.pendingAsks.length === 0 && onDisk.lastReadAt === 0) return state;
+  const messages = new Map(state.messages.map((message) => [message.id, message]));
+  for (const message of onDisk.messages) {
+    const mine = messages.get(message.id);
+    // Our copy is newer when it was already carrying a delivery update.
+    messages.set(message.id, mine?.delivery !== message.delivery ? mine : message);
+  }
+  const merged = [...messages.values()].sort((a, b) => a.createdAt - b.createdAt);
+  while (merged.length > BOT_INTERCOM_MAILBOX_MAX) merged.shift();
+  const pending = new Map(state.pendingAsks.map((record) => [record.id, record]));
+  for (const record of onDisk.pendingAsks) pending.set(record.id, record);
+  return {
+    messages: merged,
+    lastReadAt: Math.max(state.lastReadAt, onDisk.lastReadAt),
+    pendingAsks: [...pending.values()],
+  };
 }
 
 function persistThreads(): void {
