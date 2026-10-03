@@ -56,3 +56,20 @@ describe("owned process tree termination", () => {
     expect(terminal.state).toBe("observed");
   }, 20_000);
 });
+describe("owned process tree termination without taskkill", () => {
+  it.runIf(isWindows)("falls back to a direct kill when taskkill is unavailable", async () => {
+    const { pid, exited } = spawnChild();
+    // Point taskkill at a missing binary so spawnSync reports ENOENT, which is
+    // what a host without taskkill on PATH sees.
+    const originalPath = process.env.PATH;
+    process.env.PATH = "C:/definitely-not-a-real-dir";
+    try {
+      const controller = createOwnedProcessTreeController(pid, { killVerifyMs: 5_000 });
+      const terminal = await controller.terminate();
+      await exited;
+      expect(terminal.state).toBe("observed");
+    } finally {
+      process.env.PATH = originalPath;
+    }
+  });
+});

@@ -38,6 +38,8 @@ export async function GET(req: Request) {
           reachable: true,
           ready: health.body.ready === true,
           status: health.body.status,
+          // Process start time verifies restarts even when the rebuilt bundle hash is unchanged.
+          startedAt: health.body.startedAt ?? null,
           generation: {
             expected: expected || null,
             running: health.body.runtimeGeneration ?? null,

@@ -376,9 +376,15 @@ LEAFCODE_PI_HEADLESS=1 ./start.sh
 
 ビルドが稼働中の `next start` の `.next` を置き換えたときは、そのままだと配信中の HTML が参照するチャンクが消えて `/_next/static/...` が 500 になり、キャッシュを持たないクライアント（スマホなど）に Next の "This page couldn't load" が出ます。`scripts/build-web.mjs` はビルド後に稼働中の WebUI を検出したら、ホスト制御の `POST /restart/webui` で新しい世代へ切り替えます。ホストに届かない場合はトレイの Restart WebUI が必要です。
 
-Goal Loop は WebUI プロセス内で動くため、再起動するとセッション終了で必ず一時停止します。実行中の Goal Loop があるときは WebUI 再起動を拒否します（`POST /restart/webui` は 409、トレイの Restart WebUI と設定画面も同じ理由で拒否）。ループを停止・完了してから再起動してください。
+本番のセッション・Goal Loop は独立バックエンドで動き、WebUI の再起動中も継続します。バックエンド・トレイホストの再起動は実行中のセッションを終了します。実行中の Goal Loop がある場合はランタイム再起動を拒否するため、先にループを停止・完了してください（開発モードでは WebUI がランタイムを持つため WebUI 再起動も同じ制約）。
 
-設定画面の「WebUI を再起動」は、ホスト制御の `POST /restart/webui` で更新を Pull します。更新がなければそのまま再起動し、更新があれば WebUI を停止 → production build → 起動します。Pull に失敗した場合もローカルのソースで再起動します。
+設定画面の再起動は次の操作に統一しています。サイドバーフッターからも WebUI・バックエンドを再起動できます。
+
+- **WebUI を再起動**（`POST /restart/webui`）：Pull 後、フロントエンドを必ず再ビルド・再起動。バックエンドは継続します。Pull 失敗時もローカルソースでビルドします。
+- **バックエンドを再起動**（`POST /restart/backend`）：バックエンドを停止し、ランタイムを必ず再ビルド・再起動。WebUI は継続し、新しいランタイム世代に追従します。
+- **トレイホストを再起動**（`POST /restart/host`）：Pull 後、ホストを置き換え、フロントエンド・バックエンドの両方を必ず再ビルド・再起動。
+
+いずれもビルド失敗時は前回のビルドで起動します。前回ビルドがない場合は本番起動できず、エラーを記録します。
 
 production build は既存のミラー先を常設ビルド領域として直接使用します。Windows は **`%LOCALAPPDATA%\leafcode-pi\build\<checkout>-<hash>\`**、Linux/macOS は **`$XDG_CACHE_HOME/leafcode-pi/build/<checkout>-<hash>/`**（未設定時は `~/.cache/leafcode-pi/build/...`）で、`next start` も同じ場所から配信します。場所は従来どおり `LEAFCODE_PI_BUILD_DIR` で変更できます。
 
@@ -398,7 +404,7 @@ production build は既存のミラー先を常設ビルド領域として直接
 - Open browser
 - 稼働状況
 - Restart WebUI
-- Quit（次回起動時に必要な production build があれば、先にビルドしてから終了）
+- Quit（WebUI・バックエンド・ホストを終了）
 
 ```bat
 start.bat

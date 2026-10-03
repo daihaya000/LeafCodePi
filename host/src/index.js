@@ -1,6 +1,6 @@
 import { spawn, spawnSync } from "node:child_process";
 import { randomBytes } from "node:crypto";
-import { existsSync, mkdirSync, readFileSync, rmSync, unlinkSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, unlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -16,13 +16,13 @@ import { createLogFileWriter, formatLogLine } from "./log-file.js";
 import { getListeningPids, getPortListenerStatus } from "./port-scanner.js";
 import { hardKillTree, stopProcessTreeGracefully } from "./process-stop.js";
 import { stopOrphanedWebUi } from "./stale-webui.js";
-import { buildHostRestartScript, buildHostRestartWaitProgram } from "./host-restart.js";
+import { buildHostRestartScript, buildHostRestartWaitProgram, consumeHostRestartBuild } from "./host-restart.js";
 import { DEFAULT_BACKEND_PORT } from "../../shared/backend-protocol.mjs";
 import { createBackendService, shouldRunBackend } from "./backend-service.js";
 import { readBackendHealth, waitForBackendReady } from "./backend-health.js";
 import { consumePiUpdateRequest, installedPiVersion, readPiUpdateRequest, readPiUpdateState, requestPiUpdate, updatePiBeforeStartup, writePiUpdateState, PI_UPDATE_MODES } from "./pi-update.js";
 import { assertInstalledPiVersions, assertPiDependencyVersions, DEFAULT_PI_VERSION, PI_DEPS_LOCK_NAME, piDepsLockHeld } from "../../shared/pi-dependencies.mjs";
-import { buildBackendRuntime } from "../../scripts/build-backend-runtime.mjs";
+import { buildBackendWithFallback } from "./backend-build.js";
 import { pullLatestSources } from "./git-pull.js";
 import { createTranslationService } from "./translation-service.js";
 import { openProjectInExplorer } from "./open-explorer.js";
@@ -85,6 +85,7 @@ let WEBUI_AUTH = ensureWebUiAuth(process.env, WEBUI_HOST, DATA_DIR);
 const CONTROL_PORT = readPort(process.env.LEAFCODE_PI_HOST_CONTROL_PORT, DEFAULT_HOST_CONTROL_PORT);
 const LLAMA_SERVER_PORT = readPort(process.env.LEAFCODE_PI_LLAMA_PORT, DEFAULT_LLAMA_SERVER_PORT);
 const CONTROL_FILE = join(DATA_DIR, "host-control.json");
+const BACKEND_GENERATION_FILE = join(DATA_DIR, "backend-generation.txt");
 const MAX_WEB_RESTARTS = 3;
 const MAX_TRAY_RESTARTS = 3;
 // The budgets stop rapid crash loops, not unrelated failures spread over a long
@@ -470,12 +471,19 @@ function buildWeb(reason = "missing", { pull = true } = {}) {
 /** How long a restarted Host waits for the Backend it is bringing back before serving the WebUI. */
 export const BACKEND_START_READY_TIMEOUT_MS = 20_000;
 
-async function spawnWeb({ pull = true } = {}) {
+function publishBackendGeneration() {
+  const temporary = `${BACKEND_GENERATION_FILE}.tmp`;
+  writeFileSync(temporary, backendService?.status().generation ?? "", "utf8");
+  renameSync(temporary, BACKEND_GENERATION_FILE);
+}
+
+async function spawnWeb({ pull = true, forceBuild = false } = {}) {
   // A client WebUI needs its owner first: bring the Backend back attached and give the runtime a
   // bounded moment to attach, so the restarted WebUI does not serve failures while it catches up.
   if (backendService) {
     try {
       backendService.start({ attachRuntime: true });
+      publishBackendGeneration();
       const clientEnv = backendService.clientEnv();
       const ready = await waitForBackendReady({
         read: () =>
@@ -502,8 +510,8 @@ async function spawnWeb({ pull = true } = {}) {
     log("Skipping stale production rebuild during host replacement; serving the existing build");
   }
   let plan = getWebLaunchPlan(process.env.LEAFCODE_PI_MODE, hasBuild, buildStale);
-  if (plan.needsBuild) {
-    const rebuildReason = hasBuild && buildStale ? "stale" : "missing";
+  if (forceBuild || plan.needsBuild) {
+    const rebuildReason = forceBuild ? "manual" : hasBuild && buildStale ? "stale" : "missing";
     try {
       await buildWeb(rebuildReason, { pull });
     } catch (err) {
@@ -517,7 +525,7 @@ async function spawnWeb({ pull = true } = {}) {
       });
       if (failureAction === "fail") {
         throw new Error(
-          `Stale production rebuild failed and sources are still newer than the build (${err instanceof Error ? err.message : String(err)})`,
+          `Production rebuild failed and no previous build is available (${err instanceof Error ? err.message : String(err)})`,
         );
       }
       if (failureAction === "continue-stale") {
@@ -601,7 +609,10 @@ async function spawnWeb({ pull = true } = {}) {
       LEAFCODE_PI_SKILLS_DIR: join(REPO_ROOT, "skills"),
       // How the WebUI reaches the Backend, and which runtime generation to expect. Absent when no
       // Backend is configured, so the WebUI keeps its in-process path.
-      ...(backendService ? backendService.clientEnv() : {}),
+      ...(backendService ? {
+        ...backendService.clientEnv(),
+        LEAFCODE_PI_BACKEND_GENERATION_FILE: BACKEND_GENERATION_FILE,
+      } : {}),
     },
   });
   webProc = child;
@@ -721,7 +732,9 @@ async function restartBackend() {
   log("Restarting the Backend (Pi runtime)...");
   try {
     await backendService.stopForRestart();
+    await buildBackendWithFallback({ force: true, log, error });
     backendService.start({ attachRuntime: true });
+    publishBackendGeneration();
     const clientEnv = backendService.clientEnv();
     const ready = await waitForBackendReady({
       read: () =>
@@ -772,18 +785,12 @@ async function restartWeb() {
   restarting = true;
   log("Restarting LeafCodePi WebUI...");
   try {
-    const { updated } = pullLatestSources({ repoRoot: REPO_ROOT, log, error });
+    pullLatestSources({ repoRoot: REPO_ROOT, log, error });
     await stopWeb();
-    if (updated) {
-      // The served .next is stashed while next build runs, so the WebUI has to
-      // stay stopped here; a failed rebuild falls through to spawnWeb, which
-      // serves the build restored by build-web.mjs.
-      await buildWeb("stale", { pull: false }).catch((err) => {
-        error(`Rebuild failed: ${err instanceof Error ? err.message : String(err)}`);
-      });
-    }
     await sleep(STOP_SETTLE_MS);
-    await spawnWeb({ pull: false });
+    // Always rebuild, even without a Pull update. spawnWeb launches the restored
+    // previous build on failure without making a second stale-build attempt.
+    await spawnWeb({ pull: false, forceBuild: true });
   } finally {
     restarting = false;
     await refreshStatusMenu();
@@ -795,6 +802,8 @@ async function restartWeb() {
  * lock to clear, then quit so the new host can take over.
  */
 async function restartHost() {
+  if (restarting) return;
+  restarting = true;
   log("Host restart requested; spawning replacement…");
   pullLatestSources({ repoRoot: REPO_ROOT, log, error });
   if (process.platform !== "win32") {
@@ -805,7 +814,7 @@ async function restartHost() {
       {
         detached: true,
         stdio: "ignore",
-        env: { ...process.env, LEAFCODE_PI_NO_BROWSER: "1" },
+        env: { ...process.env, LEAFCODE_PI_NO_BROWSER: "1", LEAFCODE_PI_REBUILD_SERVICES: "1" },
       },
     );
     child.once("error", (err) => error(`Host restart failed: ${err.message}`));
@@ -843,7 +852,7 @@ async function restartHost() {
     log(`Replacement host launcher spawned (WMI PID ${pid})`);
     await quit();
   } catch (err) {
-    delete process.env.LEAFCODE_PI_SKIP_STALE_REBUILD;
+    restarting = false;
     error(`Host restart failed: ${err instanceof Error ? err.message : String(err)}`);
     try {
       unlinkSync(launcherPath);
@@ -882,7 +891,7 @@ function buildTrayMenu() {
       statusWebItem,
       {
         title: "Restart WebUI",
-        tooltip: "Restart Next.js",
+        tooltip: "Rebuild and restart Next.js (use the previous build on failure)",
         checked: false,
         enabled: true,
         click: () => {
@@ -1195,6 +1204,7 @@ function onHostExit() {
 
 async function main() {
   acquireLock();
+  const rebuildServices = consumeHostRestartBuild(process.env);
   log(`LeafCodePi host ${HOST_VERSION} pid=${process.pid}`);
   log(`Binding WebUI on ${WEBUI_HOST}:${WEBUI_PORT} (open ${WEBUI_URL})`);
   if (WEBUI_HOST === "127.0.0.1" && (!process.env.LEAFCODE_PI_HOST || process.env.LEAFCODE_PI_HOST.trim().toLowerCase() === "tailscale")) {
@@ -1262,7 +1272,7 @@ async function main() {
         assertInstalledPiVersions(WEB_MIRROR_DIR, piVersion);
         mirrorMatches = true;
       } catch { /* a legacy or stale build must not serve a different SDK/AI pair */ }
-      if (!mirrorMatches) {
+      if (!mirrorMatches && !rebuildServices) {
         delete process.env.LEAFCODE_PI_SKIP_STALE_REBUILD;
         await buildWeb("stale", { pull: false });
       }
@@ -1270,8 +1280,8 @@ async function main() {
     // Extension sources load directly from the repo, independently of the Web
     // build. Repair missing dependencies even when a restart reuses that build.
     ensureExtensionDependencies(join(REPO_ROOT, "extensions"));
-    if (backendService) await buildBackendRuntime({ log });
-    await spawnWeb();
+    if (backendService) await buildBackendWithFallback({ force: rebuildServices, log, error });
+    await spawnWeb({ forceBuild: rebuildServices, pull: !rebuildServices });
   } catch (err) {
     removeLock(LOCK_FILE);
     error(err instanceof Error ? err.message : String(err));

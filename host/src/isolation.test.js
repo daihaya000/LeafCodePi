@@ -214,7 +214,7 @@ test("host restart relaunches through LeafCodePi.exe when available", () => {
     script.includes(String.raw`start "LeafCodePi" /min "C:\Users\Daichi\LeafCodePi\LeafCodePi.exe"`),
   );
   assert.doesNotMatch(script, /cmd\.exe/);
-  assert.match(script, /LEAFCODE_PI_SKIP_STALE_REBUILD=1/);
+  assert.match(script, /LEAFCODE_PI_REBUILD_SERVICES=1/);
   // A stale lock (old host killed before removing it) must not wait forever.
   assert.match(script, /set \/a WAIT\+=1/);
   assert.match(script, /if %WAIT% GEQ 120 goto :launch/);
@@ -262,13 +262,13 @@ test("host restart falls back to start-webui.bat without the native launcher", (
   assert.match(lines.join("\n"), /cmd\.exe \/c/);
 });
 
-test("WebUI restart pulls, rebuilds only after an update, then starts without pulling twice", () => {
+test("WebUI restart always rebuilds and launches once without pulling twice", () => {
   const index = readFileSync(join(repoRoot, "host", "src", "index.js"), "utf8");
   const restart = index.slice(index.indexOf("async function restartWeb("), index.indexOf("async function restartHost("));
-  assert.match(restart, /const \{ updated \} = pullLatestSources\(/);
-  assert.match(restart, /await stopWeb\(\);\s*if \(updated\)/);
-  assert.match(restart, /await buildWeb\([^;]+\{ pull: false \}\)/);
-  assert.match(restart, /await spawnWeb\(\{ pull: false \}\)/);
+  assert.match(restart, /pullLatestSources\(/);
+  assert.match(restart, /await stopWeb\(\)/);
+  assert.match(restart, /await spawnWeb\(\{ pull: false, forceBuild: true \}\)/);
+  assert.doesNotMatch(restart, /buildBackend|stopForRestart/);
   const launch = index.slice(index.indexOf("async function spawnWeb("), index.indexOf("function scheduleWebRestart("));
   assert.match(launch, /const skipStaleBuild = consumeSkipStaleRebuild\(process\.env\)/);
 });
@@ -278,7 +278,7 @@ test("the WebUI is always the Backend's client", () => {
   // There is no ownership bookkeeping left: the WebUI is the Backend's client in every start.
   assert.doesNotMatch(index, /webOwnership|LEAFCODE_PI_BACKEND_OWNS_RUNTIME/);
   const launch = index.slice(index.indexOf("async function spawnWeb("), index.indexOf("function scheduleWebRestart("));
-  assert.match(launch, /async function spawnWeb\(\{ pull = true \} = \{\}\)/);
+  assert.match(launch, /async function spawnWeb\(\{ pull = true, forceBuild = false \} = \{\}\)/);
   const restart = index.slice(index.indexOf("async function restartWeb("), index.indexOf("async function restartHost("));
   // A client WebUI only comes back when the Backend it depends on is genuinely ready.
   assert.match(restart, /The WebUI is the Backend's client/);
@@ -294,6 +294,11 @@ test("the Host can restart the Backend on request, and refuses while a Goal Loop
   // The runtime owner is stopped with confirmation, started attached again, then awaited.
   assert.match(restart, /await backendService\.stopForRestart\(\)/);
   assert.match(restart, /backendService\.start\(\{ attachRuntime: true \}\)/);
+  assert.match(restart, /await buildBackendWithFallback\(\{ force: true, log, error \}\)/);
+  assert.ok(restart.indexOf("stopForRestart()") < restart.indexOf("buildBackendWithFallback("));
+  assert.ok(restart.indexOf("buildBackendWithFallback(") < restart.indexOf("backendService.start("));
+  assert.match(restart, /publishBackendGeneration\(\)/);
+  assert.doesNotMatch(restart, /stopWeb|spawnWeb|buildWeb/);
   assert.match(restart, /waitForBackendReady\(/);
 });
 
@@ -302,8 +307,8 @@ test("Pi synchronization and matching build gates finish before either runtime s
   const main = index.slice(index.indexOf("async function main()"));
   const sync = main.indexOf("await updatePiBeforeStartup(");
   const gate = main.indexOf("assertPiDependencyVersions(WEB_DIR");
-  const backendBuild = main.indexOf("await buildBackendRuntime(");
-  const launch = main.indexOf("await spawnWeb();");
+  const backendBuild = main.indexOf("await buildBackendWithFallback(");
+  const launch = main.indexOf("await spawnWeb(");
   assert.ok(sync >= 0 && gate > sync && backendBuild > gate && launch > backendBuild);
   // Updates are settings-triggered: startup consumes a reservation, and without one the pinned
   // pair is used exactly as committed.
@@ -314,7 +319,7 @@ test("Pi synchronization and matching build gates finish before either runtime s
   assert.doesNotMatch(index, /LEAFCODE_PI_AUTO_UPDATE/);
   assert.match(main, /if \(!synchronized\.safeToStart\) throw/);
   assert.match(main, /assertPiDependencyVersions\(WEB_MIRROR_DIR, join\(REPO_ROOT, "backend"\), \{ requireUnlocked: false \}\)/);
-  assert.match(main, /if \(!mirrorMatches\)[\s\S]*await buildWeb\("stale", \{ pull: false \}\)/);
+  assert.match(main, /if \(!mirrorMatches && !rebuildServices\)[\s\S]*await buildWeb\("stale", \{ pull: false \}\)/);
   assert.doesNotMatch(index, /autoUpdatePiInBackground|npm update/);
 });
 
@@ -322,7 +327,7 @@ test("production starts Backend-owned without a hand-over", () => {
   const index = readFileSync(join(repoRoot, "host", "src", "index.js"), "utf8");
   // The Backend owns the runtime in the shipped build, so the Host runs one by default.
   assert.match(index, /const backendService = shouldRunBackend\(process\.env\)/);
-  assert.match(index, /await spawnWeb\(\);/);
+  assert.match(index, /await spawnWeb\(\{ forceBuild: rebuildServices, pull: !rebuildServices \}\)/);
   // A restarted Host brings the Backend back attached before the client WebUI is served.
   assert.match(index, /backendService\.start\(\{ attachRuntime: true \}\)/);
   assert.match(index, /waitForBackendReady\(/);

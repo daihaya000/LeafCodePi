@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, rmSync, statSync, utimesSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -7,12 +7,48 @@ import { test } from "node:test";
 import {
   backendRuntimeBundleIsCurrent,
   backendRuntimeSourceStamp,
+  publishRuntimeBuild,
 } from "./build-backend-runtime.mjs";
 
 const HERE = fileURLToPath(import.meta.url);
 const ROOT = resolve(dirname(HERE), "..");
 const HARNESS = join(ROOT, "web", "src", "lib", "pi", "harness.ts");
 const ENTRY = join(ROOT, "web", "src", "lib", "pi", "backend-runtime-entry.ts");
+
+test("publishing errors restore bundle, sourcemap and source stamp", () => {
+  const dir = mkdtempSync(join(tmpdir(), "lcp-runtime-publish-"));
+  try {
+    const bundle = join(dir, "runtime.mjs");
+    const map = `${bundle}.map`;
+    const stamp = `${bundle}.stamp`;
+    for (const path of [bundle, map, stamp]) writeFileSync(path, `old:${path}`);
+    const outputFiles = [bundle, map].map((path) => ({ path, contents: Buffer.from("new") }));
+    assert.throws(() => publishRuntimeBuild({
+      outputFiles, stampPath: stamp, sourceStamp: "new-stamp",
+      write: (path, bytes) => {
+        writeFileSync(path, bytes);
+        if (path === stamp) throw new Error("disk error");
+      },
+    }), /disk error/);
+    for (const path of [bundle, map, stamp]) assert.equal(readFileSync(path, "utf8"), `old:${path}`);
+    publishRuntimeBuild({ outputFiles, stampPath: stamp, sourceStamp: "new-stamp" });
+    assert.equal(readFileSync(bundle, "utf8"), "new");
+    assert.equal(readFileSync(stamp, "utf8"), "new-stamp\n");
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+});
+
+test("failed first publication leaves no partial bundle", () => {
+  const dir = mkdtempSync(join(tmpdir(), "lcp-runtime-publish-missing-"));
+  try {
+    const path = join(dir, "runtime.mjs");
+    assert.throws(() => publishRuntimeBuild({
+      outputFiles: [{ path, contents: Buffer.from("new") }], stampPath: `${path}.stamp`, sourceStamp: "new",
+      write: (file, bytes) => { writeFileSync(file, bytes); throw new Error("disk error"); },
+    }), /disk error/);
+    assert.equal(existsSync(path), false);
+    assert.equal(existsSync(`${path}.stamp`), false);
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+});
 
 test("backend runtime stamp changes when a source file changes and matches a written stamp", () => {
   const root = mkdtempSync(join(tmpdir(), "lcp-runtime-stamp-"));

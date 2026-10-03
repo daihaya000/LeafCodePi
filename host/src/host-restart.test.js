@@ -5,12 +5,23 @@ import { join } from "node:path";
 import { spawnSync } from "node:child_process";
 import { setTimeout } from "node:timers/promises";
 import test from "node:test";
-import { buildHostRestartScript, buildHostRestartWaitProgram } from "./host-restart.js";
+import { buildHostRestartScript, buildHostRestartWaitProgram, consumeHostRestartBuild } from "./host-restart.js";
 
 const lines = buildHostRestartScript({
   lockFile: "C:\\data\\host.lock",
   launcherExe: "C:\\app\\LeafCodePi.exe",
   startBat: "C:\\app\\start.bat",
+});
+
+test("replacement rebuilds both services exactly once instead of skipping stale builds", () => {
+  assert.ok(lines.includes('set "LEAFCODE_PI_REBUILD_SERVICES=1"'));
+  const env = { LEAFCODE_PI_REBUILD_SERVICES: "1", LEAFCODE_PI_SKIP_STALE_REBUILD: "1" };
+  assert.equal(consumeHostRestartBuild(env), true);
+  assert.deepEqual(env, {});
+  assert.equal(consumeHostRestartBuild(env), false);
+  const legacyEnv = { LEAFCODE_PI_SKIP_STALE_REBUILD: "1" };
+  assert.equal(consumeHostRestartBuild(legacyEnv), true);
+  assert.deepEqual(legacyEnv, {});
 });
 
 test("waits for the lock, launches, then relaunches once if no host owns the lock", () => {

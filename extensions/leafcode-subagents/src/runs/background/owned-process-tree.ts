@@ -93,9 +93,12 @@ function taskkillTree(pid: number): SignalResult {
 		windowsHide: true,
 	});
 	if (result.error) {
-		return (result.error as NodeJS.ErrnoException).code === "ENOENT"
-			? "absent"
-			: { diagnostic: diagnostic(result.error) };
+		if ((result.error as NodeJS.ErrnoException).code !== "ENOENT") {
+			return { diagnostic: diagnostic(result.error) };
+		}
+		// No taskkill on this machine: still take down the process we own rather
+		// than reporting failure and leaving it running.
+		return signalProcess(pid, "SIGKILL");
 	}
 	if (result.status === 0) return "sent";
 	if (!processAlive(pid)) return "absent";

@@ -6,6 +6,7 @@
  * wrong (not configured / unreachable / unauthorized / incompatible / timeout) so a route can
  * decide between falling back to the in-process path and reporting an error.
  */
+import { readFileSync } from "node:fs";
 import {
   isBackendGenerationCompatible,
   normalizeExpectedGeneration,
@@ -363,11 +364,16 @@ export function promptTaskOnBackend(
   return postBackendJson(`${BACKEND_TASKS_PATH}/${encodeURIComponent(id)}${BACKEND_TASK_PROMPT_SUFFIX}`, body, options);
 }
 
-/**
- * The runtime generation the Host pinned when it started this Backend, if it recorded one.
- * Empty means "not pinned": this WebUI has no expectation to compare against.
- */
+/** Host-managed generation follows a rebuilt Backend without restarting its WebUI client. */
 export function expectedBackendGeneration(env: BackendEnv = process.env): string {
+  const generationFile = env.LEAFCODE_PI_BACKEND_GENERATION_FILE?.trim();
+  if (generationFile) {
+    try {
+      const generation = normalizeExpectedGeneration(readFileSync(generationFile, "utf8"));
+      if (generation) return generation;
+    }
+    catch { /* Retain the startup pin if the Host file is temporarily unavailable. */ }
+  }
   return normalizeExpectedGeneration(env.LEAFCODE_PI_BACKEND_GENERATION);
 }
 

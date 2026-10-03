@@ -1,3 +1,6 @@
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { BACKEND_PROTOCOL_HEADER, BACKEND_PROTOCOL_VERSION } from "@shared/backend-protocol.mjs";
 import {
@@ -187,6 +190,21 @@ describe("runtime generation", () => {
     expect(expectedBackendGeneration({ LEAFCODE_PI_BACKEND_GENERATION: " gen-a " })).toBe("gen-a");
     expect(expectedBackendGeneration({})).toBe("");
     expect(expectedBackendGeneration({ LEAFCODE_PI_BACKEND_GENERATION: "   " })).toBe("");
+  });
+
+  it("follows Host-published generations without restarting the WebUI", () => {
+    const dir = mkdtempSync(join(tmpdir(), "lcp-client-generation-"));
+    try {
+      const file = join(dir, "generation.txt");
+      const clientEnv = { LEAFCODE_PI_BACKEND_GENERATION: "old", LEAFCODE_PI_BACKEND_GENERATION_FILE: file };
+      expect(expectedBackendGeneration(clientEnv)).toBe("old");
+      writeFileSync(file, "gen-a");
+      expect(expectedBackendGeneration(clientEnv)).toBe("gen-a");
+      writeFileSync(file, "gen-b");
+      expect(expectedBackendGeneration(clientEnv)).toBe("gen-b");
+      writeFileSync(file, "");
+      expect(expectedBackendGeneration(clientEnv)).toBe("old");
+    } finally { rmSync(dir, { recursive: true, force: true }); }
   });
 
   it("treats an unpinned expectation as compatible, and an unidentified Backend as not", () => {

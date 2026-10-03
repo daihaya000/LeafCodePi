@@ -58,6 +58,7 @@ vi.mock("@/components/ui", () => ({
 
 import { markRead } from "@/lib/bot-unread";
 import { Sidebar } from "./Sidebar";
+import { restartConfirmation } from "@/lib/host-restart-copy";
 
 beforeEach(() => {
   document.title = "LCP X870";
@@ -113,16 +114,57 @@ describe("Bot mode list", () => {
     try {
       render(<Sidebar mobileOpen={false} onClose={vi.fn()} />);
       const button = await screen.findByRole("button", { name: "WebUIを再起動" });
-      expect(button.getAttribute("title")).toContain("更新があればPull・再ビルド");
+      expect(button.getAttribute("title")).toContain("再ビルド・再起動");
       fireEvent.click(button);
 
-      expect(confirm).toHaveBeenCalledWith("WebUIを再起動しますか？（更新がある場合は Pull と再ビルドも行います）");
+      expect(confirm).toHaveBeenCalledWith(restartConfirmation("webui"));
       await waitFor(() => expect(mocks.sendJson).toHaveBeenCalledWith("/api/host/restart", { target: "webui" }));
       await waitFor(() => expect(restartEvent).toHaveBeenCalledOnce());
     } finally {
       window.removeEventListener("leafcode:webui-restart", restartEvent);
       confirm.mockRestore();
     }
+  });
+
+  it("フッターのバックエンド再起動はWebUIを維持し、readyを待ってボタンを戻す", async () => {
+    localStorage.setItem("webui.sidebar.collapsed", "0");
+    const fetchStatus = vi.spyOn(globalThis, "fetch").mockImplementation(async (url) =>
+      new Response(JSON.stringify({ backend: { ready: true, startedAt: String(url).includes("?restart=") ? "after" : "before" } }), { status: 200 }));
+    const confirm = vi.spyOn(window, "confirm").mockReturnValue(true);
+    const restartEvent = vi.fn();
+    window.addEventListener("leafcode:webui-restart", restartEvent);
+    try {
+      render(<Sidebar mobileOpen={false} onClose={vi.fn()} />);
+      const button = await screen.findByRole("button", { name: "バックエンドを再起動" });
+      fireEvent.click(button);
+      expect(confirm).toHaveBeenCalledWith(restartConfirmation("backend"));
+      await waitFor(() => expect(mocks.sendJson).toHaveBeenCalledWith("/api/host/restart", { target: "backend" }));
+      expect((screen.getByRole("button", { name: "WebUIを再起動" }) as HTMLButtonElement).disabled).toBe(true);
+      await waitFor(() => expect((button as HTMLButtonElement).disabled).toBe(false), { timeout: 3000 });
+      expect(restartEvent).not.toHaveBeenCalled();
+      expect(fetchStatus.mock.calls.some(([url]) => String(url).startsWith("/api/backend/status"))).toBe(true);
+    } finally {
+      window.removeEventListener("leafcode:webui-restart", restartEvent);
+      confirm.mockRestore();
+      fetchStatus.mockRestore();
+    }
+  });
+
+  it("バックエンド再起動のキャンセル・失敗では再試行できる", async () => {
+    localStorage.setItem("webui.sidebar.collapsed", "0");
+    const confirm = vi.spyOn(window, "confirm").mockReturnValue(false);
+    const fetchStatus = vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response(JSON.stringify({ backend: { ready: true, startedAt: "before" } })));
+    try {
+      render(<Sidebar mobileOpen={false} onClose={vi.fn()} />);
+      const button = await screen.findByRole("button", { name: "バックエンドを再起動" });
+      fireEvent.click(button);
+      expect(mocks.sendJson).not.toHaveBeenCalledWith("/api/host/restart", { target: "backend" });
+      confirm.mockReturnValue(true);
+      mocks.sendJson.mockRejectedValueOnce(new Error("restart refused"));
+      fireEvent.click(button);
+      expect(await screen.findByRole("alert")).toHaveProperty("textContent", "restart refused");
+      expect((button as HTMLButtonElement).disabled).toBe(false);
+    } finally { confirm.mockRestore(); fetchStatus.mockRestore(); }
   });
 
   it("defaults to Code when no mode is saved", async () => {

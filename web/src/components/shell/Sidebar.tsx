@@ -20,6 +20,7 @@ import {
   Pin,
   RefreshCw,
   Search,
+  ServerCog,
   Settings,
   Trash2,
   Users,
@@ -60,6 +61,8 @@ import {
   serializeProjectOrder,
 } from "@/lib/sidebar-settings";
 import { isGoalLoopLiveStatus } from "@/lib/goal-loop-settings";
+import { restartConfirmation } from "@/lib/host-restart-copy";
+import { createBackendRestartCheck, type BackendRestartStatus } from "@/lib/host-restart-state";
 import { NO_PROJECT_NAME, type BotDto, type HealthDto, type RoomDto, type ProjectDto, type ProjectIconColor, type TaskSummary } from "@/lib/types";
 
 type ProjectTaskMenuState = {
@@ -223,7 +226,13 @@ function ModeSegment({ mode, onChange, workingCounts, unreadModes }: { mode: App
 }
 
 function SidebarFooter({ health, onSettings }: { health: HealthDto | null; onSettings: () => void }) {
-  const [restartBusy, setRestartBusy] = useState(false);
+  const [restartBusy, setRestartBusy] = useState<"webui" | "backend" | null>(null);
+  const restartBusyRef = useRef(false);
+  const mountedRef = useRef(true);
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => { mountedRef.current = false; };
+  }, []);
   const [restartError, setRestartError] = useState<string | null>(null);
   const [latestCommit, setLatestCommit] = useState<string | null>(null);
   const [pullBusy, setPullBusy] = useState(false);
@@ -248,16 +257,48 @@ function SidebarFooter({ health, onSettings }: { health: HealthDto | null; onSet
     };
   }, []);
 
-  const restartWebUi = async () => {
-    if (restartBusy || !window.confirm("WebUIを再起動しますか？（更新がある場合は Pull と再ビルドも行います）")) return;
-    setRestartBusy(true);
+  const restartService = async (target: "webui" | "backend") => {
+    if (restartBusyRef.current || !window.confirm(restartConfirmation(target))) return;
+    restartBusyRef.current = true;
+    setRestartBusy(target);
     setRestartError(null);
     try {
-      await sendJson("/api/host/restart", { target: "webui" });
-      window.dispatchEvent(new Event("leafcode:webui-restart"));
+      let previousBackend: BackendRestartStatus | null = null;
+      if (target === "backend") {
+        try {
+          const before = await fetch("/api/backend/status", { cache: "no-store", signal: AbortSignal.timeout(4000) });
+          if (before.ok) previousBackend = await before.json() as BackendRestartStatus;
+        } catch { /* Keep completion fail-closed if the previous process is unknown. */ }
+      }
+      const backendRestartCompleted = createBackendRestartCheck(previousBackend);
+      await sendJson("/api/host/restart", { target });
+      if (target === "webui") {
+        window.dispatchEvent(new Event("leafcode:webui-restart"));
+        return;
+      }
+      const deadline = Date.now() + 300_000;
+      while (Date.now() < deadline) {
+        await new Promise((resolve) => setTimeout(resolve, 1500));
+        if (!mountedRef.current) return;
+        try {
+          const response = await fetch(`/api/backend/status?restart=${Date.now()}`, {
+            cache: "no-store", signal: AbortSignal.timeout(4000),
+          });
+          if (!response.ok) continue;
+          const status = await response.json() as BackendRestartStatus;
+          if (backendRestartCompleted(status)) {
+            restartBusyRef.current = false;
+            setRestartBusy(null);
+            return;
+          }
+        } catch { /* The Backend may still be rebuilding or restarting. */ }
+      }
+      throw new Error("バックエンドの再起動確認がタイムアウトしました。設定の再起動パネルで状態を確認してください。");
     } catch (error) {
-      setRestartBusy(false);
-      setRestartError(error instanceof Error ? error.message : "WebUIの再起動に失敗しました");
+      restartBusyRef.current = false;
+      if (!mountedRef.current) return;
+      setRestartBusy(null);
+      setRestartError(error instanceof Error ? error.message : "再起動に失敗しました");
     }
   };
 
@@ -283,8 +324,8 @@ function SidebarFooter({ health, onSettings }: { health: HealthDto | null; onSet
       <div className="mt-2">
         <SystemMonitorWidget />
       </div>
-      <div className="mt-2 flex items-center justify-between gap-1">
-        <div className="min-w-0 flex-1 px-2">
+      <div className="mt-2 flex flex-wrap items-center justify-between gap-1">
+        <div className="min-w-28 flex-1 px-2">
           <p className="truncate text-[11px] text-muted">
             {health?.engineOk ? `Pi ${health.version ?? ""} · モデル ${health.modelCount}` : "Pi 未接続"}
           </p>
@@ -297,7 +338,7 @@ function SidebarFooter({ health, onSettings }: { health: HealthDto | null; onSet
             </p>
           )}
         </div>
-        <div className="flex shrink-0 items-center">
+        <div className="ml-auto flex shrink-0 items-center">
           <PushoverFooterToggle />
           {BUILD_COMMIT && (
             <Button
@@ -319,11 +360,23 @@ function SidebarFooter({ health, onSettings }: { health: HealthDto | null; onSet
             variant="ghost"
             size="icon"
             aria-label="WebUIを再起動"
-            title="WebUIを再起動（更新があればPull・再ビルド）"
-            busy={restartBusy}
-            onClick={() => void restartWebUi()}
+            title="WebUIを再ビルド・再起動（ビルド失敗時は前回のビルドで起動）"
+            busy={restartBusy === "webui"}
+            disabled={restartBusy !== null}
+            onClick={() => void restartService("webui")}
           >
-            {!restartBusy && <RefreshCw className="h-4 w-4" aria-hidden="true" />}
+            {restartBusy !== "webui" && <RefreshCw className="h-4 w-4" aria-hidden="true" />}
+          </Button>
+          <Button
+            variant="ghost"
+            size="icon"
+            aria-label="バックエンドを再起動"
+            title="バックエンドを再ビルド・再起動（セッション終了、ビルド失敗時は前回のビルドで起動）"
+            busy={restartBusy === "backend"}
+            disabled={restartBusy !== null}
+            onClick={() => void restartService("backend")}
+          >
+            {restartBusy !== "backend" && <ServerCog className="h-4 w-4" aria-hidden="true" />}
           </Button>
           <Link
             href="/settings"

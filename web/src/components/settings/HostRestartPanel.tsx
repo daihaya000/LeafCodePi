@@ -4,23 +4,11 @@ import { useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui";
 import { HOST_LAUNCH_REQUIRED_HINT_ANY, HOST_RESTART_READY_HINT_ANY } from "@/lib/host-launch-hints";
 import type { HealthDto } from "@/lib/types";
+import { createBackendRestartCheck, type BackendRestartStatus } from "@/lib/host-restart-state";
 
-type RestartTarget = "webui" | "backend" | "host";
+import { RESTART_LABELS as LABELS, restartConfirmation, type RestartTarget } from "@/lib/host-restart-copy";
 
-const LABELS: Record<RestartTarget, string> = {
-  webui: "WebUI",
-  backend: "バックエンド（Piランタイム）",
-  host: "トレイホスト",
-};
-
-/** What each restart ends, so the confirmation can say it instead of a generic warning. */
-const CONFIRM_NOTES: Record<RestartTarget, string> = {
-  webui: "（更新がある場合は Pull と再ビルドも行います。実行中のセッションはBackendで継続します）",
-  backend: "（実行中のセッションはすべて終了します。WebUIは再起動しません）",
-  host: "（WebUIとバックエンドが再起動し、実行中のセッションは終了します）",
-};
-
-const HEALTH_BUDGET_MS = 90_000;
+const HEALTH_BUDGET_MS = 300_000;
 const HEALTH_INTERVAL_MS = 1_500;
 const HEALTH_TIMEOUT_MS = 4_000;
 
@@ -72,6 +60,14 @@ export function HostRestartPanel({ onRestarted }: { onRestarted?: () => void }) 
     setRemaining(HEALTH_BUDGET_MS / 1000);
     setError(null);
     try {
+      let previousBackend: BackendRestartStatus | null = null;
+      if (action === "backend") {
+        try {
+          const before = await timedFetch("/api/backend/status", { timeoutMs: HEALTH_TIMEOUT_MS });
+          if (before.ok) previousBackend = await before.json() as BackendRestartStatus;
+        } catch { /* Unknown state requires an observed outage before accepting readiness. */ }
+      }
+      const backendRestartCompleted = createBackendRestartCheck(previousBackend);
       const res = await timedFetch("/api/host/restart", {
         method: "POST",
         headers: { "content-type": "application/json" },
@@ -102,11 +98,9 @@ export function HostRestartPanel({ onRestarted }: { onRestarted?: () => void }) 
             { timeoutMs: HEALTH_TIMEOUT_MS },
           );
           if (!h.ok) continue;
-          const body = (await h.json().catch(() => ({}))) as HealthDto & {
-            backend?: { ready?: boolean } | null;
-          };
+          const body = (await h.json().catch(() => ({}))) as HealthDto & BackendRestartStatus;
           if (action === "backend") {
-            if (body?.backend?.ready === true) {
+            if (backendRestartCompleted(body)) {
               success = true;
               break;
             }
@@ -147,7 +141,10 @@ export function HostRestartPanel({ onRestarted }: { onRestarted?: () => void }) 
           : HOST_RESTART_READY_HINT_ANY}
       </p>
       <p className="mt-1 text-xs text-muted">
-        WebUI の再起動ではバックエンドは継続します。バックエンドを再起動すると実行中のセッション（Piランタイム）は終了します。
+        WebUI はフロントエンドのみ、バックエンドはバックエンドのみ、トレイホストは両方を再ビルド・再起動します。ビルド失敗時は前回のビルドで起動します。
+      </p>
+      <p className="mt-1 text-xs text-muted">
+        WebUI の再起動ではセッションは継続します。バックエンド・トレイホストの再起動では実行中のセッションは終了します。
       </p>
       <div className="mt-3 flex flex-wrap gap-2">
         <Button
@@ -198,7 +195,7 @@ export function HostRestartPanel({ onRestarted }: { onRestarted?: () => void }) 
           className="mt-3 rounded-lg border border-warning/30 bg-warning-bg px-3 py-2 text-sm text-warning"
         >
           <p className="font-medium">
-            {`${LABELS[pending]}を再起動しますか？${CONFIRM_NOTES[pending]}`}
+            {restartConfirmation(pending)}
           </p>
           <div className="mt-2 flex flex-wrap gap-2">
             <Button type="button" size="sm" variant="primary" onClick={() => void restartService(pending)}>

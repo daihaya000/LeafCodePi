@@ -110,6 +110,21 @@ export function backendRuntimeBundleIsCurrent({
   }
 }
 
+/** Publish only a fully compiled bundle; roll back all artifacts if a write fails. */
+export function publishRuntimeBuild({ outputFiles, stampPath, sourceStamp, write = writeFileSync }) {
+  const artifacts = [...outputFiles, { path: stampPath, contents: Buffer.from(`${sourceStamp}\n`) }];
+  const previous = artifacts.map(({ path }) => existsSync(path) ? readFileSync(path) : null);
+  try {
+    for (const { path, contents } of artifacts) write(path, contents);
+  } catch (err) {
+    for (let i = 0; i < artifacts.length; i += 1) {
+      if (previous[i] === null) rmSync(artifacts[i].path, { force: true });
+      else writeFileSync(artifacts[i].path, previous[i]);
+    }
+    throw err;
+  }
+}
+
 export async function buildBackendRuntime({ log = console.log, force = false } = {}) {
   const version = assertPiDependencyVersions(join(ROOT, "web"), join(ROOT, "backend"));
   for (const dir of ["web", "backend"]) assertInstalledPiVersions(join(ROOT, dir), version);
@@ -129,6 +144,8 @@ export async function buildBackendRuntime({ log = console.log, force = false } =
   const result = await esbuild.build({
     entryPoints: [entry],
     outfile: BUNDLE_PATH,
+    // Compile in memory: esbuild errors must leave the last good build untouched.
+    write: false,
     bundle: true,
     format: "esm",
     platform: "node",
@@ -152,7 +169,7 @@ export async function buildBackendRuntime({ log = console.log, force = false } =
     for (const error of result.errors) log(`[backend-runtime] ${error.text}`);
     throw new Error("Backend runtime bundle failed");
   }
-  writeFileSync(BUNDLE_STAMP_PATH, `${sourceStamp}\n`, "utf8");
+  publishRuntimeBuild({ outputFiles: result.outputFiles, stampPath: BUNDLE_STAMP_PATH, sourceStamp });
   const size = statSync(BUNDLE_PATH).size;
   log(`[backend-runtime] wrote ${BUNDLE_PATH} (${Math.round(size / 1024)} KiB)`);
   return { outfile: BUNDLE_PATH, size, reused: false };
@@ -161,8 +178,6 @@ export async function buildBackendRuntime({ log = console.log, force = false } =
 if (process.argv[1] && resolve(process.argv[1]) === resolve(HERE)) {
   mkdirSync(dirname(BUNDLE_PATH), { recursive: true });
   buildBackendRuntime({ force: process.argv.includes("--force") }).catch((error) => {
-    rmSync(BUNDLE_PATH, { force: true });
-    rmSync(BUNDLE_STAMP_PATH, { force: true });
     console.error(`Backend runtime build failed: ${error instanceof Error ? error.message : String(error)}`);
     process.exitCode = 1;
   });

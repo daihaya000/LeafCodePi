@@ -77,14 +77,10 @@ export function getPostBuildLaunchPlan(mode, hasBuild, buildStale = false) {
   };
 }
 
-/**
- * After a failed rebuild, decide whether to keep serving an older BUILD_ID.
- * @returns {"continue-stale"|"fallback-dev"|"fail"}
- */
-export function staleRebuildFailureAction({ rebuildReason, hasBuild, stillStale, mode }) {
-  if (rebuildReason !== "stale" || !hasBuild) return "fallback-dev";
-  if (stillStale && mode !== "dev") return "fail";
-  return "continue-stale";
+/** A restored BUILD_ID is usable even when sources are newer than that build. */
+export function staleRebuildFailureAction({ hasBuild, mode }) {
+  if (hasBuild) return "continue-stale";
+  return mode === "prod" ? "fail" : "fallback-dev";
 }
 
 /**

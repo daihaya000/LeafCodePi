@@ -47,21 +47,25 @@ test("getPostBuildLaunchPlan ignores staleness inside the build", () => {
   });
 });
 
-test("staleRebuildFailureAction keeps a stale build only when appropriate", () => {
+test("staleRebuildFailureAction uses any previous build after a failed rebuild", () => {
   assert.equal(
     staleRebuildFailureAction({ rebuildReason: "stale", hasBuild: true, stillStale: false, mode: "prod" }),
     "continue-stale",
   );
   assert.equal(
     staleRebuildFailureAction({ rebuildReason: "stale", hasBuild: true, stillStale: true, mode: "prod" }),
-    "fail",
+    "continue-stale",
   );
   assert.equal(
-    staleRebuildFailureAction({ rebuildReason: "other", hasBuild: true, stillStale: true, mode: "prod" }),
-    "fallback-dev",
+    staleRebuildFailureAction({ rebuildReason: "manual", hasBuild: true, stillStale: true, mode: "prod" }),
+    "continue-stale",
   );
   assert.equal(
     staleRebuildFailureAction({ rebuildReason: "stale", hasBuild: false, stillStale: true, mode: "prod" }),
+    "fail",
+  );
+  assert.equal(
+    staleRebuildFailureAction({ hasBuild: false, mode: "dev" }),
     "fallback-dev",
   );
 });

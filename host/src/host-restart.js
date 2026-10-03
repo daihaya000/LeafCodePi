@@ -1,3 +1,13 @@
+/** Replacement hosts rebuild both services once; do not leak the request to children. */
+export function consumeHostRestartBuild(env) {
+  // Older running Hosts pass the skip flag when launching their replacement.
+  // Treat it as a restart request so the first upgrade also rebuilds both services.
+  const rebuild = env.LEAFCODE_PI_REBUILD_SERVICES === "1" || env.LEAFCODE_PI_SKIP_STALE_REBUILD === "1";
+  delete env.LEAFCODE_PI_REBUILD_SERVICES;
+  if (rebuild) delete env.LEAFCODE_PI_SKIP_STALE_REBUILD;
+  return rebuild;
+}
+
 export function buildHostRestartScript({ lockFile, launcherExe, startBat, maxWaitAttempts = 120, relaunchGraceSeconds = 15 }) {
   const launchLine = launcherExe
     ? `start "LeafCodePi" /min "${launcherExe}"`
@@ -5,7 +15,8 @@ export function buildHostRestartScript({ lockFile, launcherExe, startBat, maxWai
   return [
     "@echo off",
     "setlocal",
-    "set \"LEAFCODE_PI_SKIP_STALE_REBUILD=1\"",
+    "set \"LEAFCODE_PI_REBUILD_SERVICES=1\"",
+    "set \"LEAFCODE_PI_SKIP_STALE_REBUILD=\"",
     `set "LOCK=${lockFile}"`,
     "set /a WAIT=0",
     ":wait",

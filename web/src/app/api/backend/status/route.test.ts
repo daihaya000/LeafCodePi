@@ -52,7 +52,7 @@ describe("GET /api/backend/status", () => {
     mocks.readBackendHealth.mockResolvedValue({
       ok: true,
       status: 200,
-      body: { ready: true, status: "ready", pid: 4242, runtimeGeneration: "gen-a" },
+      body: { ready: true, status: "ready", pid: 4242, startedAt: "2026-10-03T22:00:00.000Z", runtimeGeneration: "gen-a" },
     });
     mocks.expectedBackendGeneration.mockReturnValue("gen-a");
     const body = await (await GET(request())).json();
@@ -65,6 +65,7 @@ describe("GET /api/backend/status", () => {
         reachable: true,
         ready: true,
         status: "ready",
+        startedAt: "2026-10-03T22:00:00.000Z",
         generation: { expected: "gen-a", running: "gen-a", matches: true },
       },
     });
