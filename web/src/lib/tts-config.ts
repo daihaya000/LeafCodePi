@@ -20,6 +20,9 @@ const DEFAULT_CONFIG: TtsConfigDto = {
   url: "",
 };
 
+type StoredTtsConfigFile = Partial<TtsConfigDto> & { allowCustomUrl?: unknown };
+type StoredTtsConfig = { config: TtsConfigDto; allowCustomUrl: boolean };
+
 export function ttsConfigPath(): string {
   return join(dataDir(), TTS_CONFIG_FILE);
 }
@@ -72,31 +75,42 @@ export function ttsHostCapabilities(
 
 export type TtsSettingsDto = TtsConfigDto & TtsHostCapabilities;
 
-export function readTtsConfig(): TtsConfigDto {
+function readStoredTtsConfig(): StoredTtsConfig {
   try {
     const file = ttsConfigPath();
-    if (!existsSync(file)) return { ...DEFAULT_CONFIG };
-    const raw = JSON.parse(readFileSync(file, "utf8")) as Partial<TtsConfigDto>;
-    return normalizeTtsConfig(raw);
+    if (!existsSync(file)) return { config: { ...DEFAULT_CONFIG }, allowCustomUrl: false };
+    const raw = JSON.parse(readFileSync(file, "utf8")) as StoredTtsConfigFile;
+    return { config: normalizeTtsConfig(raw), allowCustomUrl: raw.allowCustomUrl === true };
   } catch {
-    return { ...DEFAULT_CONFIG };
+    return { config: { ...DEFAULT_CONFIG }, allowCustomUrl: false };
   }
 }
 
-export function writeTtsConfig(input: Partial<TtsConfigDto>): TtsConfigDto {
-  const current = readTtsConfig();
+export function readTtsConfig(): TtsConfigDto {
+  return readStoredTtsConfig().config;
+}
+
+export function writeTtsConfig(
+  input: Partial<TtsConfigDto>,
+  options: { allowCustomUrl?: boolean } = {},
+): TtsConfigDto {
+  const current = readStoredTtsConfig();
   const next = normalizeTtsConfig({
-    enabled: typeof input.enabled === "boolean" ? input.enabled : current.enabled,
-    voice: input.voice !== undefined ? input.voice : current.voice,
-    rate: input.rate !== undefined ? input.rate : current.rate,
-    url: input.url !== undefined ? input.url : current.url,
+    enabled: typeof input.enabled === "boolean" ? input.enabled : current.config.enabled,
+    voice: input.voice !== undefined ? input.voice : current.config.voice,
+    rate: input.rate !== undefined ? input.rate : current.config.rate,
+    url: input.url !== undefined ? input.url : current.config.url,
   });
+  const allowCustomUrl = Boolean(next.url) && (input.url === undefined
+    ? current.allowCustomUrl
+    : options.allowCustomUrl === true);
   const body: Record<string, unknown> = {
     enabled: next.enabled,
     rate: next.rate,
   };
   if (next.voice) body.voice = next.voice;
   if (next.url) body.url = next.url;
+  if (allowCustomUrl) body.allowCustomUrl = true;
   atomicWrite(ttsConfigPath(), `${JSON.stringify(body, null, 2)}\n`);
   return next;
 }

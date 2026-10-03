@@ -58,6 +58,22 @@ describe("tts-config", () => {
     assert.equal("url" in cleared, false);
   });
 
+  it("keeps the custom-URL trust flag internal and preserves it across unrelated updates", () => {
+    const url = "http://192.168.1.8:18080/v1/audio/speech";
+    writeTtsConfig({ enabled: true, url }, { allowCustomUrl: true });
+    let raw = JSON.parse(readFileSync(join(data, TTS_CONFIG_FILE), "utf8")) as Record<string, unknown>;
+    assert.equal(raw.allowCustomUrl, true);
+    assert.deepEqual(readTtsConfig(), { enabled: true, voice: "", rate: 10, url });
+
+    writeTtsConfig({ rate: 3 });
+    raw = JSON.parse(readFileSync(join(data, TTS_CONFIG_FILE), "utf8")) as Record<string, unknown>;
+    assert.equal(raw.allowCustomUrl, true);
+
+    writeTtsConfig({ url }, { allowCustomUrl: false });
+    raw = JSON.parse(readFileSync(join(data, TTS_CONFIG_FILE), "utf8")) as Record<string, unknown>;
+    assert.equal("allowCustomUrl" in raw, false);
+  });
+
   it("clamps rate and writes into a missing nested data dir", () => {
     process.env.LEAFCODE_PI_DATA_DIR = join(data, "nested", "missing");
     assert.equal(writeTtsConfig({ rate: 99 }).rate, 10);

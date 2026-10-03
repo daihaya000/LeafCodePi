@@ -34,6 +34,8 @@ export interface TtsConfig {
   rate: number;
   /** HTTP 合成エンドポイント（AivisSpeech / カスタム）。未指定なら SAPI。 */
   url?: string;
+  /** WebUI auth で許可されたカスタム URL。手動設定時は明示 opt-in。 */
+  allowCustomUrl?: boolean;
 }
 
 const DEFAULT_CONFIG: TtsConfig = { enabled: false, rate: 10 };
@@ -173,6 +175,19 @@ function isHttpTtsEndpoint(url: string): boolean {
   }
 }
 
+function isDefaultLocalTtsEndpoint(url: string): boolean {
+  try {
+    const parsed = new URL(url);
+    if (parsed.protocol !== "http:" || !["10101", "50021"].includes(parsed.port)) return false;
+    if (parsed.pathname !== "/" || parsed.search || parsed.hash || parsed.username || parsed.password) return false;
+    let hostname = parsed.hostname.toLowerCase().replace(/\.$/, "");
+    if (hostname.startsWith("[") && hostname.endsWith("]")) hostname = hostname.slice(1, -1);
+    return hostname === "localhost" || hostname === "::1" || hostname === "127.0.0.1";
+  } catch {
+    return false;
+  }
+}
+
 /**
  * AivisSpeech / VOICEVOX エンジンのベース URL か。
  * `http://127.0.0.1:10101` のようにパス無し（または `/`）なら true。
@@ -207,8 +222,13 @@ export function buildHttpTtsBody(url: string, text: string, voice?: string): str
 }
 
 /** VOICEVOX 互換: audio_query → synthesis。voice は style id（数値文字列）。 */
-export async function synthesizeVoicevox(baseUrl: string, text: string, voice?: string): Promise<Buffer | null> {
-  if (!isHttpTtsEndpoint(baseUrl)) return null;
+export async function synthesizeVoicevox(
+  baseUrl: string,
+  text: string,
+  voice?: string,
+  allowCustomUrl = false,
+): Promise<Buffer | null> {
+  if (!isHttpTtsEndpoint(baseUrl) || (!allowCustomUrl && !isDefaultLocalTtsEndpoint(baseUrl))) return null;
   const speaker = (voice?.trim() || "1").replace(/[^0-9]/g, "") || "1";
   const root = baseUrl.replace(/\/+$/, "");
   const queryUrl = `${root}/audio_query?text=${encodeURIComponent(text)}&speaker=${speaker}`;
@@ -276,10 +296,10 @@ export class Speaker {
   }
 
   private async synthesize(text: string, url: string): Promise<string | null> {
-    if (!isHttpTtsEndpoint(url)) return null;
+    if (!isHttpTtsEndpoint(url) || (!this.config.allowCustomUrl && !isDefaultLocalTtsEndpoint(url))) return null;
     try {
       const wav = isVoicevoxEngineUrl(url)
-        ? await synthesizeVoicevox(url, text, this.config.voice)
+        ? await synthesizeVoicevox(url, text, this.config.voice, this.config.allowCustomUrl)
         : await (async () => {
             const response = await fetch(url, {
               method: "POST",
@@ -387,6 +407,7 @@ export function readTtsConfig(file = join(leafcodeDataDir(), CONFIG_FILE)): TtsC
       voice: typeof raw.voice === "string" && raw.voice.trim() ? raw.voice.trim() : undefined,
       rate: typeof raw.rate === "number" && Number.isFinite(raw.rate) ? Math.max(-10, Math.min(10, raw.rate)) : 10,
       url: typeof raw.url === "string" && raw.url.trim() ? raw.url.trim() : undefined,
+      ...(raw.allowCustomUrl === true ? { allowCustomUrl: true } : {}),
     };
   } catch {
     return { ...DEFAULT_CONFIG };
@@ -402,6 +423,7 @@ export function writeTtsConfig(config: TtsConfig, file = join(leafcodeDataDir(),
   };
   if (config.voice?.trim()) body.voice = config.voice.trim();
   if (config.url?.trim()) body.url = config.url.trim();
+  if (config.allowCustomUrl === true) body.allowCustomUrl = true;
   writeFileSync(file, `${JSON.stringify(body, null, 2)}\n`, "utf8");
 }
 

@@ -34,6 +34,10 @@ export async function PATCH(req: NextRequest) {
   if (body.rate !== undefined && (typeof body.rate !== "number" || !Number.isFinite(body.rate))) {
     return NextResponse.json({ error: "rate は number です" }, { status: 400 });
   }
-  if (typeof body.url === "string" && body.url.trim() && !isSafeUnauthenticatedTtsUrl(body.url) && !isWebUiRequestAuthorized(req)) return unauthorized();
-  return NextResponse.json(dto(writeTtsConfig(body)), { headers: { "Cache-Control": "no-store" } });
+  let allowCustomUrl: boolean | undefined;
+  if (typeof body.url === "string") {
+    allowCustomUrl = body.url.trim() !== "" && !isSafeUnauthenticatedTtsUrl(body.url);
+    if (allowCustomUrl && !isWebUiRequestAuthorized(req)) return unauthorized();
+  }
+  return NextResponse.json(dto(writeTtsConfig(body, { allowCustomUrl })), { headers: { "Cache-Control": "no-store" } });
 }

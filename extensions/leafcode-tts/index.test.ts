@@ -133,6 +133,17 @@ describe("readTtsConfig", () => {
 });
 
 describe("writeTtsConfig", () => {
+  it("preserves the explicit custom-URL opt-in", () => {
+    const dir = mkdtempSync(join(tmpdir(), "leafcode-tts-"));
+    const file = join(dir, "tts.json");
+    try {
+      writeTtsConfig({ enabled: true, rate: 10, url: "http://192.168.1.8:18080/tts", allowCustomUrl: true }, file);
+      expect(readTtsConfig(file).allowCustomUrl).toBe(true);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
   it("/tts の enabled を読み戻せる形で保存する", () => {
     const dir = mkdtempSync(join(tmpdir(), "leafcode-tts-"));
     const file = join(dir, "nested", "tts.json");
@@ -220,21 +231,27 @@ describe("extension TTS outbound", () => {
 
     expect(await synthesize("text", "file:///private/data")).toBeNull();
     expect(await synthesizeVoicevox("http://user:secret@127.0.0.1:10101", "text")).toBeNull();
+    expect(await synthesizeVoicevox("http://192.168.1.8:50021", "text")).toBeNull();
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
-  it("does not follow redirects for custom HTTP TTS", async () => {
-    const endpoint = "http://127.0.0.1:18080/v1/audio/speech";
+  it("requires explicit custom-URL opt-in and does not follow redirects", async () => {
+    const endpoint = "http://192.168.1.8:18080/v1/audio/speech";
     const options: RequestInit[] = [];
     const fetchMock = vi.fn(async (_url: string, init: RequestInit) => {
       options.push(init);
       return new Response(Buffer.from([1, 2, 3]), { status: 200 });
     });
     vi.stubGlobal("fetch", fetchMock);
-    const speaker = new Speaker({ enabled: true, rate: 10, url: endpoint });
+    const untrustedSpeaker = new Speaker({ enabled: true, rate: 10, url: endpoint });
+    const denied = await (untrustedSpeaker as unknown as { synthesize(text: string, url: string): Promise<string | null> })
+      .synthesize("text", endpoint);
+    expect(denied).toBeNull();
+    expect(fetchMock).not.toHaveBeenCalled();
+
+    const speaker = new Speaker({ enabled: true, rate: 10, url: endpoint, allowCustomUrl: true });
     const synthesize = (speaker as unknown as { synthesize(text: string, url: string): Promise<string | null> })
       .synthesize.bind(speaker);
-
     const file = await synthesize("text", endpoint);
     try {
       expect(file).toBeTruthy();
