@@ -19,6 +19,20 @@ export type SessionToolSelection =
   | { tools: string[] }
   | { excludeTools: string[]; initialActive: string[]; preserveActive?: boolean };
 
+/**
+ * Native MCP registers `mcp__<server>__<tool>` after its servers connect, so a session that expects
+ * them must deny by exclusion instead of listing every name up front. An active provider that produced
+ * no factory registered nothing, so it stays on the strict allowlist.
+ */
+export function shouldUseDynamicMcpTools(input: {
+  active: boolean;
+  factoryCount: number;
+  hasAgentTools?: boolean;
+  hasBotTools?: boolean;
+}): boolean {
+  return input.active && input.factoryCount > 0 && !input.hasAgentTools && !input.hasBotTools;
+}
+
 export function sessionToolSelection(input: {
   tools: readonly string[];
   /** The default Code persona inherits every registered tool, including later registrations. */

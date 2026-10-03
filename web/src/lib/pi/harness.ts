@@ -197,7 +197,7 @@ import {
 } from "@/lib/pi/deferred-tools";
 import { hasIdentityChanges, sessionIdentityPatch, sessionIdentitySource } from "@/lib/pi/session-identity";
 import { nestedCallsStoreFor, trackNestedToolEvent } from "@/lib/pi/nested-live-calls";
-import { sessionToolSelection } from "@/lib/pi/session-tool-selection";
+import { sessionToolSelection, shouldUseDynamicMcpTools } from "@/lib/pi/session-tool-selection";
 import { attachCodeToolPolicy, codeToolAllowed, registerCodeToolPolicy, updateCodeSubagentPolicy, type CodeToolPolicy } from "@/lib/pi/session-tool-policy";
 import {
   bundledExtensionEntries,
@@ -4104,7 +4104,12 @@ async function createSession(options: {
   // SDK `tools` is a hard allowlist and native MCP tools register after connecting, so an
   // unrestricted session with native MCP excludes what it does not want instead. Agent and Bot
   // sessions keep their strict allowlist.
-  const dynamicMcpTools = nativeMcp.active && !agentOptions?.tools && !options.botTools;
+  const dynamicMcpTools = shouldUseDynamicMcpTools({
+    active: nativeMcp.active,
+    factoryCount: nativeMcp.factories.length,
+    hasAgentTools: Boolean(agentOptions?.tools),
+    hasBotTools: Boolean(options.botTools),
+  });
   const toolSelection = sessionToolSelection({
     tools,
     allTools,

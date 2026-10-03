@@ -14,7 +14,7 @@ import {
   type ExtensionAPI,
 } from "@earendil-works/pi-coding-agent";
 import { fauxAssistantMessage, fauxProvider, fauxToolCall } from "@earendil-works/pi-ai";
-import { sessionToolSelection } from "./session-tool-selection";
+import { sessionToolSelection, shouldUseDynamicMcpTools } from "./session-tool-selection";
 
 let dir = "";
 let session: AgentSession | undefined;
@@ -67,6 +67,20 @@ async function create(selection: ReturnType<typeof sessionToolSelection> | ((reg
   return session;
 }
 
+describe("shouldUseDynamicMcpTools", () => {
+  it("needs a provider that actually registered factories", () => {
+    assert.equal(shouldUseDynamicMcpTools({ active: true, factoryCount: 3 }), true);
+    // An active but failed preparation registers nothing, so exclusion would only lose tools.
+    assert.equal(shouldUseDynamicMcpTools({ active: true, factoryCount: 0 }), false);
+    assert.equal(shouldUseDynamicMcpTools({ active: false, factoryCount: 0 }), false);
+  });
+
+  it("stays off for explicit agent and Bot allowlists", () => {
+    assert.equal(shouldUseDynamicMcpTools({ active: true, factoryCount: 3, hasAgentTools: true }), false);
+    assert.equal(shouldUseDynamicMcpTools({ active: true, factoryCount: 3, hasBotTools: true }), false);
+  });
+});
+
 describe("sessionToolSelection", () => {
   it("keeps the SDK allowlist when native MCP is not in use", () => {
     assert.deepEqual(sessionToolSelection({ tools: ["read", "x"], dynamicMcpTools: false, registered: ["y"] }), { tools: ["read", "x"] });
@@ -90,7 +104,8 @@ describe("sessionToolSelection", () => {
 describe("harness wiring", () => {
   it("creates sessions from the selection and applies the initial loadout", () => {
     const source = readFileSync(new URL("./harness.ts", import.meta.url), "utf8");
-    assert.equal(source.includes("nativeMcp.active && !agentOptions?.tools && !options.botTools"), true);
+    assert.equal(source.includes("const dynamicMcpTools = shouldUseDynamicMcpTools({"), true);
+    assert.equal(source.includes("factoryCount: nativeMcp.factories.length"), true);
     assert.equal(source.includes("{ excludeTools: toolSelection.excludeTools }"), true);
     assert.equal(source.includes("const allTools = options.agentName?.trim() === DEFAULT_AGENT && !botToolAllowlist"), true);
     assert.equal(source.includes("...result.session.getActiveToolNames(), ...toolSelection.initialActive"), true);
