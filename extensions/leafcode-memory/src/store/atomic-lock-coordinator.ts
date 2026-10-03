@@ -109,6 +109,23 @@ function currentProcessIncarnationFor(): string | null {
   }
   return currentProcessIncarnation;
 }
+/**
+ * 他プロセスの incarnation probe は結果が変わらない（プロセスの起動時刻は不変）。
+ * tryAcquire は競合中のみ呼ばれるので、同じ pid の probe を TTL キャッシュして
+ * 同期 powershell（Windows で約0.5〜1.5秒）の反復起動を避ける。
+ */
+const INCARNATION_PROBE_TTL_MS = 30_000;
+const incarnationProbeCache = new Map<number, { at: number; value: string | null }>();
+
+function cachedProcessIncarnation(pid: number): string | null {
+  const now = Date.now();
+  const cached = incarnationProbeCache.get(pid);
+  if (cached && now - cached.at < INCARNATION_PROBE_TTL_MS) return cached.value;
+  const value = probeProcessIncarnation(pid);
+  incarnationProbeCache.set(pid, { at: now, value });
+  return value;
+}
+
 const RELEASE_ATTEMPTS = 3;
 // Opportunistic dead-row GC: a row must be older than the grace period before
 // a dead pid makes it collectable (guards against a pid we cannot observe, and
@@ -129,7 +146,7 @@ export class AtomicLockCoordinator {
   constructor(private readonly dbPath: string, options: AtomicLockCoordinatorOptions = {}) {
     this.pid = options.pid ?? process.pid;
     this.probeIncarnation = options.probeIncarnation
-      ?? ((pid) => pid === process.pid ? currentProcessIncarnationFor() : probeProcessIncarnation(pid));
+      ?? ((pid) => pid === process.pid ? currentProcessIncarnationFor() : cachedProcessIncarnation(pid));
     this.incarnation = options.incarnation
       ?? this.probeIncarnation(this.pid)
       ?? null;
