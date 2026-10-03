@@ -71,6 +71,73 @@ it.each(["provider-abort", "timeout-abort"])("automatically retries an aborted G
   }
 });
 
+// Regression: a raw-fetch "terminated" error stopped session 01a100cf while
+// retry.enabled was false. Keep recovery inside the SDK's bounded retry policy,
+// not a new Goal Loop turn (which could replay already completed tool actions).
+it.each(["recovered", "exhausted", "disabled", "manual-stop"])("handles terminated through real SDK retries without duplicating Goal Loop turns (%s)", async (outcome) => {
+  const cwd = mkdtempSync(join(tmpdir(), "leafcode-goal-loop-terminated-sdk-"));
+  vi.stubEnv("LEAFCODE_PI_DATA_DIR", cwd);
+  const manager = SessionManager.inMemory(cwd);
+  const faux = fauxProvider();
+  const failure = () => fauxAssistantMessage("", { stopReason: "error", errorMessage: "terminated" });
+  faux.setResponses(outcome === "exhausted"
+    ? Array.from({ length: 4 }, failure)
+    : [failure(), fauxAssistantMessage(JSON.stringify({ status: "progress", summary: "recovered" }))]);
+  const modelRuntime = await ModelRuntime.create({ authPath: join(cwd, "auth.json"), modelsPath: null, refreshOnCreate: false });
+  modelRuntime.registerNativeProvider(faux.provider);
+  const settingsManager = SettingsManager.inMemory({ retry: {
+    enabled: outcome !== "disabled", maxRetries: 3,
+    baseDelayMs: outcome === "manual-stop" ? 500 : 10, maxAgentDelayMs: 500,
+  } });
+  const loader = new DefaultResourceLoader({
+    cwd, agentDir: cwd, settingsManager,
+    noExtensions: true, noSkills: true, noPromptTemplates: true, noThemes: true, noContextFiles: true,
+    extensionFactories: [goalLoopExtension as unknown as ExtensionFactory],
+  });
+  let session: Awaited<ReturnType<typeof createAgentSession>>["session"] | undefined;
+  try {
+    await loader.reload();
+    ({ session } = await createAgentSession({
+      cwd, agentDir: cwd, resourceLoader: loader, settingsManager, sessionManager: manager,
+      modelRuntime, model: faux.getModel(), tools: [],
+    }));
+    await session.bindExtensions({ onError: (error) => { throw new Error(error.error); } });
+    const retries: number[] = [];
+    session.subscribe((event) => {
+      if (event.type === "auto_retry_start") retries.push(event.attempt);
+    });
+    const runner = session.extensionRunner;
+    const state = () => JSON.parse(readFileSync(join(cwd, "goals-loop", `${manager.getSessionId()}.json`), "utf8"));
+    await runner.getCommand("goal-start")!.handler(Buffer.from(JSON.stringify({
+      goal: "Recover a broken response stream", maxTurns: 1, forceFullRun: true,
+    })).toString("base64url"), runner.createCommandContext());
+    if (outcome === "manual-stop") {
+      await vi.waitFor(() => expect(retries).toEqual([1]), { timeout: 2_000, interval: 5 });
+      await runner.getCommand("goal-stop")!.handler("", runner.createCommandContext());
+      await session.waitForIdle();
+      // Wait beyond the cancelled backoff to catch a stray restart.
+      await new Promise((resolve) => setTimeout(resolve, 550));
+      expect(state()).toMatchObject({ status: "stopped", turnCount: 1 });
+    } else {
+      await vi.waitFor(() => expect(state()).toMatchObject({
+        status: "paused", turnCount: 1,
+        pauseReason: outcome === "recovered" ? "turn_limit" : "scheduler_error",
+      }), { timeout: 5_000, interval: 10 });
+      if (outcome !== "recovered") expect(state().error).toBe("terminated");
+    }
+    expect(faux.state.callCount).toBe(outcome === "recovered" ? 2 : outcome === "exhausted" ? 4 : 1);
+    expect(retries).toEqual(outcome === "exhausted" ? [1, 2, 3] : outcome === "disabled" ? [] : [1]);
+    expect(state().progress.map((item: { summary: string }) => item.summary)).toEqual(outcome === "recovered" ? ["recovered"] : []);
+    const turns = manager.getBranch().filter((entry) => entry.type === "custom_message" && entry.customType === "leafcode-goal-turn");
+    expect(turns).toHaveLength(1);
+  } finally {
+    await session?.extensionRunner.emit({ type: "session_shutdown", reason: "quit" });
+    session?.dispose();
+    vi.unstubAllEnvs();
+    rmSync(cwd, { recursive: true, force: true });
+  }
+});
+
 it("continues a queued Goal Loop across a real SDK session.reload during turn preparation", async () => {
   const cwd = mkdtempSync(join(tmpdir(), "leafcode-goal-loop-reload-sdk-"));
   const agentDir = join(cwd, "agent");
