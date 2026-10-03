@@ -10,6 +10,7 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, it, vi } from "vitest";
+import { writePeerConfig } from "@backend-core/peer-auth-config.mjs";
 import {
   accountAuthPath,
   accountCredentialKinds,
@@ -133,6 +134,41 @@ describe("accountStoredProviders", () => {
     mkdirSync(broken, { recursive: true });
     writeFileSync(accountAuthPath("broken", agentDir), "{oops", "utf8");
     assert.deepEqual(accountStoredProviders("broken", agentDir), []);
+  });
+
+  it("treats a peer account's shared providers as available without an auth file", () => {
+    const agentDir = mkdtempSync(join(tmpdir(), "leafcode-pi-agentdir-"));
+    dirs.push(agentDir);
+    writePeerConfig(accountDir("peer", agentDir), {
+      peerUrl: "http://100.64.0.2:3000",
+      peerAccountId: null,
+      providers: ["openai-codex", "anthropic", "unknown-provider"],
+      token: "p".repeat(43),
+    });
+    // 既知のプロバイダーだけを既定順で返し、auth.json が無くても利用可能として扱う
+    assert.deepEqual(accountStoredProviders("peer", agentDir), ["openai-codex", "anthropic"]);
+    assert.deepEqual(accountCredentialKinds("peer", agentDir), {});
+  });
+
+  it("merges local credentials with peer providers and ignores a broken peer file", () => {
+    const agentDir = mkdtempSync(join(tmpdir(), "leafcode-pi-agentdir-"));
+    dirs.push(agentDir);
+    const dir = accountDir("mixed", agentDir);
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(
+      accountAuthPath("mixed", agentDir),
+      JSON.stringify({ anthropic: { type: "oauth", access: "a", refresh: "r", expires: 1 } }),
+      "utf8",
+    );
+    writePeerConfig(dir, {
+      peerUrl: "http://100.64.0.2:3000",
+      peerAccountId: null,
+      providers: ["openrouter"],
+      token: "p".repeat(43),
+    });
+    assert.deepEqual(accountStoredProviders("mixed", agentDir), ["anthropic", "openrouter"]);
+    writeFileSync(join(dir, "peer.json"), "{broken", "utf8");
+    assert.deepEqual(accountStoredProviders("mixed", agentDir), ["anthropic"]);
   });
 
   it("reports the stored credential kind per provider", () => {

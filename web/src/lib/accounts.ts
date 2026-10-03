@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
+import { readPeerConfig } from "@backend-core/peer-auth-config.mjs";
 import { dataDir } from "./paths";
 import { invalidateCachedUsage } from "./codexbar/cache";
 import { clearProviderCache } from "./codexbar/provider-cache";
@@ -138,16 +139,24 @@ function isStoredCredential(value: unknown): boolean {
 }
 
 /** アカウントの auth.json に保存済みのサブスクプロバイダー。SDK を介さない軽量ファイル読み。
+ *  peer アカウントは auth.json を持たないため、peer.json のプロバイダーを同様に扱う。
  *  読めない（未ログイン・破損・書込中）場合は空配列。 */
 export function accountStoredProviders(
   id: string,
   agentDir: string,
 ): AccountProviderId[] {
   const entries = readAccountAuthEntries(id, agentDir);
-  if (!entries) return [];
-  return ACCOUNT_PROVIDER_IDS.filter(
-    (provider) => storedCredentialKind(entries[provider]) !== null,
+  const stored = new Set<AccountProviderId>(
+    entries
+      ? ACCOUNT_PROVIDER_IDS.filter(
+          (provider) => storedCredentialKind(entries[provider]) !== null,
+        )
+      : [],
   );
+  for (const provider of readPeerConfig(accountDir(id, agentDir))?.providers ?? []) {
+    if (isAccountProviderId(provider)) stored.add(provider);
+  }
+  return ACCOUNT_PROVIDER_IDS.filter((provider) => stored.has(provider));
 }
 
 /** 保存済み資格情報の種類（サブスク OAuth / API キー）。 */
