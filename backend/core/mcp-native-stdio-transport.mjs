@@ -1,6 +1,7 @@
 import { basename, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { isDeepStrictEqual, types } from "node:util";
 import { StdioTransport } from "@earendil-works/pi-mcp";
+import { registerBackendChildProcess } from "./backend-child-process-registry.mjs";
 import { inheritedEnvEntries } from "./mcp-native-inherited-env.mjs";
 const plain = (v) => v && typeof v === "object" && !Array.isArray(v)
   && [Object.prototype, null].includes(Object.getPrototypeOf(v));
@@ -188,8 +189,19 @@ export function createBackendMcpStdioTransportFactory(options) {
       }
       async start() {
         assertOwner();
-        try { await super.start(); assertOwner(); }
-        catch (error) { assertOwner(); throw error; } // Preserve native IO errors only under valid authority.
+        try {
+          await super.start();
+          assertOwner();
+          const hostOwnsProcess = typeof process.send === "function";
+          try { await registerBackendChildProcess(this.child); }
+          catch (error) {
+            if (hostOwnsProcess) {
+              try { await this.close(); } catch { /* Preserve the registration failure. */ }
+            }
+            throw error;
+          }
+          assertOwner();
+        } catch (error) { assertOwner(); throw error; } // Preserve native IO errors only under valid authority.
       }
     }
     return (entry, cwd, authProvider) => {

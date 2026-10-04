@@ -1,7 +1,9 @@
 import assert from "node:assert/strict";
+import { spawn as nodeSpawn } from "node:child_process";
 import { EventEmitter } from "node:events";
 import { join } from "node:path";
 import { test } from "node:test";
+import { BACKEND_CHILD_PROCESS_MESSAGE } from "../../shared/backend-child-process-message.mjs";
 import { createBackendService, isBackendRequested, shouldRunBackend } from "./backend-service.js";
 
 const REPO_ROOT = join("C:", "repo");
@@ -55,6 +57,7 @@ test("starting spawns the planned Backend once, with the pinned generation", () 
   assert.equal(calls[0].options.env.LEAFCODE_PI_BACKEND_TOKEN, "t".repeat(40));
   assert.equal(calls[0].options.env.LEAFCODE_PI_BACKEND_GENERATION, "gen-a");
   assert.equal(calls[0].options.env.LEAFCODE_PI_BACKEND_RUNTIME, "", "the Web still owns the runtime");
+  assert.deepEqual(calls[0].options.stdio, ["pipe", "pipe", "pipe", "ipc"]);
   assert.equal(service.status().state, "running");
   assert.equal(children.length, 1);
 });
@@ -76,6 +79,196 @@ test("a cutover can attach after a confirmed stop on the same service", async ()
   assert.equal(service.status().runtime, "attach");
   assert.equal(children.length, 2);
   service.stop();
+});
+
+test("a Backend crash reaps registered MCP child trees before restarting", async () => {
+  const events = [];
+  const { spawn: baseSpawn, calls, children } = fakeSpawn();
+  let mcpAlive = true;
+  const service = createBackendService({
+    repoRoot: REPO_ROOT,
+    token: "t",
+    spawn: (...args) => { events.push("backend-start"); return baseSpawn(...args); },
+    generation: "gen-a",
+    restartMax: 1,
+    getProcessStartKey: (pid) => pid === 4321 ? "mcp-start" : undefined,
+    processAlive: (pid) => Math.abs(pid) === 4321 && mcpAlive,
+    killProcessTree: (pid, options) => {
+      assert.equal(pid, 4321);
+      assert.equal(options.expectedProcessStartKey, "mcp-start");
+      events.push("mcp-tree-kill");
+      mcpAlive = false;
+      return true;
+    },
+  });
+  service.start();
+  children[0].emit("message", {
+    type: BACKEND_CHILD_PROCESS_MESSAGE,
+    action: "started",
+    token: "mcp-a",
+    pid: 4321,
+    processKey: "mcp-start",
+  });
+
+  children[0].emit("exit", 1, null);
+  assert.equal(calls.length, 1, "the replacement waits for child-tree cleanup");
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.deepEqual(events, ["backend-start", "mcp-tree-kill", "backend-start"]);
+  assert.equal(calls.length, 2);
+  assert.equal(service.status().state, "running");
+  service.stop();
+});
+
+test("Host waits for the delayed child identity before reaping", async () => {
+  const { spawn, calls, children } = fakeSpawn();
+  let mcpAlive = true;
+  let killCount = 0;
+  const service = createBackendService({
+    repoRoot: REPO_ROOT,
+    token: "t",
+    spawn,
+    generation: "gen-a",
+    getProcessStartKey: () => "mcp-start",
+    processAlive: (pid) => Math.abs(pid) === 4321 && mcpAlive,
+    killProcessTree: () => { killCount += 1; mcpAlive = false; return true; },
+  });
+  service.start();
+  children[0].emit("message", {
+    type: BACKEND_CHILD_PROCESS_MESSAGE,
+    action: "started",
+    token: "mcp-a",
+    pid: 4321,
+    processKey: null,
+  });
+  children[0].emit("message", {
+    type: BACKEND_CHILD_PROCESS_MESSAGE,
+    action: "identity",
+    token: "mcp-a",
+    pid: 4321,
+    processKey: "mcp-start",
+  });
+  children[0].emit("exit", 1, null);
+  await new Promise((resolve) => setImmediate(resolve));
+
+  assert.equal(killCount, 1);
+  assert.equal(calls.length, 2);
+  service.stop();
+});
+
+test("real Backend IPC registers an MCP child before crash cleanup", { timeout: 10_000 }, async (t) => {
+  let mcpPid = null;
+  let killCount = 0;
+  let backendExit;
+  let backendProcess;
+  let backendOutput = "";
+  const fixture = `
+    process.send({
+      type: "leafcode:backend-child-process", action: "started", token: "mcp-live",
+      pid: 4321, processKey: "mcp-start",
+    }, (error) => { if (error) process.exit(2); setTimeout(() => process.exit(1), 100); });
+  `;
+  const service = createBackendService({
+    repoRoot: REPO_ROOT,
+    token: "t",
+    env: process.env,
+    spawn: (_command, _args, options) => {
+      const backend = nodeSpawn(process.execPath, ["--input-type=module", "-e", fixture], { ...options, cwd: process.cwd() });
+      backendProcess = backend;
+      backendExit = new Promise((resolve) => {
+        backend.once("exit", resolve);
+        backend.once("error", resolve);
+      });
+      backend.on("message", (message) => {
+        if (message?.type === BACKEND_CHILD_PROCESS_MESSAGE && message.action === "started") mcpPid = message.pid;
+      });
+      backend.stdout.on("data", (chunk) => { backendOutput += chunk.toString(); });
+      backend.stderr.on("data", (chunk) => { backendOutput += chunk.toString(); });
+      return backend;
+    },
+    generation: "gen-a",
+    restartMax: 0,
+    getProcessStartKey: () => "mcp-start",
+    processAlive: () => mcpPid !== null && killCount === 0,
+    killProcessTree: (pid, options) => {
+      mcpPid = pid;
+      assert.equal(pid, 4321);
+      assert.equal(options.expectedProcessStartKey, "mcp-start");
+      killCount += 1;
+      return true;
+    },
+  });
+  service.start();
+  t.after(async () => {
+    service.stop();
+    await backendExit;
+  });
+
+  const deadline = Date.now() + 5_000;
+  while (service.status().state !== "failed" && Date.now() < deadline) {
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
+  const details = JSON.stringify({ backendPid: backendProcess?.pid, exitCode: backendProcess?.exitCode, mcpPid, killCount, backendOutput });
+  assert.equal(service.status().state, "failed", details);
+  assert.equal(killCount, 1, details);
+  assert.ok(mcpPid > 1, details);
+});
+
+test("child cleanup still runs when the Backend restart budget is exhausted", async () => {
+  const { spawn, calls, children } = fakeSpawn();
+  let mcpAlive = true;
+  let killCount = 0;
+  const service = createBackendService({
+    repoRoot: REPO_ROOT,
+    token: "t",
+    spawn,
+    generation: "gen-a",
+    restartMax: 0,
+    getProcessStartKey: () => "mcp-start",
+    processAlive: () => mcpAlive,
+    killProcessTree: () => { killCount += 1; mcpAlive = false; return true; },
+  });
+  service.start();
+  children[0].emit("message", {
+    type: BACKEND_CHILD_PROCESS_MESSAGE,
+    action: "started",
+    token: "mcp-a",
+    pid: 4321,
+    processKey: "mcp-start",
+  });
+  children[0].emit("exit", 1, null);
+  await new Promise((resolve) => setImmediate(resolve));
+
+  assert.equal(killCount, 1);
+  assert.equal(calls.length, 1);
+  assert.equal(service.status().state, "failed");
+});
+
+test("unknown child identity fails closed and blocks Backend restart", async () => {
+  const { spawn, calls, children } = fakeSpawn();
+  const service = createBackendService({
+    repoRoot: REPO_ROOT,
+    token: "t",
+    spawn,
+    generation: "gen-a",
+    restartMax: 1,
+    getProcessStartKey: () => undefined,
+    processAlive: () => true,
+    killProcessTree: () => assert.fail("must not kill a PID without a verified identity"),
+  });
+  service.start();
+  children[0].emit("message", {
+    type: BACKEND_CHILD_PROCESS_MESSAGE,
+    action: "started",
+    token: "mcp-a",
+    pid: 4321,
+    processKey: null,
+  });
+  children[0].emit("exit", 1, null);
+  await new Promise((resolve) => setImmediate(resolve));
+
+  assert.equal(calls.length, 1);
+  assert.equal(service.status().state, "failed");
+  assert.equal(service.start(), null);
 });
 
 test("the WebUI child gets the Backend's address and expected generation", () => {

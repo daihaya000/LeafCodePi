@@ -1,5 +1,8 @@
 import { randomBytes } from "node:crypto";
+import { BACKEND_CHILD_PROCESS_MESSAGE } from "../../shared/backend-child-process-message.mjs";
+import { processStartKey } from "../../shared/process-identity.mjs";
 import { backendClientEnv, backendLaunchPlan } from "./backend-launch.js";
+import { hardKillTree, isProcessAlive } from "./process-stop.js";
 
 /**
  * The Host's lifecycle for the independent Backend process.
@@ -49,6 +52,9 @@ export function createBackendService({
   bundlePath,
   generation,
   budgetResetMs = BACKEND_RESTART_BUDGET_RESET_MS,
+  getProcessStartKey = processStartKey,
+  processAlive = isProcessAlive,
+  killProcessTree = hardKillTree,
 } = {}) {
   if (typeof spawn !== "function") throw new Error("spawn is required");
   // The plan is rebuilt for every launch so a cutover can ask for the runtime without re-creating
@@ -61,18 +67,111 @@ export function createBackendService({
   let stopping = false;
   let stableTimer = null;
   let stopPromise = null;
+  const backendChildProcesses = new Map();
+  const exitCleanupByChild = new WeakMap();
 
   function clearStableTimer() {
     if (stableTimer) clearTimeout(stableTimer);
     stableTimer = null;
   }
 
+  function handleBackendChildMessage(message) {
+    if (!message || typeof message !== "object" || message.type !== BACKEND_CHILD_PROCESS_MESSAGE
+      || typeof message.token !== "string" || !message.token) return;
+    if (message.action === "stopped") {
+      const child = backendChildProcesses.get(message.token);
+      if (child && !backendChildTreeAlive(child.pid)) backendChildProcesses.delete(message.token);
+      return;
+    }
+    if (!Number.isSafeInteger(message.pid) || message.pid <= 1) return;
+    if (message.action === "identity") {
+      const child = backendChildProcesses.get(message.token);
+      if (child?.pid === message.pid) {
+        child.processStartKey = typeof message.processKey === "string" && message.processKey ? message.processKey : null;
+      }
+      return;
+    }
+    if (message.action !== "started") return;
+    backendChildProcesses.set(message.token, {
+      pid: message.pid,
+      processStartKey: typeof message.processKey === "string" && message.processKey ? message.processKey : null,
+    });
+  }
+
+  function backendChildTreeAlive(pid) {
+    // The MCP SDK launches detached process groups off Windows. Check the group as well as
+    // its leader so a fast-exiting parent cannot make a surviving grandchild look reaped.
+    return process.platform === "win32"
+      ? processAlive(pid)
+      : processAlive(-pid) || processAlive(pid);
+  }
+
+  async function killOwnedBackendChild({ pid, processStartKey }) {
+    if (!backendChildTreeAlive(pid)) return true;
+    if (!processStartKey) return false;
+
+    try {
+      killProcessTree(pid, {
+        expectedProcessStartKey: processStartKey,
+        getProcessStartKey,
+        platform: process.platform,
+      });
+    } catch { /* Re-check below before deciding whether a restart is safe. */ }
+
+    const deadline = Date.now() + 1_500;
+    while (backendChildTreeAlive(pid) && Date.now() < deadline) {
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    }
+    return !backendChildTreeAlive(pid);
+  }
+
+  function reapBackendChildren() {
+    const pending = [...backendChildProcesses.entries()];
+    if (pending.length === 0) return true;
+    return Promise.all(pending.map(async ([token, child]) => {
+      let reaped = false;
+      try { reaped = await killOwnedBackendChild(child); } catch { reaped = false; }
+      if (reaped) backendChildProcesses.delete(token);
+      else error(`Backend child process cleanup could not be confirmed (pid ${child.pid}); restart blocked`);
+      return reaped;
+    })).then((results) => results.every(Boolean));
+  }
+
+  function finishExit(started, code, signal, cleanupSucceeded) {
+    if (stopping) {
+      // A cutover may relaunch only after child cleanup; shutdown remains terminal.
+      state = state === "stopping" ? (cleanupSucceeded ? "idle" : "failed") : state;
+      if (!cleanupSucceeded && state !== "stopped") {
+        error(`Backend exited (${signal ?? code}) but child process cleanup could not be confirmed`);
+      }
+      return;
+    }
+    if (!cleanupSucceeded) {
+      state = "failed";
+      error(`Backend exited (${signal ?? code}) but child process cleanup could not be confirmed; restart blocked`);
+      return;
+    }
+    restarts += 1;
+    if (restarts > restartMax) {
+      state = "failed";
+      error(`Backend exited (${signal ?? code}) and its restart budget is spent`);
+      return;
+    }
+    launch(`exit ${signal ?? code}`);
+  }
+
   function launch(reason) {
     stopping = false;
     state = "starting";
     log(`Starting Backend (${plan.runtime} runtime, generation ${plan.generation ?? "unknown"})${reason ? ` after ${reason}` : ""}`);
-    const started = spawn(plan.command, plan.args, { cwd: plan.cwd, env: { ...env, ...plan.env }, stdio: "pipe", windowsHide: true });
+    const started = spawn(plan.command, plan.args, {
+      cwd: plan.cwd,
+      env: { ...env, ...plan.env },
+      stdio: ["pipe", "pipe", "pipe", "ipc"],
+      windowsHide: true,
+    });
     child = started;
+    started.on?.("message", handleBackendChildMessage);
     state = "running";
     clearStableTimer();
     // A process that stayed up for a full window has earned its budget back.
@@ -84,18 +183,18 @@ export function createBackendService({
       if (child !== started) return;
       child = null;
       clearStableTimer();
-      if (stopping) {
-        // A cutover may relaunch only after this exit; shutdown remains terminal.
-        state = state === "stopping" ? "idle" : "stopped";
-        return;
+      started.removeListener?.("message", handleBackendChildMessage);
+      if (!stopping) state = "stopping";
+      const cleanup = reapBackendChildren();
+      exitCleanupByChild.set(started, cleanup);
+      if (cleanup === true || cleanup === false) {
+        finishExit(started, code, signal, cleanup);
+      } else {
+        void cleanup.then(
+          (succeeded) => finishExit(started, code, signal, succeeded),
+          () => finishExit(started, code, signal, false),
+        );
       }
-      restarts += 1;
-      if (restarts > restartMax) {
-        state = "failed";
-        error(`Backend exited (${signal ?? code}) and its restart budget is spent`);
-        return;
-      }
-      launch(`exit ${signal ?? code}`);
     });
     return started;
   }
@@ -117,7 +216,17 @@ export function createBackendService({
       };
       const exited = () => {
         cleanup();
-        resolve();
+        const childCleanup = exitCleanupByChild.get(running);
+        if (childCleanup === false) {
+          reject(new Error("Backend child process cleanup could not be confirmed"));
+        } else if (childCleanup && typeof childCleanup.then === "function") {
+          void childCleanup.then(
+            (succeeded) => succeeded ? resolve() : reject(new Error("Backend child process cleanup could not be confirmed")),
+            () => reject(new Error("Backend child process cleanup could not be confirmed")),
+          );
+        } else {
+          resolve();
+        }
       };
       const failed = (error) => {
         cleanup();
@@ -162,7 +271,6 @@ export function createBackendService({
       stopping = true;
       clearStableTimer();
       const running = child;
-      child = null;
       state = "stopped";
       running?.kill?.();
     },
