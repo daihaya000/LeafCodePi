@@ -836,6 +836,52 @@ it("ignores callbacks from an SSE source replaced after a transport error", asyn
   }
 });
 
+it("clears a stranded send after repeated transport errors and restores it on snapshot", async () => {
+  let unmount: (() => void) | undefined;
+  try {
+    class TestSource {
+      static instances: TestSource[] = [];
+      onerror: (() => void) | null = null;
+      closed = false;
+      constructor() { TestSource.instances.push(this); }
+      addEventListener(name: string, callback: (event: { data: string }) => void) {
+        if (name === "snapshot") listener = callback;
+      }
+      close() { this.closed = true; }
+    }
+    vi.stubGlobal("EventSource", TestSource);
+    unmount = render(<ShellProvider><BotView id="one" active /></ShellProvider>).unmount;
+    await screen.findByRole("heading", { name: "Bot" });
+    vi.useFakeTimers();
+    snapshot({ isStreaming: true });
+    expect(screen.getByRole("button", { name: "応答を停止" })).toBeTruthy();
+
+    const failAndReconnect = async (index: number, delayMs: number) => {
+      const current = TestSource.instances[index];
+      if (!current) throw new Error(`EventSource ${index} was not created`);
+      act(() => current.onerror?.());
+      await act(async () => { vi.advanceTimersByTime(delayMs); });
+    };
+    await failAndReconnect(0, 1_000);
+    await failAndReconnect(1, 2_000);
+    const third = TestSource.instances[2];
+    if (!third) throw new Error("Third EventSource was not created");
+    act(() => third.onerror?.());
+
+    expect(screen.queryByRole("button", { name: "応答を停止" })).toBeNull();
+    expect(screen.getByRole("alert").textContent).toContain("イベント接続が切断されています");
+    await act(async () => { vi.advanceTimersByTime(4_000); });
+    expect(TestSource.instances[3]?.closed).toBe(false);
+
+    snapshot({ isStreaming: true });
+    expect(screen.getByRole("button", { name: "応答を停止" })).toBeTruthy();
+    expect(screen.queryByRole("alert")).toBeNull();
+  } finally {
+    unmount?.();
+    vi.useRealTimers();
+  }
+});
+
 it("shows a server-side SSE error instead of reconnecting forever", async () => {
   const notifications: string[] = [];
   class FakeNotification {
