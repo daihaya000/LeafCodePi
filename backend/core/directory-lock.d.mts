@@ -28,6 +28,9 @@ export function withDirectoryLockAsync<T>(
   action: () => Promise<T> | T,
 ): Promise<T>;
 
+/** Refresh a lock directory from a worker thread while its owner event loop is blocked. */
+export function registerLockHeartbeat(lockPath: string, owner: string, heartbeatMs: number): () => void;
+
 /** Fresh owner token (`pid:uuid`) for a lock directory. */
 export function newOwner(): string;
 /** Path of the owner file inside a lock directory. */

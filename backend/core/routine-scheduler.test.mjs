@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { existsSync, mkdirSync, mkdtempSync, rmSync, utimesSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, rmSync, statSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
@@ -28,6 +28,34 @@ test("the scheduler lock is exclusive, creates its parent, and is reclaimed only
   utimesSync(options.lockPath, old, old);
   assert.equal(tryAcquireSchedulerLock(options), options.lockPath);
   assert.equal(tryAcquireSchedulerLock(options), undefined);
+});
+
+test("a worker heartbeat keeps the scheduler lock fresh during an event-loop stall", (t) => {
+  const root = tempRoot(t);
+  const options = {
+    lockPath: join(root, "bots", "routines.scheduler.lock"),
+    parentDir: join(root, "bots"),
+    staleMs: 30_000,
+    heartbeatMs: 10,
+  };
+  assert.equal(tryAcquireSchedulerLock(options), options.lockPath);
+
+  const old = new Date(Date.now() - 60_000);
+  utimesSync(options.lockPath, old, old);
+  const waitArray = new Int32Array(new SharedArrayBuffer(4));
+  const deadline = Date.now() + 2_000;
+  let lockAgeMs = Date.now() - statSync(options.lockPath).mtimeMs;
+  while (lockAgeMs >= options.staleMs && Date.now() < deadline) {
+    Atomics.wait(waitArray, 0, 0, 20);
+    lockAgeMs = Date.now() - statSync(options.lockPath).mtimeMs;
+  }
+
+  try {
+    assert.ok(lockAgeMs < options.staleMs, `heartbeat left scheduler lock stale for ${lockAgeMs}ms`);
+    assert.equal(tryAcquireSchedulerLock(options), undefined);
+  } finally {
+    releaseSchedulerLock(options.lockPath);
+  }
 });
 
 test("release removes only the lock still carrying this process's token", (t) => {

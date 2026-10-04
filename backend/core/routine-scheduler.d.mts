@@ -5,6 +5,8 @@ export function tryAcquireSchedulerLock(options: {
   parentDir: string;
   staleMs: number;
   now?: () => number;
+  /** Refresh the lock mtime from a worker thread during synchronous decision passes. */
+  heartbeatMs?: number;
 }): string | undefined;
 
 /** Release a lock from `tryAcquireSchedulerLock`, only while it still carries this process's owner token. */

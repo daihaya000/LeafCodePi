@@ -45,7 +45,7 @@ parentPort.on("message", (message) => {
 `;
 let lockHeartbeatWorker;
 
-function registerLockHeartbeat(lockPath, owner, heartbeatMs) {
+export function registerLockHeartbeat(lockPath, owner, heartbeatMs) {
   if (!Number.isFinite(heartbeatMs) || heartbeatMs <= 0) {
     throw new RangeError("directory lock heartbeatMs must be a positive finite number");
   }

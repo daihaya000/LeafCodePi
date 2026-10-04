@@ -1,8 +1,8 @@
 import { mkdirSync, rmSync, statSync, writeFileSync } from "node:fs";
-import { newOwner, ownerFile, readOwnerSync, reclaimable } from "./directory-lock.mjs";
+import { newOwner, ownerFile, readOwnerSync, reclaimable, registerLockHeartbeat } from "./directory-lock.mjs";
 import { cronMatches as defaultCronMatches } from "./routine-schedule.mjs";
 
-/** Owner token this process wrote into each scheduler lock it currently holds. */
+/** Owner token and heartbeat cleanup for scheduler locks this process currently holds. */
 const heldTokens = new Map();
 
 /**
@@ -13,14 +13,24 @@ const heldTokens = new Map();
  * means another worker owns it). Returns the lock path, or undefined when another
  * worker owns it. Release with `releaseSchedulerLock`.
  */
-export function tryAcquireSchedulerLock({ lockPath, parentDir, staleMs, now = () => Date.now() }) {
+export function tryAcquireSchedulerLock({
+  lockPath, parentDir, staleMs, now = () => Date.now(),
+  heartbeatMs = Math.max(1, Math.min(10_000, Math.floor(staleMs / 3))),
+}) {
   mkdirSync(parentDir, { recursive: true });
   const claim = () => {
     mkdirSync(lockPath);
     const token = newOwner();
-    try { writeFileSync(ownerFile(lockPath), token, "utf8"); }
-    catch (error) { rmSync(lockPath, { recursive: true, force: true }); throw error; }
-    heldTokens.set(lockPath, token);
+    let stopHeartbeat = () => {};
+    try {
+      writeFileSync(ownerFile(lockPath), token, "utf8");
+      stopHeartbeat = registerLockHeartbeat(lockPath, token, heartbeatMs);
+      heldTokens.set(lockPath, { token, stopHeartbeat });
+    } catch (error) {
+      stopHeartbeat();
+      rmSync(lockPath, { recursive: true, force: true });
+      throw error;
+    }
     return lockPath;
   };
   try {
@@ -39,10 +49,11 @@ export function tryAcquireSchedulerLock({ lockPath, parentDir, staleMs, now = ()
 
 /** Remove the lock only while it still carries the token this process wrote. */
 export function releaseSchedulerLock(lockPath) {
-  const token = heldTokens.get(lockPath);
+  const held = heldTokens.get(lockPath);
   heldTokens.delete(lockPath);
-  if (token === undefined) return;
-  if (readOwnerSync(lockPath) === token) rmSync(lockPath, { recursive: true, force: true });
+  if (held === undefined) return;
+  held.stopHeartbeat();
+  if (readOwnerSync(lockPath) === held.token) rmSync(lockPath, { recursive: true, force: true });
 }
 
 /**
