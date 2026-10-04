@@ -350,7 +350,7 @@ function persistOperation(state: OperationState): void {
 /** Release handles and state owned by the current Pi session. */
 export async function shutdownComputerUseSession(ownerSessionId: string): Promise<void> {
 	await resourceScheduler.closeSession(ownerSessionId);
-	disconnectCdp();
+	disconnectCdp(ownerSessionId);
 
 	const managedBrowser = runtimeState.managedBrowser;
 	runtimeState.managedBrowser = undefined;
@@ -1088,7 +1088,7 @@ async function buildToolResult(
 	// window, surface console output collected since the last tool result.
 	let consoleText = "";
 	if (currentPlatformBackend.isChromeFamilyApp(result.target.appName, result.target.bundleId)) {
-		const tab = await cdpTabForWindow(result.target.windowTitle, result.target.framePoints);
+		const tab = await cdpTabForWindow(result.target.windowTitle, result.target.framePoints, operationState().ownerSessionId!);
 		const entries = tab?.drainConsole() ?? [];
 		if (entries.length > 0) {
 			details.console = entries;
@@ -2196,7 +2196,7 @@ async function performLaunchBrowser(params: LaunchBrowserParams, signal?: AbortS
 	if (requestedUrl && !/^https?:\/\//i.test(requestedUrl)) throw new Error("launch_browser.url must be an absolute HTTP(S) URL.");
 	const url = requestedUrl ?? "about:blank";
 	const profileDir = path.join(os.tmpdir(), `pi-${browser}-cdp-${port}`);
-	disconnectCdp();
+	disconnectCdp(operationState().ownerSessionId!);
 	runtimeState.managedBrowser?.kill("SIGTERM");
 	const args = [
 		`--remote-debugging-port=${port}`,

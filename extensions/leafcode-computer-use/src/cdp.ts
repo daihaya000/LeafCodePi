@@ -301,16 +301,42 @@ export class CdpTab {
 	}
 }
 
-const connectedTabs = new Map<string, CdpTab>();
-const connectingTabs = new Map<string, Promise<CdpTab>>();
-let lastConnectFailureAt = 0;
+export interface CdpSessionConnectionState<T extends { close(): void }> {
+	connectedTabs: Map<string, T>;
+	connectingTabs: Map<string, Promise<T>>;
+	lastConnectFailureAt: number;
+	generation: number;
+}
 
-/** Close session-owned CDP state without affecting the browser process. */
-export function disconnectCdp(): void {
-	for (const tab of connectedTabs.values()) tab.close();
-	connectedTabs.clear();
-	connectingTabs.clear();
-	lastConnectFailureAt = 0;
+export class CdpSessionConnectionRegistry<T extends { close(): void }> {
+	private readonly sessions = new Map<string, CdpSessionConnectionState<T>>();
+
+	forSession(ownerSessionId: string): CdpSessionConnectionState<T> {
+		let state = this.sessions.get(ownerSessionId);
+		if (!state) {
+			state = { connectedTabs: new Map(), connectingTabs: new Map(), lastConnectFailureAt: 0, generation: 0 };
+			this.sessions.set(ownerSessionId, state);
+		}
+		return state;
+	}
+
+	disconnect(ownerSessionId: string): void {
+		const state = this.sessions.get(ownerSessionId);
+		if (!state) return;
+		state.generation += 1;
+		for (const tab of state.connectedTabs.values()) tab.close();
+		state.connectedTabs.clear();
+		state.connectingTabs.clear();
+		state.lastConnectFailureAt = 0;
+		this.sessions.delete(ownerSessionId);
+	}
+}
+
+const cdpConnections = new CdpSessionConnectionRegistry<CdpTab>();
+
+/** Close session-owned CDP state without affecting other sessions or the browser process. */
+export function disconnectCdp(ownerSessionId: string): void {
+	cdpConnections.disconnect(ownerSessionId);
 }
 
 function cdpEnabled(): boolean {
@@ -327,39 +353,48 @@ function cdpEnabled(): boolean {
  * while it still matches; failures are cached briefly so an unreachable
  * endpoint never adds per-call latency.
  */
-export async function cdpTabForWindow(windowTitle: string, frame?: WindowFrame): Promise<CdpTab | undefined> {
+export async function cdpTabForWindow(windowTitle: string, frame: WindowFrame | undefined, ownerSessionId: string): Promise<CdpTab | undefined> {
 	if (!cdpEnabled()) return undefined;
-	if (Date.now() - lastConnectFailureAt < CONNECT_FAILURE_RETRY_MS) return undefined;
+	const state = cdpConnections.forSession(ownerSessionId);
+	const generation = state.generation;
+	if (Date.now() - state.lastConnectFailureAt < CONNECT_FAILURE_RETRY_MS) return undefined;
 
-	for (const tab of connectedTabs.values()) {
-		if (tab.isOpen && titlesMatch(tab.title, windowTitle) && (await tabMatchesFrame(tab, frame))) return tab;
+	for (const tab of state.connectedTabs.values()) {
+		const matches = tab.isOpen && titlesMatch(tab.title, windowTitle) && await tabMatchesFrame(tab, frame);
+		if (state.generation !== generation) return undefined;
+		if (matches) return tab;
 	}
 
 	try {
 		const pages = await cdpPages();
+		if (state.generation !== generation) return undefined;
 		const match = await pickTab(pages, windowTitle, frame);
-		if (!match) return undefined;
+		if (!match || state.generation !== generation) return undefined;
 
-		const existing = connectedTabs.get(match.id);
+		const existing = state.connectedTabs.get(match.id);
 		if (existing?.isOpen) {
 			existing.title = match.title;
 			return existing;
 		}
-		let connecting = connectingTabs.get(match.id);
+		let connecting = state.connectingTabs.get(match.id);
 		if (!connecting) {
 			connecting = CdpTab.connect(match.webSocketDebuggerUrl!, match.id, match.title);
-			connectingTabs.set(match.id, connecting);
+			state.connectingTabs.set(match.id, connecting);
 		}
 		let connected: CdpTab;
 		try {
 			connected = await connecting;
 		} finally {
-			connectingTabs.delete(match.id);
+			if (state.connectingTabs.get(match.id) === connecting) state.connectingTabs.delete(match.id);
 		}
-		connectedTabs.set(match.id, connected);
+		if (state.generation !== generation) {
+			connected.close();
+			return undefined;
+		}
+		state.connectedTabs.set(match.id, connected);
 		return connected;
 	} catch {
-		lastConnectFailureAt = Date.now();
+		if (state.generation === generation) state.lastConnectFailureAt = Date.now();
 		return undefined;
 	}
 }
