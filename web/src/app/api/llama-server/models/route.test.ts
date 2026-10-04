@@ -3,7 +3,7 @@ import { homedir, tmpdir } from "node:os";
 import path from "node:path";
 import { NextRequest } from "next/server";
 import { afterEach, describe, expect, it } from "vitest";
-import { defaultModelDir, GET, isLora, isMmProj, resetLlamaModelScanCacheForTests } from "./route";
+import { defaultModelDir, GET, isForbiddenModelDirectory, isLora, isMmProj, resetLlamaModelScanCacheForTests } from "./route";
 
 describe("model asset classification", () => {
   it("recognizes mmproj files even when the prefix is the model family", () => {
@@ -84,5 +84,36 @@ describe("model directory target safety", () => {
     const response = await GET(request(dir));
     expect(response.status).toBe(200);
     expect((await response.json()).models).toEqual(["local.gguf"]);
+  });
+});
+
+describe("system directory guard", () => {
+  const dirs: string[] = [];
+  afterEach(() => {
+    resetLlamaModelScanCacheForTests();
+    for (const dir of dirs.splice(0)) rmSync(dir, { recursive: true, force: true });
+  });
+
+  it("refuses virtual filesystems and OS trees", async () => {
+    for (const forbidden of ["/proc", "/sys", "/dev", "/etc"]) {
+      const response = await GET(
+        new NextRequest(`http://127.0.0.1:3010/api/llama-server/models?dir=${encodeURIComponent(forbidden)}`),
+      );
+      expect(response.status, forbidden).toBe(400);
+      expect((await response.json()).error).toMatch(/システムディレクトリ/);
+    }
+  });
+
+  it("still allows an ordinary model directory", () => {
+    expect(isForbiddenModelDirectory("/home/user/models", "linux")).toBe(false);
+    expect(isForbiddenModelDirectory("/srv/llm", "linux")).toBe(false);
+    expect(isForbiddenModelDirectory("/mnt/models", "linux")).toBe(false);
+  });
+
+  it("still allows a Windows drive and ProgramData siblings", () => {
+    expect(isForbiddenModelDirectory(String.raw`C:\models`, "win32")).toBe(false);
+    expect(isForbiddenModelDirectory(String.raw`D:\llm\gguf`, "win32")).toBe(false);
+    expect(isForbiddenModelDirectory(String.raw`C:\Windows`, "win32")).toBe(true);
+    expect(isForbiddenModelDirectory(String.raw`C:\Windows\System32\drivers`, "win32")).toBe(true);
   });
 });

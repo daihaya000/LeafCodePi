@@ -4,6 +4,35 @@ import { homedir } from "node:os";
 import path from "node:path";
 import { isSafeLlamaPathValue } from "@/lib/llama-server-settings";
 
+/**
+ * Directories that can never hold a model directory: virtual filesystems and OS
+ * system trees. Scanning them is both pointless and a way to enumerate the host,
+ * and refusing them cannot break a user's external drive or model folder.
+ */
+const FORBIDDEN_MODEL_DIRS = new Set([
+  "/proc",
+  "/sys",
+  "/dev",
+  "/run",
+  "/boot",
+  "/etc",
+  "/var/log",
+  "/var/run",
+]);
+
+export function isForbiddenModelDirectory(dir: string, platform: NodeJS.Platform = process.platform): boolean {
+  // A POSIX-looking path is forbidden on every platform: /proc and friends have no
+  // place in a model directory regardless of where the server runs.
+  if (FORBIDDEN_MODEL_DIRS.has(path.posix.resolve(dir.replaceAll("\\", "/")))) return true;
+  if (platform !== "win32") return false;
+  const systemRoot = process.env.SystemRoot ?? "C:\\Windows";
+  const normalized = path.win32.resolve(dir).toLowerCase();
+  const roots = [systemRoot, path.win32.join(systemRoot, "System32"), process.env.ProgramData ?? "C:\\ProgramData"];
+  return roots.some(
+    (root) => normalized === root.toLowerCase() || normalized.startsWith(`${root.toLowerCase()}\\`),
+  );
+}
+
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
@@ -190,6 +219,12 @@ export async function GET(req: NextRequest) {
   if (!path.isAbsolute(dir)) {
     return NextResponse.json(
       { error: "モデル保存先は絶対パスで指定してください" },
+      { status: 400 },
+    );
+  }
+  if (isForbiddenModelDirectory(dir, process.platform)) {
+    return NextResponse.json(
+      { error: "システムディレクトリはモデル保存先に指定できません" },
       { status: 400 },
     );
   }
