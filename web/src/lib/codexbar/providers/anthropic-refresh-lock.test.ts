@@ -69,6 +69,22 @@ describe("cross-process refresh lock", () => {
     expect(existsSync(lockPath)).toBe(false);
   });
 
+  it("fails closed on a stale PID-only lock whose live PID may have been reused", async () => {
+    const lockPath = `${credentials}.leafcode-refresh.lock`;
+    writeFileSync(lockPath, String(process.pid), "utf8");
+    const stale = new Date(Date.now() - 120_000);
+    utimesSync(lockPath, stale, stale);
+    vi.useFakeTimers();
+    const run = vi.fn(async () => "refreshed");
+    const pending = withRefreshFileLock(credentials, run);
+    const rejection = expect(pending).rejects.toThrow("Timed out waiting for OAuth refresh lock");
+
+    await vi.advanceTimersByTimeAsync(30_000);
+    await rejection;
+    expect(run).not.toHaveBeenCalled();
+    expect(readFileSync(lockPath, "utf8")).toBe(String(process.pid));
+  });
+
   it("reclaims a stale lock when its live PID belongs to a newer process", async () => {
     const lockPath = `${credentials}.leafcode-refresh.lock`;
     let releaseHolder!: () => void;
