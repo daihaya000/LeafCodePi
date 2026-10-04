@@ -65,6 +65,8 @@ import type { McpOAuthCompleteRequest, McpOAuthCompleteResult } from "@shared/mc
 import type { McpPublicServerList } from "@shared/mcp-server-list.mjs";
 
 export const BACKEND_REQUEST_TIMEOUT_MS = 10_000;
+/** Prompt forwarding includes cold runtime/session setup, which can exceed ordinary API calls. */
+export const BACKEND_PROMPT_TIMEOUT_MS = 60_000;
 
 export type BackendFailureReason =
   | "not-configured"

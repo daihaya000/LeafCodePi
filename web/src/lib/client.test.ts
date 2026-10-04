@@ -20,6 +20,16 @@ describe("getJson", () => {
     await expect(sendJson("/api/test", {})).rejects.toMatchObject({ message: "Unavailable", status: 503 });
   });
 
+  it("passes an explicit abort signal through to GET requests", async () => {
+    vi.stubGlobal("window", { location: { origin: "http://localhost" } });
+    const signal = new AbortController().signal;
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({ ok: true }), { status: 200 }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(getJson("/api/test", undefined, { coalesce: false, signal })).resolves.toEqual({ ok: true });
+    expect(fetchMock).toHaveBeenCalledWith("http://localhost/api/test", expect.objectContaining({ signal }));
+  });
+
   it("coalesces simultaneous GETs and removes the request after completion", async () => {
     vi.stubGlobal("window", { location: { origin: "http://localhost" } });
 

@@ -38,15 +38,18 @@ async function parseError(res: Response): Promise<ApiError> {
 export async function getJson<T>(
   path: string,
   params?: Record<string, string | undefined>,
-  options?: { coalesce?: boolean },
+  options?: { coalesce?: boolean; signal?: AbortSignal },
 ): Promise<T> {
   const url = apiUrl(path, params);
-  const coalesce = options?.coalesce !== false;
+  const coalesce = options?.coalesce !== false && options?.signal === undefined;
   const existing = coalesce ? inflightGets.get(url) : undefined;
   if (existing) return existing as Promise<T>;
 
   const request = (async () => {
-    const res = await fetch(url, { cache: "no-store" });
+    const res = await fetch(url, {
+      cache: "no-store",
+      ...(options?.signal ? { signal: options.signal } : {}),
+    });
     if (!res.ok) throw await parseError(res);
     return (await res.json()) as T;
   })();

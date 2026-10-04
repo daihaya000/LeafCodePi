@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
+import { BACKEND_PROMPT_TIMEOUT_MS, BACKEND_REQUEST_TIMEOUT_MS } from "./backend-client";
 import { readPendingRequestSnapshots } from "../../../backend/src/pending-requests.mjs";
 import {
   forwardPermissionAnswer,
@@ -138,6 +139,22 @@ describe("forwardTaskPrompt", () => {
     expect(result).toEqual({ ok: true, task: { id: "task-1", status: "working" } });
     expect(fetchImpl.mock.calls[0][0]).toBe("http://127.0.0.1:19999/internal/tasks/task-1/prompt");
     expect(JSON.parse(String(fetchImpl.mock.calls[0][1]?.body))).toEqual({ prompt: "hi", auto: true });
+  });
+
+  it("allows cold session setup to exceed the ordinary Backend request deadline", async () => {
+    vi.useFakeTimers();
+    try {
+      const fetchImpl = vi.fn<typeof fetch>((_url, init) => new Promise<Response>((_resolve, reject) => {
+        init?.signal?.addEventListener("abort", () => reject(Object.assign(new Error("aborted"), { name: "AbortError" })), { once: true });
+      }));
+      const pending = forwardTaskPrompt("task-1", { prompt: "hi" }, { env, fetchImpl });
+      await vi.advanceTimersByTimeAsync(BACKEND_REQUEST_TIMEOUT_MS);
+      expect(fetchImpl.mock.calls[0][1]?.signal?.aborted).toBe(false);
+      await vi.advanceTimersByTimeAsync(BACKEND_PROMPT_TIMEOUT_MS - BACKEND_REQUEST_TIMEOUT_MS);
+      await expect(pending).resolves.toEqual({ ok: false, reason: "timeout" });
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("preserves the owner's business response and Auto decision envelope", async () => {

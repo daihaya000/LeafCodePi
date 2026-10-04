@@ -2552,10 +2552,42 @@ describe("TaskView draft submission", () => {
       delivered = true;
       reject(Object.assign(new Error("Backendへ転送できません"), { code: "BACKEND_FORWARD_FAILED", reason: "bad-response" }));
     });
-    expect(mocks.getJson).toHaveBeenCalledWith(`/api/tasks/${task.id}`, { messages: "page" }, { coalesce: false });
+    expect(mocks.getJson).toHaveBeenCalledWith(`/api/tasks/${task.id}`, { messages: "page" }, expect.objectContaining({ coalesce: false }));
     expect(screen.queryByText("Backendへ転送できません")).toBeNull();
     expect(screen.queryByText(/送信結果を確認できません/)).toBeNull();
     expect(input.value).toBe(newDraft ? "next draft" : "");
+    expect(mocks.sendJson).toHaveBeenCalledTimes(1);
+  });
+
+  it("confirms a timed-out prompt when history updates on a later reconciliation read", async () => {
+    let sendFailed = false;
+    let historyReads = 0;
+    const received: UiMessage = { id: "received", role: "user", createdAt: 2, parts: [{ id: "text", type: "text", text: "retry this" }] };
+    mocks.getJson.mockImplementation((path: string) => {
+      if (path === `/api/tasks/${task.id}` && sendFailed) {
+        historyReads += 1;
+        return Promise.resolve({ task: { ...task, messages: historyReads >= 2 ? [received] : [] } });
+      }
+      return Promise.resolve(path === `/api/tasks/${task.id}`
+        ? { task: { ...task, messages: [] } }
+        : { models: [], agents: [], skills: [], accounts: [] });
+    });
+    mocks.sendJson.mockImplementation(async () => {
+      sendFailed = true;
+      throw Object.assign(new Error("Backendへ転送できません"), { code: "BACKEND_FORWARD_FAILED", reason: "timeout" });
+    });
+    mocks.partView.mockImplementation(({ message }: { message: UiMessage }) => (
+      <div>{message.parts.filter((part) => part.type === "text").map((part) => part.type === "text" ? part.text : "").join(" ")}</div>
+    ));
+    render(<TaskView taskId={task.id} mdUp />);
+    const input = screen.getByRole("textbox", { name: "フォローアップ" }) as HTMLTextAreaElement;
+    fireEvent.change(input, { target: { value: "retry this" } });
+    fireEvent.submit(screen.getByRole("form", { name: "フォローアップ" }));
+
+    expect(await screen.findByText("retry this")).toBeTruthy();
+    expect(historyReads).toBeGreaterThanOrEqual(2);
+    expect(screen.queryByText(/送信結果を確認できません/)).toBeNull();
+    expect(input.value).toBe("");
     expect(mocks.sendJson).toHaveBeenCalledTimes(1);
   });
 

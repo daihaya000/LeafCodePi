@@ -1,6 +1,7 @@
 import {
   abortCompactTaskOnBackend,
   abortTaskOnBackend,
+  BACKEND_PROMPT_TIMEOUT_MS,
   compactTaskOnBackend,
   controlGoalLoopOnBackend,
   createBotCodeSessionOnBackend,
@@ -83,9 +84,10 @@ export async function forwardTaskPrompt(
   body: Record<string, unknown> | null | undefined,
   options: { env?: BackendEnv; fetchImpl?: typeof fetch; timeoutMs?: number } = {},
 ): Promise<ForwardedPromptResult> {
-  const result = await promptTaskOnBackend(id, forwardablePromptBody(body), {
-    ...options, timeoutMs: options.timeoutMs ?? (body?.auto === true || body?.agent === AUTO_AGENT_VALUE ? 180_000 : undefined),
-  });
+  const timeoutMs = options.timeoutMs ?? (
+    body?.auto === true || body?.agent === AUTO_AGENT_VALUE ? 180_000 : BACKEND_PROMPT_TIMEOUT_MS
+  );
+  const result = await promptTaskOnBackend(id, forwardablePromptBody(body), { ...options, timeoutMs });
   if (!result.ok) return { ok: false, reason: result.reason, ...(result.status ? { status: result.status } : {}) };
   if (result.body?.result !== undefined) {
     const answer = result.body.result;

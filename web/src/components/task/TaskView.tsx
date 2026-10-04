@@ -191,6 +191,10 @@ const MODEL_KEY = "leafcodepi.defaultModel";
 const USER_OWNERSHIP_OPTION = "__user_ownership__";
 // 自動更新の実装は復帰用に保持し、現在の仕様では手動生成だけを有効にする。
 const TITLE_AUTO_UPDATE_ENABLED = false;
+const PROMPT_DELIVERY_RECONCILE_TIMEOUT_MS = 10_000;
+const PROMPT_DELIVERY_READ_TIMEOUT_MS = 2_000;
+const PROMPT_DELIVERY_RETRY_INITIAL_DELAY_MS = 250;
+const PROMPT_DELIVERY_RETRY_MAX_DELAY_MS = 1_000;
 
 function writeStoredModel(model: string): void {
   try {
@@ -2338,23 +2342,53 @@ export const TaskView = memo(function TaskView({
     } catch (err) {
       // A lost/invalid HTTP reply does not undo a prompt already accepted by the owner.
       // Reconcile against a fresh persisted user message, never against working=true.
-      if (!goalLoopEnabled && submittedAttachments.length === 0 && isUnconfirmedPromptDelivery(err)) {
+      const unconfirmedDelivery = isUnconfirmedPromptDelivery(err);
+      const deliveryReason = typeof err === "object" && err !== null && "reason" in err && typeof err.reason === "string"
+        ? err.reason
+        : "unknown";
+      if (!goalLoopEnabled && submittedAttachments.length === 0 && unconfirmedDelivery) {
         let received = hasReceivedSubmittedPrompt(beforeSubmitMessages, messagesRef.current, submittedPrompt);
         if (!received) {
-          let timer: ReturnType<typeof setTimeout> | undefined;
-          try {
-            const response = await Promise.race([
-              getJson<{ task: TaskDetail }>(`/api/tasks/${taskId}`, { messages: "page" }, { coalesce: false }).catch(() => null),
-              new Promise<null>((resolve) => { timer = setTimeout(() => resolve(null), 2_000); }),
-            ]);
-            const detail = response?.task;
-            if (detail?.id === taskId && Array.isArray(detail.messages)
-              && hasReceivedSubmittedPrompt(beforeSubmitMessages, detail.messages, submittedPrompt)) {
-              applyDetail(detail);
+          const retryUntil = Date.now() + (
+            deliveryReason === "timeout" ? PROMPT_DELIVERY_RECONCILE_TIMEOUT_MS : PROMPT_DELIVERY_READ_TIMEOUT_MS
+          );
+          let retryDelayMs = PROMPT_DELIVERY_RETRY_INITIAL_DELAY_MS;
+          while (!received) {
+            if (hasReceivedSubmittedPrompt(beforeSubmitMessages, messagesRef.current, submittedPrompt)) {
               received = true;
+              break;
             }
-          } finally {
-            if (timer !== undefined) clearTimeout(timer);
+            const remainingMs = retryUntil - Date.now();
+            if (remainingMs <= 0) break;
+            const controller = new AbortController();
+            let timer: ReturnType<typeof setTimeout> | undefined;
+            try {
+              const response = await Promise.race([
+                getJson<{ task: TaskDetail }>(`/api/tasks/${taskId}`, { messages: "page" }, {
+                  coalesce: false,
+                  signal: controller.signal,
+                }).catch(() => null),
+                new Promise<null>((resolve) => {
+                  timer = setTimeout(() => {
+                    controller.abort();
+                    resolve(null);
+                  }, Math.min(PROMPT_DELIVERY_READ_TIMEOUT_MS, remainingMs));
+                }),
+              ]);
+              const detail = response?.task;
+              if (detail?.id === taskId && Array.isArray(detail.messages)
+                && hasReceivedSubmittedPrompt(beforeSubmitMessages, detail.messages, submittedPrompt)) {
+                applyDetail(detail);
+                received = true;
+              }
+            } finally {
+              if (timer !== undefined) clearTimeout(timer);
+            }
+            if (received || deliveryReason !== "timeout") break;
+            const pauseMs = Math.min(retryDelayMs, Math.max(0, retryUntil - Date.now()));
+            if (pauseMs <= 0) break;
+            await new Promise<void>((resolve) => setTimeout(resolve, pauseMs));
+            retryDelayMs = Math.min(retryDelayMs * 2, PROMPT_DELIVERY_RETRY_MAX_DELAY_MS);
           }
         }
         if (received) {
@@ -2373,12 +2407,8 @@ export const TaskView = memo(function TaskView({
           current.length > 0 ? current : submittedAttachments,
         );
       }
-      setError(isUnconfirmedPromptDelivery(err)
-        ? `送信結果を確認できません。再送前に履歴を確認してください（${
-            typeof err === "object" && err !== null && "reason" in err && typeof err.reason === "string"
-              ? err.reason
-              : "unknown"
-          }）`
+      setError(unconfirmedDelivery
+        ? `送信結果を確認できません。再送前に履歴を確認してください（${deliveryReason}）`
         : err instanceof Error ? err.message : "送信に失敗しました");
     } finally {
       setSubmitting(false);
