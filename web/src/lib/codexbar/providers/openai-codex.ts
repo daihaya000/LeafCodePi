@@ -126,8 +126,8 @@ function persistTokens(
   accessToken: string,
   idToken: string | null,
   refreshToken: string,
+  path = authPath(),
 ): void {
-  const path = authPath();
   try {
     const node = asRecord(JSON.parse(readFileSync(path, "utf8"))) ?? {};
     const tokens = asRecord(node.tokens) ?? {};
@@ -150,12 +150,22 @@ function tryRefreshTokens(
   // The IdP rotates refresh tokens: share one refresh per auth file among concurrent pollers.
   const path = authPath();
   const key = `codex-cli:${path}`;
-  return singleFlight(key, () => withRefreshFileLock(path, () => refreshTokensOnce(auth, signal)));
+  return singleFlight(key, () =>
+    withRefreshFileLock(path, () => {
+      // Another process may have rotated tokens while this caller waited for the lock.
+      const latest = loadAuth(path);
+      if (!latest) return Promise.resolve(null);
+      if (latest.accessToken !== auth.accessToken) return Promise.resolve(latest);
+      // Unchanged credentials may still need refresh after a 401, even before expiry.
+      return refreshTokensOnce(latest, signal, path);
+    }),
+  );
 }
 
 async function refreshTokensOnce(
   auth: CodexAuth,
   signal?: AbortSignal,
+  path = authPath(),
 ): Promise<CodexAuth | null> {
   if (!auth.refreshToken) return null;
   try {
@@ -180,8 +190,8 @@ async function refreshTokensOnce(
       typeof root?.refresh_token === "string"
         ? root.refresh_token
         : auth.refreshToken;
-    persistTokens(accessToken, idToken, refreshToken);
-    return loadAuth();
+    persistTokens(accessToken, idToken, refreshToken, path);
+    return loadAuth(path);
   } catch {
     return null;
   }
@@ -380,7 +390,16 @@ function tryRefreshTokensInPi(
   if (!auth.refreshToken) return Promise.resolve(null);
   const path = authPathOverride ?? piAuthPathFor("openai-codex");
   const key = `codex-pi:${path}`;
-  return singleFlight(key, () => withRefreshFileLock(path, () => refreshTokensInPiOnce(auth, signal, authPathOverride)));
+  return singleFlight(key, () =>
+    withRefreshFileLock(path, () => {
+      // Another process may have rotated tokens while this caller waited for the lock.
+      const latest = loadAuthFromPi(path);
+      if (!latest) return Promise.resolve(null);
+      if (latest.accessToken !== auth.accessToken) return Promise.resolve(latest);
+      // Unchanged credentials may still need refresh after a 401, even before expiry.
+      return refreshTokensInPiOnce(latest, signal, authPathOverride);
+    }),
+  );
 }
 
 async function refreshTokensInPiOnce(
