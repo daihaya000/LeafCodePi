@@ -9,14 +9,14 @@ export const MAX_LIVE_ROOM_MESSAGES = 500;
 /** How much of history.jsonl's tail is checked for already archived message ids. */
 const HISTORY_DEDUPE_TAIL_BYTES = 256 * 1024;
 
-/** Ids of messages in the last HISTORY_DEDUPE_TAIL_BYTES of a history file (a cut first line is ignored). */
-function recentHistoryIds(path) {
+/** Ids of messages in the last `tailBytes` of a history file (a cut first line is ignored). */
+function recentHistoryIds(path, tailBytes = HISTORY_DEDUPE_TAIL_BYTES) {
   const ids = new Set();
   let fd;
   try {
     fd = openSync(path, "r");
     const size = fstatSync(fd).size;
-    const length = Math.min(size, HISTORY_DEDUPE_TAIL_BYTES);
+    const length = Math.min(size, tailBytes);
     const buffer = Buffer.alloc(length);
     readSync(fd, buffer, 0, length, size - length);
     const lines = buffer.toString("utf8").split("\n");
@@ -178,7 +178,10 @@ export class RoomFileStore {
     const historyPath = join(dataRoot, "history.jsonl");
     // If an earlier archive reached history but the room file write failed, these messages are still live
     // and come back here: skip the ones already archived instead of duplicating them.
-    const archived = recentHistoryIds(historyPath);
+    // The window grows with the batch: a batch larger than the fixed tail would otherwise have its first
+    // ids fall outside the window and be appended a second time.
+    const batchBytes = Buffer.byteLength(JSON.stringify(overflow));
+    const archived = recentHistoryIds(historyPath, Math.max(HISTORY_DEDUPE_TAIL_BYTES, batchBytes * 2 + 8192));
     const fresh = overflow.filter((message) => !(typeof message.id === "string" && archived.has(message.id)));
     if (fresh.length > 0) appendFileSync(historyPath, `${fresh.map((message) => JSON.stringify(message)).join("\n")}\n`, "utf8");
     return overflow.length;

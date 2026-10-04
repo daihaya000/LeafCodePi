@@ -166,6 +166,18 @@ test("the data directory is the room file's sibling directory named after the ro
   assert.equal(store.roomDataRoot("not-a-uuid"), join(roomsRoot, "not-a-uuid"));
 });
 
+test("re-archiving a batch larger than the fixed dedupe window still does not duplicate its first messages", (t) => {
+  const { store, roomsRoot } = fixture(t);
+  const big = (n) => ({ ...message(n), text: `${n}:${"x".repeat(40_000)}` });
+  const make = () => roomAt(1, { messages: Array.from({ length: 12 }, (_, index) => big(index + 1)) });
+  // 10 overflow messages of ~40 KB each is far more than the 256 KB tail.
+  assert.equal(store.archiveOverflow(make(), 2), 10);
+  assert.equal(store.archiveOverflow(make(), 2), 10);
+  const history = join(roomsRoot, id(1), "history.jsonl");
+  const ids = readFileSync(history, "utf8").trim().split("\n").map((line) => JSON.parse(line).id);
+  assert.deepEqual(ids, Array.from({ length: 10 }, (_, index) => `m-${index + 1}`));
+});
+
 test("re-archiving messages that already reached history does not duplicate them", (t) => {
   const { store, roomsRoot } = fixture(t);
   const make = () => roomAt(1, { messages: [1, 2, 3, 4, 5].map(message) });
