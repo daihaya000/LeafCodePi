@@ -104,6 +104,31 @@ function readSettings(agentDir: string): PiSettings {
   }
 }
 
+/**
+ * Read settings.json for a read-modify-write. A missing file starts from `{}`, but an existing
+ * file that cannot be parsed must not be treated as empty: the write would erase every other Pi
+ * setting stored there.
+ */
+function readSettingsForWrite(agentDir: string): PiSettings {
+  let text: string;
+  try {
+    text = readFileSync(join(agentDir, "settings.json"), "utf8");
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException)?.code === "ENOENT") return {};
+    throw Object.assign(new Error("settings.json を読み取れないため更新を中止しました"), { status: 500, cause: error });
+  }
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(text);
+  } catch (error) {
+    throw Object.assign(new Error("settings.json が壊れているため更新を中止しました"), { status: 500, cause: error });
+  }
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+    throw Object.assign(new Error("settings.json の形式が不正なため更新を中止しました"), { status: 500 });
+  }
+  return parsed as PiSettings;
+}
+
 function atomicWrite(filePath: string, content: string): void {
   mkdirSync(dirname(filePath), { recursive: true });
   const tmp = join(dirname(filePath), `.${Date.now()}.${process.pid}.tmp`);
@@ -369,7 +394,7 @@ function updateAgentOverride(
     staleMs: 30_000,
     busyMessage: "agent settings are busy",
   }, () => {
-  const settings = readSettings(agentDir);
+  const settings = readSettingsForWrite(agentDir);
   const subagents = settings.subagents && typeof settings.subagents === "object"
     ? { ...settings.subagents }
     : {};

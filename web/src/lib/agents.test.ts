@@ -161,6 +161,16 @@ describe("listAgents / setAgentEnabled", () => {
     assert.deepEqual(raw.subagents.agentOverrides.scout, { disabled: true });
   });
 
+  it("refuses to overwrite an unparseable settings.json when writing an agent override", () => {
+    fixture();
+    const settingsPath = join(agentDir, "settings.json");
+    for (const text of ["{torn", "", "[]", "null"]) {
+      writeFileSync(settingsPath, text, "utf8");
+      assert.throws(() => setAgentEnabled("scout", false, agentDir), /中止/);
+      assert.equal(readFileSync(settingsPath, "utf8"), text);
+    }
+  });
+
   it("user agents override package same-name", () => {
     fixture();
     // Add a user agent with same name as package builtin
