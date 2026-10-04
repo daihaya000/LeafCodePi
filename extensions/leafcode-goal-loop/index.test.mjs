@@ -116,19 +116,40 @@ test("an unparseable nextTurnAt on a cooling-down loop re-arms the cooldown inst
   }
 });
 
-test("temp recovery never promotes a snapshot that names another session", () => {
+test("temp recovery requires an exact owner and quarantines stale ownerless snapshots", () => {
   const cwd = mkdtempSync(join(tmpdir(), "leafcode-goal-loop-temp-owner-"));
   process.env.LEAFCODE_PI_DATA_DIR = cwd;
   try {
     const dir = join(cwd, "goals-loop");
+    const stateFile = join(dir, "owned-session.json");
+    const quarantineDir = join(dir, ".goal-loop-temp-quarantine");
     mkdirSync(dir, { recursive: true });
     const snapshot = (sessionId, goal) => JSON.stringify({ sessionId, goal, acceptance: [], status: "paused", progress: [] });
-    // The main file is missing; a temp under this session's name belongs to a different session.
-    writeFileSync(join(dir, "owned-session.json.1.1.tmp"), snapshot("someone-else", "foreign goal"), "utf8");
+    // A temp under this session's name that names another session must stay untouched.
+    const foreignTemp = join(dir, "owned-session.json.1.1.tmp");
+    writeFileSync(foreignTemp, snapshot("someone-else", "foreign goal"), "utf8");
     assert.equal(goalLoopTestSeams.readLoop(cwd, "owned-session"), null);
-    assert.equal(existsSync(join(dir, "owned-session.json")), false);
-    // Its own temp is still recovered.
-    writeFileSync(join(dir, "owned-session.json.2.2.tmp"), snapshot("owned-session", "own goal"), "utf8");
+    assert.equal(existsSync(stateFile), false);
+    assert.equal(existsSync(foreignTemp), true);
+
+    // Missing owner IDs are never promoted. Recent files remain in place in case a writer is active.
+    const ownerlessTemp = join(dir, "owned-session.json.2.2.tmp");
+    writeFileSync(ownerlessTemp, JSON.stringify({ goal: "unknown goal", acceptance: [], status: "paused", progress: [] }), "utf8");
+    assert.equal(goalLoopTestSeams.readLoop(cwd, "owned-session"), null);
+    assert.equal(existsSync(ownerlessTemp), true);
+    assert.equal(existsSync(stateFile), false);
+
+    const stale = new Date(Date.now() - 5 * 60_000);
+    utimesSync(ownerlessTemp, stale, stale);
+    assert.equal(goalLoopTestSeams.readLoop(cwd, "owned-session"), null);
+    assert.equal(existsSync(ownerlessTemp), false);
+    const quarantinedTemp = join(quarantineDir, "owned-session.json.2.2.tmp");
+    assert.equal(existsSync(quarantinedTemp), true);
+    assert.equal(JSON.parse(readFileSync(quarantinedTemp, "utf8")).goal, "unknown goal");
+    assert.equal(existsSync(stateFile), false);
+
+    // A temp with an exact owner remains recoverable.
+    writeFileSync(join(dir, "owned-session.json.3.3.tmp"), snapshot("owned-session", "own goal"), "utf8");
     assert.equal(goalLoopTestSeams.readLoop(cwd, "owned-session")?.goal, "own goal");
   } finally {
     rmSync(cwd, { recursive: true, force: true });
@@ -1537,6 +1558,7 @@ test("recovers a torn state file from the newest valid temp snapshot", async () 
   try {
     mkdirSync(join(cwd, "goals-loop"), { recursive: true });
     const snapshot = {
+      sessionId: "corrupt-session",
       goal: "recover me",
       status: "queued",
       turnKind: "goal",
@@ -1593,6 +1615,7 @@ test("recovers when the main state hydrates to null but a temp snapshot is valid
   try {
     mkdirSync(join(cwd, "goals-loop"), { recursive: true });
     const snapshot = {
+      sessionId: "hydrate-null-session",
       goal: "recover hydrate-null",
       status: "queued",
       turnKind: "goal",
@@ -1646,7 +1669,7 @@ test("keeps a valid old main state and recoverable temp when temp promotion fail
     const old = new Date(Date.now() - 10_000);
     utimesSync(stateFile, old, old);
     writeFileSync(tempFile, JSON.stringify({
-      goal: "newer recoverable state", acceptance: ["ok"], status: "queued", progress: [],
+      sessionId: id, goal: "newer recoverable state", acceptance: ["ok"], status: "queued", progress: [],
     }), "utf8");
     goalLoopTestSeams.setRenameSync(() => {
       const error = new Error("locked");
@@ -1686,6 +1709,7 @@ test("promotes a newer temp snapshot when the valid main state is stale", () => 
     }), "utf8");
     utimesSync(stateFile, new Date(Date.now() - 10_000), new Date(Date.now() - 10_000));
     writeFileSync(tempFile, JSON.stringify({
+      sessionId: id,
       goal: "newer temp",
       acceptance: ["ok"],
       status: "queued",

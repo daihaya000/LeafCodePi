@@ -574,6 +574,22 @@ function hydrateLoop(value: unknown, cwd: string, id: string): GoalLoop | null {
   };
 }
 
+const OWNERLESS_GOAL_TEMP_QUARANTINE_MS = 60_000;
+
+function quarantineOwnerlessGoalTemp(tempFile: string, mtimeMs: number): void {
+  if (Date.now() - mtimeMs < OWNERLESS_GOAL_TEMP_QUARANTINE_MS) return;
+  try {
+    const quarantineDir = path.join(path.dirname(tempFile), ".goal-loop-temp-quarantine");
+    fs.mkdirSync(quarantineDir, { recursive: true });
+    fs.renameSync(tempFile, path.join(quarantineDir, path.basename(tempFile)));
+  } catch (error) {
+    if (fs.existsSync(tempFile)) {
+      const code = (error as NodeJS.ErrnoException | undefined)?.code;
+      console.warn("[goal-loop] could not quarantine ownerless temp; temp retained:", code ?? "unknown error");
+    }
+  }
+}
+
 function recoverLoopFromTemp(
   file: string,
   cwd: string,
@@ -600,9 +616,15 @@ function recoverLoopFromTemp(
       try {
         const raw = JSON.parse(fs.readFileSync(temp.full, "utf8"));
         const record = asRecord(raw);
-        // A temp naming another session must never be promoted over this session's file, whichever name
-        // it was found under (legacy sanitized names are shared by several ids).
-        if (typeof record?.sessionId === "string" && record.sessionId !== id) continue;
+        // A temp must prove ownership before it can be promoted. Unknown legacy temps stay untouched
+        // while recent (a writer may still be creating them), then move out of the shared scan path.
+        const sessionId = record?.sessionId;
+        if (sessionId !== id) {
+          if (typeof sessionId !== "string" || !sessionId.trim()) {
+            quarantineOwnerlessGoalTemp(temp.full, temp.mtime);
+          }
+          continue;
+        }
         const loop = hydrateLoop(raw, cwd, id);
         if (!loop) continue;
         // Promote the newest valid temp so later reads stay consistent after a
