@@ -41,7 +41,7 @@ test("nativeMcpExtensionFactory resolves the provider on every run so a reload p
   loader({ id: 3 }); assert.deepEqual(called, ["A", "B"], "a failed preparation yields no factories");
 });
 
-test("standalone codemode is used only without native MCP, also across reloads", async () => {
+test("standalone codemode is retained whenever native factories are unavailable, also across reloads", async () => {
   const calls = [];
   const standalone = async () => { calls.push("standalone"); };
   const native = () => { calls.push("native"); };
@@ -53,11 +53,36 @@ test("standalone codemode is used only without native MCP, also across reloads",
   assert.deepEqual(calls, ["standalone", "native"], "native supplies codemode without a duplicate");
   setBackendMcpNativeSessionProvider(() => ({ ok: false, issues: [{ code: "x" }], factories: null }));
   await loader({});
-  assert.deepEqual(calls, ["standalone", "native"], "a failed active provider must not fall back");
+  assert.deepEqual(calls, ["standalone", "native", "standalone"], "failed native preparation retains codemode, not MCP");
   setBackendMcpNativeSessionProvider(undefined);
   await loader({});
-  assert.deepEqual(calls, ["standalone", "native", "standalone"]);
+  assert.deepEqual(calls, ["standalone", "native", "standalone", "standalone"]);
   await assert.rejects(Promise.resolve(nativeMcpExtensionFactory("C:/work", async () => { throw Error("standalone failed"); })({})), /standalone failed/);
+});
+
+test("active providers without usable factories retain standalone codemode while MCP stays fail-closed", async () => {
+  let standaloneCalls = 0, nativeCalls = 0;
+  const native = () => { nativeCalls++; };
+  const loader = nativeMcpExtensionFactory("C:/work", async () => { standaloneCalls++; });
+  const entries = [{ name: "leafcode-mcp-adapter" }, { name: "other" }];
+  const cases = [
+    ["empty success", () => ({ ok: true, factories: [] })],
+    ["failed preparation", () => ({ ok: false, factories: null })],
+    ["stale factories on failure", () => ({ ok: false, factories: [native] })],
+    ["throwing provider", () => { throw Error("private cause"); }],
+    ["unavailable binding", () => undefined],
+  ];
+  for (const [label, provider] of cases) {
+    setBackendMcpNativeSessionProvider(provider);
+    const resolved = resolveBackendMcpNativeSession("C:/work");
+    assert.equal(resolved.active, true, label);
+    assert.deepEqual(resolved.factories, [], label);
+    assert.deepEqual(bundledPathsForNativeMcp(entries, resolved.active), [{ name: "other" }], label);
+    const before = standaloneCalls;
+    await loader({});
+    assert.equal(standaloneCalls, before + 1, label);
+    assert.equal(nativeCalls, 0, label);
+  }
 });
 
 test("nativeMcpExtensionFactory awaits async factories in order and surfaces rejections", async () => {
