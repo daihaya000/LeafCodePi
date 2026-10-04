@@ -10,6 +10,7 @@ export { REMOTE_PROVIDER_BASE } from "@/lib/provider-endpoints";
 export const REMOTE_PROVIDER_ID = "leafcodecloud";
 export const REMOTE_PROVIDER_API_KEY_ENV = "LEAFCODECLOUD_API_KEY";
 const REMOTE_CONTEXT_WINDOW = 131_072;
+const REMOTE_JEV_MODEL_ID = "jev-latest";
 
 /** Resolve the LeafCodeCloud API key: `~/.pi/agent/auth.json` takes precedence over the env var. */
 function remoteProviderApiKey(): string | undefined {
@@ -49,7 +50,7 @@ export function modelRows(
 ): ModelRow[] {
   if (!isRecord(body) || !Array.isArray(body.data)) return [];
   return body.data.flatMap((row) => {
-    if (!isRecord(row) || typeof row.id !== "string" || !row.id.trim()) return [];
+    if (!isRecord(row) || typeof row.id !== "string" || !row.id.trim() || row.id === REMOTE_JEV_MODEL_ID) return [];
     const contextWindow = REMOTE_CONTEXT_WINDOW;
     const imageInput = row.supports_image_input === true;
     const reasoning = /qwen3|deepseek-r1|thinking|leafmodel/i.test(row.id);
@@ -98,7 +99,18 @@ function providerConfig(
     baseUrl,
     api: openAICompletionsApi(),
     apiKey: remoteProviderApiKey() ?? "",
-    models,
+    // LeafJev is served by /systemone but omitted from the public chat catalog.
+    models: [...models, {
+      id: REMOTE_JEV_MODEL_ID,
+      name: "LeafJev",
+      type: "classifier",
+      api: "typesafe-system-one",
+      provider: REMOTE_PROVIDER_ID,
+      baseUrl,
+      input: ["text"],
+      cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+      contextWindow: REMOTE_CONTEXT_WINDOW,
+    }],
   };
 }
 

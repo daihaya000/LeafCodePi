@@ -55,6 +55,23 @@ describe("remote-provider", () => {
     });
   });
 
+  it("excludes the decision model from chat rows even if the catalog includes it", () => {
+    expect(modelRows({ data: [{ id: "LeafModel" }, { id: "jev-latest" }] }).map((model) => model.id))
+      .toEqual(["LeafModel"]);
+  });
+
+  it("retains LeafJev when the chat catalog is unavailable", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new Error("catalog unavailable")));
+    const registerProvider = vi.fn();
+    await syncRemoteProvider({ getProvider: () => undefined, registerProvider });
+    expect(registerProvider).toHaveBeenCalledWith("leafcodecloud", expect.objectContaining({
+      models: [expect.objectContaining({
+        id: "jev-latest", name: "LeafJev", type: "classifier", api: "typesafe-system-one",
+        baseUrl: REMOTE_PROVIDER_BASE,
+      })],
+    }));
+  });
+
   it("refreshes the registered catalog", async () => {
     vi.stubGlobal(
       "fetch",
@@ -72,7 +89,10 @@ describe("remote-provider", () => {
     expect(registerProvider).toHaveBeenCalledWith(
       "leafcodecloud",
       expect.objectContaining({
-        models: [expect.objectContaining({ id: "updated-model" })],
+        models: [
+          expect.objectContaining({ id: "updated-model" }),
+          expect.objectContaining({ id: "jev-latest", name: "LeafJev", type: "classifier", api: "typesafe-system-one" }),
+        ],
       }),
     );
   });
@@ -96,7 +116,10 @@ describe("remote-provider", () => {
       expect.objectContaining({
         name: "LeafCodeCloud",
         baseUrl: REMOTE_PROVIDER_BASE,
-        models: [expect.objectContaining({ id: "remote-model" })],
+        models: [
+          expect.objectContaining({ id: "remote-model" }),
+          expect.objectContaining({ id: "jev-latest", type: "classifier", baseUrl: REMOTE_PROVIDER_BASE }),
+        ],
       }),
     );
   });
@@ -139,7 +162,10 @@ describe("remote-provider", () => {
     expect(registerProvider).toHaveBeenCalledWith(
       "leafcodecloud",
       expect.objectContaining({
-        models: [expect.objectContaining({ id: "auth-model" })],
+        models: [
+          expect.objectContaining({ id: "auth-model" }),
+          expect.objectContaining({ id: "jev-latest", type: "classifier" }),
+        ],
       }),
     );
   });
@@ -170,7 +196,10 @@ describe("remote-provider", () => {
       "leafcodecloud",
       expect.objectContaining({
         baseUrl: "https://custom.example/v1",
-        models: [expect.objectContaining({ id: "custom-model" })],
+        models: [
+          expect.objectContaining({ id: "custom-model" }),
+          expect.objectContaining({ id: "jev-latest", type: "classifier", baseUrl: "https://custom.example/v1" }),
+        ],
       }),
     );
   });

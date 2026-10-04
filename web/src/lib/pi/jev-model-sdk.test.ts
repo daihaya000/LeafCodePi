@@ -5,12 +5,18 @@ import { ModelRuntime } from "@earendil-works/pi-coding-agent";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { clearJevDiscoveryCache, discoverJevModels, registeredJevEndpoint } from "./jev-model-discovery";
 import { resolveRegisteredJevConnection } from "./jev-model-connection";
+import { syncRemoteProvider, REMOTE_PROVIDER_API_KEY_ENV } from "./remote-provider";
+import { setProviderBaseUrl } from "@/lib/provider-endpoints";
 
 type ClassifierConfig = Extract<NonNullable<Parameters<ModelRuntime["registerProvider"]>[1]["models"]>[number], { type: "classifier" }>;
 
 const dirs: string[] = [];
 beforeEach(clearJevDiscoveryCache);
-afterEach(() => { for (const dir of dirs.splice(0)) rmSync(dir, { recursive: true, force: true }); });
+afterEach(() => {
+  vi.unstubAllGlobals();
+  vi.unstubAllEnvs();
+  for (const dir of dirs.splice(0)) rmSync(dir, { recursive: true, force: true });
+});
 
 async function runtime() {
   const dir = mkdtempSync(join(tmpdir(), "leafcode-jev-sdk-"));
@@ -32,6 +38,45 @@ function classifier(id = "judge-v1", baseUrl = "https://model.example/v1"): Clas
 const noNetwork = () => vi.fn().mockResolvedValue(new Response(JSON.stringify({ data: [] })));
 
 describe("Jev discovery against the installed SDK contract", () => {
+  it("registers LeafJev only as a classifier using LeafCodeCloud URL and credentials across refreshes", async () => {
+    const rt = await runtime();
+    const dir = dirs[dirs.length - 1];
+    vi.stubEnv("PI_CODING_AGENT_DIR", dir);
+    vi.stubEnv("LEAFCODE_PI_DATA_DIR", dir);
+    vi.stubEnv(REMOTE_PROVIDER_API_KEY_ENV, "leaf-test-key");
+    setProviderBaseUrl("leafcodecloud", "https://leaf.example/v1");
+    const fetchImpl = vi.fn().mockResolvedValue(new Response(JSON.stringify({
+      data: [{ id: "LeafModel" }, { id: "jev-latest" }],
+    })));
+    vi.stubGlobal("fetch", fetchImpl);
+    await syncRemoteProvider(rt);
+    expect(rt.getModels("leafcodecloud").map((model) => model.id)).toEqual(["LeafModel"]);
+    expect(rt.getModelsOfType("classifier", "leafcodecloud")).toMatchObject([
+      { id: "jev-latest", name: "LeafJev", api: "typesafe-system-one", baseUrl: "https://leaf.example/v1" },
+    ]);
+    const noCatalog = noNetwork();
+    const models = await discoverJevModels(rt, { providerIds: ["leafcodecloud"] }, noCatalog);
+    expect(models).toMatchObject([
+      { providerId: "leafcodecloud", modelId: "jev-latest", name: "LeafJev", baseUrl: "https://leaf.example/v1" },
+    ]);
+    expect(await resolveRegisteredJevConnection(rt, models[0], noCatalog)).toEqual({
+      baseUrl: "https://leaf.example/v1", model: "jev-latest", apiKey: "leaf-test-key", headers: {},
+    });
+    expect(noCatalog).not.toHaveBeenCalled();
+
+    setProviderBaseUrl("leafcodecloud", "https://changed.example/v1");
+    fetchImpl.mockResolvedValue(new Response(JSON.stringify({ data: [{ id: "LeafModel" }] })));
+    await syncRemoteProvider(rt);
+    expect(rt.getModelsOfType("classifier", "leafcodecloud")).toHaveLength(1);
+    expect((await resolveRegisteredJevConnection(rt, models[0], noCatalog)).baseUrl).toBe("https://leaf.example/v1");
+    fetchImpl.mockRejectedValue(new Error("catalog unavailable"));
+    await syncRemoteProvider(rt);
+    expect(rt.getModels("leafcodecloud")).toEqual([]);
+    expect(await discoverJevModels(rt, { providerIds: ["leafcodecloud"] }, noCatalog)).toMatchObject([
+      { modelId: "jev-latest", baseUrl: "https://leaf.example/v1" },
+    ]);
+  });
+
   it("finds classifiers that the SDK deliberately excludes from getModels()", async () => {
     const rt = await runtime();
     rt.registerProvider("custom-systemone", {
