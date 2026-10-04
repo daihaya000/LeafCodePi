@@ -962,6 +962,14 @@ describe("integrated session routing", () => {
     // Simulate the pre-fix start-path prepare that marked working before sendTurn.
     const { acquireTaskLease } = await import("@/lib/task-runtime-lease");
     expect(acquireTaskLease(task.id)).toBe(true);
+    const { TaskLeaseService, createTaskLeaseState } = await import("@backend-core/task-runtime-lease.mjs");
+    const otherWorker = new TaskLeaseService({
+      dataDir: () => dir,
+      listTasks: () => [],
+      patchTask: () => undefined,
+      state: createTaskLeaseState(),
+    });
+    expect(otherWorker.acquireTaskLease(task.id)).toBe(false);
     const { patchTask } = await import("@/lib/store");
     patchTask(task.id, { status: "working" });
     expect(getTask(task.id)?.status).toBe("working");
@@ -970,11 +978,16 @@ describe("integrated session routing", () => {
       | ((prompt: string) => Promise<boolean | "retry">)
       | undefined;
     assert.ok(prepare);
-    expect(await prepare("recover")).toBe(true);
+    const pendingPrepare = prepare("recover");
+    const acquiredDuringRecovery = otherWorker.acquireTaskLease(task.id);
+    if (acquiredDuringRecovery) otherWorker.releaseTaskLease(task.id);
+    expect(await pendingPrepare).toBe(true);
+    expect(acquiredDuringRecovery).toBe(true);
     expect(getTask(task.id)?.status).toBe("working");
-    // The recovery released the stale reservation and the commit took a fresh lease for this turn.
-    const { ownsTaskLease } = await import("@/lib/task-runtime-lease");
+    // Another worker could acquire the cleared reservation; this turn then took a fresh lease.
+    const { ownsTaskLease, releaseTaskLease } = await import("@/lib/task-runtime-lease");
     expect(ownsTaskLease(task.id)).toBe(true);
+    releaseTaskLease(task.id);
   });
 
   it("releases a prepared Goal turn even when the session is compacting", async () => {
