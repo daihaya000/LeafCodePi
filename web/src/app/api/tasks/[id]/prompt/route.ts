@@ -49,6 +49,9 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     if (body.streamingBehavior !== undefined && !["steer", "followUp"].includes(body.streamingBehavior)) {
       return NextResponse.json({ error: "無効な送信方式です" }, { status: 400 });
     }
+    if (body.interruptIfSafe !== undefined && (typeof body.interruptIfSafe !== "boolean" || body.streamingBehavior !== "steer")) {
+      return NextResponse.json({ error: "無効な割り込み方式です" }, { status: 400 });
+    }
     if (localRuntimeBlocked()) {
       const forwarded = await forwardTaskPrompt(id, body);
       if (forwarded.ok) {

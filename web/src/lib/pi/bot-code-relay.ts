@@ -103,6 +103,7 @@ export type CodePromptOptions = {
   permissionMode?: "allow" | "ask" | "deny";
   skillPermission?: "allow" | "deny";
   streamingBehavior?: "steer" | "followUp";
+  interruptIfSafe?: boolean;
   accountIdExplicit?: boolean;
   resume?: boolean;
   /** Bot-authored prompt: the Code timeline shows the Bot as the sender. Absent for user interventions. */

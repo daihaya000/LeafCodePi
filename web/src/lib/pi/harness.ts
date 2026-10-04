@@ -198,6 +198,7 @@ import {
 } from "@/lib/pi/deferred-tools";
 import { hasIdentityChanges, sessionIdentityPatch, sessionIdentitySource } from "@/lib/pi/session-identity";
 import { taskResponseModel } from "@/lib/task-response-model";
+import { canInterruptForSteer } from "@/lib/pi/impact-aware-steer";
 import { nestedCallsStoreFor, trackNestedToolEvent } from "@/lib/pi/nested-live-calls";
 import { sessionToolSelection, shouldUseDynamicMcpTools } from "@/lib/pi/session-tool-selection";
 import { attachCodeToolPolicy, codeToolAllowed, preservingPendingToolNames, registerCodeToolPolicy, updateCodeSubagentPolicy, type CodeToolPolicy } from "@/lib/pi/session-tool-policy";
@@ -514,6 +515,12 @@ type LiveRuntime = {
   pendingSettings?: PendingLiveSettings;
   /** Bumped on abort so in-flight promptChain work after await does not resume. */
   promptEpoch: number;
+  /** Normal prompts outstanding on promptChain, including the running one. */
+  promptQueueDepth: number;
+  /** Do not publish an idle boundary or accept another prompt while replacing a turn. */
+  immediateInterruptInProgress: boolean;
+  /** Running top-level tools; unknown names are deliberately not interruptible. */
+  activeToolNames: Map<string, string>;
   /** Assistant throughput samples keyed by message.timestamp (ms). */
   throughputByStartedAt: Map<number, ThroughputTiming>;
   /** startedAtMs values already written to the Pi session file. */
@@ -1391,6 +1398,8 @@ function trackToolExecutionEvent(
   }
   if (event.type === "tool_execution_start") {
     const toolCallId = toolCallIdFromEvent(event);
+    (live.activeToolNames ??= new Map()).set(toolCallId || "",
+      toolCallId && typeof event.toolName === "string" ? event.toolName : "");
     if (toolCallId) live.toolStartedAt.set(toolCallId, Date.now());
     return true;
   }
@@ -1408,6 +1417,7 @@ function trackToolExecutionEvent(
 
   if (event.type === "tool_execution_end") {
     const toolCallId = toolCallIdFromEvent(event);
+    live.activeToolNames?.delete(toolCallId || "");
     if (toolCallId) {
       live.toolEndedAt.set(toolCallId, Date.now());
       const output = toolResultText(event.result);
@@ -2333,6 +2343,9 @@ function applySettledTaskStatus(
   session: AgentSession,
   taskId: string,
 ): void {
+  // An immediate steer replaces this run without opening an idle window that
+  // could drain another client's follow-up or release the replacement's lease.
+  if (live.immediateInterruptInProgress) return;
   const settledError = session.agent.state.errorMessage ?? null;
   // A Goal Loop stop aborts its own turn and Pi reports that abort as an error message. The loop
   // file already says "stopped", so this is the user's deliberate stop, not a failure: keep the
@@ -2492,6 +2505,9 @@ export function restoredThroughputState(
     nativeCompactionAttempted: false,
     goalLoopTurnActive: false,
     leaseLost: false,
+    promptQueueDepth: existing?.promptQueueDepth ?? 0,
+    immediateInterruptInProgress: false,
+    activeToolNames: existing?.session === session ? existing.activeToolNames : new Map(),
     ...restoredThroughputState(existing, loaded, loadedToolTiming),
     snapshotTimer: null,
     pendingSnapshotEventType: null,
@@ -9680,6 +9696,7 @@ function queuePrompt(
     return runPrompt().catch(handlePromptError);
   }
   live.promptActive = true;
+  live.promptQueueDepth = (live.promptQueueDepth ?? 0) + 1;
   if (markTaskWorkingIfIdle(live.taskId)) {
     emitTaskSnapshot(live, "prompt_accepted");
   }
@@ -9687,6 +9704,8 @@ function queuePrompt(
     .then(runPrompt)
     .catch(handlePromptError)
     .finally(async () => {
+      live.promptQueueDepth = Math.max(0, (live.promptQueueDepth ?? 1) - 1);
+      if (activeLive !== live) activeLive.promptQueueDepth = live.promptQueueDepth;
       const codeRequestId = meta?.codeRequestId;
       if (codeRequestId && shouldCompleteCodeRequestAfterPrompt({
         hasCodeRequestId: true,
@@ -9754,6 +9773,7 @@ function promptSelectionOptionsForWorker(
     ...(options?.permissionMode !== undefined ? { permissionMode: options.permissionMode } : {}),
     ...(options?.skillPermission !== undefined ? { skillPermission: options.skillPermission } : {}),
     ...(options?.streamingBehavior !== undefined ? { streamingBehavior: options.streamingBehavior } : {}),
+    ...(options?.interruptIfSafe !== undefined ? { interruptIfSafe: options.interruptIfSafe } : {}),
     ...(options?.accountIdExplicit !== undefined ? { accountIdExplicit: options.accountIdExplicit } : {}),
     ...(options?.resume !== undefined ? { resume: options.resume } : {}),
     // 送信者は本文ではなくフラグで引き継ぐ（受け側ワーカーで再度マーカーを付け直す）。
@@ -9886,6 +9906,58 @@ async function applyPromptSelections(
   return task;
 }
 
+/** Abort only low-impact work. Do not use user Stop: it also cancels queues,
+ * preparations, Goal Loop and background subagents, none of which this action owns. */
+export async function interruptLiveForSteer(live: LiveRuntime): Promise<boolean> {
+  if (live.immediateInterruptInProgress) {
+    throw Object.assign(new Error("割り込み処理中です。完了してから再試行してください"), { status: 409 });
+  }
+  const previousWatch = getTaskHangWatch(live.taskId);
+  if (!canInterruptForSteer({
+    // Session isStreaming also covers retry/settle hooks; only cancel the active
+    // agent loop, not arbitrary post-run extension work.
+    isStreaming: live.session.isStreaming && live.session.agent.state.isStreaming,
+    isCompacting: live.session.isCompacting,
+    blocked: Boolean(live.leaseLost || live.autoCompactionPromise || live.manualCompactionInProgress ||
+      live.goalLoopTurnActive || isLiveGoalLoopSession(live.session) || live.pendingProviderFallback ||
+      live.pendingTransportRecovery || providerFallbackInflight.has(live.taskId) ||
+      pendingPermissionForTask(live.taskId) || pendingQuestionForTask(live.taskId) ||
+      previousWatch?.state === "resolving"),
+    pendingMessageCount: live.session.pendingMessageCount,
+    // Older live entries can survive development hot reload; lack of tracking
+    // is unknown impact, not proof that no tools are running.
+    promptQueueDepth: live.promptQueueDepth ?? 2,
+    activeToolNames: live.activeToolNames ? [...live.activeToolNames.values()] : [""],
+  })) return false;
+  // No await between impact assessment and abort: a write cannot start in that gap.
+  live.immediateInterruptInProgress = true;
+  const previousAbort = live.manualAbortedAssistantId;
+  const previousEpoch = live.promptEpoch;
+  try {
+    persistManualAbortedAssistantId(live.taskId, "");
+    disarmTaskHangWatch(live.taskId);
+    cancelPendingTaskSnapshot(live);
+    await live.session.abort();
+    cancelPendingTaskSnapshot(live);
+    return true;
+  } catch (error) {
+    // A concurrent Stop/lease loss owns its own sentinel and watch teardown.
+    if (!live.leaseLost && live.promptEpoch === previousEpoch) {
+      persistManualAbortedAssistantId(live.taskId, previousAbort);
+      if (live.session.isStreaming) {
+        if (previousWatch) armTaskHangWatch({ ...previousWatch, isHangRetry: true });
+      } else {
+        setTaskStatus(live.taskId, "error", error instanceof Error ? error.message : String(error));
+        releaseTaskLease(live.taskId);
+        emitTaskSnapshot(live, "interrupt_error", { isStreaming: false });
+      }
+    }
+    throw error;
+  } finally {
+    live.immediateInterruptInProgress = false;
+  }
+}
+
 export async function promptTask(
   id: string,
   prompt: string,
@@ -9899,6 +9971,8 @@ export async function promptTask(
     permissionMode?: "allow" | "ask" | "deny";
     skillPermission?: SkillPermission;
     streamingBehavior?: "steer" | "followUp";
+    /** User's explicit send-now action: interrupt only proven low-impact work. */
+    interruptIfSafe?: boolean;
     accountIdExplicit?: boolean;
     /** Resume may carry a stale model/account from the interrupted message. */
     resume?: boolean;
@@ -9976,6 +10050,15 @@ export async function promptTask(
       options?.subagentPermission ?? readCodeSubagentPermission(),
     );
   }
+  if (live.immediateInterruptInProgress) {
+    throw Object.assign(new Error("割り込み処理中です。完了してから再試行してください"), { status: 409 });
+  }
+  let streamingBehavior = options?.streamingBehavior;
+  if (streamingBehavior === "steer" && options?.interruptIfSafe === true) {
+    if (await interruptLiveForSteer(live)) streamingBehavior = undefined;
+    // A Stop/delete while abort was settling must not revive this instruction.
+    preparation.assertCurrent();
+  }
   // 再開は直前プロンプトの再送。Bot送信のターンを操作者の送信に見せ替えない。
   const resumedPromptText =
     options?.resume && !options.fromBot && lastPromptWasBotSent(live)
@@ -9986,7 +10069,7 @@ export async function promptTask(
     agent: options?.agent,
     subagentPermission: options?.subagentPermission,
     permissionMode: options?.permissionMode,
-    streamingBehavior: options?.streamingBehavior,
+    streamingBehavior,
     codeRequestId: options?.codeRequestId,
   });
   if (options?.waitForCompletion) await completion;

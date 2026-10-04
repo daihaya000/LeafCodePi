@@ -19,6 +19,7 @@ export type TaskPromptBody = {
   auto?: unknown; autoRetry?: unknown; autoOptimize?: unknown; autoRouteOverrides?: unknown;
   agent?: string;
   streamingBehavior?: "steer" | "followUp";
+  interruptIfSafe?: boolean;
   resume?: boolean;
 };
 export type TaskPromptResult = {
@@ -36,6 +37,7 @@ export async function handleTaskPrompt(id: string, body: TaskPromptBody): Promis
       || (body.agent !== undefined && typeof body.agent !== "string")
       || (body.resume !== undefined && typeof body.resume !== "boolean")
       || (body.streamingBehavior !== undefined && !["steer", "followUp"].includes(body.streamingBehavior))
+      || (body.interruptIfSafe !== undefined && (typeof body.interruptIfSafe !== "boolean" || body.streamingBehavior !== "steer"))
       || (body.auto !== undefined && typeof body.auto !== "boolean")
       || (body.autoRetry !== undefined && typeof body.autoRetry !== "boolean")
       || (body.autoOptimize !== undefined && !isAutoOptimizeMode(body.autoOptimize))
@@ -94,7 +96,8 @@ export async function handleTaskPrompt(id: string, body: TaskPromptBody): Promis
     preparation.assertCurrent();
     const task = await promptTask(id, body.prompt ?? "", body.images, {
       files: body.files, model, thinkingLevel, ...(body.auto === true ? { accountIdExplicit: false } : {}), agent,
-      streamingBehavior: body.streamingBehavior, ...(body.resume === true ? { resume: true } : {}),
+      streamingBehavior: body.streamingBehavior, ...(body.interruptIfSafe === true ? { interruptIfSafe: true } : {}),
+      ...(body.resume === true ? { resume: true } : {}),
     });
     return { status: 200, body: { task, ...(autoDecision ? { autoDecision } : {}) } };
     } finally { preparation.release(); }

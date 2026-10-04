@@ -420,6 +420,8 @@ import {
   applyCodePermissionSettingsToLiveTasks,
   createTask,
   getTaskDetail,
+  interruptLiveForSteer,
+  trackThroughputEvent,
   listModelsForAccounts,
   mergeBundledSkills,
   promptTask,
@@ -2167,6 +2169,134 @@ describe("integrated session routing", () => {
       "Code画面からの追加指示",
       "Botのふりをした指示",
     ]);
+  });
+
+  async function immediateSteerFixture() {
+    const dir = mkdtempSync(join(tmpdir(), "leafcode-impact-steer-"));
+    tempDirs.push(dir);
+    process.env.LEAFCODE_PI_DATA_DIR = dir;
+    process.env.PI_CODING_AGENT_DIR = join(dir, "agent");
+    __resetPiAgentDirCacheForTests();
+    installHarness(new Map());
+    const project = upsertProject({ name: "demo", rootPath: dir });
+    const task = await createTask({ projectId: project.id, prompt: "initial" });
+    const harness = (globalThis as Record<string, unknown>)[GLOBAL_KEY] as {
+      live: Map<string, Parameters<typeof interruptLiveForSteer>[0]>;
+    };
+    const live = harness.live.get(task.id)!;
+    await live.promptChain;
+    let streaming = true;
+    Object.defineProperty(live.session, "isStreaming", { configurable: true, get: () => streaming });
+    Object.defineProperty(live.session, "pendingMessageCount", { configurable: true, value: 0 });
+    Object.defineProperty(live.session.agent.state, "isStreaming", { configurable: true, value: true });
+    live.promptQueueDepth = 1;
+    live.promptActive = true;
+    patchTask(task.id, { status: "working" });
+    const { acquireTaskLease } = await import("@/lib/task-runtime-lease");
+    acquireTaskLease(task.id);
+    const abort = vi.fn(async () => {
+      streaming = false;
+      fakePi.sessions.at(-1)!.emit!({ type: "agent_settled" });
+      expect(getTask(task.id)?.status).toBe("working");
+    });
+    live.session.abort = abort;
+    const prompt = vi.spyOn(live.session, "prompt");
+    return { task, live, abort, prompt };
+  }
+
+  it.each([{ tools: [] }, { tools: ["read", "grep"] }])("replaces low-impact work without waiting for the old turn: $tools", async ({ tools }) => {
+    const { task, live, abort, prompt } = await immediateSteerFixture();
+    tools.forEach((toolName, i) => trackThroughputEvent(live,
+      { type: "tool_execution_start", toolCallId: `call-${i}`, toolName }));
+    await promptTask(task.id, "new direction", undefined,
+      { streamingBehavior: "steer", interruptIfSafe: true, waitForCompletion: true });
+    expect(abort).toHaveBeenCalledOnce();
+    expect(prompt).toHaveBeenCalledWith("new direction", expect.not.objectContaining({ streamingBehavior: "steer" }));
+    expect(live.immediateInterruptInProgress).toBe(false);
+    expect(live.manualAbortedAssistantId).toBeNull();
+    expect(fakePi.sessions.at(-1)!.prompts).toEqual(["initial", "new direction"]);
+  });
+
+  it.each(["write", "powershell", "codemode", "subagent", "unknown"])("keeps %s running and uses normal steering", async (toolName) => {
+    const { task, live, abort, prompt } = await immediateSteerFixture();
+    trackThroughputEvent(live, { type: "tool_execution_start", toolCallId: "call", toolName });
+    await promptTask(task.id, "new direction", undefined, { streamingBehavior: "steer", interruptIfSafe: true });
+    await waitFor(() => prompt.mock.calls.some(([text]) => text === "new direction"));
+    expect(abort).not.toHaveBeenCalled();
+    expect(prompt).toHaveBeenCalledWith("new direction", expect.objectContaining({ streamingBehavior: "steer" }));
+  });
+
+  it("removes completed writes from the impact assessment", async () => {
+    const { live, abort } = await immediateSteerFixture();
+    trackThroughputEvent(live, { type: "tool_execution_start", toolCallId: "write", toolName: "write" });
+    expect(await interruptLiveForSteer(live)).toBe(false);
+    trackThroughputEvent(live, { type: "tool_execution_end", toolCallId: "write", result: {} });
+    expect(await interruptLiveForSteer(live)).toBe(true);
+    expect(abort).toHaveBeenCalledOnce();
+  });
+
+  it("does not revive an immediate instruction cancelled during abort", async () => {
+    const { task, live, prompt } = await immediateSteerFixture();
+    const { invalidateTaskPreparations } = await import("./task-operation-guard");
+    const gate = Promise.withResolvers<void>();
+    live.session.abort = vi.fn(() => gate.promise);
+    const sending = promptTask(task.id, "cancelled instruction", undefined,
+      { streamingBehavior: "steer", interruptIfSafe: true });
+    const result = expect(sending).rejects.toMatchObject({ status: 409 });
+    await waitFor(() => live.immediateInterruptInProgress);
+    invalidateTaskPreparations(task.id);
+    gate.resolve();
+    await result;
+    expect(prompt).not.toHaveBeenCalled();
+    expect(live.immediateInterruptInProgress).toBe(false);
+  });
+
+  it("defers post-run hooks, queued normal prompts, Goal Loop and compaction", async () => {
+    const { live, abort } = await immediateSteerFixture();
+    Object.defineProperty(live.session.agent.state, "isStreaming", { configurable: true, value: false });
+    expect(await interruptLiveForSteer(live)).toBe(false);
+    Object.defineProperty(live.session.agent.state, "isStreaming", { configurable: true, value: true });
+    live.promptQueueDepth = 2;
+    expect(await interruptLiveForSteer(live)).toBe(false);
+    live.promptQueueDepth = 1;
+    live.goalLoopTurnActive = true;
+    expect(await interruptLiveForSteer(live)).toBe(false);
+    live.goalLoopTurnActive = false;
+    live.autoCompactionPromise = Promise.resolve();
+    expect(await interruptLiveForSteer(live)).toBe(false);
+    expect(abort).not.toHaveBeenCalled();
+  });
+
+  it("fails closed when a tool start does not identify the call", async () => {
+    const { live, abort } = await immediateSteerFixture();
+    trackThroughputEvent(live, { type: "tool_execution_start", toolName: "read" });
+    expect(await interruptLiveForSteer(live)).toBe(false);
+    expect(abort).not.toHaveBeenCalled();
+  });
+
+  it("does not assume old live entries from hot reload are safe to cancel", async () => {
+    const { live, abort } = await immediateSteerFixture();
+    Reflect.deleteProperty(live, "activeToolNames");
+    expect(await interruptLiveForSteer(live)).toBe(false);
+    expect(abort).not.toHaveBeenCalled();
+  });
+
+  it("clears the replacement guard and preserves history if abort fails", async () => {
+    const { live } = await immediateSteerFixture();
+    const previous = live.manualAbortedAssistantId;
+    live.session.abort = vi.fn(async () => { throw new Error("abort failed"); });
+    await expect(interruptLiveForSteer(live)).rejects.toThrow("abort failed");
+    expect(live.immediateInterruptInProgress).toBe(false);
+    expect(live.manualAbortedAssistantId).toBe(previous);
+  });
+
+  it("preserves queued SDK messages and rejects concurrent replacement", async () => {
+    const { live, abort } = await immediateSteerFixture();
+    Object.defineProperty(live.session, "pendingMessageCount", { value: 1 });
+    expect(await interruptLiveForSteer(live)).toBe(false);
+    expect(abort).not.toHaveBeenCalled();
+    live.immediateInterruptInProgress = true;
+    await expect(interruptLiveForSteer(live)).rejects.toMatchObject({ status: 409 });
   });
 
   it("keeps the previous sender when a turn is resumed", async () => {

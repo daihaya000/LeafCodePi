@@ -2308,7 +2308,7 @@ export const TaskView = memo(function TaskView({
               }
             : {}),
           ...(agentSelection ? { agent: agentSelection } : {}),
-          ...(streamingBehavior ? { streamingBehavior } : {}),
+          ...(streamingBehavior ? { streamingBehavior, interruptIfSafe: true } : {}),
         });
         resolvedAgent = result.task.agent ?? null;
         resolvedAutoDecision = result.autoDecision;

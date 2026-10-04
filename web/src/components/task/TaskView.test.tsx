@@ -2068,7 +2068,7 @@ describe("TaskView draft submission", () => {
     fireEvent.change(input, { target: { value: "draft" } });
     fireEvent.click(screen.getByRole("button", { name: "即時送信: second" }));
     await waitFor(() => expect(mocks.sendJson).toHaveBeenCalledWith(
-      `/api/tasks/${task.id}/prompt`, expect.objectContaining({ prompt: "second", streamingBehavior: "steer" }),
+      `/api/tasks/${task.id}/prompt`, expect.objectContaining({ prompt: "second", streamingBehavior: "steer", interruptIfSafe: true }),
     ));
     expect(input.value).toBe("draft");
     expect(screen.getByRole("button", { name: "即時送信: first" })).toBeTruthy();

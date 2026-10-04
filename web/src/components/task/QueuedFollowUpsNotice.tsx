@@ -40,7 +40,7 @@ export function QueuedFollowUpsNotice({
             <span className="max-w-56 truncate" title={label}>{label}</span>
             <button
               type="button"
-              title="今すぐ送信"
+              title="影響が小さい処理は中断して送信。変更・シェル・不明な処理は安全な区切りで送信"
               aria-label={`即時送信: ${label}`}
               disabled={sendNowDisabled}
               onClick={() => onSendNow(item.id)}

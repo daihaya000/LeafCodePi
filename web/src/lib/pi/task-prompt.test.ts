@@ -31,6 +31,23 @@ it("a working turn cannot change its model/agent through stale Auto metadata", a
   expect(mocks.model).not.toHaveBeenCalled(); expect(mocks.agent).not.toHaveBeenCalled();
   expect(mocks.prompt).toHaveBeenCalledWith("task", "steer", undefined, expect.objectContaining({ model: undefined, agent: "current" }));
 });
+it("forwards impact-aware steering without changing the active route", async () => {
+  mocks.getTask.mockReturnValue({ id: "task", status: "working", agent: "current" });
+  const result = await handleTaskPrompt("task", { prompt: "new direction", auto: true, agent: AUTO_AGENT_VALUE,
+    streamingBehavior: "steer", interruptIfSafe: true });
+  expect(result.status).toBe(200);
+  expect(mocks.model).not.toHaveBeenCalled(); expect(mocks.agent).not.toHaveBeenCalled();
+  expect(mocks.prompt).toHaveBeenCalledWith("task", "new direction", undefined,
+    expect.objectContaining({ streamingBehavior: "steer", interruptIfSafe: true, agent: "current" }));
+});
+it.each([
+  { interruptIfSafe: "true", streamingBehavior: "steer" },
+  { interruptIfSafe: true },
+  { interruptIfSafe: true, streamingBehavior: "followUp" },
+])("rejects invalid immediate interruption options: %j", async (options) => {
+  expect((await handleTaskPrompt("task", { prompt: "fix", ...options } as never)).status).toBe(400);
+  expect(mocks.prompt).not.toHaveBeenCalled();
+});
 it("a client cannot execute the owning ladder", async () => {
   vi.stubEnv("LEAFCODE_PI_BACKEND_RUNTIME", "");
   const result = await handleTaskPrompt("task", { prompt: "fix", auto: true });

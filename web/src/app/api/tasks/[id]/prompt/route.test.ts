@@ -357,6 +357,25 @@ describe("POST /api/tasks/[id]/prompt", () => {
     expect(mocks.promptTask).not.toHaveBeenCalled();
   });
 
+  it("forwards impact-aware steering to the owning prompt handler", async () => {
+    mocks.getTask.mockReturnValue({ id: "task-1", status: "working", agent: "builder" });
+    const response = await POST(request({ prompt: "new direction", streamingBehavior: "steer", interruptIfSafe: true }),
+      { params: Promise.resolve({ id: "task-1" }) });
+    expect(response.status).toBe(200);
+    expect(mocks.promptTask).toHaveBeenCalledWith("task-1", "new direction", undefined,
+      expect.objectContaining({ streamingBehavior: "steer", interruptIfSafe: true }));
+  });
+
+  it.each([
+    { interruptIfSafe: "true", streamingBehavior: "steer" },
+    { interruptIfSafe: true },
+    { interruptIfSafe: true, streamingBehavior: "followUp" },
+  ])("rejects invalid interruption options: %j", async (options) => {
+    const response = await POST(request({ prompt: "fix", ...options }), { params: Promise.resolve({ id: "task-1" }) });
+    expect(response.status).toBe(400);
+    expect(mocks.promptTask).not.toHaveBeenCalled();
+  });
+
   it("rejects a non-string agent value", async () => {
     const response = await POST(
       request({ prompt: "作業", agent: null }),
