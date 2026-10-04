@@ -22,14 +22,34 @@ test("the relay state file is relay.json inside the room's data directory", (t) 
   assert.throws(() => store.relayStatePath("../evil"), /invalid room id/);
 });
 
-test("a missing, malformed or invalid-id relay file reads as an empty state without creating anything", (t) => {
+test("a missing, malformed or invalid-id relay file reads as an empty state; malformed content is kept aside", (t) => {
   const { store, roomsRoot } = fixture(t);
   assert.deepEqual(store.readRelayState(ID), { envelopes: {}, claims: {} });
   assert.deepEqual(store.readRelayState("../evil"), { envelopes: {}, claims: {} });
   mkdirSync(store.roomDataRoot(ID), { recursive: true });
   writeFileSync(store.relayStatePath(ID), "{not json");
   assert.deepEqual(store.readRelayState(ID), { envelopes: {}, claims: {} });
-  assert.equal(existsSync(join(roomsRoot, ID, "relay.json")), true);
+  // The corrupt original is preserved under a .corrupt- name instead of being overwritten later.
+  assert.equal(existsSync(join(roomsRoot, ID, "relay.json")), false);
+  const kept = readdirSync(join(roomsRoot, ID)).filter((name) => name.startsWith("relay.json.corrupt-"));
+  assert.equal(kept.length, 1);
+  assert.equal(readFileSync(join(roomsRoot, ID, kept[0]), "utf8"), "{not json");
+  store.writeRelayState(ID, state);
+  assert.deepEqual(store.readRelayState(ID), state);
+});
+
+test("a relay file that exists but cannot be read is never overwritten by a write", (t) => {
+  const { store } = fixture(t);
+  mkdirSync(store.roomDataRoot(ID), { recursive: true });
+  // A directory named relay.json makes the read fail with EISDIR (not ENOENT).
+  mkdirSync(store.relayStatePath(ID));
+  assert.deepEqual(store.readRelayState(ID), { envelopes: {}, claims: {} });
+  assert.throws(() => store.writeRelayState(ID, state), /refusing to overwrite/);
+  assert.equal(statSync(store.relayStatePath(ID)).isDirectory(), true);
+  rmSync(store.relayStatePath(ID), { recursive: true });
+  assert.deepEqual(store.readRelayState(ID), { envelopes: {}, claims: {} });
+  store.writeRelayState(ID, state);
+  assert.deepEqual(store.readRelayState(ID), state);
 });
 
 test("non-object envelopes/claims fall back to empty objects, other fields dropped, arrays kept as read", (t) => {

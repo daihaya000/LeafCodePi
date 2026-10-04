@@ -52,6 +52,8 @@ export class RoomFileStore {
     this.onWritten = onWritten;
     /** Last relay.json content per room, used to skip identical writes. */
     this.lastRelayState = new Map();
+    /** Rooms whose relay.json exists but could not be read; writes are refused until a read succeeds. */
+    this.unreadableRelay = new Set();
   }
 
   assertId(id) {
@@ -98,18 +100,39 @@ export class RoomFileStore {
     return join(this.roomDataRoot(roomId), "relay.json");
   }
 
-  /** A missing, unreadable or malformed file is an empty state, never a thrown error. */
+  /**
+   * A missing, unreadable or malformed file reads as an empty state, never a thrown error.
+   * The empty state must not silently replace real data on the next write:
+   *  - malformed content is moved aside to `relay.json.corrupt-<time>` (kept for inspection);
+   *  - an I/O failure on an existing file marks the room unreadable and writeRelayState refuses
+   *    to overwrite until a later read succeeds.
+   */
   readRelayState(roomId) {
+    const empty = () => ({ envelopes: {}, claims: {} });
+    let path;
+    let raw;
     try {
-      const raw = readFileSync(this.relayStatePath(roomId), "utf8");
-      // Remember what is on disk so an identical writeRelayState() is a no-op even
-      // after another worker wrote the same content.
-      (this.lastRelayState ??= new Map()).set(roomId, { state: undefined, serialized: raw });
-      const value = JSON.parse(raw);
-      const envelopes = value.envelopes && typeof value.envelopes === "object" ? value.envelopes : {};
-      const claims = value.claims && typeof value.claims === "object" ? value.claims : {};
-      return { envelopes, claims };
-    } catch { return { envelopes: {}, claims: {} }; }
+      path = this.relayStatePath(roomId);
+      raw = readFileSync(path, "utf8");
+    } catch (error) {
+      if (path && error?.code !== "ENOENT") (this.unreadableRelay ??= new Set()).add(roomId);
+      else this.unreadableRelay?.delete(roomId);
+      return empty();
+    }
+    this.unreadableRelay?.delete(roomId);
+    // Remember what is on disk so an identical writeRelayState() is a no-op even
+    // after another worker wrote the same content.
+    (this.lastRelayState ??= new Map()).set(roomId, { state: undefined, serialized: raw });
+    let value;
+    try { value = JSON.parse(raw); } catch { value = null; }
+    if (!value || typeof value !== "object") {
+      try { renameSync(path, `${path}.corrupt-${Date.now()}`); } catch { (this.unreadableRelay ??= new Set()).add(roomId); }
+      this.lastRelayState.delete(roomId);
+      return empty();
+    }
+    const envelopes = value.envelopes && typeof value.envelopes === "object" ? value.envelopes : {};
+    const claims = value.claims && typeof value.claims === "object" ? value.claims : {};
+    return { envelopes, claims };
   }
 
   /**
@@ -124,6 +147,7 @@ export class RoomFileStore {
   writeRelayState(roomId, state) {
     mkdirSync(this.roomDataRoot(roomId), { recursive: true });
     const path = this.relayStatePath(roomId);
+    if (this.unreadableRelay?.has(roomId)) throw new Error(`relay state is unreadable; refusing to overwrite: ${path}`);
     // Relay ticks hand back the same state object they read, so identity settles the
     // common "nothing moved" case without serializing. A mutated object still falls
     // through to the content compare below.
