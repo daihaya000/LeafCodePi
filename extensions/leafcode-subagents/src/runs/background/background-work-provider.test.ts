@@ -10,7 +10,7 @@ function stateFor(sessionId: string, jobs: AsyncJobState[]) {
 }
 
 describe("createSubagentBackgroundWorkProvider", () => {
-	it("lists only active non-workflow runs owned by its session", () => {
+	it("lists all active runs owned by its session", () => {
 		const provider = createSubagentBackgroundWorkProvider(stateFor("session-a", [
 			{ asyncId: "owned-running", asyncDir: "a", sessionId: "session-a", status: "running", mode: "single" },
 			{ asyncId: "owned-queued", asyncDir: "b", sessionId: "session-a", status: "queued", mode: "single" },
@@ -22,6 +22,7 @@ describe("createSubagentBackgroundWorkProvider", () => {
 		expect(provider.listActiveWork()).toEqual([
 			{ id: "owned-running", sessionId: "session-a" },
 			{ id: "owned-queued", sessionId: "session-a" },
+			{ id: "workflow", sessionId: "session-a" },
 		]);
 	});
 
@@ -29,6 +30,7 @@ describe("createSubagentBackgroundWorkProvider", () => {
 		const state = stateFor("session-a", [
 			{ asyncId: "owned", asyncDir: "a", sessionId: "session-a", status: "running", mode: "single" },
 			{ asyncId: "other", asyncDir: "b", sessionId: "session-b", status: "running", mode: "single" },
+			{ asyncId: "workflow", asyncDir: "c", sessionId: "session-a", status: "running", mode: "workflow" },
 		]);
 		const stopped: string[] = [];
 		const provider = createSubagentBackgroundWorkProvider(state, "session-a", (_state, id) => { stopped.push(id); return null; });
@@ -36,6 +38,7 @@ describe("createSubagentBackgroundWorkProvider", () => {
 		provider.stopWork?.({ id: "owned", sessionId: "session-a" });
 		expect(stopped).toEqual(["owned"]);
 		provider.stopWork?.({ id: "other", sessionId: "session-b" });
+		expect(() => provider.stopWork?.({ id: "workflow", sessionId: "session-a" })).toThrow(/cannot be stopped/);
 		state.currentSessionId = "session-b";
 		provider.stopWork?.({ id: "owned", sessionId: "session-a" });
 		expect(stopped).toEqual(["owned"]);

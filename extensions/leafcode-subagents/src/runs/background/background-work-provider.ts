@@ -15,12 +15,13 @@ export function createSubagentBackgroundWorkProvider(
 	return {
 		name: `subagents:${sessionId}`,
 		listActiveWork: () => [...state.asyncJobs.values()]
-			.filter((job) => job.sessionId === sessionId && job.mode !== "workflow" && isActive(job.status))
+			.filter((job) => job.sessionId === sessionId && isActive(job.status))
 			.map((job) => ({ id: job.asyncId, sessionId })),
 		stopWork: (item: BackgroundWorkItem) => {
 			if (item.sessionId !== sessionId || state.currentSessionId !== sessionId) return;
 			const job = state.asyncJobs.get(item.id);
-			if (!job || job.sessionId !== sessionId || job.mode === "workflow" || !isActive(job.status)) return;
+			if (!job || job.sessionId !== sessionId || !isActive(job.status)) return;
+			if (job.mode === "workflow") throw new Error(`Workflow run '${item.id}' cannot be stopped by this provider.`);
 			const result = stopRun(state, item.id);
 			if (result?.isError) throw new Error(`Failed to stop subagent run '${item.id}'.`);
 		},
