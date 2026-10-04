@@ -2916,16 +2916,22 @@ const SidebarView = memo(function SidebarView({
     localStorage.setItem(COLLAPSED_KEY, "0");
   }, []);
   useEffect(() => {
-    const collapse = () => {
-      setCollapsed(true);
+    const setSidebarCollapsed = (next: boolean) => {
+      setCollapsed(next);
       try {
-        localStorage.setItem(COLLAPSED_KEY, "1");
+        localStorage.setItem(COLLAPSED_KEY, next ? "1" : "0");
       } catch {
         /* 表示切替はストレージが利用できなくても行う。 */
       }
     };
+    const collapse = () => setSidebarCollapsed(true);
+    const expand = () => setSidebarCollapsed(false);
     window.addEventListener("webui:collapse-sidebar", collapse);
-    return () => window.removeEventListener("webui:collapse-sidebar", collapse);
+    window.addEventListener("webui:expand-sidebar", expand);
+    return () => {
+      window.removeEventListener("webui:collapse-sidebar", collapse);
+      window.removeEventListener("webui:expand-sidebar", expand);
+    };
   }, []);
   const botBody = (
     <BotSidebarBody

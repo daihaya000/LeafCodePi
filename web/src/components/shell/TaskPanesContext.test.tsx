@@ -113,13 +113,14 @@ describe("TaskPanesProvider", () => {
   });
 
   it.each([
-    { desktop: true, taskIds: ["first", "second"], collapse: true, panes: 2 },
-    { desktop: true, taskIds: ["first", "second", "third"], collapse: true, panes: 3 },
-    { desktop: true, taskIds: ["first"], collapse: false, panes: 1 },
-    { desktop: true, taskIds: [], collapse: false, panes: 1 },
-    { desktop: true, taskIds: ["bot:one", "/bots/one", ""], collapse: false, panes: 1 },
-    { desktop: false, taskIds: ["first", "second"], collapse: false, panes: 2 },
-  ])("requests sidebar collapse only for desktop multi-pane working tasks: %j", ({ desktop, taskIds, collapse, panes }) => {
+    { desktop: true, taskIds: ["first", "second"], collapse: true, expand: false, panes: 2 },
+    { desktop: true, taskIds: ["first", "second", "third"], collapse: true, expand: false, panes: 3 },
+    { desktop: true, taskIds: ["first"], collapse: false, expand: true, panes: 1 },
+    { desktop: true, taskIds: [], collapse: false, expand: false, panes: 1 },
+    { desktop: true, taskIds: ["bot:one", "/bots/one", ""], collapse: false, expand: true, panes: 1 },
+    { desktop: false, taskIds: ["first", "second"], collapse: false, expand: false, panes: 2 },
+    { desktop: false, taskIds: ["first"], collapse: false, expand: false, panes: 1 },
+  ])("sets the desktop sidebar display from normalized split targets: %j", ({ desktop, taskIds, collapse, expand, panes }) => {
     matches = desktop;
     function WorkingTasksProbe() {
       const { dispatch, state } = useTaskPanesNavigation();
@@ -128,17 +129,47 @@ describe("TaskPanesProvider", () => {
       </button>;
     }
     const onCollapse = vi.fn();
+    const onExpand = vi.fn();
     window.addEventListener("webui:collapse-sidebar", onCollapse);
+    window.addEventListener("webui:expand-sidebar", onExpand);
     try {
       render(<TaskPanesProvider><WorkingTasksProbe /></TaskPanesProvider>);
       fireEvent.click(screen.getByRole("button"));
       expect(screen.getByRole("button").textContent).toBe(`split ${panes}`);
       expect(onCollapse).toHaveBeenCalledTimes(collapse ? 1 : 0);
-      // 同じレイアウトでの再実行でも、手動展開したサイドバーを再度最小化できる。
+      expect(onExpand).toHaveBeenCalledTimes(expand ? 1 : 0);
+      // 同じレイアウトで再実行しても、手動切替したサイドバーを対象数に応じて戻す。
       fireEvent.click(screen.getByRole("button"));
       expect(onCollapse).toHaveBeenCalledTimes(collapse ? 2 : 0);
+      expect(onExpand).toHaveBeenCalledTimes(expand ? 2 : 0);
     } finally {
       window.removeEventListener("webui:collapse-sidebar", onCollapse);
+      window.removeEventListener("webui:expand-sidebar", onExpand);
+    }
+  });
+
+  it("expands the sidebar when the split button reduces multiple targets to one", () => {
+    matches = true;
+    function WorkingTasksProbe() {
+      const { dispatch, state } = useTaskPanesNavigation();
+      return <>
+        <button onClick={() => dispatch({ type: "showWorkingTasks", taskIds: ["first", "second"] })}>multiple targets</button>
+        <button onClick={() => dispatch({ type: "showWorkingTasks", taskIds: ["first"] })}>single target</button>
+        <output data-testid="pane-count">{state.panes.length}</output>
+      </>;
+    }
+    const onExpand = vi.fn();
+    window.addEventListener("webui:expand-sidebar", onExpand);
+    try {
+      render(<TaskPanesProvider><WorkingTasksProbe /></TaskPanesProvider>);
+      fireEvent.click(screen.getByRole("button", { name: "multiple targets" }));
+      expect(screen.getByTestId("pane-count").textContent).toBe("2");
+      expect(onExpand).not.toHaveBeenCalled();
+      fireEvent.click(screen.getByRole("button", { name: "single target" }));
+      expect(screen.getByTestId("pane-count").textContent).toBe("1");
+      expect(onExpand).toHaveBeenCalledOnce();
+    } finally {
+      window.removeEventListener("webui:expand-sidebar", onExpand);
     }
   });
 

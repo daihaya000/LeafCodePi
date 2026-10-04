@@ -101,6 +101,28 @@ afterEach(() => {
 });
 
 describe("Bot mode list", () => {
+  it.each(["code", "bot"])("restores the full %s sidebar on the single-target expand event", async (mode) => {
+    localStorage.setItem("leafcodepi.mode", mode);
+    localStorage.setItem("webui.sidebar.width", "300");
+    const { container } = render(<Sidebar mobileOpen={false} onClose={vi.fn()} />);
+    await screen.findByRole("button", { name: "サイドバーを展開" });
+    const aside = container.querySelector("aside")!;
+    expect(aside.style.width).toBe("80px");
+
+    act(() => window.dispatchEvent(new Event("webui:expand-sidebar")));
+    expect(aside.style.width).toBe("300px");
+    expect(screen.queryByRole("button", { name: "サイドバーを展開" })).toBeNull();
+    expect(localStorage.getItem("webui.sidebar.collapsed")).toBe("0");
+    expect(localStorage.getItem("webui.sidebar.width")).toBe("300");
+
+    act(() => window.dispatchEvent(new Event("webui:collapse-sidebar")));
+    expect(aside.style.width).toBe("80px");
+    expect(localStorage.getItem("webui.sidebar.collapsed")).toBe("1");
+    act(() => window.dispatchEvent(new Event("webui:expand-sidebar")));
+    expect(aside.style.width).toBe("300px");
+    expect(localStorage.getItem("webui.sidebar.collapsed")).toBe("0");
+  });
+
   it("折りたたみレールにも通知トグルを表示する", async () => {
     render(<Sidebar mobileOpen={false} onClose={vi.fn()} />);
     expect(await screen.findByRole("button", { name: "通知をオフにする（ブラウザ・Pushover）" })).toBeTruthy();

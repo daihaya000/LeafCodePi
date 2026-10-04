@@ -475,10 +475,12 @@ export function TaskPanesProvider({ children }: { children: React.ReactNode }) {
 
   const dispatch = useCallback((action: TaskPanesAction) => {
     rawDispatch(action);
-    // 共通の実行経路で、分割後が複数ペインになる場合だけレール表示へ切り替える。
-    if (mdUp && action.type === "showWorkingTasks"
-      && paneTabIdsForWorkingTasks(action.taskIds.map((id) => ({ id }))).length >= 2) {
-      window.dispatchEvent(new Event("webui:collapse-sidebar"));
+    // 両方の分割表示ボタンで、複数対象はレール表示、1対象は通常展開へ切り替える。
+    if (mdUp && action.type === "showWorkingTasks") {
+      const taskCount = paneTabIdsForWorkingTasks(action.taskIds.map((id) => ({ id }))).length;
+      if (taskCount > 0) {
+        window.dispatchEvent(new Event(taskCount >= 2 ? "webui:collapse-sidebar" : "webui:expand-sidebar"));
+      }
     }
   }, [mdUp]);
 
