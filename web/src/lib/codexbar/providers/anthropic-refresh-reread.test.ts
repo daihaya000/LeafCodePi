@@ -70,17 +70,33 @@ function refreshTokensSent(): unknown[] {
 }
 
 describe("Anthropic credentials reread after locking", () => {
-  it("uses rotated tokens for the current fetch when persisting them fails", async () => {
+  it("retries the stale refresh token on the next poll when persisting rotated tokens fails", async () => {
     store("old-access-fixture", "old-refresh-fixture", Date.now() + 3600_000);
     atomicWrite.mockImplementationOnce(() => { throw new Error("simulated disk failure"); });
+    let tokenRequests = 0;
+    vi.mocked(fetchText).mockImplementation(async (url, init) => {
+      if (url === tokenUrl) {
+        tokenRequests += 1;
+        if (tokenRequests > 1) return { ok: false, status: 400, body: "invalid_grant" };
+        return { ok: true, status: 200, body: JSON.stringify({ access_token: "final-access-fixture", refresh_token: "final-refresh-fixture", expires_in: 3600 }) };
+      }
+      expect(url).toBe("https://api.anthropic.com/api/oauth/usage");
+      if (new Headers(init?.headers).get("Authorization") === "Bearer old-access-fixture") {
+        return { ok: false, status: 401, body: "unauthorized" };
+      }
+      return { ok: true, status: 200, body: JSON.stringify({ five_hour: { utilization: 10 } }) };
+    });
+    const provider = createAnthropicProvider(scope);
 
-    expect((await createAnthropicProvider(scope).fetch()).windows[0]?.usedPercent).toBe(10);
-    expect(refreshTokensSent()).toEqual(["old-refresh-fixture"]);
+    expect((await provider.fetch()).windows[0]?.usedPercent).toBe(10);
+    await expect(provider.fetch()).rejects.toThrow("OAuth");
+    expect(refreshTokensSent()).toEqual(["old-refresh-fixture", "old-refresh-fixture"]);
     expect(JSON.parse(readFileSync(path, "utf8")).claudeAiOauth.refreshToken).toBe("old-refresh-fixture");
     const usageCalls = vi.mocked(fetchText).mock.calls.filter(([url]) => url !== tokenUrl);
     expect(usageCalls.map(([, init]) => new Headers(init?.headers).get("Authorization"))).toEqual([
       "Bearer old-access-fixture",
       "Bearer final-access-fixture",
+      "Bearer old-access-fixture",
     ]);
   });
 
