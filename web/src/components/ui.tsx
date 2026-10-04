@@ -632,7 +632,7 @@ export function formatDuration(ms: number): string {
 }
 
 /** 実行中ツールの経過表示用。インスタンス横断で 1 本の interval に寄せる。 */
-const SHARED_ELAPSED_CLOCK_MS = 250;
+const SHARED_ELAPSED_CLOCK_MS = 1_000;
 let sharedElapsedNowMs = Date.now();
 const sharedElapsedListeners = new Set<() => void>();
 let sharedElapsedTimer: number | undefined;
