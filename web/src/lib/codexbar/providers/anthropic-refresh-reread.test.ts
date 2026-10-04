@@ -90,11 +90,15 @@ describe("Anthropic credentials reread after locking", () => {
 
     expect((await provider.fetch()).windows[0]?.usedPercent).toBe(10);
     expect((await provider.fetch()).windows[0]?.usedPercent).toBe(10);
+    await vi.waitFor(() => {
+      expect(JSON.parse(readFileSync(path, "utf8")).claudeAiOauth.refreshToken).toBe("final-refresh-fixture");
+    });
     expect(refreshTokensSent()).toEqual(["old-refresh-fixture"]);
-    expect(JSON.parse(readFileSync(path, "utf8")).claudeAiOauth.refreshToken).toBe("old-refresh-fixture");
+    expect((await createAnthropicProvider(scope).fetch()).windows[0]?.usedPercent).toBe(10);
     const usageCalls = vi.mocked(fetchText).mock.calls.filter(([url]) => url !== tokenUrl);
     expect(usageCalls.map(([, init]) => new Headers(init?.headers).get("Authorization"))).toEqual([
       "Bearer old-access-fixture",
+      "Bearer final-access-fixture",
       "Bearer final-access-fixture",
       "Bearer final-access-fixture",
     ]);

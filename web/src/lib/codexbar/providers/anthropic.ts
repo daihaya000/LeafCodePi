@@ -61,8 +61,14 @@ type PendingClaudeCredentials = {
   refreshed: ClaudeCredentials;
 };
 
+type DiskCredentialsRead = {
+  readable: boolean;
+  credentials: ClaudeCredentials | null;
+};
+
 // Keep rotated credentials in-process if persistence fails, but only while disk still has the exact prior auth.
 const pendingRefreshCredentials = new Map<string, PendingClaudeCredentials>();
+const pendingPersistenceRetries = new Map<string, Promise<void>>();
 
 function credentialsPath(): string {
   const configDir = process.env.CLAUDE_CONFIG_DIR;
@@ -97,31 +103,20 @@ function sameCredentials(left: ClaudeCredentials, right: ClaudeCredentials): boo
     left.subscriptionType === right.subscriptionType;
 }
 
-function loadCredentials(path = credentialsPath()): ClaudeCredentials | null {
+function readCredentialsFromDisk(path: string): DiskCredentialsRead {
   let raw: string;
   try {
     raw = readFileSync(path, "utf8");
   } catch {
-    const pending = pendingRefreshCredentials.get(path);
-    if (pending && existsSync(path)) return pending.refreshed;
-    pendingRefreshCredentials.delete(path);
-    return null;
+    return { readable: false, credentials: null };
   }
-
-  let loaded: ClaudeCredentials | null;
   try {
     const root = asRecord(JSON.parse(raw));
     const oauth = asRecord(root?.claudeAiOauth);
-    if (!oauth) {
-      pendingRefreshCredentials.delete(path);
-      return null;
-    }
+    if (!oauth) return { readable: true, credentials: null };
     const accessToken =
       typeof oauth.accessToken === "string" ? oauth.accessToken : null;
-    if (!accessToken) {
-      pendingRefreshCredentials.delete(path);
-      return null;
-    }
+    if (!accessToken) return { readable: true, credentials: null };
     const refreshToken =
       typeof oauth.refreshToken === "string" ? oauth.refreshToken : null;
     let expiresAt: Date | null = null;
@@ -130,13 +125,24 @@ function loadCredentials(path = credentialsPath()): ClaudeCredentials | null {
     }
     const subscriptionType =
       typeof oauth.subscriptionType === "string" ? oauth.subscriptionType : null;
-    loaded = { accessToken, refreshToken, expiresAt, subscriptionType };
+    return { readable: true, credentials: { accessToken, refreshToken, expiresAt, subscriptionType } };
   } catch {
+    return { readable: false, credentials: null };
+  }
+}
+
+function loadCredentials(path = credentialsPath()): ClaudeCredentials | null {
+  const { readable, credentials: loaded } = readCredentialsFromDisk(path);
+  const pending = pendingRefreshCredentials.get(path);
+  if (!readable) {
+    if (pending && existsSync(path)) return pending.refreshed;
     pendingRefreshCredentials.delete(path);
     return null;
   }
-
-  const pending = pendingRefreshCredentials.get(path);
+  if (!loaded) {
+    pendingRefreshCredentials.delete(path);
+    return null;
+  }
   if (!pending) return loaded;
   if (sameCredentials(loaded, pending.refreshed)) {
     pendingRefreshCredentials.delete(path);
@@ -164,6 +170,46 @@ function persistTokens(
   } catch {
     /* best effort */
   }
+}
+
+function retryPendingCredentialPersistence(path: string): void {
+  const pending = pendingRefreshCredentials.get(path);
+  if (!pending || pendingPersistenceRetries.has(path)) return;
+
+  const retry = withRefreshFileLock(path, async () => {
+    if (pendingRefreshCredentials.get(path) !== pending) return;
+    const disk = readCredentialsFromDisk(path);
+    if (!disk.readable) {
+      if (!existsSync(path)) pendingRefreshCredentials.delete(path);
+      return;
+    }
+    if (!disk.credentials || !sameCredentials(disk.credentials, pending.previous)) {
+      pendingRefreshCredentials.delete(path);
+      return;
+    }
+    const { refreshed } = pending;
+    if (!refreshed.refreshToken || !refreshed.expiresAt) return;
+
+    persistTokens(refreshed.accessToken, refreshed.refreshToken, refreshed.expiresAt, path);
+    const written = readCredentialsFromDisk(path);
+    if (!written.readable) {
+      if (!existsSync(path)) pendingRefreshCredentials.delete(path);
+      return;
+    }
+    if (
+      !written.credentials ||
+      sameCredentials(written.credentials, refreshed) ||
+      !sameCredentials(written.credentials, pending.previous)
+    ) {
+      pendingRefreshCredentials.delete(path);
+    }
+  }).catch(() => {
+    // A failed best-effort retry leaves the in-memory credentials available for this process.
+  });
+  pendingPersistenceRetries.set(path, retry);
+  void retry.finally(() => {
+    if (pendingPersistenceRetries.get(path) === retry) pendingPersistenceRetries.delete(path);
+  });
 }
 
 /** One refresh per credentials file at a time: the IdP rotates refresh tokens, so a second concurrent use of the same one would invalidate the first result. */
@@ -769,6 +815,7 @@ export function createAnthropicProvider(scope: UsageScope): IUsageProvider {
       // existing Pi → Claude CLI fallback for compatibility.
       const piCreds = loadPiCredentials();
       const usingPi = piCreds !== null;
+      if (!strictAccount && !usingPi) retryPendingCredentialPersistence(credentialsPath());
       let creds = strictAccount ? piCreds : piCreds ?? loadCredentials();
       if (!creds) {
         // サブスク OAuth が無い（API キー）アカウントは Console cookie の残高を表示する。
