@@ -367,7 +367,7 @@ export async function shutdownComputerUseSession(ownerSessionId: string): Promis
 	runtimeState.previousCdpPort = undefined;
 
 	savedStates.clearSession(ownerSessionId);
-	clearStoredOutputs();
+	clearStoredOutputs(ownerSessionId);
 	runtimeState.sessionReferences.clearSession(ownerSessionId);
 	runtimeState.permissionStatus = undefined;
 	runtimeState.helperDiagnostics = undefined;
@@ -1434,7 +1434,7 @@ function sliceText(value: string, offsetValue: unknown, _limitValue?: unknown): 
 async function performReadText(params: ReadTextParams, signal?: AbortSignal): Promise<AgentToolResult<ReadTextDetails>> {
 	const ref = trimOrUndefined(params.ref);
 	if (ref?.startsWith("@o")) {
-		const page = readStoredOutput(ref, params.offset);
+		const page = readStoredOutput(ref, params.offset, operationState().ownerSessionId!);
 		if (!page) throw new Error(`Output ref '${ref}' is unavailable or was evicted. Rerun the focused query.`);
 		const details: ReadTextDetails = { tool: "read_text", ref, ...page };
 		const suffix = page.hasMore
@@ -2300,10 +2300,11 @@ function makeToolExecutor<P, D>(tool: string, perform: (params: P, signal?: Abor
 		_onUpdate: AgentToolUpdateCallback<D> | undefined,
 		ctx: ExtensionContext,
 	): Promise<AgentToolResult<D>> => {
+		const ownerSessionId = ctx.sessionManager.getSessionId();
 		try {
-			return applyOutputEnvelope(tool, await executeTool(ctx, params, signal, () => perform(params, signal)));
+			return applyOutputEnvelope(tool, await executeTool(ctx, params, signal, () => perform(params, signal)), ownerSessionId);
 		} catch (error) {
-			throw boundToolError(tool, error);
+			throw boundToolError(tool, error, ownerSessionId);
 		}
 	};
 }
@@ -2323,7 +2324,7 @@ export const executeLaunchBrowser = makeToolExecutor("launch_browser", performLa
 export function reconstructStateFromBranch(ctx: ExtensionContext): void {
 	const ownerSessionId = ctx.sessionManager.getSessionId();
 	savedStates.clearSession(ownerSessionId);
-	clearStoredOutputs();
+	clearStoredOutputs(ownerSessionId);
 	runtimeState.sessionReferences.clearSession(ownerSessionId);
 	const references = sessionReferences(ownerSessionId);
 
