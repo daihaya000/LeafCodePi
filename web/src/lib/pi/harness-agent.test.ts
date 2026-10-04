@@ -931,6 +931,7 @@ describe("archiveTask", () => {
       extensionRunner: {
         getCommand: () => undefined,
         hasHandlers: (type: string) => type === "session_shutdown",
+        invalidate: () => { events.push("invalidate"); },
         emit: () => {
           events.push("session_shutdown");
           unregister();
@@ -971,7 +972,7 @@ describe("archiveTask", () => {
       assert.deepEqual(events, ["abort", "capture:owned-run", "session_shutdown"]);
       await vi.advanceTimersByTimeAsync(5_000);
       await archiving;
-      assert.deepEqual(events, ["abort", "capture:owned-run", "session_shutdown", "stop:owned-run", "dispose"]);
+      assert.deepEqual(events, ["abort", "capture:owned-run", "session_shutdown", "invalidate", "stop:owned-run", "dispose"]);
       assert.equal(getTask(task.id)?.status, "archived");
       assert.equal(live.has(task.id), false);
     } finally {

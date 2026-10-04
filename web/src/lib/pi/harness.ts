@@ -11503,6 +11503,13 @@ async function runExtensionShutdown(live: LiveRuntime, logLabel: string): Promis
     ]);
     if (!shutdownCompleted) {
       console.warn(`[${logLabel}] extension shutdown timed out after ${LIVE_SHUTDOWN_TIMEOUT_MS}ms`);
+      // The SDK cannot cancel emit(); stale retained contexts before forcing captured cleanup.
+      try {
+        runner.invalidate(`session_shutdown timed out after ${LIVE_SHUTDOWN_TIMEOUT_MS}ms`);
+      } catch (error) {
+        const reason = error instanceof Error ? error.message : String(error);
+        console.warn(`[${logLabel}] failed to invalidate timed-out extension context: ${reason}`);
+      }
       if (stopCapturedBackgroundWork) {
         try { await stopCapturedBackgroundWork(); }
         catch (error) {
