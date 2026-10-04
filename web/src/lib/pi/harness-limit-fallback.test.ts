@@ -15,6 +15,7 @@ const fakePi = vi.hoisted(() => {
     file: string;
     prompts: string[];
     customMessages: unknown[];
+    history: unknown[];
     disposed: boolean;
     nextError?: string;
     emit?: (event: FakeEvent) => void;
@@ -38,6 +39,20 @@ const fakePi = vi.hoisted(() => {
       getEntries: () => [],
       getLeafId: () => null,
       getBranch: () => [],
+      // The harness guards every SDK writer at attach time. This fixture exercises messages only;
+      // keep the other writers callable, but fail loudly rather than fabricate successful writes.
+      ...Object.fromEntries([
+        "appendModelChange", "appendThinkingLevelChange", "appendUsage", "appendCompaction",
+        "appendContextEdit", "appendLabelChange", "branchWithSummary", "createBranchedSession",
+      ].map((method) => [method, () => { throw new Error(`Unsupported limit-fallback fixture operation: ${method}`); }])),
+      appendMessage: (message: unknown) => {
+        history.push(message);
+        return `message-${history.length}`;
+      },
+      appendCustomMessageEntry: (customType: string, content: unknown, display: boolean, details?: unknown) => {
+        history.push({ role: "custom", customType, content, display, details, timestamp: Date.now() });
+        return `custom-message-${history.length}`;
+      },
       appendCustomEntry: () => undefined,
       history,
     };
@@ -73,6 +88,7 @@ const fakePi = vi.hoisted(() => {
         file: sessionManager.__file,
         prompts: [] as string[],
         customMessages: [] as unknown[],
+        history: sessionManager.history,
         disposed: false,
         nextError: undefined as string | undefined,
         emit: undefined as ((event: FakeEvent) => void) | undefined,
@@ -83,11 +99,14 @@ const fakePi = vi.hoisted(() => {
       };
       entry.emit = emit;
       let streaming = false;
-      const runTurn = (historyMessage: unknown, promptText: string) => {
+      const runTurn = (
+        historyMessage: unknown, promptText: string,
+        appendHistory = () => sessionManager.appendMessage(historyMessage),
+      ) => {
         streaming = true;
         emit({ type: "agent_start" });
         entry.prompts.push(promptText);
-        sessionManager.history.push(historyMessage);
+        appendHistory();
         const errorMessage = entry.nextError;
         entry.nextError = undefined;
         streaming = false;
@@ -150,13 +169,14 @@ const fakePi = vi.hoisted(() => {
             message && typeof message === "object" && "content" in message
               ? (message as { content?: unknown }).content
               : "";
+          const custom = message as { customType?: string; display?: boolean; details?: unknown } | null;
+          const appendHistory = () => sessionManager.appendCustomMessageEntry(
+            custom?.customType ?? "fixture", content, custom?.display ?? false, custom?.details,
+          );
           if (options?.triggerTurn) {
-            runTurn(
-              { role: "custom", content, timestamp: Date.now() },
-              typeof content === "string" ? content : "",
-            );
+            runTurn(undefined, typeof content === "string" ? content : "", appendHistory);
           } else {
-            sessionManager.history.push({ role: "custom", content, timestamp: Date.now() });
+            appendHistory();
           }
         },
       };
@@ -357,6 +377,11 @@ describe.each(["openai-codex", "openai"] as const)("provider limit fallback: %s"
         },
         options: { triggerTurn: true },
       },
+    ]);
+    expect(fakePi.sessions[1]?.history).toEqual([
+      expect.objectContaining({ role: "user", content: "start" }),
+      expect.objectContaining({ role: "user", content: "continue working" }),
+      expect.objectContaining({ role: "custom", customType: "leafcode-pi.provider-fallback", display: false }),
     ]);
     assert.equal(fakePi.sessions[0]?.prompts.length, 2);
     assert.equal(getTask(task.id)?.status, "idle");
