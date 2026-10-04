@@ -9,8 +9,6 @@ const execCommand = vi.fn();
 const originalExecCommand = Object.getOwnPropertyDescriptor(document, "execCommand");
 
 beforeEach(() => {
-  vi.spyOn(HTMLDialogElement.prototype, "showModal").mockImplementation(function (this: HTMLDialogElement) { this.open = true; });
-  vi.spyOn(HTMLDialogElement.prototype, "close").mockImplementation(function (this: HTMLDialogElement) { this.open = false; });
   vi.stubGlobal("navigator", { clipboard: { writeText } });
   writeText.mockReset().mockResolvedValue(undefined);
   Object.defineProperty(document, "execCommand", { configurable: true, value: execCommand });
@@ -22,75 +20,70 @@ afterEach(() => {
   else Reflect.deleteProperty(document, "execCommand");
 });
 
-it("shows the full ID inline and opens the selectable Pi ID", () => {
+it("shows a selectable inline Pi ID without a dedicated popup", () => {
   render(<SessionIdButton sessionId={sessionId} />);
-  const trigger = screen.getByRole("button", { name: "セッションIDを確認" });
-  expect(trigger.textContent).toBe(sessionId);
-  expect(trigger.title).toContain(sessionId);
-  fireEvent.click(trigger);
-  const dialog = screen.getByRole("dialog", { name: "セッションID" });
-  const input = screen.getByRole("textbox", { name: "完全なセッションID" }) as HTMLInputElement;
+  const input = screen.getByRole("textbox", { name: /PiセッションID/ }) as HTMLInputElement;
+
   expect(input.value).toBe(sessionId);
-  fireEvent.focus(input);
-  expect(input.selectionEnd).toBe(sessionId.length);
-  fireEvent.click(screen.getByRole("button", { name: "セッションIDを閉じる" }));
-  expect((dialog as HTMLDialogElement).open).toBe(false);
+  expect(input.readOnly).toBe(true);
+  expect(input.disabled).toBe(false);
+  expect(input.className).toContain("select-text");
+  expect(input.title).toContain("クリックでコピー");
+  expect(screen.queryByRole("dialog")).toBeNull();
 });
 
-it("copies the full ID rather than its prefix", async () => {
+it("copies the full ID when clicked", async () => {
   render(<SessionIdButton sessionId={sessionId} />);
-  fireEvent.click(screen.getByRole("button", { name: "セッションIDを確認" }));
-  fireEvent.click(screen.getByRole("button", { name: "IDをコピー" }));
-  await waitFor(() => expect(screen.getByRole("status").textContent).toBe("コピーした"));
+  fireEvent.click(screen.getByRole("textbox", { name: /PiセッションID/ }));
+
+  await waitFor(() => expect(screen.getByRole("status").textContent).toBe("セッションIDをコピーした"));
   expect(writeText).toHaveBeenCalledWith(sessionId);
   expect(execCommand).not.toHaveBeenCalled();
 });
 
-it.each(["rejected", "unavailable"])("copies through the modal input when Clipboard API is %s", async (mode) => {
+it.each(["rejected", "unavailable"])("falls back to the selectable input when Clipboard API is %s", async (mode) => {
   if (mode === "unavailable") vi.stubGlobal("navigator", {});
   else writeText.mockRejectedValue(new Error("denied"));
   execCommand.mockImplementation(() => {
-    const input = screen.getByRole("textbox", { name: "完全なセッションID" }) as HTMLInputElement;
+    const input = screen.getByRole("textbox", { name: /PiセッションID/ }) as HTMLInputElement;
     expect(document.activeElement).toBe(input);
-    expect(input.closest("dialog")?.open).toBe(true);
     expect(input.selectionStart).toBe(0);
     expect(input.selectionEnd).toBe(sessionId.length);
     expect(input.value).toBe(sessionId);
     return true;
   });
   render(<SessionIdButton sessionId={sessionId} />);
-  fireEvent.click(screen.getByRole("button", { name: "セッションIDを確認" }));
-  const copyButton = screen.getByRole("button", { name: "IDをコピー" });
-  copyButton.focus();
-  fireEvent.click(copyButton);
-  await waitFor(() => expect(screen.getByRole("status").textContent).toBe("コピーした"));
+  fireEvent.click(screen.getByRole("textbox", { name: /PiセッションID/ }));
+
+  await waitFor(() => expect(screen.getByRole("status").textContent).toBe("セッションIDをコピーした"));
   expect(execCommand).toHaveBeenCalledWith("copy");
-  expect(document.activeElement).toBe(copyButton);
 });
 
-it.each(["false", "throw"])("offers manual copying when both copy paths fail (%s)", async (mode) => {
+it.each(["false", "throw"])("reports when both copy paths fail (%s)", async (mode) => {
   vi.stubGlobal("navigator", {});
   if (mode === "throw") execCommand.mockImplementation(() => { throw new Error("blocked"); });
   else execCommand.mockReturnValue(false);
   render(<SessionIdButton sessionId={sessionId} />);
-  fireEvent.click(screen.getByRole("button", { name: "セッションIDを確認" }));
-  fireEvent.click(screen.getByRole("button", { name: "IDをコピー" }));
-  await waitFor(() => expect(screen.getByRole("status").textContent).toContain("手動でコピー"));
+  fireEvent.click(screen.getByRole("textbox", { name: /PiセッションID/ }));
+
+  await waitFor(() => expect(screen.getByRole("status").textContent).toBe("コピーできなかった"));
 });
 
 it("does not substitute the task ID when no session exists", () => {
   render(<SessionIdButton sessionId={null} />);
-  const trigger = screen.getByRole("button", { name: "セッションIDを確認" }) as HTMLButtonElement;
-  expect(trigger.disabled).toBe(true);
-  expect(trigger.textContent).toBe("未発行");
-  expect(trigger.title).toContain("まだ発行されていない");
+  const input = screen.getByRole("textbox", { name: /PiセッションID/ }) as HTMLInputElement;
+  expect(input.disabled).toBe(true);
+  expect(input.value).toBe("未発行");
+  expect(input.title).toContain("まだ発行されていない");
 });
 
-it("closes the old dialog when the session ID changes", () => {
+it("updates the inline ID and copies the new value", async () => {
   const view = render(<SessionIdButton sessionId={sessionId} />);
-  fireEvent.click(screen.getByRole("button", { name: "セッションIDを確認" }));
   view.rerender(<SessionIdButton sessionId="another-session" />);
+  const input = screen.getByRole("textbox", { name: /PiセッションID/ }) as HTMLInputElement;
+  expect(input.value).toBe("another-session");
   expect(screen.queryByRole("dialog")).toBeNull();
-  fireEvent.click(screen.getByRole("button", { name: "セッションIDを確認" }));
-  expect((screen.getByRole("textbox", { name: "完全なセッションID" }) as HTMLInputElement).value).toBe("another-session");
+
+  fireEvent.click(input);
+  await waitFor(() => expect(writeText).toHaveBeenCalledWith("another-session"));
 });

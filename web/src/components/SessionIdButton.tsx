@@ -1,90 +1,71 @@
 "use client";
 
-import { useEffect, useId, useRef, useState } from "react";
-import { Copy, X } from "lucide-react";
-import { Button } from "@/components/ui";
+import { useRef, useState } from "react";
 
 /** Show the Pi session ID, never the WebUI task ID. */
 export function SessionIdButton({ sessionId }: { sessionId: string | null | undefined }) {
-  const dialogRef = useRef<HTMLDialogElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
-  const titleId = useId();
   const [copyStatus, setCopyStatus] = useState<"idle" | "copied" | "error">("idle");
-
-  useEffect(() => {
-    dialogRef.current?.close();
-  }, [sessionId]);
 
   async function copy() {
     if (!sessionId) return;
+
+    let copied = false;
     try {
       if (navigator.clipboard?.writeText) {
         await navigator.clipboard.writeText(sessionId);
-        setCopyStatus("copied");
-        return;
+        copied = true;
       }
     } catch {
       // HTTP origins and denied Clipboard API permissions need the legacy path.
     }
 
-    const input = inputRef.current;
-    const previousFocus = document.activeElement as HTMLElement | null;
-    try {
-      // Reuse the input inside the modal: elements appended to body are inert.
-      if (!input) throw new Error("Missing session ID input");
-      input.focus({ preventScroll: true });
-      input.select();
-      input.setSelectionRange(0, input.value.length);
-      setCopyStatus(document.execCommand("copy") ? "copied" : "error");
-    } catch {
-      setCopyStatus("error");
-    } finally {
-      previousFocus?.focus({ preventScroll: true });
+    if (!copied) {
+      const input = inputRef.current;
+      const previousFocus = document.activeElement as HTMLElement | null;
+      try {
+        if (!input) throw new Error("Missing session ID input");
+        input.focus({ preventScroll: true });
+        input.select();
+        input.setSelectionRange(0, input.value.length);
+        copied = document.execCommand("copy");
+      } catch {
+        copied = false;
+      } finally {
+        previousFocus?.focus({ preventScroll: true });
+      }
     }
+
+    setCopyStatus(copied ? "copied" : "error");
   }
+
+  const title = !sessionId
+    ? "セッションIDはまだ発行されていない"
+    : copyStatus === "copied"
+      ? "コピーした"
+      : copyStatus === "error"
+        ? "コピーできなかった"
+        : "クリックでコピー、ドラッグで選択";
 
   return (
     <>
-      <Button
-        variant="ghost"
-        aria-label="セッションIDを確認"
-        title={sessionId ? `セッションID: ${sessionId}` : "セッションIDはまだ発行されていない"}
+      <input
+        ref={inputRef}
+        type="text"
+        aria-label="PiセッションID（クリックでコピー、ドラッグで選択）"
+        autoComplete="off"
+        spellCheck={false}
+        readOnly
         disabled={!sessionId}
-        className="h-auto min-h-6 min-w-0 max-w-full justify-start rounded !bg-surface px-2 py-0.5 text-left font-mono text-[11px] font-normal text-muted hover:text-text"
-        style={{ flexShrink: 1 }}
-        onClick={() => {
-          setCopyStatus("idle");
-          dialogRef.current?.showModal();
-        }}
-      >
-        <span className="min-w-0 break-all whitespace-normal">{sessionId ?? "未発行"}</span>
-      </Button>
-      <dialog
-        ref={dialogRef}
-        aria-labelledby={titleId}
-        className="fixed inset-0 m-auto w-96 max-w-[calc(100%-2rem)] rounded-xl border border-border bg-surface p-4 text-text shadow-lg backdrop:bg-bg/60"
-      >
-        <div className="mb-4 flex items-center justify-between gap-2">
-          <h2 id={titleId} className="text-sm font-semibold">セッションID</h2>
-          <Button variant="ghost" size="icon" aria-label="セッションIDを閉じる" onClick={() => dialogRef.current?.close()}>
-            <X className="h-4 w-4" />
-          </Button>
-        </div>
-        <input
-          ref={inputRef}
-          aria-label="完全なセッションID"
-          readOnly
-          value={sessionId ?? ""}
-          className="mb-4 w-full min-w-0 rounded-lg border border-border bg-bg px-2 py-2 font-mono text-xs text-text"
-          onFocus={(event) => event.currentTarget.select()}
-        />
-        <Button variant="secondary" onClick={() => void copy()}>
-          <Copy className="h-4 w-4" /> IDをコピー
-        </Button>
-        <p role="status" className="mt-2 text-xs text-muted">
-          {copyStatus === "copied" ? "コピーした" : copyStatus === "error" ? "コピーできなかった。IDを選択して手動でコピーできる。" : "Intercomなどで使うPiのセッションID。"}
-        </p>
-      </dialog>
+        size={Math.max(sessionId?.length ?? 0, 4)}
+        value={sessionId ?? "未発行"}
+        title={title}
+        onClick={() => void copy()}
+        className="min-w-0 max-w-full shrink cursor-text select-text rounded-lg border border-border bg-surface px-3 py-2 font-mono text-xs text-text outline-none focus-visible:ring-2 focus-visible:ring-accent disabled:cursor-not-allowed"
+      />
+      <span role="status" aria-live="polite" className="sr-only">
+        {copyStatus === "copied" ? "セッションIDをコピーした" : copyStatus === "error" ? "コピーできなかった" : ""}
+      </span>
     </>
   );
 }
