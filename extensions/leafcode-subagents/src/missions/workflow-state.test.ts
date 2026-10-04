@@ -17,28 +17,19 @@ afterEach(() => {
 	if (root) rmSync(root, { recursive: true, force: true });
 });
 
-it("reclaims an aged lock that has a live pid but no processKey", () => {
+it("does not reclaim an aged lock while its live owner has no processKey", () => {
 	root = mkdtempSync(join(tmpdir(), "mission-state-lock-"));
-	const location = {
-		projectRoot: root,
-		missionDir: join(root, "missions"),
-		globalIndexDir: join(root, "index"),
-		writeGlobalIndex: false,
-	};
-	const missionId = "mission-1";
-	const statePath = missionStatePath(location, missionId);
-	const lockPath = `${statePath}.lock`;
+	const lockPath = join(root, "state.json.lock");
 	mkdirSync(lockPath, { recursive: true });
-	// Alive PID without a start-key must still age out; otherwise PID reuse pins the lock forever.
-	writeFileSync(
-		join(lockPath, "owner.json"),
-		JSON.stringify({ pid: process.pid, token: "stale-token", createdAt: Date.now() - 120_000 }),
-		"utf8",
-	);
+	const createdAt = Date.now() - 120_000;
+	const ownerPath = join(lockPath, "owner.json");
+	writeFileSync(ownerPath, JSON.stringify({ pid: process.pid, token: "live-token", createdAt }), "utf8");
 
-	const state = createMissionWorkflowState(location, missionId);
-	state.set("checkpoint", "reclaimed");
-	expect(state.get("checkpoint")).toBe("reclaimed");
+	expect(stateLockIsStale(lockPath, Date.now())).toBe(false);
+	expect(stateLockIsStale(lockPath, createdAt + 11 * 60_000)).toBe(false);
+
+	writeFileSync(ownerPath, JSON.stringify({ pid: 2_147_483_646, token: "dead-token", createdAt }), "utf8");
+	expect(stateLockIsStale(lockPath, Date.now())).toBe(true);
 });
 
 it("reuses the memoized process start key instead of probing again for the same pid", () => {
@@ -59,7 +50,7 @@ it("reuses the memoized process start key instead of probing again for the same 
 	// Writing the state twice exercises the probe twice; the second must not respawn.
 	writeFileSync(
 		join(lockPath, "owner.json"),
-		JSON.stringify({ pid: process.pid, token: "owner", createdAt: Date.now() - 120_000 }),
+		JSON.stringify({ pid: 2_147_483_646, token: "owner", createdAt: Date.now() - 120_000 }),
 		"utf8",
 	);
 	const first = createMissionWorkflowState(location, missionId);
@@ -101,7 +92,7 @@ it("does not probe the owner while the lock is young", () => {
 	expect(existsSync(lockPath)).toBe(true);
 }, 20_000);
 
-it("keeps an aged lock whose live owner's start key cannot be verified, until the hard cap", () => {
+it("keeps an aged lock whose live owner's start key cannot be verified", () => {
 	root = mkdtempSync(join(tmpdir(), "mission-unverifiable-lock-"));
 	const lockPath = join(root, "state.json.lock");
 	mkdirSync(lockPath, { recursive: true });
@@ -117,9 +108,9 @@ it("keeps an aged lock whose live owner's start key cannot be verified, until th
 	expect(stateLockIsStale(lockPath, Date.now(), failedProbe)).toBe(false);
 	// ...a probe that succeeds with a different key still proves pid reuse...
 	expect(stateLockIsStale(lockPath, Date.now(), () => "other-key")).toBe(true);
-	// ...and an owner unverifiable for the whole hard cap is aged out.
+	// A failed probe is inconclusive regardless of age; PID reuse was not proven.
 	writeOwner(11 * 60_000);
-	expect(stateLockIsStale(lockPath, Date.now(), failedProbe)).toBe(true);
+	expect(stateLockIsStale(lockPath, Date.now(), failedProbe)).toBe(false);
 });
 
 it("get sees a value another worker set after this instance first read the file", () => {
