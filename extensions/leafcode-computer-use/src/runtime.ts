@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 
 export interface StoredState<T> {
 	stateId: string;
+	ownerSessionId?: string;
 	resourceKey: string;
 	epoch: number;
 	value: T;
@@ -38,6 +39,12 @@ export class StateStore<T> {
 
 	get(stateId: string): StoredState<T> | undefined {
 		return this.records.get(stateId);
+	}
+
+	clearSession(sessionId: string): void {
+		for (const [stateId, record] of this.records) {
+			if (record.ownerSessionId === sessionId) this.records.delete(stateId);
+		}
 	}
 
 	clear(): void {
