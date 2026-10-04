@@ -279,13 +279,17 @@ interface ManagedBrowserSession {
 	cdpPort?: string;
 }
 
-interface RuntimeState {
-	sessionReferences: SessionStateMap<SessionReferences>;
-	managedBrowsers: SessionStateMap<ManagedBrowserSession>;
-	nextRootRefIndex: number;
+interface SessionPlatformState {
 	permissionStatus?: PermissionStatus;
 	helperDiagnostics?: PlatformDiagnostics;
 	lastPermissionCheckAt: number;
+}
+
+interface RuntimeState {
+	sessionReferences: SessionStateMap<SessionReferences>;
+	managedBrowsers: SessionStateMap<ManagedBrowserSession>;
+	platformStates: SessionStateMap<SessionPlatformState>;
+	nextRootRefIndex: number;
 }
 
 
@@ -305,9 +309,9 @@ const EXPLICIT_IMAGE_MAX_DIMENSION = 1_600;
 const BROWSER_TRANSACTION_ACTIONS = new Set<UiAction["action"]>(["press", "click", "setText", "typeText", "keypress", "scroll", "drag", "moveMouse"]);
 
 const runtimeState: RuntimeState = {
-	lastPermissionCheckAt: 0,
 	sessionReferences: new SessionStateMap(),
 	managedBrowsers: new SessionStateMap(),
+	platformStates: new SessionStateMap(),
 	nextRootRefIndex: 1,
 };
 
@@ -341,6 +345,10 @@ function sessionReferences(ownerSessionId?: string): SessionReferences {
 	}));
 }
 
+function sessionPlatformState(ownerSessionId: string): SessionPlatformState {
+	return runtimeState.platformStates.getOrCreate(ownerSessionId, () => ({ lastPermissionCheckAt: 0 }));
+}
+
 function desktopResourceKey(target: Pick<CurrentTarget, "pid">): string {
 	return `desktop-pid:${target.pid}`;
 }
@@ -367,9 +375,7 @@ export async function shutdownComputerUseSession(ownerSessionId: string): Promis
 	savedStates.clearSession(ownerSessionId);
 	clearStoredOutputs(ownerSessionId);
 	runtimeState.sessionReferences.clearSession(ownerSessionId);
-	runtimeState.permissionStatus = undefined;
-	runtimeState.helperDiagnostics = undefined;
-	runtimeState.lastPermissionCheckAt = 0;
+	runtimeState.platformStates.clearSession(ownerSessionId);
 	await currentPlatformBackend.shutdown?.();
 }
 
@@ -567,18 +573,11 @@ async function ensureReady(ctx: ExtensionContext, signal?: AbortSignal): Promise
 	loadComputerUseConfig(ctx.cwd);
 
 	throwIfAborted(signal);
-	const ready = await currentPlatformBackend.ensureReady(
-		ctx,
-		{
-			permissionStatus: runtimeState.permissionStatus,
-			lastPermissionCheckAt: runtimeState.lastPermissionCheckAt,
-			helperDiagnostics: runtimeState.helperDiagnostics,
-		},
-		signal,
-	);
-	runtimeState.permissionStatus = ready.permissionStatus;
-	runtimeState.lastPermissionCheckAt = ready.lastPermissionCheckAt;
-	runtimeState.helperDiagnostics = ready.helperDiagnostics;
+	const platformState = sessionPlatformState(ctx.sessionManager.getSessionId());
+	const ready = await currentPlatformBackend.ensureReady(ctx, platformState, signal);
+	platformState.permissionStatus = ready.permissionStatus;
+	platformState.lastPermissionCheckAt = ready.lastPermissionCheckAt;
+	platformState.helperDiagnostics = ready.helperDiagnostics;
 }
 
 export async function ensureComputerUseSetup(ctx: ExtensionContext, signal?: AbortSignal): Promise<void> {
@@ -1079,7 +1078,7 @@ async function buildToolResult(
 		execution,
 		status: "ok",
 		config: getComputerUseConfig(),
-		helper: runtimeState.helperDiagnostics,
+		helper: sessionPlatformState(operationState().ownerSessionId!).helperDiagnostics,
 		imageReason: fallbackReason?.reason,
 	};
 
