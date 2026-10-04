@@ -1030,16 +1030,15 @@ test("a tray that stayed up returns its crash-restart budget", () => {
   assert.match(startSource, /RESTART_BUDGET_RESET_MS/);
 });
 
-test("acquireLock recovers from an unreadable host.lock", () => {
+test("acquireLock refuses to remove an unreadable host.lock without a confirmed dead owner", () => {
   const source = readFileSync(join(REPO_ROOT, "host", "src", "index.js"), "utf8");
   const lockSource = source.slice(
     source.indexOf("function acquireLock()"),
     source.indexOf("async function startControlServer()"),
   );
-  // A partial lock parses as null but still fails the exclusive create; the
-  // host must drop it in the same start instead of erroring out once.
   assert.match(lockSource, /existsSync\(LOCK_FILE\)/);
-  assert.match(lockSource, /Removing an unreadable host\.lock/);
+  assert.match(lockSource, /if \(!owner\) \{[\s\S]*?throw new Error\("Cannot safely reclaim host\.lock"\);/);
+  assert.match(lockSource, /Removing stale unreadable host\.lock for PID \$\{owner\.pid\}/);
 });
 
 test("hostControlUrl prefers the running host's file, then the default port", () => {

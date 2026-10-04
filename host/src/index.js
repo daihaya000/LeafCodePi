@@ -989,18 +989,21 @@ function acquireLock() {
     log(`Removing stale lock for PID ${existing.pid}`);
     removeLock(LOCK_FILE);
   } else if (existsSync(LOCK_FILE)) {
-    // A lock killed mid-write (or written on a full disk) parses as no lock but
-    // still makes the exclusive create below fail. Drop it so one start is
-    // enough instead of erroring out and self-healing only on the retry.
-    // A young file may still be being written by a host that just started, so
-    // give its creator a short grace period before deleting it.
+    // A lock killed mid-write (or written on a full disk) parses as no owner
+    // but still blocks exclusive create. Fail closed unless its owner is known dead.
+    // A young file may still be written by a host that just started, so give
+    // its creator a short grace period before refusing the unknown owner.
     const owner = awaitLockOwner(LOCK_FILE);
-    if (owner && pidAlive(owner.pid)) {
+    if (!owner) {
+      log("Cannot confirm host.lock owner; refusing to remove it");
+      throw new Error("Cannot safely reclaim host.lock");
+    }
+    if (pidAlive(owner.pid)) {
       log(`Already running (PID ${owner.pid})`);
       if (shouldOpenBrowser()) openBrowser(WEBUI_URL);
       process.exit(0);
     }
-    log("Removing an unreadable host.lock");
+    log(`Removing stale unreadable host.lock for PID ${owner.pid}`);
     removeLock(LOCK_FILE);
   }
   try {
