@@ -1,6 +1,7 @@
 import { finalAssistantIdOfCurrentTurn, isHangWatchReplaced, roomBotIdFromTaskId } from "./abort-control.mjs";
 
 export const TASK_NOT_FOUND_MESSAGE = "タスクが見つかりません";
+const ROOM_MAILBOX_FLUSH_FAILED_MESSAGE = "タスクの停止は完了しましたが、Roomの未配信メッセージを処理できませんでした。再試行してください。";
 
 /**
  * Ordered user-stop sequence. The session owner injects every side effect, so
@@ -68,6 +69,11 @@ export async function runUserAbort(id, deps) {
       deps.flushRoomMailbox(roomBotId);
     } catch (error) {
       deps.warn("[bot-intercom] flush after Room abort failed", error);
+      throw Object.assign(new Error(ROOM_MAILBOX_FLUSH_FAILED_MESSAGE), {
+        status: 503,
+        code: "ROOM_MAILBOX_FLUSH_FAILED",
+        cause: error,
+      });
     }
   }
   return deps.toSummary(task);

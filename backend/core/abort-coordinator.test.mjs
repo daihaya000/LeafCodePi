@@ -72,14 +72,21 @@ test("a missing task still releases the lease, skips emit and Room flush, then r
   assert.equal(f.order.some((entry) => entry.startsWith("flush:")), false);
 });
 
-test("Room stops flush the mailbox after publishing, and flush failures are only warned", async () => {
+test("Room stop surfaces a mailbox flush failure after persisting idle", async () => {
   const f = fixture();
   await runUserAbort("bot:one:room:main", f.deps);
   assert.deepEqual(f.order.slice(-2), ["emit", "flush:one"]);
   const failing = fixture();
   const failure = new Error("mailbox unavailable");
-  failing.deps.flushRoomMailbox = () => { throw failure; };
-  assert.deepEqual(await runUserAbort("bot:one:room:main", failing.deps), { summary: "task" });
+  failing.deps.flushRoomMailbox = (botId) => { failing.order.push(`flush:${botId}`); throw failure; };
+  await assert.rejects(runUserAbort("bot:one:room:main", failing.deps), (error) => {
+    assert.equal(error.status, 503);
+    assert.equal(error.code, "ROOM_MAILBOX_FLUSH_FAILED");
+    assert.match(error.message, /停止は完了しました/);
+    assert.equal(error.cause, failure);
+    return true;
+  });
+  assert.deepEqual(failing.order.slice(-4), ["idle", "release", "emit", "flush:one"]);
   assert.deepEqual(failing.warnings, [["[bot-intercom] flush after Room abort failed", failure]]);
   const plain = fixture();
   await runUserAbort("bot:one", plain.deps);
