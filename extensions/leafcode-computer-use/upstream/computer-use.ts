@@ -13,6 +13,7 @@ import {
 	shutdownComputerUseSession,
 } from "../src/bridge.ts";
 import { getLoadedComputerUseConfig, loadComputerUseConfig } from "../src/config.ts";
+import { registerComputerUseShutdownResource } from "../src/background-work-provider.ts";
 
 const stateId = Type.String({ description: "Required state id owning every @e ref used by this operation" });
 const point = { x: Type.Number(), y: Type.Number() };
@@ -148,6 +149,7 @@ function formatConfigStatus(): string {
 }
 
 export default function computerUseExtension(pi: ExtensionAPI): void {
+	const unregisterShutdownResourceBySession = new Map<string, () => void>();
 	for (const tool of [findTool, observeTool, searchUiTool, expandUiTool, inspectUiTool, actTool, readTextTool, waitForTool]) pi.registerTool(tool);
 
 	pi.registerCommand("leafcode-computer-use", {
@@ -159,11 +161,23 @@ export default function computerUseExtension(pi: ExtensionAPI): void {
 	});
 
 	pi.on("session_start", (_event, ctx) => {
+		const sessionId = ctx.sessionManager.getSessionId();
+		unregisterShutdownResourceBySession.get(sessionId)?.();
+		unregisterShutdownResourceBySession.set(sessionId, registerComputerUseShutdownResource(
+			sessionId,
+			() => shutdownComputerUseSession(sessionId),
+		));
 		loadComputerUseConfig(ctx.cwd);
 		reconstructStateFromBranch(ctx);
 	});
 
 	pi.on("session_shutdown", async (_event, ctx) => {
-		await shutdownComputerUseSession(ctx.sessionManager.getSessionId());
+		const sessionId = ctx.sessionManager.getSessionId();
+		try {
+			await shutdownComputerUseSession(sessionId);
+		} finally {
+			unregisterShutdownResourceBySession.get(sessionId)?.();
+			unregisterShutdownResourceBySession.delete(sessionId);
+		}
 	});
 }
