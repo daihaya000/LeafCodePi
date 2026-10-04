@@ -1029,13 +1029,26 @@ describe("evictIdleLiveSessions", () => {
     const recent = insertTask({ project, title: "recent" });
     const watched = insertTask({ project, title: "watched" });
     const busyWork = insertTask({ project, title: "background work" });
+    const streaming = insertTask({ project, title: "still streaming" });
+    const compacting = insertTask({ project, title: "compacting" });
+    const prompting = insertTask({ project, title: "prompt active" });
     const events: string[] = [];
     const now = 10_000_000;
+    const streamingLive = idleLive(root, streaming.id, events, now - 3_600_000);
+    (streamingLive.session as { isStreaming: boolean }).isStreaming = true;
+    const compactingLive = idleLive(root, compacting.id, events, now - 3_600_000);
+    (compactingLive.session as { isCompacting: boolean }).isCompacting = true;
+    const promptingLive = idleLive(root, prompting.id, events, now - 3_600_000);
+    promptingLive.promptActive = true;
     const live = new Map<string, FixtureLive>([
       [stale.id, idleLive(root, stale.id, events, now - 3_600_000)],
       [recent.id, idleLive(root, recent.id, events, now - 1_000)],
       [watched.id, idleLive(root, watched.id, events, now - 3_600_000)],
       [busyWork.id, idleLive(root, busyWork.id, events, now - 3_600_000)],
+      // The store row is idle, but the SDK is still running: these must survive the reaper.
+      [streaming.id, streamingLive],
+      [compacting.id, compactingLive],
+      [prompting.id, promptingLive],
     ]);
     const emitter = new EventEmitter();
     emitter.on(watched.id, () => {});
@@ -1055,6 +1068,9 @@ describe("evictIdleLiveSessions", () => {
       assert.equal(live.has(recent.id), true);
       assert.equal(live.has(watched.id), true);
       assert.equal(live.has(busyWork.id), true);
+      assert.equal(live.has(streaming.id), true);
+      assert.equal(live.has(compacting.id), true);
+      assert.equal(live.has(prompting.id), true);
     } finally {
       if (previousRegistry === undefined) delete globals[registryKey];
       else globals[registryKey] = previousRegistry;
