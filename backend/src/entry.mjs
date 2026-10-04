@@ -15,6 +15,7 @@ import { createResumePrompt } from "./restart-resume-prompt.mjs";
 import { DEFAULT_RUNTIME_BUNDLE, loadBackendRuntime } from "./runtime-loader.mjs";
 import { closeBackend, createBackendServer, listenBackend } from "./server.mjs";
 import { createBackendStartup } from "./startup.mjs";
+import { acquireRuntimeOwner } from "../core/runtime-owner-lock.mjs";
 
 /**
  * Clears a Bot's Code session link, stopping the session first when it is still running.
@@ -65,6 +66,7 @@ export function isRuntimeRequested(env = process.env) {
   return RUNTIME_ENABLED_VALUES.has((env.LEAFCODE_PI_BACKEND_RUNTIME ?? "").trim().toLowerCase());
 }
 
+let releaseRuntimeOwner;
 try {
   const rawPort = process.env.LEAFCODE_PI_BACKEND_PORT;
   if (rawPort !== undefined && !/^\d{1,5}$/.test(rawPort)) {
@@ -72,6 +74,9 @@ try {
   }
   const port = rawPort === undefined ? DEFAULT_BACKEND_PORT : Number(rawPort);
   const runtimeRequested = isRuntimeRequested();
+  // Acquire before attaching or exposing this process as a runtime owner. Detached Backends do not
+  // touch sessions, leases or stores and therefore do not claim the shared owner slot.
+  if (runtimeRequested) releaseRuntimeOwner = acquireRuntimeOwner(dataDir());
   // Opt-in native MCP: only meaningful with an attached runtime, and never a fallback path. The
   // bundled adapter stays authoritative while the flag is unset, so the two never run together.
   const nativeMcp = createNativeMcpStartup({ runtimeRequested });
@@ -623,12 +628,15 @@ try {
       process.exitCode = 1;
     } finally {
       clearTimeout(deadline);
+      releaseRuntimeOwner?.();
+      releaseRuntimeOwner = undefined;
     }
   };
   process.once("SIGINT", stop);
   process.once("SIGTERM", stop);
 } catch {
+  releaseRuntimeOwner?.();
   // Do not log environment values or exception text containing secrets.
-  console.error("Backend startup failed; check token, port and port availability.");
+  console.error("Backend startup failed; check runtime ownership, token, port and port availability.");
   process.exitCode = 1;
 }
