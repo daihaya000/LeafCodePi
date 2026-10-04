@@ -11,6 +11,8 @@
  * Backend and the WebUI as its client, so production never needs to be told.
  */
 
+const runtimeGlobals = globalThis as typeof globalThis & { __leafcodeRuntimeOwnerUnavailable?: boolean };
+
 /** Values that mean this process is the Backend runtime host (the Backend's own marker). */
 const ENABLED_VALUES = new Set(["1", "true", "yes", "on", "attach"]);
 
@@ -29,7 +31,12 @@ export function isBackendRuntimeHost(env: Record<string, string | undefined> = p
  * the runtime; the Backend process itself is never refused.
  */
 export function localRuntimeBlocked(env: Record<string, string | undefined> = process.env): boolean {
-  return !isBackendRuntimeHost(env) && !webOwnsRuntime(env);
+  return !isBackendRuntimeHost(env) && (!webOwnsRuntime(env) || runtimeGlobals.__leafcodeRuntimeOwnerUnavailable === true);
+}
+
+/** Prevents a dev Web process from starting sessions after another process owns the shared data dir. */
+export function setRuntimeOwnerUnavailable(unavailable: boolean): void {
+  runtimeGlobals.__leafcodeRuntimeOwnerUnavailable = unavailable;
 }
 
 /** Raised when this process is asked to start a session it does not own. */

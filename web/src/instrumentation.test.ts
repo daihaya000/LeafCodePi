@@ -11,14 +11,17 @@ afterEach(async () => {
   vi.restoreAllMocks();
 });
 
-const state = vi.hoisted(() => ({ relay: vi.fn(), scheduler: vi.fn(), reconcileTasks: vi.fn(), reconcileRooms: vi.fn(), prewarmTasks: vi.fn(() => Promise.resolve([])), warmModels: vi.fn(() => Promise.resolve([])), listAccounts: vi.fn(() => []), backfillLabels: vi.fn(() => Promise.resolve(0)), promptTask: vi.fn(() => Promise.resolve({})), setOrphanListener: vi.fn(), setLeaseLostListener: vi.fn(), abortAfterLeaseLoss: vi.fn(), handleOrphans: vi.fn(), order: [] as string[] }));
-vi.mock("@/lib/pi/harness", () => ({ startBotCodeRelay: state.relay, getTaskSummariesWithTodoProgress: state.prewarmTasks, listModelsForAccounts: state.warmModels, promptTask: state.promptTask, abortTaskSessionsAfterLeaseLoss: state.abortAfterLeaseLoss }));
+const state = vi.hoisted(() => ({ relay: vi.fn(), scheduler: vi.fn(), reconcileTasks: vi.fn(), reconcileRooms: vi.fn(), prewarmTasks: vi.fn(() => Promise.resolve([])), warmModels: vi.fn(() => Promise.resolve([])), listAccounts: vi.fn(() => []), backfillLabels: vi.fn(() => Promise.resolve(0)), promptTask: vi.fn(() => Promise.resolve({})), goalLoopCommand: vi.fn(() => Promise.resolve({ status: "queued" })), setOrphanListener: vi.fn(), setLeaseLostListener: vi.fn(), abortAfterLeaseLoss: vi.fn(), handleOrphans: vi.fn(), order: [] as string[] }));
+vi.mock("@/lib/pi/harness", () => ({ startBotCodeRelay: state.relay, getTaskSummariesWithTodoProgress: state.prewarmTasks, listModelsForAccounts: state.warmModels, promptTask: state.promptTask, goalLoopCommand: state.goalLoopCommand, abortTaskSessionsAfterLeaseLoss: state.abortAfterLeaseLoss }));
 vi.mock("@/lib/accounts", () => ({ listAccounts: state.listAccounts }));
 vi.mock("@/lib/routines", () => ({ ensureRoutineScheduler: state.scheduler }));
 vi.mock("@/lib/task-runtime-lease", () => ({ reconcileOrphanedWorkingTasks: state.reconcileTasks, setOrphanedTaskListener: state.setOrphanListener, setLeaseLostListener: state.setLeaseLostListener }));
 vi.mock("@/lib/room-runtime", () => ({ reconcileRoomRuntime: state.reconcileRooms }));
 vi.mock("@/lib/direct-title", () => ({ backfillMissingTaskLabels: state.backfillLabels }));
-vi.mock("@/lib/pi/restart-resume", () => ({ handleOrphanedTasks: state.handleOrphans }));
+vi.mock("@/lib/pi/restart-resume", () => ({
+  handleOrphanedTasks: state.handleOrphans,
+  isGoalLoopRestartResumable: vi.fn(() => true),
+}));
 vi.mock("@/lib/store", () => ({ getTask: vi.fn() }));
 vi.mock("@/lib/pi/goal-loop-state", () => ({ isGoalLoopSessionOwned: vi.fn(() => false), readGoalLoopState: vi.fn(() => null) }));
 vi.mock("@/lib/pi/bot-code-relay", () => ({ isRoomDelegatedCodeTask: vi.fn(() => false) }));

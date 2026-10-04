@@ -2,6 +2,11 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   startBotCodeRelay: vi.fn(),
+  acquireRuntimeOwner: vi.fn(() => vi.fn()),
+  dataDir: vi.fn(() => "C:/leafcode-data"),
+  setRuntimeOwnerUnavailable: vi.fn((unavailable: boolean) => {
+    (globalThis as typeof globalThis & { __leafcodeRuntimeOwnerUnavailable?: boolean }).__leafcodeRuntimeOwnerUnavailable = unavailable;
+  }),
   reconcileOrphanedWorkingTasks: vi.fn(),
   ensureRoutineScheduler: vi.fn(),
   reconcileRoomRuntime: vi.fn(),
@@ -19,6 +24,8 @@ const mocks = vi.hoisted(() => ({
   localRuntimeBlocked: vi.fn(() => false),
 }));
 
+vi.mock("@backend-core/app-paths.mjs", () => ({ dataDir: mocks.dataDir }));
+vi.mock("@backend-core/runtime-owner-lock.mjs", () => ({ acquireRuntimeOwner: mocks.acquireRuntimeOwner }));
 vi.mock("@/lib/pi/harness", () => ({
   startBotCodeRelay: mocks.startBotCodeRelay,
   promptTask: mocks.promptTask,
@@ -47,26 +54,43 @@ vi.mock("@/lib/pi/goal-loop-state", () => ({
 vi.mock("@/lib/pi/bot-code-relay", () => ({ isRoomDelegatedCodeTask: mocks.isRoomDelegatedCodeTask }));
 vi.mock("@/lib/pi/runtime-ownership", () => ({
   localRuntimeBlocked: mocks.localRuntimeBlocked,
+  setRuntimeOwnerUnavailable: mocks.setRuntimeOwnerUnavailable,
   assertLocalRuntimeAllowed: vi.fn(),
 }));
 
 import { startRuntimeServices } from "./runtime-startup";
 
-const globals = globalThis as typeof globalThis & { __leafcodeRuntimeStartup?: unknown };
+const globals = globalThis as typeof globalThis & {
+  __leafcodeRuntimeStartup?: unknown;
+  __leafcodeRuntimeOwnerRelease?: () => void;
+  __leafcodeRuntimeOwnerUnavailable?: boolean;
+};
 
 describe("startRuntimeServices", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mocks.acquireRuntimeOwner.mockReset().mockImplementation(() => vi.fn());
+    mocks.dataDir.mockReset().mockReturnValue("C:/leafcode-data");
+    mocks.setRuntimeOwnerUnavailable.mockReset().mockImplementation((unavailable: boolean) => {
+      globals.__leafcodeRuntimeOwnerUnavailable = unavailable;
+    });
+    globals.__leafcodeRuntimeOwnerUnavailable = undefined;
     mocks.localRuntimeBlocked.mockReturnValue(false);
     // The singleton is cached on globalThis so Next route bundles share one startup.
     globals.__leafcodeRuntimeStartup = undefined;
   });
   afterEach(() => {
     globals.__leafcodeRuntimeStartup = undefined;
+    globals.__leafcodeRuntimeOwnerRelease?.();
+    globals.__leafcodeRuntimeOwnerRelease = undefined;
+    globals.__leafcodeRuntimeOwnerUnavailable = undefined;
   });
 
-  it("starts every owner-only service while this process owns the runtime", async () => {
+  it("claims the shared owner slot before starting owner-only services", async () => {
     await startRuntimeServices();
+    expect(mocks.acquireRuntimeOwner).toHaveBeenCalledOnce();
+    expect(mocks.dataDir).toHaveBeenCalledOnce();
+    expect(mocks.setRuntimeOwnerUnavailable).toHaveBeenCalledWith(false);
     expect(mocks.startBotCodeRelay).toHaveBeenCalledTimes(1);
     expect(mocks.ensureRoutineScheduler).toHaveBeenCalledTimes(1);
     expect(mocks.reconcileOrphanedWorkingTasks).toHaveBeenCalledTimes(1);
@@ -101,9 +125,10 @@ describe("startRuntimeServices", () => {
     expect(mocks.promptTask).not.toHaveBeenCalled();
   });
 
-  it("does not start any owner-only service once the Backend owns the runtime", async () => {
+  it("does not claim or start owner-only services once the Backend owns the runtime", async () => {
     mocks.localRuntimeBlocked.mockReturnValue(true);
     await startRuntimeServices();
+    expect(mocks.acquireRuntimeOwner).not.toHaveBeenCalled();
     expect(mocks.startBotCodeRelay).not.toHaveBeenCalled();
     expect(mocks.ensureRoutineScheduler).not.toHaveBeenCalled();
     expect(mocks.reconcileOrphanedWorkingTasks).not.toHaveBeenCalled();
@@ -111,9 +136,19 @@ describe("startRuntimeServices", () => {
     expect(mocks.setLeaseLostListener).not.toHaveBeenCalled();
   });
 
-  it("reuses one startup across calls", async () => {
+  it("rejects startup when another process owns the shared data directory", async () => {
+    mocks.acquireRuntimeOwner.mockImplementation(() => { throw new Error("runtime already owned"); });
+    await expect(Promise.resolve().then(startRuntimeServices)).rejects.toThrow("runtime already owned");
+    expect(mocks.setRuntimeOwnerUnavailable).toHaveBeenCalledWith(true);
+    await expect(Promise.resolve().then(startRuntimeServices)).rejects.toThrow("runtime owner slot is unavailable");
+    expect(mocks.acquireRuntimeOwner).toHaveBeenCalledOnce();
+    expect(mocks.ensureRoutineScheduler).not.toHaveBeenCalled();
+  });
+
+  it("reuses one startup and owner claim across calls", async () => {
     await Promise.all([startRuntimeServices(), startRuntimeServices()]);
     await startRuntimeServices();
     expect(mocks.ensureRoutineScheduler).toHaveBeenCalledTimes(1);
+    expect(mocks.acquireRuntimeOwner).toHaveBeenCalledOnce();
   });
 });

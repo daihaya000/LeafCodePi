@@ -1,9 +1,13 @@
 import { RuntimeStartup, type RuntimeStartupServices } from "@backend-core/runtime-startup.mjs";
+import { dataDir } from "@backend-core/app-paths.mjs";
+import { acquireRuntimeOwner } from "@backend-core/runtime-owner-lock.mjs";
 import { isGoalLoopCommandApplied } from "@/lib/pi/goal-loop-command";
-import { localRuntimeBlocked } from "@/lib/pi/runtime-ownership";
+import { localRuntimeBlocked, setRuntimeOwnerUnavailable } from "@/lib/pi/runtime-ownership";
 
 const globals = globalThis as typeof globalThis & {
   __leafcodeRuntimeStartup?: RuntimeStartup;
+  __leafcodeRuntimeOwnerRelease?: () => void;
+  __leafcodeRuntimeOwnerUnavailable?: boolean;
 };
 
 async function loadServices(): Promise<RuntimeStartupServices> {
@@ -85,6 +89,19 @@ async function loadServices(): Promise<RuntimeStartupServices> {
 
 /** One owner per process, including Next route bundles and development reloads. */
 export function startRuntimeServices(): Promise<void> {
+  if (globals.__leafcodeRuntimeOwnerUnavailable) {
+    throw new Error("runtime owner slot is unavailable");
+  }
+  // Production Web is a client; only a local dev owner claims the shared runtime slot.
+  if (!localRuntimeBlocked() && !globals.__leafcodeRuntimeOwnerRelease) {
+    try {
+      globals.__leafcodeRuntimeOwnerRelease = acquireRuntimeOwner(dataDir());
+      setRuntimeOwnerUnavailable(false);
+    } catch (error) {
+      setRuntimeOwnerUnavailable(true);
+      throw error;
+    }
+  }
   globals.__leafcodeRuntimeStartup ??= new RuntimeStartup({ loadServices });
   return globals.__leafcodeRuntimeStartup.start();
 }

@@ -1,14 +1,16 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 import {
   RuntimeNotOwnedError,
   assertLocalRuntimeAllowed,
   isBackendRuntimeHost,
   isRuntimeNotOwnedError,
   localRuntimeBlocked,
+  setRuntimeOwnerUnavailable,
   webOwnsRuntime,
 } from "./runtime-ownership";
 
 describe("runtime ownership", () => {
+  afterEach(() => setRuntimeOwnerUnavailable(false));
   it("is decided by the build: production is a client, development owns the runtime", () => {
     expect(webOwnsRuntime({})).toBe(true);
     expect(webOwnsRuntime({ NODE_ENV: "development" })).toBe(true);
@@ -33,6 +35,12 @@ describe("runtime ownership", () => {
     // The Backend process owns the runtime: the WebUI's rule must never block it.
     expect(localRuntimeBlocked({ NODE_ENV: "production", LEAFCODE_PI_BACKEND_RUNTIME: "attach" })).toBe(false);
     expect(localRuntimeBlocked({ LEAFCODE_PI_BACKEND_RUNTIME: "attach" })).toBe(false);
+  });
+
+  it("blocks a development owner after its shared runtime slot is unavailable", () => {
+    setRuntimeOwnerUnavailable(true);
+    expect(localRuntimeBlocked({ NODE_ENV: "development" })).toBe(true);
+    expect(localRuntimeBlocked({ NODE_ENV: "development", LEAFCODE_PI_BACKEND_RUNTIME: "attach" })).toBe(false);
   });
 
   it("asserting raises a typed error that carries no internals", () => {
