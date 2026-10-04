@@ -1294,7 +1294,7 @@ test("writeLoop failure during pause keeps awaitingTurn so disk/runtime stay ali
   }
 });
 
-test("writeLoop keeps the previous state and recoverable temp after rename failures", () => {
+test("writeLoop keeps the previous state and recoverable temp after rename failures", async () => {
   const cwd = mkdtempSync(join(tmpdir(), "leafcode-goal-loop-write-"));
   process.env.LEAFCODE_PI_DATA_DIR = cwd;
   const goalsDir = join(cwd, "goals-loop");
@@ -1335,7 +1335,7 @@ test("writeLoop keeps the previous state and recoverable temp after rename failu
       writeFileSync(file, readFileSync(temp, "utf8"), "utf8");
       rmSync(temp, { force: true });
     });
-    applyResult(loop, { time: new Date().toISOString(), status: "progress", summary: "after retry" });
+    await applyResult(loop, { time: new Date().toISOString(), status: "progress", summary: "after retry" });
     assert.equal(attempts, 3);
     assert.equal(JSON.parse(readFileSync(join(goalsDir, "write-session.json"), "utf8")).summary, "after retry");
     assert.equal(readdirSync(goalsDir).some((name) => name.endsWith(".tmp")), false);
@@ -1349,7 +1349,7 @@ test("writeLoop keeps the previous state and recoverable temp after rename failu
       err.code = "EBUSY";
       throw err;
     });
-    applyResult(loop, { time: new Date().toISOString(), status: "progress", summary: "failed write" });
+    await applyResult(loop, { time: new Date().toISOString(), status: "progress", summary: "failed write" });
     assert.equal(attempts, 3);
     assert.equal(readFileSync(main, "utf8"), previousContent, "failed write must leave the previous valid snapshot untouched");
     const retainedTemps = readdirSync(goalsDir).filter((name) => name.endsWith(".tmp"));
@@ -1418,7 +1418,7 @@ test("writeLoop does not overwrite main with a superseded snapshot when its temp
   }
 });
 
-test("writeLoop gives up on a long-held lock in well under 250ms", () => {
+test("writeLoop retries without blocking the event loop and retains temp after final failure", async () => {
   const cwd = mkdtempSync(join(tmpdir(), "leafcode-goal-loop-wait-"));
   process.env.LEAFCODE_PI_DATA_DIR = cwd;
   const goalsDir = join(cwd, "goals-loop");
@@ -1448,21 +1448,57 @@ test("writeLoop gives up on a long-held lock in well under 250ms", () => {
   };
 
   try {
-    // A lock that never clears leaves the previous state alone; retry waits stay bounded.
+    // A held lock leaves the previous state alone while event-loop timers still run.
+    let timerFired = false;
+    const timer = setTimeout(() => { timerFired = true; }, 0);
     goalLoopTestSeams.setRenameSync(() => {
       const err = new Error("held");
       err.code = "EBUSY";
       throw err;
     });
     const started = Date.now();
-    applyResult(loop, { time: new Date().toISOString(), status: "progress", summary: "failed fast" });
+    const persisted = await applyResult(loop, { time: new Date().toISOString(), status: "progress", summary: "failed fast" });
     const elapsed = Date.now() - started;
+    clearTimeout(timer);
 
-    assert.ok(elapsed < 200, `writeLoop blocked the loop for ${elapsed}ms`);
+    assert.equal(persisted, false);
+    assert.equal(timerFired, true, "timers should run during rename retry waits");
+    assert.ok(elapsed < 200, `writeLoop retry exceeded the bounded delay: ${elapsed}ms`);
     assert.equal(existsSync(join(goalsDir, "wait-session.json")), false);
     const retainedTemps = readdirSync(goalsDir).filter((name) => name.endsWith(".tmp"));
     assert.equal(retainedTemps.length, 1);
     assert.equal(JSON.parse(readFileSync(join(goalsDir, retainedTemps[0]), "utf8")).summary, "failed fast");
+  } finally {
+    goalLoopTestSeams.setRenameSync();
+    rmSync(cwd, { recursive: true, force: true });
+  }
+});
+
+test("a newer snapshot cancels an older asynchronous rename retry", async () => {
+  const cwd = mkdtempSync(join(tmpdir(), "leafcode-goal-loop-write-supersedes-retry-"));
+  process.env.LEAFCODE_PI_DATA_DIR = cwd;
+  const goalsDir = join(cwd, "goals-loop");
+  const loop = baseWriteLoop(cwd, "supersedes-retry-session");
+  try {
+    let attempts = 0;
+    goalLoopTestSeams.setRenameSync(() => {
+      attempts += 1;
+      const error = new Error("temporarily locked");
+      error.code = "EBUSY";
+      throw error;
+    });
+    const staleWrite = applyResult(loop, {
+      time: new Date().toISOString(), status: "progress", summary: "stale retry",
+    });
+    assert.equal(typeof staleWrite.then, "function");
+
+    goalLoopTestSeams.setRenameSync();
+    assert.equal(await applyResult(loop, {
+      time: new Date().toISOString(), status: "progress", summary: "newer state",
+    }), true);
+    assert.equal(await staleWrite, false);
+    assert.equal(JSON.parse(readFileSync(join(goalsDir, "supersedes-retry-session.json"), "utf8")).summary, "newer state");
+    assert.equal(readdirSync(goalsDir).some((name) => name.endsWith(".tmp")), false);
   } finally {
     goalLoopTestSeams.setRenameSync();
     rmSync(cwd, { recursive: true, force: true });
@@ -6257,6 +6293,7 @@ for (const mode of ["missing-settlement", "write-failure", "manual-pause", "manu
       t.mock.timers.tick(250);
       await new Promise((resolve) => setImmediate(resolve));
       t.mock.timers.tick(1000);
+      await new Promise((resolve) => setImmediate(resolve));
       assert.equal(readState().pauseReason, "turn_timeout");
       goalLoopTestSeams.setTurnTimeoutMs(60_000);
       // No retry while the old run is still busy, even if settlement is missing.

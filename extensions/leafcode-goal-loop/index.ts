@@ -154,6 +154,18 @@ const HOST_ROUTING_WAIT_MS = 15_000;
  * bookkeeping can only cross that boundary through globalThis.
  */
 const RELOAD_HANDOFF_KEY = Symbol.for("leafcode-goal-loop.reload-handoff");
+const GOAL_STATE_WRITE_COORDINATOR_KEY = Symbol.for("leafcode-goal-loop.state-write-coordinator");
+type GoalStateWriteCoordinator = {
+  nextGeneration: number;
+  latestByFile: Map<string, number>;
+};
+const goalStateWriteCoordinatorStore = globalThis as typeof globalThis & {
+  [GOAL_STATE_WRITE_COORDINATOR_KEY]?: GoalStateWriteCoordinator;
+};
+const goalStateWriteCoordinator = goalStateWriteCoordinatorStore[GOAL_STATE_WRITE_COORDINATOR_KEY] ??= {
+  nextGeneration: 0,
+  latestByFile: new Map(),
+};
 /** Ownership must also survive fresh imports during account/persona replacement. */
 const RUNTIME_REGISTRY_KEY = Symbol.for("leafcode-goal-loop.runtimes");
 const runtimeRegistry = globalThis as typeof globalThis & {
@@ -711,15 +723,71 @@ function cleanupOrphanGoalTemps(file: string, committedMtimeMs: number = Number.
   }
 }
 
-function writeLoop(loop: GoalLoop): boolean {
+function releaseGoalStateWrite(file: string, generation: number): void {
+  if (goalStateWriteCoordinator.latestByFile.get(file) === generation) {
+    goalStateWriteCoordinator.latestByFile.delete(file);
+  }
+}
+
+function discardGoalTemp(temp: string): void {
+  try { fs.rmSync(temp, { force: true }); } catch { /* best-effort cleanup of our own temp */ }
+}
+
+async function retryGoalStateRename(
+  file: string,
+  temp: string,
+  generation: number,
+  committedMtimeMs: number,
+): Promise<boolean> {
+  try {
+    for (let retry = 0; retry < 2; retry += 1) {
+      // Yield between rename attempts so abort timers and socket events can run.
+      await new Promise((resolve) => setTimeout(resolve, 10 + 5 * retry));
+      if (goalStateWriteCoordinator.latestByFile.get(file) !== generation) {
+        discardGoalTemp(temp);
+        return false;
+      }
+      try {
+        renameGoalState(temp, file);
+        if (goalStateWriteCoordinator.latestByFile.get(file) !== generation) return false;
+        cleanupOrphanGoalTemps(file, committedMtimeMs);
+        return true;
+      } catch (error) {
+        if (goalStateWriteCoordinator.latestByFile.get(file) !== generation) {
+          discardGoalTemp(temp);
+          return false;
+        }
+        const code = (error as NodeJS.ErrnoException | undefined)?.code;
+        const transient = code === "EPERM" || code === "EACCES" || code === "EBUSY";
+        if (code === "ENOENT" && !fs.existsSync(temp) && fs.existsSync(file)) return true;
+        if (retry === 1 || !transient) {
+          console.error("[goal-loop] writeLoop rename failed; recoverable temp retained:", code ?? "unknown error");
+          return false;
+        }
+      }
+    }
+    return false;
+  } catch (error) {
+    console.error("[goal-loop] writeLoop rename retry failed:", error);
+    return false;
+  } finally {
+    releaseGoalStateWrite(file, generation);
+  }
+}
+
+function writeLoop(loop: GoalLoop): boolean | Promise<boolean> {
   if (writeLoopFailForTests) return false;
   if (writeLoopAllowCountForTests !== undefined) {
     if (writeLoopAllowCountForTests <= 0) return false;
     writeLoopAllowCountForTests -= 1;
   }
+
+  let file = "";
+  let generation: number | undefined;
   try {
     loop.updatedAt = isoNow();
-    const file = goalStateFile(loop.cwd, loop.id);
+    file = goalStateFile(loop.cwd, loop.id);
+    generation = ++goalStateWriteCoordinator.nextGeneration;
     // Initial images are needed only for the first prompt. Once its turn index
     // is durable, retaining base64 payloads can bloat every later snapshot if
     // the best-effort post-send cleanup write fails.
@@ -730,37 +798,33 @@ function writeLoop(loop: GoalLoop): boolean {
       2,
     );
     fs.mkdirSync(path.dirname(file), { recursive: true });
-    const temp = `${file}.${process.pid}.${Date.now()}.tmp`;
+    const temp = `${file}.${process.pid}.${generation}.tmp`;
     fs.writeFileSync(temp, content, "utf8");
+    goalStateWriteCoordinator.latestByFile.set(file, generation);
     let committedMtimeMs = Number.POSITIVE_INFINITY;
     try { committedMtimeMs = fs.statSync(temp).mtimeMs; } catch { /* sweep everything as before */ }
-    // WindowsではWebUIの状態読取やOneDrive同期が対象を掴むとrenameSyncが
-    // EPERM/EACCES/EBUSYで即失敗する。短いリトライ後も失敗した場合は一時ファイルを
-    // 残して失敗扱いにし、有効な旧状態を非原子的な上書きで壊さない。
-    for (let attempt = 0; ; attempt += 1) {
-      try {
-        renameGoalState(temp, file);
-        // Main now has the latest snapshot; drop older crash temps so a later
-        // torn main cannot revive a stale pre-success state.
-        cleanupOrphanGoalTemps(file, committedMtimeMs);
+    try {
+      renameGoalState(temp, file);
+      cleanupOrphanGoalTemps(file, committedMtimeMs);
+      releaseGoalStateWrite(file, generation);
+      return true;
+    } catch (error) {
+      const code = (error as NodeJS.ErrnoException | undefined)?.code;
+      const transient = code === "EPERM" || code === "EACCES" || code === "EBUSY";
+      // Another writer already promoted this snapshot or a newer one.
+      if (code === "ENOENT" && !fs.existsSync(temp) && fs.existsSync(file)) {
+        releaseGoalStateWrite(file, generation);
         return true;
-      } catch (error) {
-        const code = (error as NodeJS.ErrnoException | undefined)?.code;
-        const transient = code === "EPERM" || code === "EACCES" || code === "EBUSY";
-        // Our temp vanished: a newer writer's successful commit swept it. This snapshot is superseded,
-        // and overwriting main with it would roll the state back.
-        if (code === "ENOENT" && !fs.existsSync(temp) && fs.existsSync(file)) return true;
-        if (attempt >= 2 || !transient) {
-          console.error("[goal-loop] writeLoop rename failed; recoverable temp retained:", code ?? "unknown error");
-          return false;
-        }
-        // Wait 10+15ms before the final rename attempt; more retries cost scheduler
-        // delay without making a held OneDrive lock more likely to clear.
-        // writeLoopは同期APIなのでイベントループを止めないようCPUだけ休ませる。
-        Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 10 + 5 * attempt);
       }
+      if (!transient) {
+        console.error("[goal-loop] writeLoop rename failed; recoverable temp retained:", code ?? "unknown error");
+        releaseGoalStateWrite(file, generation);
+        return false;
+      }
+      return retryGoalStateRename(file, temp, generation, committedMtimeMs);
     }
   } catch (error) {
+    if (file && generation !== undefined) releaseGoalStateWrite(file, generation);
     console.error("[goal-loop] writeLoop failed:", error);
     return false;
   }
@@ -800,6 +864,19 @@ function armTurnTimeout(runtime: Runtime): void {
   const timeoutMs = turnTimeoutMs();
   const generation = runtime.turnGeneration;
   runtime.lastTurnActivityAt = Date.now();
+  const finishPause = (paused: boolean) => {
+    if (!isActiveRuntime(runtime) || runtime.turnGeneration !== generation) return;
+    if (!paused) {
+      // A failed state write must not leave a running turn without its watchdog.
+      runtime.timeoutTimer = setTimeout(check, Math.max(250, timeoutMs));
+      return;
+    }
+    try {
+      if (!runtime.ctx.isIdle()) runtime.ctx.abort();
+    } catch {
+      // Already settled.
+    }
+  };
   const check = () => {
     if (!isActiveRuntime(runtime) || runtime.turnGeneration !== generation || !runtime.awaitingTurn) return;
     runtime.timeoutTimer = undefined;
@@ -812,16 +889,15 @@ function armTurnTimeout(runtime: Runtime): void {
       return;
     }
     if (currentLoop(runtime)?.status !== "running") return;
-    if (!pauseLoop(runtime, "turn_timeout", "進捗が確認できないまま時間切れになったため一時停止しました。")) {
-      // A failed state write must not leave a running turn without its watchdog.
-      runtime.timeoutTimer = setTimeout(check, Math.max(250, timeoutMs));
+    const paused = pauseLoop(runtime, "turn_timeout", "進捗が確認できないまま時間切れになったため一時停止しました。");
+    if (typeof paused === "boolean") {
+      finishPause(paused);
       return;
     }
-    try {
-      if (!runtime.ctx.isIdle()) runtime.ctx.abort();
-    } catch {
-      // Already settled.
-    }
+    void paused.then(finishPause).catch((error) => {
+      console.error("[goal-loop] turn timeout pause failed:", error);
+      finishPause(false);
+    });
   };
   runtime.timeoutTimer = setTimeout(check, timeoutMs);
 }
@@ -1113,7 +1189,7 @@ export function buildVerificationPrompt(loop: GoalLoop): string {
   return `${PROMPT_MARKER}${restartResumeInstruction(loop)}\n\nThe previous turn claimed the goal was completed. Independently verify that claim. Inspect the repository and run appropriate checks; do not trust the claim's narration. Do not make unrelated cleanup, refactoring, polish, or speculative changes.\n\nGoal:\n${loop.goal}${acceptanceText(loop, "Acceptance criteria to verify")}\n\nClaimed completion:\n${claim ? `summary: ${claim.summary}\nevidence: ${claim.evidence ?? "(none)"}` : "(none)"}\n\nReturn verified_completed only when every criterion is backed by observable evidence. Return progress when more work is required, or blocked when verification cannot proceed.${jsonInstructions("verified_completed, progress, blocked")}`;
 }
 
-export function applyResult(loop: GoalLoop, result: GoalLoopProgress | null): boolean {
+export function applyResult(loop: GoalLoop, result: GoalLoopProgress | null): boolean | Promise<boolean> {
   if (!result) {
     // Keep the same free-retry / streak semantics as a missing assistant body.
     return applyMissingResult(loop, "");
@@ -1189,7 +1265,7 @@ export function applyResult(loop: GoalLoop, result: GoalLoopProgress | null): bo
  * recording the assistant text as a plain progress entry and demanding the JSON
  * block in the next prompt.
  */
-export function applyMissingResult(loop: GoalLoop, assistantText: string): boolean {
+export function applyMissingResult(loop: GoalLoop, assistantText: string): boolean | Promise<boolean> {
   const verification = loop.status === "running" && loop.turnKind === "verification";
   const summary = short(assistantText, 500) || "(結果JSONなし)";
   loop.progress = [...loop.progress, { time: isoNow(), status: "progress" as const, summary }].slice(-MAX_PROGRESS);
@@ -1301,7 +1377,7 @@ function hasInterruptedTurnRecovery(loop: GoalLoop): boolean {
  * Apply a result that arrived after the loop was paused mid-turn.
  * Explicit user/manual_send/hang pauses stay paused; automatic interruptions continue.
  */
-function applyLatePausedResult(runtime: Runtime, result: GoalLoopProgress): boolean {
+async function applyLatePausedResult(runtime: Runtime, result: GoalLoopProgress): Promise<boolean> {
   const loop = currentLoop(runtime);
   if (
     !loop ||
@@ -1326,7 +1402,8 @@ function applyLatePausedResult(runtime: Runtime, result: GoalLoopProgress): bool
   runtime.pausedTurnIndex = undefined;
   loop.pendingTurnRecovery = false;
   loop.status = "running";
-  if (!applyResult(loop, result)) {
+  const applied = applyResult(loop, result);
+  if (typeof applied === "boolean" ? !applied : !(await applied)) {
     // Failed persist leaves disk paused+pendingTurnRecovery. Keep runtime armed so
     // a later settle/resume can retry without double-applying from a partial memory apply.
     runtime.pausedTurnPending = true;
@@ -1343,7 +1420,7 @@ function applyLatePausedResult(runtime: Runtime, result: GoalLoopProgress): bool
   ) {
     // Re-pause through pauseLoop so write failure does not leave UI paused while
     // disk stays queued (and later session_start would auto-continue).
-    pauseLoop(runtime, pauseReason, pauseError);
+    await pauseLoop(runtime, pauseReason, pauseError);
     const after = currentLoop(runtime);
     if (!after || after.status !== "paused") {
       runtime.ctx.ui.notify("進捗は保存しましたが一時停止状態の保存に失敗しました。", "error");
@@ -1354,7 +1431,7 @@ function applyLatePausedResult(runtime: Runtime, result: GoalLoopProgress): bool
   if (updated.status === "queued" || updated.status === "verifying_completed") {
     schedule(runtime);
   } else {
-    notifyLoopEnded(runtime);
+    await notifyLoopEnded(runtime);
   }
   return true;
 }
@@ -1408,11 +1485,12 @@ async function settleAwaitingTurn(runtime: Runtime): Promise<void> {
     }
     const pauseReason = hangAbort ? "hang" : "user";
     const pauseError = hangAbort ? HANG_ABORT_PAUSE_ERROR : ABORTED_TURN_PAUSE_ERROR;
-    const paused = pauseLoop(runtime, pauseReason, pauseError);
+    const pauseWrite = pauseLoop(runtime, pauseReason, pauseError);
+    const paused = typeof pauseWrite === "boolean" ? pauseWrite : await pauseWrite;
     if (!paused) return; // Keep evidence and the watchdog on failed persistence.
     runtime.abortedTurnPausePending = !hangAbort;
-    if (result && !applyLatePausedResult(runtime, result)) return;
-    if (!result && !hangAbort) requeueInterruptedTurn(runtime);
+    if (result && !(await applyLatePausedResult(runtime, result))) return;
+    if (!result && !hangAbort) await requeueInterruptedTurn(runtime);
     clearPendingAgentRun(runtime);
     return;
   }
@@ -1454,7 +1532,8 @@ async function settleAwaitingTurn(runtime: Runtime): Promise<void> {
       fresh.nextTurnAt = null;
       // Persist before clearing awaitingTurn so a failed write cannot leave
       // disk=running with runtime no longer awaiting settlement.
-      if (!writeLoop(fresh)) return;
+      const persisted = writeLoop(fresh);
+      if (typeof persisted === "boolean" ? !persisted : !(await persisted)) return;
       clearTimer(runtime);
       runtime.awaitingTurn = false;
       runtime.awaitingTurnIndex = undefined;
@@ -1465,14 +1544,14 @@ async function settleAwaitingTurn(runtime: Runtime): Promise<void> {
       schedule(runtime);
       return;
     }
-    pauseLoop(runtime, "scheduler_error", error);
+    await pauseLoop(runtime, "scheduler_error", error);
     clearPendingAgentRun(runtime);
     return;
   }
 
   // Persist first while awaitingTurn remains true. Clearing flags before a
   // failed writeLoop left disk=running with no settlement owner.
-  const persisted = result
+  const write = result
     ? applyResult(loop, result)
     : applyMissingResult(
       loop,
@@ -1481,6 +1560,7 @@ async function settleAwaitingTurn(runtime: Runtime): Promise<void> {
         .map((message) => assistantText(message))
         .find((value) => value.trim()) ?? "",
     );
+  const persisted = typeof write === "boolean" ? write : await write;
   if (!persisted) {
     // writeLoop failed; keep awaitingTurn/pending so timeout or resume can recover.
     return;
@@ -1500,7 +1580,7 @@ async function settleAwaitingTurn(runtime: Runtime): Promise<void> {
   appendSnapshot(runtime, updated);
   // Keep queued work armed even when agent_settled is emitted after this handler.
   if (updated.status === "queued" || updated.status === "verifying_completed") schedule(runtime);
-  else notifyLoopEnded(runtime);
+  else await notifyLoopEnded(runtime);
 }
 
 /**
@@ -1510,7 +1590,7 @@ async function settleAwaitingTurn(runtime: Runtime): Promise<void> {
  * JSON result block" contract during later normal turns. Idempotent per run;
  * resuming the loop re-arms it.
  */
-function notifyLoopEnded(runtime: Runtime): void {
+function notifyLoopEnded(runtime: Runtime): void | Promise<void> {
   const loop = currentLoop(runtime);
   if (!loop || loop.endNoticeSent || runtime.endNoticeQueued) return;
   if (!TERMINAL.has(loop.status) && loop.status !== "blocked" && loop.status !== "paused") return;
@@ -1534,7 +1614,8 @@ function notifyLoopEnded(runtime: Runtime): void {
   }
   loop.endNoticeSent = true;
   runtime.endNoticeQueued = true;
-  writeLoop(loop);
+  const persisted = writeLoop(loop);
+  if (typeof persisted !== "boolean") return persisted.then(() => {});
 }
 
 export function buildLoopEndedNotice(status: GoalLoopStatus): string {
@@ -1552,7 +1633,7 @@ export function buildLoopEndedNotice(status: GoalLoopStatus): string {
  * write must not block the send, so it is best-effort and reverts the in-memory
  * copy to keep memory aligned with disk.
  */
-function recordOperatorNote(runtime: Runtime, loop: GoalLoop, text: string): void {
+async function recordOperatorNote(runtime: Runtime, loop: GoalLoop, text: string): Promise<void> {
   const trimmed = text.trim();
   if (!trimmed) return;
   // 切り詰めは見える形で残す（全文は会話履歴にある）。
@@ -1562,7 +1643,9 @@ function recordOperatorNote(runtime: Runtime, loop: GoalLoop, text: string): voi
   const previous = loop.notes;
   if (previous?.at(-1) === note) return;
   loop.notes = [...(previous ?? []), note].slice(-MAX_NOTES);
-  if (writeLoop(loop)) {
+  const persisted = writeLoop(loop);
+  if (typeof persisted === "boolean" ? persisted : await persisted) {
+    if (!isActiveRuntime(runtime)) return;
     updateUI(runtime, loop);
     return;
   }
@@ -1570,9 +1653,10 @@ function recordOperatorNote(runtime: Runtime, loop: GoalLoop, text: string): voi
   else loop.notes = previous;
 }
 
-function pauseLoop(runtime: Runtime, reason: GoalLoopPauseReason = "user", error = "ユーザーが一時停止しました。"): boolean {
+function pauseLoop(runtime: Runtime, reason: GoalLoopPauseReason = "user", error = "ユーザーが一時停止しました。"): boolean | Promise<boolean> {
   const loop = currentLoop(runtime);
   if (!loop || TERMINAL.has(loop.status) || loop.status === "blocked") return false;
+  const activeLoop = loop;
   const pending = runtime.awaitingTurn;
   const pendingIndex = runtime.awaitingTurnIndex;
   // Survive process restart: in-memory pausedTurnPending alone is not enough.
@@ -1587,22 +1671,27 @@ function pauseLoop(runtime: Runtime, reason: GoalLoopPauseReason = "user", error
   loop.nextTurnAt = null;
   // Persist before dropping awaitingTurn. A failed write must not strand disk as
   // running while runtime thinks the turn is already paused/settled.
-  if (!writeLoop(loop)) return false;
-  runtime.pausedTurnPending = pending;
-  runtime.pausedTurnIndex = pendingIndex;
-  // Keep agent_end evidence when pausing mid-turn so agent_settled can still
-  // recover JSON after abort. Clearing here caused manual_send races to drop results.
-  if (!pending) clearPendingAgentRun(runtime);
-  clearTimer(runtime);
-  runtime.awaitingTurn = false;
-  runtime.awaitingTurnIndex = undefined;
-  updateUI(runtime, loop);
-  appendSnapshot(runtime, loop);
-  notifyLoopEnded(runtime);
-  return true;
+  const persisted = writeLoop(loop);
+  if (typeof persisted === "boolean") return persisted ? finishPause() : false;
+  return persisted.then((success) => success ? finishPause() : false);
+
+  function finishPause(): boolean | Promise<boolean> {
+    runtime.pausedTurnPending = pending;
+    runtime.pausedTurnIndex = pendingIndex;
+    // Keep agent_end evidence when pausing mid-turn so agent_settled can still
+    // recover JSON after abort. Clearing here caused manual_send races to drop results.
+    if (!pending) clearPendingAgentRun(runtime);
+    clearTimer(runtime);
+    runtime.awaitingTurn = false;
+    runtime.awaitingTurnIndex = undefined;
+    updateUI(runtime, activeLoop);
+    appendSnapshot(runtime, activeLoop);
+    const notice = notifyLoopEnded(runtime);
+    return notice ? notice.then(() => true) : true;
+  }
 }
 
-function requeueInterruptedTurn(runtime: Runtime): void {
+function requeueInterruptedTurn(runtime: Runtime): void | Promise<void> {
   if (!isActiveRuntime(runtime)) return;
   const loop = currentLoop(runtime);
   if (!loop || (!isAbortPausedLoop(loop) && !(loop.status === "paused" && loop.pauseReason === "turn_timeout"))) return;
@@ -1620,19 +1709,28 @@ function requeueInterruptedTurn(runtime: Runtime): void {
       : null,
   };
   // Leave recovery markers intact on failure; the idle watchdog retries this write.
-  if (!writeLoop(resumed)) return;
-  runtime.awaitingTurn = false;
-  runtime.abortedTurnPausePending = false;
-  runtime.endNoticeQueued = false;
-  runtime.awaitingTurnIndex = undefined;
-  clearPendingAgentRun(runtime);
-  clearTimer(runtime);
-  updateUI(runtime, resumed);
-  appendSnapshot(runtime, resumed);
-  schedule(runtime);
+  const persisted = writeLoop(resumed);
+  const finish = () => {
+    runtime.awaitingTurn = false;
+    runtime.abortedTurnPausePending = false;
+    runtime.endNoticeQueued = false;
+    runtime.awaitingTurnIndex = undefined;
+    clearPendingAgentRun(runtime);
+    clearTimer(runtime);
+    updateUI(runtime, resumed);
+    appendSnapshot(runtime, resumed);
+    schedule(runtime);
+  };
+  if (typeof persisted === "boolean") {
+    if (persisted) finish();
+    return;
+  }
+  return persisted.then((success) => {
+    if (success) finish();
+  });
 }
 
-function stopLoop(runtime: Runtime): boolean {
+async function stopLoop(runtime: Runtime): Promise<boolean> {
   const loop = currentLoop(runtime);
   if (!loop || TERMINAL.has(loop.status)) return false;
   // Capture before clearing. Only arm discard when a trailing agent_settled is
@@ -1646,7 +1744,8 @@ function stopLoop(runtime: Runtime): boolean {
   loop.blockedReason = "";
   loop.pendingTurnRecovery = false;
   loop.nextTurnAt = null;
-  if (!writeLoop(loop)) return false;
+  const persisted = writeLoop(loop);
+  if (typeof persisted === "boolean" ? !persisted : !(await persisted)) return false;
   clearTimer(runtime);
   runtime.awaitingTurn = false;
   runtime.pausedTurnPending = false;
@@ -1666,11 +1765,11 @@ function stopLoop(runtime: Runtime): boolean {
   }
   updateUI(runtime, loop);
   appendSnapshot(runtime, loop);
-  notifyLoopEnded(runtime);
+  await notifyLoopEnded(runtime);
   return true;
 }
 
-function completeLoop(runtime: Runtime): boolean {
+async function completeLoop(runtime: Runtime): Promise<boolean> {
   const loop = currentLoop(runtime);
   if (!loop) return false;
   const turnLimitReached =
@@ -1686,7 +1785,8 @@ function completeLoop(runtime: Runtime): boolean {
   loop.blockedReason = "";
   loop.pendingTurnRecovery = false;
   loop.nextTurnAt = null;
-  if (!writeLoop(loop)) return false;
+  const persisted = writeLoop(loop);
+  if (typeof persisted === "boolean" ? !persisted : !(await persisted)) return false;
   clearTimer(runtime);
   runtime.awaitingTurn = false;
   runtime.pausedTurnPending = false;
@@ -1695,7 +1795,7 @@ function completeLoop(runtime: Runtime): boolean {
   clearPendingAgentRun(runtime);
   updateUI(runtime, loop);
   appendSnapshot(runtime, loop);
-  notifyLoopEnded(runtime);
+  await notifyLoopEnded(runtime);
   return true;
 }
 
@@ -1730,10 +1830,10 @@ function schedule(runtime: Runtime, delay = 250): void {
     // sendTurn内のthrowはvoid化されると未処理rejectでWebUIサーバごと落ちる。
     // 回復可能な形（一時停止→再開）に倒しておく。
     sendTurn(runtime)
-      .catch((error) => {
+      .catch(async (error) => {
         console.error("[goal-loop] sendTurn failed:", error);
         if (!isActiveRuntime(runtime)) return;
-        pauseLoop(
+        await pauseLoop(
           runtime,
           "scheduler_error",
           `ターンの送信中にエラーが発生しました。${
@@ -1754,7 +1854,7 @@ function schedule(runtime: Runtime, delay = 250): void {
  * queued/verifying_completed on disk with no timer, which silently skips the
  * completion-verification turn until the user pauses and resumes. Re-arm here.
  */
-function ensureScheduled(runtime: Runtime): void {
+async function ensureScheduled(runtime: Runtime): Promise<void> {
   if (!isActiveRuntime(runtime)) {
     // A replaced runtime never owns the session again; stop watching it.
     if (runtime.watchdogTimer) clearInterval(runtime.watchdogTimer);
@@ -1779,8 +1879,11 @@ function ensureScheduled(runtime: Runtime): void {
     // settlement write failed. The idle/pending gates above prevent overlap.
     const recovered = extractGoalResultFromMessages(runtime.pendingAgentMessages ?? []) ?? lateTurnResult(runtime, loop);
     if (recovered) {
-      if (applyLatePausedResult(runtime, recovered)) clearPendingAgentRun(runtime);
-    } else requeueInterruptedTurn(runtime);
+      if (await applyLatePausedResult(runtime, recovered)) clearPendingAgentRun(runtime);
+    } else {
+      const requeue = requeueInterruptedTurn(runtime);
+      if (requeue) await requeue;
+    }
     return;
   }
   if (TERMINAL.has(loop.status) || UNSCHEDULABLE.has(loop.status)) return;
@@ -1795,7 +1898,8 @@ function ensureScheduled(runtime: Runtime): void {
     // the settle would have produced so the next turn is still sent.
     loop.status = loop.turnKind === "verification" ? "verifying_completed" : "queued";
     loop.nextTurnAt = null;
-    if (!writeLoop(loop)) return;
+    const persisted = writeLoop(loop);
+    if (typeof persisted === "boolean" ? !persisted : !(await persisted)) return;
     updateUI(runtime, loop);
     appendSnapshot(runtime, loop);
   }
@@ -1804,7 +1908,11 @@ function ensureScheduled(runtime: Runtime): void {
 
 function startScheduleWatchdog(runtime: Runtime): void {
   if (runtime.watchdogTimer) return;
-  runtime.watchdogTimer = setInterval(() => ensureScheduled(runtime), scheduleWatchdogMs());
+  runtime.watchdogTimer = setInterval(() => {
+    void ensureScheduled(runtime).catch((error) => {
+      console.error("[goal-loop] schedule watchdog failed:", error);
+    });
+  }, scheduleWatchdogMs());
   syncScheduleWatchdogRef(runtime, currentLoop(runtime)?.status);
 }
 
@@ -1843,7 +1951,8 @@ async function sendTurn(runtime: Runtime): Promise<void> {
     loop.turnKind = "goal";
     // Persist before continuing. A failed write leaves disk on verification; do
     // not send with a locally repaired object that currentLoop() would reload away.
-    if (!writeLoop(loop)) {
+    const persistedRepair = writeLoop(loop);
+    if (typeof persistedRepair === "boolean" ? !persistedRepair : !(await persistedRepair)) {
       schedule(runtime, 500);
       return;
     }
@@ -1862,7 +1971,8 @@ async function sendTurn(runtime: Runtime): Promise<void> {
       loop.status = "paused";
       loop.pauseReason = "turn_limit";
       loop.error = "最大ターン数に到達したため一時停止しました。";
-      if (!writeLoop(loop)) {
+      const persistedLimitPause = writeLoop(loop);
+      if (typeof persistedLimitPause === "boolean" ? !persistedLimitPause : !(await persistedLimitPause)) {
         // Keep disk queued and re-arm so the limit pause can be persisted later.
         schedule(runtime, 500);
         return;
@@ -1890,7 +2000,7 @@ async function sendTurn(runtime: Runtime): Promise<void> {
       return;
     }
     if (routingState === "timed_out") {
-      pauseLoop(runtime, "scheduler_error", "ホストのGoal Loopターン準備が期限内に開始されませんでした。");
+      await pauseLoop(runtime, "scheduler_error", "ホストのGoal Loopターン準備が期限内に開始されませんでした。");
       return;
     }
   }
@@ -1928,7 +2038,7 @@ async function sendTurn(runtime: Runtime): Promise<void> {
       hostPrepared = true;
     } catch (error) {
       if (!isActiveRuntime(runtime) || runtime.turnGeneration !== turnGeneration) return;
-      pauseLoop(
+      await pauseLoop(
         runtime,
         "scheduler_error",
         `ターン開始前のルーティング準備に失敗しました。${
@@ -1967,7 +2077,8 @@ async function sendTurn(runtime: Runtime): Promise<void> {
       loop.pauseReason = "turn_limit";
       loop.error = "最大ターン数に到達したため一時停止しました。";
       abandonPreparedTurn();
-      if (!writeLoop(loop)) {
+      const persistedLimitPause = writeLoop(loop);
+      if (typeof persistedLimitPause === "boolean" ? !persistedLimitPause : !(await persistedLimitPause)) {
         schedule(runtime, 500);
         return;
       }
@@ -2003,7 +2114,8 @@ async function sendTurn(runtime: Runtime): Promise<void> {
   loop.retryInterruptedTurn = false;
   // Persist running/turnCount before send. On failure disk still has the pre-send
   // queued state; never set awaitingTurn or enqueue a prompt against stale disk.
-  if (!writeLoop(loop)) {
+  const persistedBeforeSend = writeLoop(loop);
+  if (typeof persistedBeforeSend === "boolean" ? !persistedBeforeSend : !(await persistedBeforeSend)) {
     abandonPreparedTurn();
     schedule(runtime, 500);
     return;
@@ -2041,7 +2153,8 @@ async function sendTurn(runtime: Runtime): Promise<void> {
     );
     if (isInitialTurn && loop.initialImages?.length) {
       delete loop.initialImages;
-      writeLoop(loop);
+      const persistedImageCleanup = writeLoop(loop);
+      if (typeof persistedImageCleanup !== "boolean") await persistedImageCleanup;
     }
   } catch (error) {
     clearTimer(runtime);
@@ -2055,7 +2168,7 @@ async function sendTurn(runtime: Runtime): Promise<void> {
       // the turn and retry automatically. Pause until the user explicitly
       // resumes, matching LeafCode's unknown-delivery contract.
       if (current.status !== "paused" || current.pauseReason !== "unknown_delivery") {
-        pauseLoop(
+        await pauseLoop(
           runtime,
           "unknown_delivery",
           `プロンプトの送達を確認できないため、重複送信を防止して一時停止しました。${
@@ -2073,7 +2186,7 @@ async function sendTurn(runtime: Runtime): Promise<void> {
   }
 }
 
-function startLoop(
+async function startLoop(
   runtime: Runtime,
   config: {
     goal: string;
@@ -2084,7 +2197,7 @@ function startLoop(
     autoAgent?: unknown;
     initialImages?: unknown;
   },
-): GoalLoop | null {
+): Promise<GoalLoop | null> {
   const goal = config.goal.trim().slice(0, MAX_GOAL_CHARS);
   const acceptance = normalizeAcceptance(config.acceptance);
   if (!goal || !acceptance) return null;
@@ -2124,7 +2237,8 @@ function startLoop(
   };
   // Keep the prior runtime untouched until this replacement is durable. A
   // failed new write must not stop a working loop or invalidate its routing.
-  if (!writeLoop(loop)) return null;
+  const persisted = writeLoop(loop);
+  if (typeof persisted === "boolean" ? !persisted : !(await persisted)) return null;
 
   // The new state is durable. Now invalidate/abort any old in-flight turn so a
   // trailing settlement cannot apply to this loop.
@@ -2216,7 +2330,7 @@ async function compose(runtime: Runtime): Promise<void> {
   // The dialog may outlive this session or a newer start on the same runtime.
   if (!isActiveRuntime(runtime) || runtime.turnGeneration !== turnGeneration) return;
   const maxTurns = clampMaxTurns(maxTurnsText || DEFAULT_MAX_TURNS);
-  const loop = startLoop(runtime, {
+  const loop = await startLoop(runtime, {
     goal,
     acceptance: acceptance ?? "",
     maxTurns,
@@ -2240,7 +2354,7 @@ function statusMessage(loop: GoalLoop | null): string {
   return `${statusLabel(loop.status)} ${shownTurn}/${max}${mode} · ${short(loop.goal, 140)}${detail}`;
 }
 
-function resumeLoop(runtime: Runtime, maxTurns?: unknown, restartPrompt?: string): boolean {
+async function resumeLoop(runtime: Runtime, maxTurns?: unknown, restartPrompt?: string): Promise<boolean> {
   const loop = currentLoop(runtime);
   if (!loop || (loop.status !== "paused" && loop.status !== "blocked")) {
     runtime.ctx.ui.notify("一時停止中または要対応の Goal loop はありません。", "info");
@@ -2263,7 +2377,8 @@ function resumeLoop(runtime: Runtime, maxTurns?: unknown, restartPrompt?: string
       runtime.ctx.ui.notify("最大ターン数を増やしてから再開してください。例: /goal-resume --turns 20", "warning");
       // Persist any maxTurns bump from this resume attempt; ignore failure beyond
       // keeping disk unchanged so the user can retry with a higher budget.
-      if (!writeLoop(loop)) {
+      const persisted = writeLoop(loop);
+      if (typeof persisted === "boolean" ? !persisted : !(await persisted)) {
         runtime.ctx.ui.notify("状態の保存に失敗しました。", "error");
       }
       updateUI(runtime, currentLoop(runtime));
@@ -2283,7 +2398,8 @@ function resumeLoop(runtime: Runtime, maxTurns?: unknown, restartPrompt?: string
       loop.pendingTurnRecovery = false;
       loop.status = "running";
       loop.endNoticeSent = false;
-      if (!applyResult(loop, recovered)) {
+      const applied = applyResult(loop, recovered);
+      if (typeof applied === "boolean" ? !applied : !(await applied)) {
         runtime.pausedTurnPending = true;
         runtime.ctx.ui.notify("結果の保存に失敗したため再開を中止しました。再試行してください。", "error");
         return false;
@@ -2302,7 +2418,7 @@ function resumeLoop(runtime: Runtime, maxTurns?: unknown, restartPrompt?: string
       if (updated.status === "queued" || updated.status === "verifying_completed") {
         schedule(runtime);
       } else {
-        notifyLoopEnded(runtime);
+        await notifyLoopEnded(runtime);
       }
       return true;
     }
@@ -2310,7 +2426,8 @@ function resumeLoop(runtime: Runtime, maxTurns?: unknown, restartPrompt?: string
       // Keep pendingTurnRecovery so a later resume can still pick up a real
       // transcript result for THIS turnCount if delivery actually happened.
       runtime.ctx.ui.notify("送達が確認できないため再送しません。新しい Goal loop を開始してください。", "warning");
-      if (!writeLoop(loop)) {
+      const persisted = writeLoop(loop);
+      if (typeof persisted === "boolean" ? !persisted : !(await persisted)) {
         runtime.ctx.ui.notify("状態の保存に失敗しました。", "error");
         updateUI(runtime, currentLoop(runtime));
         return false;
@@ -2338,7 +2455,8 @@ function resumeLoop(runtime: Runtime, maxTurns?: unknown, restartPrompt?: string
   loop.blockedReason = "";
   loop.pendingTurnRecovery = false;
   if (!preserveCooldown) loop.nextTurnAt = null;
-  if (!writeLoop(loop)) {
+  const persisted = writeLoop(loop);
+  if (typeof persisted === "boolean" ? !persisted : !(await persisted)) {
     runtime.ctx.ui.notify("状態の保存に失敗したため再開できませんでした。", "error");
     return false;
   }
@@ -2364,7 +2482,7 @@ function decodeRestartResumePrompt(args: string): string | null | undefined {
   return decoded.trim();
 }
 
-function handleAction(runtime: Runtime, action: "pause" | "resume" | "stop" | "complete", args = ""): void {
+async function handleAction(runtime: Runtime, action: "pause" | "resume" | "stop" | "complete", args = ""): Promise<void> {
   if (action === "pause") {
     const loop = currentLoop(runtime);
     if (!loop) runtime.ctx.ui.notify("Goal loop はありません。", "info");
@@ -2372,15 +2490,19 @@ function handleAction(runtime: Runtime, action: "pause" | "resume" | "stop" | "c
       runtime.ctx.ui.notify("要対応中の Goal loop です。対応後に再開または停止できます。", "info");
     } else if (TERMINAL.has(loop.status)) {
       runtime.ctx.ui.notify("Goal loop は既に終了しています。", "info");
-    } else if (!pauseLoop(runtime)) {
-      runtime.ctx.ui.notify("一時停止状態の保存に失敗しました。再試行してください。", "error");
     } else {
-      try {
-        if (!runtime.ctx.isIdle()) runtime.ctx.abort();
-      } catch {
-        // Already settled.
+      const pauseWrite = pauseLoop(runtime);
+      const paused = typeof pauseWrite === "boolean" ? pauseWrite : await pauseWrite;
+      if (!paused) {
+        runtime.ctx.ui.notify("一時停止状態の保存に失敗しました。再試行してください。", "error");
+      } else {
+        try {
+          if (!runtime.ctx.isIdle()) runtime.ctx.abort();
+        } catch {
+          // Already settled.
+        }
+        runtime.ctx.ui.notify("Goal loop を一時停止しました。", "info");
       }
-      runtime.ctx.ui.notify("Goal loop を一時停止しました。", "info");
     }
     return;
   }
@@ -2389,7 +2511,7 @@ function handleAction(runtime: Runtime, action: "pause" | "resume" | "stop" | "c
     if (!loop) runtime.ctx.ui.notify("Goal loop はありません。", "info");
     else if (TERMINAL.has(loop.status)) {
       runtime.ctx.ui.notify("Goal loop は既に終了しています。", "info");
-    } else if (!stopLoop(runtime)) {
+    } else if (!await stopLoop(runtime)) {
       runtime.ctx.ui.notify("停止状態の保存に失敗しました。再試行してください。", "error");
     } else {
       runtime.ctx.ui.notify("Goal loop を停止しました。", "info");
@@ -2397,7 +2519,7 @@ function handleAction(runtime: Runtime, action: "pause" | "resume" | "stop" | "c
     return;
   }
   if (action === "complete") {
-    const completed = completeLoop(runtime);
+    const completed = await completeLoop(runtime);
     if (completed) {
       runtime.ctx.ui.notify("Goal loop を完了しました。新しい Goal loop を開始できます。", "info");
       return;
@@ -2430,7 +2552,7 @@ function handleAction(runtime: Runtime, action: "pause" | "resume" | "stop" | "c
     runtime.ctx.ui.notify("再起動復帰指示が不正です。", "warning");
     return;
   }
-  if (resumeLoop(runtime, turns, restartPrompt)) runtime.ctx.ui.notify("Goal loop を再開しました。", "info");
+  if (await resumeLoop(runtime, turns, restartPrompt)) runtime.ctx.ui.notify("Goal loop を再開しました。", "info");
 }
 
 function decodeStartConfig(args: string): {
@@ -2474,7 +2596,7 @@ function registerCommandAliases(pi: ExtensionAPI, getRuntime: () => Runtime | nu
         ctx.ui.notify("Goal loop の開始パラメータが不正です。", "error");
         return;
       }
-      const loop = startLoop(runtime, config);
+      const loop = await startLoop(runtime, config);
       if (!loop) {
         ctx.ui.notify("Goal loop を開始できませんでした（パラメータ不正または状態保存失敗）。", "error");
         return;
@@ -2488,7 +2610,7 @@ function registerCommandAliases(pi: ExtensionAPI, getRuntime: () => Runtime | nu
       const runtime = runtimeForContext(ctx);
       if (!runtime) return;
       const config = parseStartArgs(args);
-      const loop = startLoop(runtime, config);
+      const loop = await startLoop(runtime, config);
       if (!loop) ctx.ui.notify("Goal loop を開始できませんでした（パラメータ不正または状態保存失敗）。", "error");
     },
   });
@@ -2503,28 +2625,28 @@ function registerCommandAliases(pi: ExtensionAPI, getRuntime: () => Runtime | nu
     description: "Goal loop を一時停止",
     handler: async (args, ctx) => {
       const runtime = runtimeForContext(ctx);
-      if (runtime) handleAction(runtime, "pause", args);
+      if (runtime) await handleAction(runtime, "pause", args);
     },
   });
   pi.registerCommand("goal-resume", {
     description: "Goal loop を再開",
     handler: async (args, ctx) => {
       const runtime = runtimeForContext(ctx);
-      if (runtime) handleAction(runtime, "resume", args);
+      if (runtime) await handleAction(runtime, "resume", args);
     },
   });
   pi.registerCommand("goal-stop", {
     description: "Goal loop を停止",
     handler: async (_args, ctx) => {
       const runtime = runtimeForContext(ctx);
-      if (runtime) handleAction(runtime, "stop");
+      if (runtime) await handleAction(runtime, "stop");
     },
   });
   pi.registerCommand("goal-complete", {
     description: "要対応中または最大ターン数に到達した Goal loop を完了",
     handler: async (_args, ctx) => {
       const runtime = runtimeForContext(ctx);
-      if (runtime) handleAction(runtime, "complete");
+      if (runtime) await handleAction(runtime, "complete");
     },
   });
   pi.registerCommand("goal-compose", {
@@ -2555,7 +2677,9 @@ export default function (pi: ExtensionAPI): void {
     if (!isActiveRuntime(runtime) || runtime.sessionManager !== routing.sessionManager) return;
     runtime.hostRouting = routing;
     runtime.hostRoutingExpected = true;
-    ensureScheduled(runtime);
+    void ensureScheduled(runtime).catch((error) => {
+      console.error("[goal-loop] host routing schedule failed:", error);
+    });
   };
   const stopHostRoutingReady = () => {
     stopHostRoutingReadyListener?.();
@@ -2612,7 +2736,8 @@ export default function (pi: ExtensionAPI): void {
           previousLoop.status = "paused";
           previousLoop.pauseReason = "session_end";
           previousLoop.error = "セッション切替時に一時停止しました。";
-          if (!writeLoop(previousLoop)) {
+          const persisted = writeLoop(previousLoop);
+          if (typeof persisted === "boolean" ? !persisted : !(await persisted)) {
             console.error("[goal-loop] session switch failed to persist lifecycle pause");
           }
         }
@@ -2669,7 +2794,8 @@ export default function (pi: ExtensionAPI): void {
       loop.error = "セッション再開時は自動継続しません。/goal-resume で再開してください。";
       // Persist before arming pausedTurnPending. A failed write must not claim
       // recovery against disk that is still mid-turn running.
-      if (!writeLoop(loop)) {
+      const persisted = writeLoop(loop);
+      if (typeof persisted === "boolean" ? !persisted : !(await persisted)) {
         ctx.ui.notify("セッション再開時の状態保存に失敗しました。再接続してから /goal-resume を試してください。", "error");
       } else {
         runtime.pausedTurnPending = loop.pendingTurnRecovery;
@@ -2677,7 +2803,8 @@ export default function (pi: ExtensionAPI): void {
     } else if (loop?.status === "paused" && loop.pauseReason === "") {
       // Migrate lifecycle pauses persisted before the dedicated reason existed.
       loop.pauseReason = "session_end";
-      if (!writeLoop(loop)) {
+      const persisted = writeLoop(loop);
+      if (typeof persisted === "boolean" ? !persisted : !(await persisted)) {
         ctx.ui.notify("セッション再開時の状態保存に失敗しました。再接続してから /goal-resume を試してください。", "error");
       }
     }
@@ -2689,7 +2816,7 @@ export default function (pi: ExtensionAPI): void {
     } else {
       // Lifecycle pause is persisted directly during shutdown, so it has not
       // passed through pauseLoop() to queue the prompt-contract end notice.
-      notifyLoopEnded(runtime);
+      await notifyLoopEnded(runtime);
     }
   });
 
@@ -2713,7 +2840,7 @@ export default function (pi: ExtensionAPI): void {
     if (/^\/(?:goal|goal-status|goal-pause|goal-resume|goal-stop|goal-complete|goal-compose)(?:\s|$)/i.test(event.text)) return;
     const loop = currentLoop(current);
     if (!loop || TERMINAL.has(loop.status) || UNSCHEDULABLE.has(loop.status)) return;
-    recordOperatorNote(current, loop, event.text);
+    await recordOperatorNote(current, loop, event.text);
   });
 
   const recordTurnActivity = (ctx: ExtensionContext) => {
@@ -2766,7 +2893,7 @@ export default function (pi: ExtensionAPI): void {
     ) {
       const result = extractGoalResult(assistantText(event.message));
       if (!result) return;
-      applyLatePausedResult(current, result);
+      await applyLatePausedResult(current, result);
       return;
     }
     // `turn_end` fires once per assistant/tool iteration. A tool call normally
@@ -2794,7 +2921,7 @@ export default function (pi: ExtensionAPI): void {
       current &&
       matchesRuntimeContext(current, ctx) &&
       event.reason === "manual"
-    ) requeueInterruptedTurn(current);
+    ) await requeueInterruptedTurn(current);
   });
 
   pi.on("session_compact_failed", async (event, ctx) => {
@@ -2803,7 +2930,7 @@ export default function (pi: ExtensionAPI): void {
       current &&
       matchesRuntimeContext(current, ctx) &&
       event.reason === "manual"
-    ) requeueInterruptedTurn(current);
+    ) await requeueInterruptedTurn(current);
   });
 
   pi.on("agent_settled", async (_event, ctx) => {
@@ -2847,8 +2974,8 @@ export default function (pi: ExtensionAPI): void {
     }
     if (current.pausedTurnPending && loop.status === "paused") {
       const result = extractGoalResultFromMessages(current.pendingAgentMessages ?? []);
-      if (result && !applyLatePausedResult(current, result)) return;
-      if (!result) requeueInterruptedTurn(current);
+      if (result && !(await applyLatePausedResult(current, result))) return;
+      if (!result) await requeueInterruptedTurn(current);
       clearPendingAgentRun(current);
       return;
     }
@@ -2909,7 +3036,8 @@ export default function (pi: ExtensionAPI): void {
           : "セッション終了時に一時停止しました。";
         // Session is ending either way: dispose below. On write failure leave disk
         // unchanged so the next session_start can repair running or re-arm queued.
-        if (!writeLoop(loop)) {
+        const persisted = writeLoop(loop);
+        if (typeof persisted === "boolean" ? !persisted : !(await persisted)) {
           console.error("[goal-loop] session_shutdown failed to persist lifecycle pause");
         }
         clearTimer(current);
@@ -2942,7 +3070,7 @@ export default function (pi: ExtensionAPI): void {
         return;
       }
       if (command === "pause" || command === "resume" || command === "stop" || command === "complete") {
-        handleAction(current, command, "");
+        await handleAction(current, command, "");
         return;
       }
       if (command === "compose") {
@@ -2950,7 +3078,7 @@ export default function (pi: ExtensionAPI): void {
         return;
       }
       const config = parseStartArgs(text);
-      const loop = startLoop(current, config);
+      const loop = await startLoop(current, config);
       if (!loop) {
         ctx.ui.notify("Goal loop を開始できませんでした（パラメータ不正または状態保存失敗）。", "error");
         return;
