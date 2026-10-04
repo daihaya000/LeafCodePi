@@ -179,7 +179,21 @@ function hasNewerFile(dir, buildMtimeMs, distDir, fsApi, options = {}) {
   return false;
 }
 
-export function formatWebStatus({ building, running, httpUp }) {
+export function createConsecutiveFailureTracker(threshold = 2) {
+  let failures = 0;
+  return {
+    failure() {
+      failures += 1;
+      return failures >= threshold;
+    },
+    success() {
+      failures = 0;
+    },
+  };
+}
+
+export function formatWebStatus({ building, running, httpUp, degraded }) {
+  if (degraded) return "LeafCodePi: degraded";
   if (building) return "LeafCodePi: building...";
   if (running && httpUp) return "LeafCodePi: running";
   if (running) return "LeafCodePi: starting...";

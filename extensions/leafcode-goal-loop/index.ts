@@ -543,15 +543,20 @@ function hydrateLoop(value: unknown, cwd: string, id: string): GoalLoop | null {
     (maxTurns === 0 || turnCount < maxTurns);
   const now = isoNow();
   const cooldownSeconds = clampCooldownSeconds(raw.cooldownSeconds);
-  const status = resumeFullRun ? "queued" : storedStatus;
+  let status = resumeFullRun ? "queued" : storedStatus;
+  let pauseReason = normalizePauseReason(raw.pauseReason);
+  let error = typeof raw.error === "string" ? raw.error.slice(0, 4_000) : "";
   let nextTurnAt = normalizeNextTurnAt(raw.nextTurnAt);
-  // A present-but-unparseable timestamp (hand edit, torn write) on a loop that is waiting out its
-  // cooldown must not read as "no wait": that would send the next turn at once. Re-arm the cooldown.
+  // A present-but-unparseable timestamp on a cooling-down loop must not become an immediate send.
+  // Pause visibly so the operator can inspect and resume instead of silently inventing a new deadline.
   if (
-    nextTurnAt === null && typeof raw.nextTurnAt === "string" && raw.nextTurnAt.trim() !== "" &&
+    nextTurnAt === null && Object.prototype.hasOwnProperty.call(raw, "nextTurnAt") && raw.nextTurnAt !== null &&
     (status === "queued" || status === "verifying_completed") && cooldownSeconds > 0
   ) {
-    nextTurnAt = new Date(Date.now() + cooldownSeconds * 1000).toISOString();
+    status = "paused";
+    pauseReason = "scheduler_error";
+    error = "保存された次ターン時刻が不正なため、安全のため一時停止しました。状態を確認してから再開してください。";
+    nextTurnAt = null;
   }
   return {
     id,
@@ -568,8 +573,8 @@ function hydrateLoop(value: unknown, cwd: string, id: string): GoalLoop | null {
     initialImages: normalizeInitialImages(raw.initialImages),
     turnCount,
     turnKind: normalizeTurnKind(raw.turnKind),
-    pauseReason: normalizePauseReason(raw.pauseReason),
-    error: typeof raw.error === "string" ? raw.error.slice(0, 4_000) : "",
+    pauseReason,
+    error,
     progress,
     summary: typeof raw.summary === "string" ? raw.summary.slice(0, 4_000) : progress.at(-1)?.summary ?? "",
     evidence: typeof raw.evidence === "string" ? raw.evidence.slice(0, 4_000) : progress.at(-1)?.evidence ?? "",

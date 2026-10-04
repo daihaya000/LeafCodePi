@@ -91,7 +91,7 @@ test("reads legacy sanitized state filenames", () => {
   }
 });
 
-test("an unparseable nextTurnAt on a cooling-down loop re-arms the cooldown instead of sending at once", () => {
+test("an invalid nextTurnAt pauses a cooling-down loop with scheduler_error", () => {
   const cwd = mkdtempSync(join(tmpdir(), "leafcode-goal-loop-bad-next-"));
   process.env.LEAFCODE_PI_DATA_DIR = cwd;
   try {
@@ -101,14 +101,19 @@ test("an unparseable nextTurnAt on a cooling-down loop re-arms the cooldown inst
       sessionId: id, goal: "wait", acceptance: [], progress: [], turnKind: "goal", turnCount: 1, maxTurns: 5,
       status: "queued", cooldownSeconds: 300, ...extra,
     }), "utf8");
-    write("bad-next", { nextTurnAt: "garbage" });
-    const before = Date.now();
-    const loop = goalLoopTestSeams.readLoop(cwd, "bad-next");
-    const rearmed = Date.parse(loop?.nextTurnAt ?? "");
-    assert.ok(Number.isFinite(rearmed) && rearmed >= before + 299_000 && rearmed <= Date.now() + 301_000);
-    // A genuinely missing timestamp keeps its meaning (no wait), and a paused loop is left alone.
+    for (const [id, nextTurnAt] of [["bad-next", "garbage"], ["bad-type", 123], ["empty-next", ""]]) {
+      write(id, { nextTurnAt });
+      const loop = goalLoopTestSeams.readLoop(cwd, id);
+      assert.equal(loop?.status, "paused");
+      assert.equal(loop?.pauseReason, "scheduler_error");
+      assert.equal(loop?.nextTurnAt, null);
+      assert.match(loop?.error ?? "", /次ターン時刻が不正/);
+    }
+    // Missing/null remains the no-wait sentinel; an already-paused loop is left alone.
     write("no-next", {});
     assert.equal(goalLoopTestSeams.readLoop(cwd, "no-next")?.nextTurnAt, null);
+    write("null-next", { nextTurnAt: null });
+    assert.equal(goalLoopTestSeams.readLoop(cwd, "null-next")?.nextTurnAt, null);
     write("paused-bad", { status: "paused", nextTurnAt: "garbage" });
     assert.equal(goalLoopTestSeams.readLoop(cwd, "paused-bad")?.nextTurnAt, null);
   } finally {

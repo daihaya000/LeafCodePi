@@ -38,6 +38,7 @@ import {
 } from "./webui-auth.js";
 import {
   consumeSkipStaleRebuild,
+  createConsecutiveFailureTracker,
   formatWebStatus,
   getPostBuildLaunchPlan,
   getWebLaunchPlan,
@@ -853,6 +854,12 @@ async function restartHost() {
   }
 }
 
+async function publishStatusWebItem() {
+  if (systray != null && procRunning(systray.process)) {
+    await systray.sendAction({ type: "update-item", item: statusWebItem });
+  }
+}
+
 async function refreshStatusMenu() {
   const httpUp = await isHttpUp(`${WEBUI_URL}/api/health`);
   statusWebItem.title = formatWebStatus({
@@ -860,9 +867,7 @@ async function refreshStatusMenu() {
     running: procRunning(webProc),
     httpUp,
   });
-  if (systray != null && procRunning(systray.process)) {
-    systray.sendAction({ type: "update-item", item: statusWebItem });
-  }
+  await publishStatusWebItem();
 }
 
 function buildTrayMenu() {
@@ -1332,14 +1337,25 @@ async function main() {
   // The 5 s maintenance tick must not fail silently: a tray menu that no longer matches the real
   // processes is otherwise invisible until a restart. Failures go to the host log, rate-limited.
   const maintenanceFailures = createRateLimitedReporter({ report: (line) => error(line) });
+  const statusRefreshFailures = createConsecutiveFailureTracker(2);
   setInterval(() => {
     reconcileWebUiBinding().then(
       () => maintenanceFailures.success("WebUI binding reconcile"),
       (err) => maintenanceFailures.failure("WebUI binding reconcile", err),
     );
     refreshStatusMenu().then(
-      () => maintenanceFailures.success("Status menu refresh"),
-      (err) => maintenanceFailures.failure("Status menu refresh", err),
+      () => {
+        statusRefreshFailures.success();
+        maintenanceFailures.success("Status menu refresh");
+      },
+      (err) => {
+        maintenanceFailures.failure("Status menu refresh", err);
+        if (!statusRefreshFailures.failure()) return;
+        statusWebItem.title = formatWebStatus({ degraded: true });
+        void publishStatusWebItem().catch((updateError) => {
+          maintenanceFailures.failure("Degraded status menu update", updateError);
+        });
+      },
     );
   }, 5000).unref?.();
   await refreshStatusMenu();

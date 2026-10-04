@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { join } from "node:path";
 import test from "node:test";
 import {
+  createConsecutiveFailureTracker,
   formatWebStatus,
   getPostBuildLaunchPlan,
   getWebLaunchPlan,
@@ -167,6 +168,16 @@ test("isWebBuildStale returns false without a BUILD_ID", () => {
     dirs: { [WEB_DIR]: ["package.json"], [DIST_DIR]: [] },
   });
   assert.equal(isWebBuildStale(WEB_DIR, DIST_DIR, fs), false);
+});
+
+test("status degrades after consecutive failures and recovers after success", () => {
+  const tracker = createConsecutiveFailureTracker(2);
+  assert.equal(tracker.failure(), false);
+  assert.equal(tracker.failure(), true);
+  assert.equal(tracker.failure(), true);
+  tracker.success();
+  assert.equal(tracker.failure(), false);
+  assert.equal(formatWebStatus({ degraded: true, running: true, httpUp: true }), "LeafCodePi: degraded");
 });
 
 test("formatWebStatus and procRunning", () => {
