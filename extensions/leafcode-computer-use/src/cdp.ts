@@ -306,6 +306,7 @@ export interface CdpSessionConnectionState<T extends { close(): void }> {
 	connectingTabs: Map<string, Promise<T>>;
 	lastConnectFailureAt: number;
 	generation: number;
+	port?: string;
 }
 
 export class CdpSessionConnectionRegistry<T extends { close(): void }> {
@@ -318,6 +319,14 @@ export class CdpSessionConnectionRegistry<T extends { close(): void }> {
 			this.sessions.set(ownerSessionId, state);
 		}
 		return state;
+	}
+
+	setPort(ownerSessionId: string, port: string | undefined): void {
+		this.forSession(ownerSessionId).port = port;
+	}
+
+	portFor(ownerSessionId: string | undefined, fallback?: string): string | undefined {
+		return (ownerSessionId ? this.sessions.get(ownerSessionId)?.port : undefined) ?? fallback;
 	}
 
 	disconnect(ownerSessionId: string): void {
@@ -333,14 +342,27 @@ export class CdpSessionConnectionRegistry<T extends { close(): void }> {
 }
 
 const cdpConnections = new CdpSessionConnectionRegistry<CdpTab>();
+let currentSessionId: () => string | undefined = () => undefined;
+
+export function setCdpSessionIdProvider(provider: () => string | undefined): void {
+	currentSessionId = provider;
+}
+
+export function setCdpSessionPort(ownerSessionId: string, port: string | undefined): void {
+	cdpConnections.setPort(ownerSessionId, port);
+}
+
+function cdpPort(ownerSessionId = currentSessionId()): string | undefined {
+	return cdpConnections.portFor(ownerSessionId, process.env.PI_COMPUTER_USE_CDP_PORT);
+}
 
 /** Close session-owned CDP state without affecting other sessions or the browser process. */
 export function disconnectCdp(ownerSessionId: string): void {
 	cdpConnections.disconnect(ownerSessionId);
 }
 
-function cdpEnabled(): boolean {
-	const rawPort = process.env.PI_COMPUTER_USE_CDP_PORT ?? "";
+function cdpEnabled(ownerSessionId?: string): boolean {
+	const rawPort = cdpPort(ownerSessionId) ?? "";
 	if (!/^\d+$/.test(rawPort)) return false;
 	const port = Number(rawPort);
 	return Number.isInteger(port) && port > 0 && port <= 65535 && typeof WebSocket !== "undefined";
@@ -354,7 +376,7 @@ function cdpEnabled(): boolean {
  * endpoint never adds per-call latency.
  */
 export async function cdpTabForWindow(windowTitle: string, frame: WindowFrame | undefined, ownerSessionId: string): Promise<CdpTab | undefined> {
-	if (!cdpEnabled()) return undefined;
+	if (!cdpEnabled(ownerSessionId)) return undefined;
 	const state = cdpConnections.forSession(ownerSessionId);
 	const generation = state.generation;
 	if (Date.now() - state.lastConnectFailureAt < CONNECT_FAILURE_RETRY_MS) return undefined;
@@ -366,7 +388,7 @@ export async function cdpTabForWindow(windowTitle: string, frame: WindowFrame | 
 	}
 
 	try {
-		const pages = await cdpPages();
+		const pages = await cdpPages(ownerSessionId);
 		if (state.generation !== generation) return undefined;
 		const match = await pickTab(pages, windowTitle, frame);
 		if (!match || state.generation !== generation) return undefined;
@@ -408,7 +430,7 @@ interface CdpPageTarget {
 }
 
 export async function listCdpPageContexts(): Promise<CdpPageContext[]> {
-	const pages = await cdpPages();
+	const pages = await cdpPages(currentSessionId());
 	return pages.map((page) => ({
 		contextId: cdpContextId(page.id),
 		targetId: page.id,
@@ -515,13 +537,15 @@ async function withCdpContextTab<T>(contextId: string, run: (tab: CdpTab) => Pro
 async function cdpPageForContext(contextId: string): Promise<CdpPageTarget | undefined> {
 	if (!contextId.startsWith(CDP_CONTEXT_PREFIX)) return undefined;
 	const targetId = contextId.slice(CDP_CONTEXT_PREFIX.length);
-	const pages = await cdpPages();
+	const ownerSessionId = currentSessionId();
+	const pages = await cdpPages(ownerSessionId);
 	return pages.find((candidate) => candidate.id === targetId);
 }
 
-async function cdpPages(): Promise<CdpPageTarget[]> {
-	if (!cdpEnabled()) return [];
-	const port = process.env.PI_COMPUTER_USE_CDP_PORT;
+async function cdpPages(ownerSessionId?: string): Promise<CdpPageTarget[]> {
+	if (!cdpEnabled(ownerSessionId)) return [];
+	const port = cdpPort(ownerSessionId);
+	if (!port) return [];
 	const response = await fetch(`http://127.0.0.1:${port}/json/list`, { signal: AbortSignal.timeout(2_000) });
 	const targets = (await response.json()) as CdpPageTarget[];
 	return targets.filter((target) =>
