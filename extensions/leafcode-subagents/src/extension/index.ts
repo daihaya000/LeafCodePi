@@ -32,6 +32,7 @@ import { SubagentFleetStatus, resolveFleetViewPlacement } from "../tui/fleet-sta
 import { createSubagentParamsSchema } from "./schemas.ts";
 import { createSubagentExecutor, type SubagentParamsLike } from "../runs/foreground/subagent-executor.ts";
 import { createAsyncJobTracker } from "../runs/background/async-job-tracker.ts";
+import { registerSubagentBackgroundWorkProvider } from "../runs/background/background-work-provider.ts";
 import { getActiveAsyncCapacitySnapshot, resolveMaxActiveAsyncRunsPerSession } from "../runs/background/active-async-capacity.ts";
 import { cleanupResultIndexes, missionObserverResultCandidateFiles } from "../runs/background/result-files.ts";
 import { ASYNC_RETENTION_DELAY_MS, cleanupAsyncRetention } from "../runs/background/async-retention.ts";
@@ -887,6 +888,7 @@ export default function registerSubagentExtension(pi: ExtensionAPI): void {
 		fleetStatus?.setContext(ctx);
 	};
 
+	let unregisterBackgroundWorkProvider: (() => void) | undefined;
 	let runtimeCleaned = false;
 	const runtimeEntry: SubagentRuntimeEntry = {
 		sessionManager: null,
@@ -894,6 +896,8 @@ export default function registerSubagentExtension(pi: ExtensionAPI): void {
 		cleanup() {
 			if (runtimeCleaned) return;
 			runtimeCleaned = true;
+			unregisterBackgroundWorkProvider?.();
+			unregisterBackgroundWorkProvider = undefined;
 			const shuttingDownParentSession = parentSessionEnvValue;
 			clearRuntimeAgentsForPi(pi);
 			clearTimeout(resultIndexCleanupTimer);
@@ -1001,6 +1005,10 @@ export default function registerSubagentExtension(pi: ExtensionAPI): void {
 		installRuntime(ctx);
 		const recovering = event.reason === "startup" || event.reason === "reload" || event.reason === "resume";
 		resetSessionState(ctx, recovering);
+		unregisterBackgroundWorkProvider?.();
+		unregisterBackgroundWorkProvider = state.currentSessionId
+			? registerSubagentBackgroundWorkProvider(state, state.currentSessionId)
+			: undefined;
 		herdrStatusBridge.sessionStarted({
 			hasUI: ctx.hasUI === true,
 			runs: activeHerdrRuns(),

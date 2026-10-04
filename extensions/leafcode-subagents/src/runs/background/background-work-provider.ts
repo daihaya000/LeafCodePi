@@ -1,4 +1,4 @@
-import type { BackgroundWorkItem, BackgroundWorkProvider } from "../../api/background-work.ts";
+import { registerBackgroundWorkProvider, type BackgroundWorkItem, type BackgroundWorkProvider } from "../../api/background-work.ts";
 import { stopAsyncRun } from "../foreground/async-stop-action.ts";
 import type { SubagentState } from "../../shared/types.ts";
 
@@ -26,4 +26,8 @@ export function createSubagentBackgroundWorkProvider(
 			if (result?.isError) throw new Error(`Failed to stop subagent run '${item.id}'.`);
 		},
 	};
+}
+
+export function registerSubagentBackgroundWorkProvider(state: SubagentState, sessionId: string): () => void {
+	return registerBackgroundWorkProvider(createSubagentBackgroundWorkProvider(state, sessionId));
 }

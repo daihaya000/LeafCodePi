@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
+import { snapshotBackgroundWork } from "../../api/background-work.ts";
 import type { AsyncJobState, SubagentState } from "../../shared/types.ts";
-import { createSubagentBackgroundWorkProvider } from "./background-work-provider.ts";
+import { createSubagentBackgroundWorkProvider, registerSubagentBackgroundWorkProvider } from "./background-work-provider.ts";
 
 function stateFor(sessionId: string, jobs: AsyncJobState[]) {
 	return {
@@ -24,6 +25,22 @@ describe("createSubagentBackgroundWorkProvider", () => {
 			{ id: "owned-queued", sessionId: "session-a" },
 			{ id: "workflow", sessionId: "session-a" },
 		]);
+	});
+
+	it("registers a session-scoped provider and its disposer removes it", () => {
+		const state = stateFor("session-a", [
+			{ asyncId: "owned", asyncDir: "a", sessionId: "session-a", status: "running", mode: "single" },
+		]);
+		const unregister = registerSubagentBackgroundWorkProvider(state, "session-a");
+		try {
+			expect(snapshotBackgroundWork("session-a").items).toEqual([
+				{ provider: "subagents:session-a", id: "owned", sessionId: "session-a" },
+			]);
+			expect(snapshotBackgroundWork("session-b").items).toEqual([]);
+		} finally {
+			unregister();
+		}
+		expect(snapshotBackgroundWork("session-a").items).toEqual([]);
 	});
 
 	it("fails closed when asked to stop another session's run or after ownership changes", () => {
