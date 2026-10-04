@@ -158,7 +158,7 @@ let loopbackWebUiProxy = null;
 const iconData = JSON.parse(readFileSync(join(__dirname, "icon.json"), "utf8"));
 const TRAY_ICON = iconData.base64;
 
-const logWriter = createLogFileWriter(DATA_DIR);
+let logWriter = null;
 
 /** @type {import("node:child_process").ChildProcess | null} */
 let webProc = null;
@@ -218,13 +218,13 @@ async function reconcileWebUiBinding() {
 function log(text) {
   const line = formatLogLine({ ts: Date.now(), source: "host", level: "log", text });
   console.log(`[LeafCodePi] ${text}`);
-  logWriter.write({ ts: Date.now(), source: "host", level: "log", text });
+  logWriter?.write({ ts: Date.now(), source: "host", level: "log", text });
   return line;
 }
 
 function error(text) {
   console.error(`[LeafCodePi] ERROR ${text}`);
-  logWriter.write({ ts: Date.now(), source: "host", level: "error", text });
+  logWriter?.write({ ts: Date.now(), source: "host", level: "error", text });
 }
 
 function sleep(ms) {
@@ -394,11 +394,11 @@ async function waitUntilReady(url, label, seconds = 90, proc) {
 function pipeChild(label, child) {
   child.stdout?.on("data", (chunk) => {
     process.stdout.write(`[${label}] ${chunk}`);
-    logWriter.write({ ts: Date.now(), source: label, level: "log", text: String(chunk) });
+    logWriter?.write({ ts: Date.now(), source: label, level: "log", text: String(chunk) });
   });
   child.stderr?.on("data", (chunk) => {
     process.stderr.write(`[${label}] ${chunk}`);
-    logWriter.write({ ts: Date.now(), source: label, level: "error", text: String(chunk) });
+    logWriter?.write({ ts: Date.now(), source: label, level: "error", text: String(chunk) });
   });
 }
 
@@ -1211,6 +1211,12 @@ function onHostExit() {
 
 async function main() {
   acquireLock();
+  try {
+    logWriter = createLogFileWriter(DATA_DIR);
+  } catch (err) {
+    removeLock(LOCK_FILE);
+    throw err;
+  }
   const rebuildServices = consumeHostRestartBuild(process.env);
   log(`LeafCodePi host ${HOST_VERSION} pid=${process.pid}`);
   log(`Binding WebUI on ${WEBUI_HOST}:${WEBUI_PORT} (open ${WEBUI_URL})`);

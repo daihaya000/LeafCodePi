@@ -38,6 +38,18 @@ test("host repairs extension dependencies before starting children even with a r
   assert.ok(check < backendBuild && backendBuild < webStart);
 });
 
+test("the host writes to host.log only after claiming host.lock", () => {
+  const source = readFileSync(new URL("./index.js", import.meta.url), "utf8");
+  const main = source.slice(source.indexOf("async function main()"));
+  const lockClaim = main.indexOf("  acquireLock();");
+  const writerInit = main.indexOf("logWriter = createLogFileWriter(DATA_DIR);");
+  const logFunctions = source.slice(source.indexOf("function log(text)"), source.indexOf("function sleep(ms)"));
+
+  assert.ok(lockClaim >= 0 && writerInit > lockClaim);
+  assert.match(logFunctions, /logWriter\?\.write/);
+  assert.equal(source.includes("logWriter.write("), false);
+});
+
 test("readPort falls back on invalid values", () => {
   assert.equal(readPort("3000", 1), 3000);
   assert.equal(readPort("nope", 3000), 3000);
