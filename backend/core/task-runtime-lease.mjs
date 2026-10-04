@@ -117,7 +117,11 @@ export class TaskLeaseService {
       this.#notifyLeaseLoss(listener, [taskId]);
       return;
     }
-    this.state.pendingLeaseLosses = [...(this.state.pendingLeaseLosses ?? []), taskId].slice(-MAX_PENDING_LEASE_LOSSES);
+    const losses = [...(this.state.pendingLeaseLosses ?? []), taskId];
+    if (losses.length > MAX_PENDING_LEASE_LOSSES) {
+      this.warn(`[task-runtime-lease] ${losses.length - MAX_PENDING_LEASE_LOSSES} oldest lease-loss notifications dropped (cap ${MAX_PENDING_LEASE_LOSSES})`);
+    }
+    this.state.pendingLeaseLosses = losses.slice(-MAX_PENDING_LEASE_LOSSES);
   }
 
   #isStalePath(path, existing, now) {
@@ -303,7 +307,14 @@ export class TaskLeaseService {
     if (snapshots.length > 0) {
       const listener = this.state.orphanListener;
       if (listener) this.#notifyOrphans(listener, snapshots);
-      else this.state.pendingOrphans = [...(this.state.pendingOrphans ?? []), ...snapshots].slice(-MAX_PENDING_ORPHANS);
+      else {
+        const pending = [...(this.state.pendingOrphans ?? []), ...snapshots];
+        if (pending.length > MAX_PENDING_ORPHANS) {
+          // Not silent: these tasks are already marked error on disk but will not be offered for automatic resume.
+          this.warn(`[task-runtime-lease] ${pending.length - MAX_PENDING_ORPHANS} oldest orphaned-task notifications dropped (cap ${MAX_PENDING_ORPHANS}); they stay in error and are not auto-resumed`, pending.slice(0, pending.length - MAX_PENDING_ORPHANS).map((task) => task.id));
+        }
+        this.state.pendingOrphans = pending.slice(-MAX_PENDING_ORPHANS);
+      }
     }
     return reconciled;
   }

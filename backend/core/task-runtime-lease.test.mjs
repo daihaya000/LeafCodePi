@@ -201,6 +201,10 @@ test("reconciliation preserves working snapshots, caps replay and notifies only 
   assert.equal(f.service.reconcileOrphanedWorkingTasks().length, 101);
   assert.equal(f.rows[0].status, "working");
   assert.equal(f.state.pendingOrphans.length, 100);
+  // Dropping beyond the cap is reported with the dropped task ids, never silent.
+  assert.equal(f.warnings.length, 1);
+  assert.match(f.warnings[0][0], /1 oldest orphaned-task notifications dropped/);
+  assert.deepEqual(f.warnings[0][1], ["orphan-0"]);
   const received = [];
   f.service.setOrphanedTaskListener((tasks) => { received.push(tasks); });
   assert.equal(received.length, 1);
@@ -213,7 +217,9 @@ test("reconciliation preserves working snapshots, caps replay and notifies only 
   f.service.setOrphanedTaskListener(() => { throw new Error("listener failure"); });
   f.rows.push({ id: "late", status: "working" });
   assert.deepEqual(f.service.reconcileOrphanedWorkingTasks(), ["late"]);
-  assert.equal(f.warnings.length, 1);
+  // The cap warning above plus the failing listener's own warning.
+  assert.equal(f.warnings.length, 2);
+  assert.match(f.warnings[1][0], /orphan listener failed/);
   f.service.releaseTaskLease("live");
 });
 
