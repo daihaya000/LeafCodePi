@@ -138,7 +138,17 @@ function tryRefreshTokens(
   const key = credentialsPathOverride ?? credentialsPath();
   const pending = refreshInFlight.get(key);
   if (pending) return pending;
-  const run = withRefreshFileLock(key, () => refreshTokensOnce(creds, signal, credentialsPathOverride)).finally(() => {
+  const run = withRefreshFileLock(key, () => {
+    // Another process may have rotated tokens while this caller waited for the lock.
+    const latest = loadCredentials(key);
+    if (!latest) return Promise.resolve(null);
+    const accessChanged = latest.accessToken !== creds.accessToken;
+    if (accessChanged && (!latest.expiresAt || latest.expiresAt.getTime() > Date.now() + 60_000)) {
+      return Promise.resolve(latest);
+    }
+    // Unchanged credentials may still need refresh after a 401, even before expiry.
+    return refreshTokensOnce(latest, signal, key);
+  }).finally(() => {
     if (refreshInFlight.get(key) === run) refreshInFlight.delete(key);
   });
   refreshInFlight.set(key, run);
