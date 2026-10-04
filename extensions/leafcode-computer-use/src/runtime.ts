@@ -8,6 +8,27 @@ export interface StoredState<T> {
 	value: T;
 }
 
+export class SessionStateMap<T> {
+	private readonly sessions = new Map<string, T>();
+
+	get(sessionId: string): T | undefined {
+		return this.sessions.get(sessionId);
+	}
+
+	getOrCreate(sessionId: string, create: () => T): T {
+		let state = this.sessions.get(sessionId);
+		if (state === undefined) {
+			state = create();
+			this.sessions.set(sessionId, state);
+		}
+		return state;
+	}
+
+	clearSession(sessionId: string): void {
+		this.sessions.delete(sessionId);
+	}
+}
+
 export class StaleResourceStateError extends Error {
 	constructor(readonly resourceKey: string, readonly expectedEpoch: number, readonly actualEpoch: number) {
 		super(`State is stale for ${resourceKey}: expected epoch ${expectedEpoch}, current epoch ${actualEpoch}.`);

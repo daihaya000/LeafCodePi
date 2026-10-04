@@ -1,5 +1,18 @@
 import { describe, expect, it } from "vitest";
-import { StateStore } from "./runtime.ts";
+import { SessionStateMap, StateStore } from "./runtime.ts";
+
+describe("SessionStateMap", () => {
+	it("creates and clears state by exact session id", () => {
+		const states = new SessionStateMap<Map<string, string>>();
+		states.getOrCreate("session-a", () => new Map()).set("ref", "a");
+		states.getOrCreate("session-b", () => new Map()).set("ref", "b");
+
+		states.clearSession("session-a");
+
+		expect(states.get("session-a")).toBeUndefined();
+		expect(states.get("session-b")?.get("ref")).toBe("b");
+	});
+});
 
 describe("StateStore.clearSession", () => {
 	it("clears only records owned by the requested session", () => {

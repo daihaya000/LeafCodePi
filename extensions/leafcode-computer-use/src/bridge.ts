@@ -17,7 +17,7 @@ import { toFiniteNumber } from "./platform/coerce.ts";
 import { currentPlatformBackend } from "./platform/index.ts";
 import type { FramePoints, HelperActPerformed, HelperActResult, NativeInputDelivery, PlatformActRequest, PlatformApp as HelperApp, PlatformDiagnostics, PlatformFrontmostResult as FrontmostResult, PlatformRoot as HelperWindow } from "./platform/types.ts";
 import type { PermissionStatus } from "./permissions.ts";
-import { ResourceScheduler } from "./runtime.ts";
+import { ResourceScheduler, SessionStateMap } from "./runtime.ts";
 import { scoreWindow, shouldPreferForegroundModalWindow } from "./root-selection.ts";
 import { SavedStates, type CurrentCapture, type CurrentTarget, type OperationState } from "./state.ts";
 import { changesBetween, renderChanges, stabilizeRefs } from "./view.ts";
@@ -267,11 +267,15 @@ interface WindowRefRecord {
 	isFocused: boolean;
 }
 
-interface RuntimeState {
+interface SessionReferences {
 	windowRefs: Map<string, WindowRefRecord>;
 	windowRefByIdentity: Map<string, string>;
 	browserRootByContext: Map<string, string>;
 	browserContextByRoot: Map<string, string>;
+}
+
+interface RuntimeState {
+	sessionReferences: SessionStateMap<SessionReferences>;
 	nextRootRefIndex: number;
 	managedBrowser?: ChildProcess;
 	managedBrowserCdpPort?: string;
@@ -299,10 +303,7 @@ const BROWSER_TRANSACTION_ACTIONS = new Set<UiAction["action"]>(["press", "click
 
 const runtimeState: RuntimeState = {
 	lastPermissionCheckAt: 0,
-	windowRefs: new Map(),
-	windowRefByIdentity: new Map(),
-	browserRootByContext: new Map(),
-	browserContextByRoot: new Map(),
+	sessionReferences: new SessionStateMap(),
 	nextRootRefIndex: 1,
 };
 
@@ -322,6 +323,17 @@ let resourceScheduler = new ResourceScheduler();
 
 function operationState(): OperationState {
 	return savedStates.current();
+}
+
+function sessionReferences(ownerSessionId?: string): SessionReferences {
+	const sessionId = ownerSessionId ?? operationState().ownerSessionId;
+	if (!sessionId) throw new Error("Computer-use session references are unavailable.");
+	return runtimeState.sessionReferences.getOrCreate(sessionId, () => ({
+		windowRefs: new Map(),
+		windowRefByIdentity: new Map(),
+		browserRootByContext: new Map(),
+		browserContextByRoot: new Map(),
+	}));
 }
 
 function desktopResourceKey(target: Pick<CurrentTarget, "pid">): string {
@@ -356,11 +368,7 @@ export async function shutdownComputerUseSession(ownerSessionId: string): Promis
 
 	savedStates.clearSession(ownerSessionId);
 	clearStoredOutputs();
-	runtimeState.windowRefs.clear();
-	runtimeState.windowRefByIdentity.clear();
-	runtimeState.browserRootByContext.clear();
-	runtimeState.browserContextByRoot.clear();
-	runtimeState.nextRootRefIndex = 1;
+	runtimeState.sessionReferences.clearSession(ownerSessionId);
 	runtimeState.permissionStatus = undefined;
 	runtimeState.helperDiagnostics = undefined;
 	runtimeState.lastPermissionCheckAt = 0;
@@ -654,30 +662,32 @@ function windowRecordIdentity(record: Pick<WindowRefRecord, "pid" | "windowId" |
 }
 
 function storeWindowRef(record: Omit<WindowRefRecord, "ref">): WindowRefRecord {
+	const references = sessionReferences();
 	const identity = windowRecordIdentity(record);
-	const existingRef = runtimeState.windowRefByIdentity.get(identity);
+	const existingRef = references.windowRefByIdentity.get(identity);
 	if (existingRef) {
-		const existing = runtimeState.windowRefs.get(existingRef);
+		const existing = references.windowRefs.get(existingRef);
 		if (existing) {
 			const updated = { ...record, ref: existingRef };
-			runtimeState.windowRefs.set(existingRef, updated);
+			references.windowRefs.set(existingRef, updated);
 			return updated;
 		}
 	}
 
 	const ref = `@r${runtimeState.nextRootRefIndex++}`;
 	const stored = { ...record, ref };
-	runtimeState.windowRefByIdentity.set(identity, ref);
-	runtimeState.windowRefs.set(ref, stored);
+	references.windowRefByIdentity.set(identity, ref);
+	references.windowRefs.set(ref, stored);
 	return stored;
 }
 
 function storeBrowserRootRef(contextId: string): string {
-	const existing = runtimeState.browserRootByContext.get(contextId);
+	const references = sessionReferences();
+	const existing = references.browserRootByContext.get(contextId);
 	if (existing) return existing;
 	const ref = `@r${runtimeState.nextRootRefIndex++}`;
-	runtimeState.browserRootByContext.set(contextId, ref);
-	runtimeState.browserContextByRoot.set(ref, contextId);
+	references.browserRootByContext.set(contextId, ref);
+	references.browserContextByRoot.set(ref, contextId);
 	return ref;
 }
 
@@ -805,7 +815,7 @@ async function resolveTargetByWindowSelector(selector: RootSelector, signal?: Ab
 		return await resolveCurrentTarget(signal);
 	}
 
-	const fromRef = runtimeState.windowRefs.get(normalized);
+	const fromRef = sessionReferences().windowRefs.get(normalized);
 	if (fromRef) {
 		const app: HelperApp = { appName: fromRef.appName, bundleId: fromRef.bundleId, pid: fromRef.pid };
 		const windows = await listWindows(fromRef.pid, signal);
@@ -1129,7 +1139,8 @@ function ensurePointIsInLookImage(x: number, y: number, look: LookResponse, erro
 function modelRefForRootDelta(delta: NonNullable<HelperActResult["rootDelta"]>[number]): string | undefined {
 	if (!delta.ref) return undefined;
 	if (delta.ref.startsWith("@r")) return delta.ref;
-	for (const record of runtimeState.windowRefs.values()) {
+	const references = sessionReferences();
+	for (const record of references.windowRefs.values()) {
 		if (record.nativeWindowRef === delta.ref || record.ref === delta.ref) return record.ref;
 	}
 	const ref = `@r${runtimeState.nextRootRefIndex++}`;
@@ -1148,8 +1159,8 @@ function modelRefForRootDelta(delta: NonNullable<HelperActResult["rootDelta"]>[n
 		isMain: false,
 		isFocused: delta.change === "focused",
 	};
-	runtimeState.windowRefs.set(ref, record);
-	runtimeState.windowRefByIdentity.set(windowRecordIdentity(record), ref);
+	references.windowRefs.set(ref, record);
+	references.windowRefByIdentity.set(windowRecordIdentity(record), ref);
 	return ref;
 }
 
@@ -1617,7 +1628,7 @@ function sameRootIdentity(a: CurrentTarget, b: CurrentTarget): boolean {
 async function performObserve(params: ObserveParams, signal?: AbortSignal): Promise<AgentToolResult<ComputerUseDetails | BrowserObservationDetails>> {
 	const requestedRoot = typeof params.root === "string" ? params.root : undefined;
 	if (requestedRoot && !/^@r\d+$/.test(requestedRoot)) throw new Error("observe_ui.root must be an exact @r ref issued by find_roots.");
-	const browserContextId = requestedRoot ? runtimeState.browserContextByRoot.get(requestedRoot) : undefined;
+	const browserContextId = requestedRoot ? sessionReferences().browserContextByRoot.get(requestedRoot) : undefined;
 	if (isBrowserContextId(browserContextId)) {
 		const targetId = browserContextId.slice(BROWSER_CONTEXT_PREFIX.length);
 		const resourceKey = `cdp:${targetId}`;
@@ -2313,9 +2324,8 @@ export function reconstructStateFromBranch(ctx: ExtensionContext): void {
 	const ownerSessionId = ctx.sessionManager.getSessionId();
 	savedStates.clearSession(ownerSessionId);
 	clearStoredOutputs();
-	runtimeState.windowRefs.clear();
-	runtimeState.windowRefByIdentity.clear();
-	runtimeState.nextRootRefIndex = 1;
+	runtimeState.sessionReferences.clearSession(ownerSessionId);
+	const references = sessionReferences(ownerSessionId);
 
 	const restoredResources = new Set<string>();
 	for (const entry of [...ctx.sessionManager.getBranch()].reverse()) {
@@ -2348,8 +2358,8 @@ export function reconstructStateFromBranch(ctx: ExtensionContext): void {
 					isMain: toBoolean(window.isMain),
 					isFocused: toBoolean(window.isFocused),
 				};
-				runtimeState.windowRefs.set(record.ref, record);
-				runtimeState.windowRefByIdentity.set(windowRecordIdentity(record), record.ref);
+				references.windowRefs.set(record.ref, record);
+				references.windowRefByIdentity.set(windowRecordIdentity(record), record.ref);
 				const match = /^@r(\d+)$/.exec(record.ref);
 				if (match) runtimeState.nextRootRefIndex = Math.max(runtimeState.nextRootRefIndex, Number(match[1]) + 1);
 			}
