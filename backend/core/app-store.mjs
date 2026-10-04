@@ -4,19 +4,21 @@ import { randomUUID } from "node:crypto";
 import { withFileLock } from "./file-lock.mjs";
 
 const STORE_BACKUP_DAYS = 7;
+const STORE_BACKUP_GENERATIONS_PER_DAY = 4;
 const emptyStore = () => ({ version: 1, projects: [], tasks: [] });
 
 /** Application CRUD and disk format, independent of SDK, Next and path settings. */
 export class AppStore {
   #cachedStore = null;
 
-  constructor({ storePath, noProjectSessionDir, samePath, noProjectName, now = () => new Date(), uuid = () => randomUUID() }) {
+  constructor({ storePath, noProjectSessionDir, samePath, noProjectName, now = () => new Date(), uuid = () => randomUUID(), onBackupError = (error) => process.emitWarning(error) }) {
     this.storePath = storePath;
     this.noProjectSessionDir = noProjectSessionDir;
     this.samePath = samePath;
     this.noProjectName = noProjectName;
     this.now = now;
     this.uuid = uuid;
+    this.onBackupError = onBackupError;
   }
 
   #mutate(update) {
@@ -76,15 +78,58 @@ export class AppStore {
 
   #snapshotStore(file) {
     const directory = join(dirname(file), "backups");
-    const name = `store-${this.now().toISOString().slice(0, 10)}.json`;
-    mkdirSync(directory, { recursive: true });
-    try { copyFileSync(file, join(directory, name), 1 /* COPYFILE_EXCL */); }
-    catch { return; }
-    // Preserve the first snapshot of each day and retain seven daily snapshots.
-    const stale = readdirSync(directory)
-      .filter((entry) => entry.startsWith("store-") && entry.endsWith(".json"))
-      .sort().slice(0, -STORE_BACKUP_DAYS);
-    for (const entry of stale) rmSync(join(directory, entry), { force: true });
+    try { statSync(file); }
+    catch (error) {
+      if (error?.code === "ENOENT") return;
+      this.#reportBackupError(file, error);
+      return;
+    }
+
+    let backupPath;
+    try {
+      mkdirSync(directory, { recursive: true });
+      const day = this.now().toISOString().slice(0, 10);
+      const sequencePattern = new RegExp(`^store-${day}-(\\d+)\\.json$`);
+      const sequence = readdirSync(directory)
+        .map((entry) => Number(sequencePattern.exec(entry)?.[1] ?? 0))
+        .reduce((maximum, value) => Math.max(maximum, value), 0) + 1;
+      backupPath = join(directory, `store-${day}-${String(sequence).padStart(6, "0")}.json`);
+      copyFileSync(file, backupPath, 1 /* COPYFILE_EXCL */);
+    } catch (error) {
+      if (backupPath) {
+        try { rmSync(backupPath, { force: true }); } catch { /* preserve the primary store write */ }
+      }
+      this.#reportBackupError(file, error);
+      return;
+    }
+
+    try { this.#pruneStoreBackups(directory); }
+    catch (error) { this.#reportBackupError(file, error); }
+  }
+
+  #pruneStoreBackups(directory) {
+    const snapshots = readdirSync(directory).flatMap((entry) => {
+      const match = /^store-(\d{4}-\d{2}-\d{2})(?:-(\d+))?\.json$/.exec(entry);
+      return match ? [{ entry, day: match[1], sequence: Number(match[2] ?? 0) }] : [];
+    });
+    const days = [...new Set(snapshots.map((snapshot) => snapshot.day))].sort().slice(-STORE_BACKUP_DAYS);
+    const retained = new Set();
+    for (const day of days) {
+      const generations = snapshots.filter((snapshot) => snapshot.day === day)
+        .sort((left, right) => left.sequence - right.sequence || left.entry.localeCompare(right.entry));
+      const recent = generations.length > STORE_BACKUP_GENERATIONS_PER_DAY
+        ? [generations[0], ...generations.slice(-(STORE_BACKUP_GENERATIONS_PER_DAY - 1))]
+        : generations;
+      for (const snapshot of recent) retained.add(snapshot.entry);
+    }
+    for (const snapshot of snapshots) {
+      if (!retained.has(snapshot.entry)) rmSync(join(directory, snapshot.entry), { force: true });
+    }
+  }
+
+  #reportBackupError(file, error) {
+    try { this.onBackupError(new Error(`application store backup failed: ${file}`, { cause: error })); }
+    catch { /* backup reporting must not block the primary store write */ }
   }
 
   #writeStore(store) {

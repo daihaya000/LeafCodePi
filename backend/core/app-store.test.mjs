@@ -13,6 +13,7 @@ function fixture(t) {
   let time = Date.parse("2026-09-01T12:00:00.000Z");
   let ids = 0;
   let workspaces = 0;
+  const backupErrors = [];
   const options = {
     storePath: () => file,
     noProjectSessionDir: () => {
@@ -22,11 +23,12 @@ function fixture(t) {
     },
     samePath: (left, right) => left.toLowerCase() === right.toLowerCase(),
     noProjectName: "プロジェクトなし",
+    onBackupError: (error) => backupErrors.push(error),
     now: () => new Date(time),
     uuid: () => `id-${++ids}`,
   };
   return {
-    root, store: new AppStore(options), options,
+    root, store: new AppStore(options), options, backupErrors,
     file: () => file, setFile: (value) => { file = value; },
     setTime: (value) => { time = value; },
     read: () => JSON.parse(readFileSync(file, "utf8")),
@@ -106,7 +108,7 @@ test("no-op patches skip writes, real patches advance time and metadata can pres
   const firstStat = statSync(f.file());
   assert.equal(f.store.patchTask(task.id, { title: "test" }), task);
   assert.equal(statSync(f.file()).mtimeMs, firstStat.mtimeMs);
-  assert.equal(existsSync(join(f.root, "backups", "store-2026-09-01.json")), false);
+  assert.equal(existsSync(join(f.root, "backups")), false);
   f.store.setTaskStatus(task.id, "working");
   assert.equal(task.updatedAt, new Date(Date.parse(originalTime) + 1).toISOString());
   const changedTime = task.updatedAt;
@@ -151,21 +153,41 @@ test("delete operations return the same counts and do not delete workspaces", (t
   assert.equal(f.store.getTask(a.id), undefined);
 });
 
-test("the first daily snapshot is retained and only seven snapshots are kept", (t) => {
+test("successive writes keep numbered snapshots with bounded daily and date retention", (t) => {
   const f = fixture(t);
-  f.store.upsertProject({ name: "first", rootPath: "first" });
-  f.store.upsertProject({ name: "second", rootPath: "second" });
-  const first = join(f.root, "backups", "store-2026-09-01.json");
-  assert.deepEqual(JSON.parse(readFileSync(first, "utf8")).projects.map((p) => p.name), ["first"]);
-  f.store.upsertProject({ name: "third", rootPath: "third" });
-  assert.deepEqual(JSON.parse(readFileSync(first, "utf8")).projects.map((p) => p.name), ["first"]);
+  for (const name of ["first", "second", "third", "fourth", "fifth", "sixth"]) {
+    f.store.upsertProject({ name, rootPath: name });
+  }
+  const backupDirectory = join(f.root, "backups");
+  const firstDay = readdirSync(backupDirectory).sort();
+  assert.deepEqual(firstDay, [
+    "store-2026-09-01-000001.json",
+    "store-2026-09-01-000003.json",
+    "store-2026-09-01-000004.json",
+    "store-2026-09-01-000005.json",
+  ]);
+  assert.deepEqual(JSON.parse(readFileSync(join(backupDirectory, firstDay[0]), "utf8")).projects.map((project) => project.name), ["first"]);
+  assert.deepEqual(JSON.parse(readFileSync(join(backupDirectory, firstDay.at(-1)), "utf8")).projects.map((project) => project.name), ["first", "second", "third", "fourth", "fifth"]);
+
   for (let day = 2; day <= 10; day += 1) {
     f.setTime(Date.parse(`2026-09-${String(day).padStart(2, "0")}T12:00:00.000Z`));
     f.store.upsertProject({ rootPath: `day-${day}` });
   }
-  const names = readdirSync(join(f.root, "backups")).sort();
-  assert.equal(names.length, 7);
-  assert.equal(names[0], "store-2026-09-04.json");
+  const retained = readdirSync(backupDirectory).sort();
+  assert.equal(retained.length, 7);
+  assert.equal(retained[0], "store-2026-09-04-000001.json");
+  assert.equal(retained.at(-1), "store-2026-09-10-000001.json");
+});
+
+test("backup failures are reported without blocking a valid store update", (t) => {
+  const f = fixture(t);
+  const project = f.store.upsertProject({ name: "before", rootPath: "before" });
+  writeFileSync(join(f.root, "backups"), "not a directory", "utf8");
+
+  assert.doesNotThrow(() => f.store.patchProject(project.id, { name: "after" }));
+  assert.equal(f.store.getProject(project.id).name, "after");
+  assert.equal(f.backupErrors.length, 1);
+  assert.match(f.backupErrors[0].message, /application store backup failed/);
 });
 
 test("cache identity is reused, external changes are seen and storage roots remain isolated", (t) => {
@@ -209,12 +231,12 @@ test("mutations refuse to overwrite corrupt or unsupported store files", (t) => 
 
 test("a failed mutation leaves the previous destination and read cache intact", (t) => {
   const f = fixture(t);
-  const project = f.store.upsertProject({ rootPath: "first" });
+  const task = f.store.insertTask({ project: null, title: "before" });
   const before = readFileSync(f.file(), "utf8");
   f.store.now = () => { throw new Error("injected write preparation failure"); };
-  assert.throws(() => f.store.patchProject(project.id, { name: "new" }));
+  assert.throws(() => f.store.patchTask(task.id, { title: "after" }));
   assert.equal(readFileSync(f.file(), "utf8"), before);
-  assert.equal(f.store.getProject(project.id).name, "Untitled");
+  assert.equal(f.store.getTask(task.id).title, "before");
   assert.equal(existsSync(`${f.file()}.lock`), false);
 });
 

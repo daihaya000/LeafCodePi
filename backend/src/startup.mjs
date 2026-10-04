@@ -61,6 +61,7 @@ export function createBackendStartup({
     noProjectSessionDir,
     samePath,
     noProjectName: NO_PROJECT_NAME,
+    onBackupError: (error) => warn("Application store backup failed", error),
   });
   // The Bot store reads the same files the Web app does; the tool vocabulary comes from the shared
   // module so both processes validate stored tool names identically.
