@@ -38,6 +38,7 @@ describe("CodePermissionSettings", () => {
     await waitFor(() => expect((subagent as HTMLButtonElement).disabled).toBe(false));
 
     expect(mode.value).toBe("allow");
+    expect(screen.getByText(/Bash \/ PowerShell \/ 画面操作/)).toBeTruthy();
     expect(skill.getAttribute("aria-checked")).toBe("true");
     expect(subagent.getAttribute("aria-checked")).toBe("false");
     expect(getJson).toHaveBeenCalledWith("/api/settings/code-permission-mode");

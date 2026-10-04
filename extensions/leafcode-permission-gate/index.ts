@@ -1491,6 +1491,7 @@ export default function (pi: ExtensionAPI): void {
         );
         if (blocked) return blocked;
       }
+      if (mode === "allow") return undefined;
       const message = `画面操作を今回1回だけ許可しますか?\n操作: ${summary}\n入力テキストは表示していません。`;
       try {
         const approved = ctx.hasUI

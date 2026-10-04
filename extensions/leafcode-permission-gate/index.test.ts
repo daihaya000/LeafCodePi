@@ -677,7 +677,7 @@ describe("system safety classifier", () => {
 });
 
 describe("LeafCode permission gate", () => {
-  it("requires explicit approval for act_ui, redacts typed text, and refuses browser tools", async () => {
+  it("applies permission mode to act_ui, preserves safety approval, redacts typed text, and refuses browser tools", async () => {
     const cwd = mkdtempSync(join(tmpdir(), "leafcode-computer-use-gate-"));
     const appDir = mkdtempSync(join(tmpdir(), "leafcode-computer-use-gate-data-"));
     const previousDataDir = process.env.LEAFCODE_PI_DATA_DIR;
@@ -693,6 +693,10 @@ describe("LeafCode permission gate", () => {
       writeFileSync(join(appDir, "permission-gate.json"), JSON.stringify({ mode: "allow" }), "utf8");
       const browser = await handlers.get("tool_call")?.({ toolName: "evaluate_browser", input: { expression: "document.title" } }, ctx);
       assert.equal((browser as { block?: boolean })?.block, true);
+      const allowedWithoutConfirmation = await handlers.get("tool_call")?.(call, ctx);
+      assert.equal((allowedWithoutConfirmation as { block?: boolean } | undefined)?.block, undefined);
+
+      writeFileSync(join(appDir, "permission-gate.json"), JSON.stringify({ mode: "ask" }), "utf8");
       const missingUi = await handlers.get("tool_call")?.(call, ctx);
       assert.equal((missingUi as { block?: boolean })?.block, true);
 
@@ -734,6 +738,60 @@ describe("LeafCode permission gate", () => {
       rmSync(appDir, { recursive: true, force: true });
     }
   });
+
+  it("keeps system-safety approval for act_ui in allow mode", async () => {
+    const cwd = mkdtempSync(join(tmpdir(), "leafcode-computer-use-safety-"));
+    const appDir = mkdtempSync(join(tmpdir(), "leafcode-computer-use-safety-data-"));
+    const previousDataDir = process.env.LEAFCODE_PI_DATA_DIR;
+    process.env.LEAFCODE_PI_DATA_DIR = appDir;
+    const handlers = new Map<string, Handler>();
+    permissionGate({
+      on: (name: string, handler: Handler) => handlers.set(name, handler),
+      registerCommand: () => undefined,
+    } as unknown as ExtensionAPI);
+    const prompts: string[] = [];
+    let choice: "Yes" | "No" = "No";
+    const ctx = {
+      cwd,
+      hasUI: true,
+      sessionManager: { getSessionId: () => "computer-use-safety" },
+      ui: {
+        select: async (message: string) => {
+          prompts.push(message);
+          return choice;
+        },
+        notify: () => undefined,
+      },
+    } as unknown as ExtensionContext;
+    const call = {
+      toolName: "act_ui",
+      input: { stateId: "S1", actions: [{ action: "typeText", text: "systemctl stop sshd" }] },
+    };
+    try {
+      writeFileSync(
+        join(appDir, "permission-gate.json"),
+        JSON.stringify({ mode: "allow", systemSafety: "standard" }),
+        "utf8",
+      );
+      const denied = await handlers.get("tool_call")?.(call, ctx);
+      assert.equal((denied as { block?: boolean } | undefined)?.block, true);
+      assert.match((denied as { reason?: string } | undefined)?.reason ?? "", /System safety guard/);
+      assert.equal(prompts.length, 1);
+      assert.match(prompts[0], /システム安全ガード/);
+
+      choice = "Yes";
+      const approved = await handlers.get("tool_call")?.(call, ctx);
+      assert.equal((approved as { block?: boolean } | undefined)?.block, undefined);
+      assert.equal(prompts.length, 2);
+      assert.ok(prompts.every((prompt) => prompt.includes("システム安全ガード")));
+    } finally {
+      if (previousDataDir === undefined) delete process.env.LEAFCODE_PI_DATA_DIR;
+      else process.env.LEAFCODE_PI_DATA_DIR = previousDataDir;
+      rmSync(cwd, { recursive: true, force: true });
+      rmSync(appDir, { recursive: true, force: true });
+    }
+  });
+
   it("refuses an MCP tool the server declares destructive in deny mode, and leaves the others alone", async () => {
     const cwd = mkdtempSync(join(tmpdir(), "leafcode-permission-gate-mcp-"));
     const appDir = mkdtempSync(join(tmpdir(), "leafcode-permission-gate-mcp-data-"));

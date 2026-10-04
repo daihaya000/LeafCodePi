@@ -78,7 +78,8 @@ export function PermissionModeSettings() {
     <div className="rounded-2xl border border-border bg-surface p-4">
       <h3 className="text-sm font-semibold">権限承認</h3>
       <p className="mt-1 text-xs text-muted">
-        Codeタスクが Bash / PowerShell を実行するときの承認方法です。{APPLY_NOTE}
+        Codeタスクの Bash / PowerShell / 画面操作の承認方法です。許可では通常の画面操作を確認なしで実行します。
+        OS 等への操作はシステム安全ガードの設定に従います。{APPLY_NOTE}
         Botが開始・監督するCodeタスクはBotの権限に従います。既定は許可です。
       </p>
       <label className="mt-3 flex flex-col gap-1.5 @xl:flex-row @xl:items-center @xl:gap-3">

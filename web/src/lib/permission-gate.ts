@@ -18,17 +18,17 @@ export const PERMISSION_OPTIONS: {
   {
     value: "allow",
     label: "許可",
-    title: "通常の危険操作は確認なし。システム安全ガードの度合いに応じて OS 等の変更を止めます",
+    title: "通常の危険操作・画面操作は確認なし。システム安全ガード設定に応じて OS 等の変更を止めます",
   },
   {
     value: "ask",
     label: "確認",
-    title: "危険な操作の前に確認。システム安全ガードの度合いに応じて OS 等の変更を止めます",
+    title: "危険な操作・画面操作の前に確認。システム安全ガード設定に応じて OS 等の変更を止めます",
   },
   {
     value: "deny",
     label: "拒否",
-    title: "Bash / PowerShell ツールの実行をすべて拒否します（危険コマンドに限りません）",
+    title: "Bash / PowerShell / 画面操作をすべて拒否します（危険操作に限りません）",
   },
 ];
 
