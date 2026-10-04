@@ -1,5 +1,6 @@
 import { mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { withDirectoryLock } from "./directory-lock.mjs";
 
 // Preserve the existing prompt, timing and disk format during extraction.
 export const RESTART_RESUME_PROMPT =
@@ -86,8 +87,52 @@ export class RestartResumeService {
     renameSync(temporary, path);
   }
 
+  /**
+   * Like readAttempts, but an existing file that cannot be interpreted is reported (`null`) instead of
+   * being read as "no attempts recorded": forgetting the budget would let an interrupted prompt be
+   * resumed again and again.
+   */
+  #readAttemptsStrict() {
+    let text;
+    try { text = readFileSync(this.attemptsPath(), "utf8"); }
+    catch (error) {
+      if (error?.code === "ENOENT") return {};
+      throw error;
+    }
+    let parsed;
+    try { parsed = JSON.parse(text); } catch { return null; }
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return null;
+    const result = {};
+    for (const [id, value] of Object.entries(parsed)) {
+      if (typeof value?.count === "number" && typeof value.lastAt === "number") {
+        result[id] = { count: value.count, lastAt: value.lastAt };
+      }
+    }
+    return result;
+  }
+
+  /**
+   * Claim one attempt under a cross-process lock, so two Backends cannot both read the same count and
+   * both resume the task. An unreadable budget file fails closed: it is set aside (kept for inspection)
+   * and this claim is refused; the next restart starts from a clean budget.
+   */
   claimAttempt(taskId, now) {
-    const records = this.readAttempts();
+    const path = this.attemptsPath();
+    mkdirSync(this.dataDir(), { recursive: true });
+    return withDirectoryLock({
+      lockPath: `${path}.lock`,
+      parentDir: this.dataDir(),
+      staleMs: 30_000,
+      busyMessage: "restart-resume budget is busy",
+    }, () => this.#claimAttemptLocked(taskId, now));
+  }
+
+  #claimAttemptLocked(taskId, now) {
+    const records = this.#readAttemptsStrict();
+    if (records === null) {
+      try { renameSync(this.attemptsPath(), `${this.attemptsPath()}.corrupt-${now}`); } catch { /* still refuse */ }
+      return false;
+    }
     for (const [id, record] of Object.entries(records)) {
       if (now - record.lastAt > RESTART_RESUME_WINDOW_MS) delete records[id];
     }

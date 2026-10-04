@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
-import { execFileSync } from "node:child_process";
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { execFileSync, spawn } from "node:child_process";
+import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
@@ -76,6 +76,43 @@ test("existing retry budget format, expiration and persistence survive service r
   f.deps.now = () => NOW + RESTART_RESUME_WINDOW_MS + 1;
   assert.equal(await restarted.resumeOrphanedTask(task(), f.deps), true);
   assert.deepEqual(readBudget(f.root), { t1: { count: 1, lastAt: f.deps.now() } });
+});
+
+test("an unreadable retry budget refuses the resume, is set aside, and the next attempt starts clean", async (t) => {
+  const f = fixture(t);
+  const file = join(f.root, "restart-resume.json");
+  writeFileSync(file, "{torn", "utf8");
+  assert.equal(await f.service.resumeOrphanedTask(task(), f.deps), false);
+  assert.equal(f.prompts.length, 0);
+  assert.equal(existsSync(file), false);
+  const kept = readdirSync(f.root).filter((name) => name.startsWith("restart-resume.json.corrupt-"));
+  assert.equal(kept.length, 1);
+  assert.equal(readFileSync(join(f.root, kept[0]), "utf8"), "{torn");
+  assert.equal(await f.service.resumeOrphanedTask(task(), f.deps), true);
+  assert.deepEqual(readBudget(f.root), { t1: { count: 1, lastAt: NOW } });
+  assert.equal(existsSync(`${file}.lock`), false);
+});
+
+test("concurrent processes cannot both claim the last attempt of the budget", { timeout: 25_000 }, async (t) => {
+  const f = fixture(t);
+  const moduleUrl = new URL("./restart-resume.mjs", import.meta.url).href;
+  const code = `
+    import { RestartResumeService } from ${JSON.stringify(moduleUrl)};
+    const service = new RestartResumeService({ dataDir: () => ${JSON.stringify(f.root)}, orphanedTaskError: "x" });
+    let claimed = 0;
+    for (let n = 0; n < 5; n += 1) if (service.claimAttempt("shared", ${NOW})) claimed += 1;
+    process.stdout.write(String(claimed));
+  `;
+  const run = () => new Promise((resolve, reject) => {
+    const child = spawn(process.execPath, ["--input-type=module", "-e", code], { stdio: ["ignore", "pipe", "inherit"] });
+    let out = "";
+    child.stdout.on("data", (chunk) => { out += chunk; });
+    child.on("exit", (exit) => (exit === 0 ? resolve(Number(out)) : reject(new Error(`exit ${exit}`))));
+  });
+  const claimed = await Promise.all([run(), run(), run()]);
+  // RESTART_RESUME_MAX_ATTEMPTS is 2 across every process together.
+  assert.equal(claimed.reduce((sum, value) => sum + value, 0), 2);
+  assert.deepEqual(readBudget(f.root), { shared: { count: 2, lastAt: NOW } });
 });
 
 test("candidate exclusion and stagger timing are unchanged", async (t) => {
