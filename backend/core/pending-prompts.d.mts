@@ -1,6 +1,9 @@
 import type { PermissionRequestDto, QuestionRequestDto } from "@shared/types";
 
 export const PENDING_PROMPT_TIMEOUT_MS: number;
+export class PendingPromptIdCollisionError extends Error {
+  readonly code: "PENDING_PROMPT_ID_COLLISION";
+}
 export type QuestionAnswer = { answers: string[][] };
 export type TimerHandle = unknown;
 
@@ -39,12 +42,13 @@ export function taskIdForSession(
 export function createPermissionPromptService(
   options: CommonOptions & { emit: PermissionPromptEmit },
 ): ServiceShape<PermissionRequestDto, boolean> & {
-  /** Resolves null when the session cannot be mapped to a task (no dialog). */
+  /** Resolves null when unmapped; rejects with PendingPromptIdCollisionError for a pending id collision. */
   handleRequest: (input: PermissionRequestDto) => Promise<boolean | null>;
 };
 
 export function createQuestionPromptService(
   options: CommonOptions & { emit: QuestionPromptEmit },
 ): ServiceShape<QuestionRequestDto, QuestionAnswer | null> & {
+  /** Rejects with PendingPromptIdCollisionError for a pending id collision. */
   handleRequest: (input: QuestionRequestDto) => Promise<QuestionAnswer | null>;
 };

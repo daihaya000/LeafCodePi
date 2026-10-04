@@ -1,5 +1,13 @@
 export const PENDING_PROMPT_TIMEOUT_MS = 5 * 60_000;
 
+export class PendingPromptIdCollisionError extends Error {
+  constructor() {
+    super("Pending user-decision request id is already in use");
+    this.name = "PendingPromptIdCollisionError";
+    this.code = "PENDING_PROMPT_ID_COLLISION";
+  }
+}
+
 export function taskIdForSession(sessionId, liveEntries) {
   for (const entry of liveEntries) {
     if (entry.sessionId === sessionId) return entry.taskId;
@@ -71,15 +79,13 @@ function createPendingPromptService(options, kind) {
     const request = kind.buildRequest(input);
     // A re-sent request (same id, same session/task) joins the decision already
     // waiting instead of asking the user twice; a colliding id from another
-    // session is refused without disturbing the original. Only pending requests
-    // are remembered: once decided, the id is free again.
+    // session/task fails explicitly without disturbing the original. Only pending
+    // requests are remembered: once decided, the id is free again.
     const existing = pendingById.get(request.id);
     if (existing) {
       if (existing.taskId === taskId && existing.request.sessionId === request.sessionId) return existing.promise;
-      // The refusal value is the safe outcome, but it must not look like the user declined: leave a
-      // record that this request was dropped because its id collided with a pending one.
-      warn(`[pending-prompt] ${kind.field} id collision: request ${request.id} from session ${request.sessionId} was refused because the id is already pending for another session`);
-      return Promise.resolve(kind.timeoutValue);
+      warn(`[pending-prompt] ${kind.field} id collision: request ${request.id} from session ${request.sessionId} rejected because the id is already pending for another session/task`);
+      return Promise.reject(new PendingPromptIdCollisionError());
     }
     const row = { taskId, request, resolve: undefined, timer: null, promise: undefined };
     row.promise = new Promise((resolve) => {

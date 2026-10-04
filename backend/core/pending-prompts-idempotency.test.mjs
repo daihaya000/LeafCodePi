@@ -1,6 +1,8 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { createPermissionPromptService, createQuestionPromptService } from "./pending-prompts.mjs";
+import {
+  createPermissionPromptService, createQuestionPromptService, PendingPromptIdCollisionError,
+} from "./pending-prompts.mjs";
 
 function timers() {
   const active = new Map();
@@ -22,13 +24,14 @@ function permission() {
     resolveTaskId: (sessionId) => sessions[sessionId] ?? null,
     emit: (taskId, payload) => emitted.push({ taskId, ...payload }),
     snapshotExtras: () => ({}),
-    setTimer: t.setTimer, clearTimer: t.clearTimer,
+    setTimer: t.setTimer, clearTimer: t.clearTimer, warn: () => undefined,
   });
   return { service, t, emitted };
 }
 
 const perm = (id, sessionId = "s1") => ({ id, sessionId, command: `cmd-${id}`, labels: [id], message: id });
 const question = (id, sessionId = "s1") => ({ id, sessionId, questions: [{ question: id, options: [{ label: "A" }] }] });
+const isIdCollision = (error) => error instanceof PendingPromptIdCollisionError && error.code === "PENDING_PROMPT_ID_COLLISION";
 
 test("a re-sent permission request joins the pending decision without a second dialog, event or timer", async () => {
   const { service, t, emitted } = permission();
@@ -60,10 +63,10 @@ test("a duplicate of a queued (not visible) request joins it and keeps queue ord
   assert.equal(service.pendingForTask("task-a"), null);
 });
 
-test("an id colliding with a pending request of another session is refused and leaves the original intact", async () => {
+test("an id collision with another session rejects explicitly and leaves the original intact", async () => {
   const { service, emitted } = permission();
   const original = service.handleRequest(perm("clash", "s1"));
-  assert.equal(await service.handleRequest(perm("clash", "s2")), false);
+  await assert.rejects(service.handleRequest(perm("clash", "s2")), isIdCollision);
   assert.equal(service.pendingForTask("task-a").id, "clash");
   assert.equal(service.pendingForTask("task-b"), null);
   assert.equal(emitted.length, 1);
@@ -74,10 +77,10 @@ test("an id colliding with a pending request of another session is refused and l
 test("the same task with a different session id is also a collision, not a join", async () => {
   const t = timers();
   const service = createPermissionPromptService({
-    resolveTaskId: () => "task-a", emit: () => undefined, snapshotExtras: () => ({}), setTimer: t.setTimer, clearTimer: t.clearTimer,
+    resolveTaskId: () => "task-a", emit: () => undefined, snapshotExtras: () => ({}), setTimer: t.setTimer, clearTimer: t.clearTimer, warn: () => undefined,
   });
   const original = service.handleRequest(perm("id", "s1"));
-  assert.equal(await service.handleRequest(perm("id", "s2")), false);
+  await assert.rejects(service.handleRequest(perm("id", "s2")), isIdCollision);
   // The original session still joins its own pending request.
   assert.equal(service.handleRequest(perm("id", "s1")), original);
   service.dispose();
@@ -109,17 +112,17 @@ test("unmapped sessions are still not remembered and never reach the duplicate c
   assert.deepEqual([...service.pendingTaskIds()], []);
 });
 
-test("questions join duplicates and refuse collisions with a null answer", async () => {
+test("questions join duplicates and reject request id collisions explicitly", async () => {
   const t = timers();
   const emitted = [];
   const service = createQuestionPromptService({
     resolveTaskId: (sessionId) => sessions[sessionId] ?? null,
     emit: (taskId, payload) => emitted.push({ taskId, ...payload }), snapshotExtras: () => ({}),
-    setTimer: t.setTimer, clearTimer: t.clearTimer,
+    setTimer: t.setTimer, clearTimer: t.clearTimer, warn: () => undefined,
   });
   const first = service.handleRequest(question("q", "s1"));
   assert.equal(service.handleRequest(question("q", "s1")), first);
-  assert.equal(await service.handleRequest(question("q", "s2")), null);
+  await assert.rejects(service.handleRequest(question("q", "s2")), isIdCollision);
   assert.equal(emitted.length, 1);
   assert.equal(t.active.size, 1);
   service.respond("task-a", "q", { answers: [["A"]] });

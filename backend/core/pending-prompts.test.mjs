@@ -2,7 +2,8 @@ import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { test } from "node:test";
 import {
-  createPermissionPromptService, createQuestionPromptService, PENDING_PROMPT_TIMEOUT_MS, taskIdForSession,
+  createPermissionPromptService, createQuestionPromptService, PendingPromptIdCollisionError,
+  PENDING_PROMPT_TIMEOUT_MS, taskIdForSession,
 } from "./pending-prompts.mjs";
 
 function timers() {
@@ -31,6 +32,7 @@ function permission(options = {}) {
 
 const perm = (id, sessionId = "s1") => ({ id, sessionId, command: `cmd-${id}`, labels: [id], message: id });
 const q = (id, sessionId = "s1") => ({ id, sessionId, questions: [{ question: id, options: [{ label: "A" }] }] });
+const isIdCollision = (error) => error instanceof PendingPromptIdCollisionError && error.code === "PENDING_PROMPT_ID_COLLISION";
 
 test("construction and unmapped requests create no timers, events or pending state", async () => {
   const { service, t, emitted } = permission();
@@ -105,14 +107,14 @@ test("questions preserve answers, null rejection/timeouts and per-task queues", 
   assert.equal(t.active.size, 0);
 });
 
-test("an id colliding with a pending request from another session is refused, logged and leaves the original untouched", async () => {
+test("an id collision with another session rejects explicitly, logs and leaves the original untouched", async () => {
   const warnings = [];
   const { service, emitted } = permission({ warn: (message) => warnings.push(message) });
   const original = service.handleRequest(perm("same", "s1"));
   // A re-send from the same session joins the pending decision without a warning.
   assert.equal(service.handleRequest(perm("same", "s1")), original);
   assert.deepEqual(warnings, []);
-  assert.equal(await service.handleRequest(perm("same", "s2")), false);
+  await assert.rejects(service.handleRequest(perm("same", "s2")), isIdCollision);
   assert.equal(warnings.length, 1);
   assert.match(warnings[0], /id collision.*same/);
   assert.equal(service.pendingForTask("task").sessionId, "s1");
