@@ -1271,7 +1271,7 @@ test("writeLoop failure during pause keeps awaitingTurn so disk/runtime stay ali
   }
 });
 
-test("writeLoop retries transient rename failures and cleans temp on fallback", () => {
+test("writeLoop keeps the previous state and recoverable temp after rename failures", () => {
   const cwd = mkdtempSync(join(tmpdir(), "leafcode-goal-loop-write-"));
   process.env.LEAFCODE_PI_DATA_DIR = cwd;
   const goalsDir = join(cwd, "goals-loop");
@@ -1318,18 +1318,20 @@ test("writeLoop retries transient rename failures and cleans temp on fallback", 
     assert.equal(readdirSync(goalsDir).some((name) => name.endsWith(".tmp")), false);
 
     attempts = 0;
+    const main = join(goalsDir, "write-session.json");
+    const previousContent = readFileSync(main, "utf8");
     goalLoopTestSeams.setRenameSync(() => {
       attempts += 1;
       const err = new Error("still locked");
       err.code = "EBUSY";
       throw err;
     });
-    applyResult(loop, { time: new Date().toISOString(), status: "progress", summary: "fallback write" });
-    // Three transient retries, then the overwrite fallback.
+    applyResult(loop, { time: new Date().toISOString(), status: "progress", summary: "failed write" });
     assert.equal(attempts, 3);
-    assert.equal(JSON.parse(readFileSync(join(goalsDir, "write-session.json"), "utf8")).summary, "fallback write");
-    assert.equal(readdirSync(goalsDir).some((name) => name.endsWith(".tmp")), false);
-    assert.equal(existsSync(join(goalsDir, "write-session.json")), true);
+    assert.equal(readFileSync(main, "utf8"), previousContent, "failed write must leave the previous valid snapshot untouched");
+    const retainedTemps = readdirSync(goalsDir).filter((name) => name.endsWith(".tmp"));
+    assert.equal(retainedTemps.length, 1);
+    assert.equal(JSON.parse(readFileSync(join(goalsDir, retainedTemps[0]), "utf8")).summary, "failed write");
   } finally {
     goalLoopTestSeams.setRenameSync();
     rmSync(cwd, { recursive: true, force: true });
@@ -1423,20 +1425,21 @@ test("writeLoop gives up on a long-held lock in well under 250ms", () => {
   };
 
   try {
-    // A lock that never clears still falls back to a plain overwrite, but the
-    // retries must not stall the event loop for the old 250ms budget.
+    // A lock that never clears leaves the previous state alone; retry waits stay bounded.
     goalLoopTestSeams.setRenameSync(() => {
       const err = new Error("held");
       err.code = "EBUSY";
       throw err;
     });
     const started = Date.now();
-    applyResult(loop, { time: new Date().toISOString(), status: "progress", summary: "fast fallback" });
+    applyResult(loop, { time: new Date().toISOString(), status: "progress", summary: "failed fast" });
     const elapsed = Date.now() - started;
 
     assert.ok(elapsed < 200, `writeLoop blocked the loop for ${elapsed}ms`);
-    assert.equal(JSON.parse(readFileSync(join(goalsDir, "wait-session.json"), "utf8")).summary, "fast fallback");
-    assert.equal(readdirSync(goalsDir).some((name) => name.endsWith(".tmp")), false);
+    assert.equal(existsSync(join(goalsDir, "wait-session.json")), false);
+    const retainedTemps = readdirSync(goalsDir).filter((name) => name.endsWith(".tmp"));
+    assert.equal(retainedTemps.length, 1);
+    assert.equal(JSON.parse(readFileSync(join(goalsDir, retainedTemps[0]), "utf8")).summary, "failed fast");
   } finally {
     goalLoopTestSeams.setRenameSync();
     rmSync(cwd, { recursive: true, force: true });

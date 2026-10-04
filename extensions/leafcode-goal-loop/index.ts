@@ -703,9 +703,8 @@ function writeLoop(loop: GoalLoop): boolean {
     let committedMtimeMs = Number.POSITIVE_INFINITY;
     try { committedMtimeMs = fs.statSync(temp).mtimeMs; } catch { /* sweep everything as before */ }
     // WindowsではWebUIの状態読取やOneDrive同期が対象を掴むとrenameSyncが
-    // EPERM/EACCES/EBUSYで即失敗する。スケジューラやsettleAwaitingTurn内のthrowは
-    // 未処理reject（プロセス落下）や「queuedのままタイマー無し」を招くため、短い
-    // リトライで吸収し、それでも競合する場合は非原子的だが確実な上書きで落とす。
+    // EPERM/EACCES/EBUSYで即失敗する。短いリトライ後も失敗した場合は一時ファイルを
+    // 残して失敗扱いにし、有効な旧状態を非原子的な上書きで壊さない。
     for (let attempt = 0; ; attempt += 1) {
       try {
         renameGoalState(temp, file);
@@ -720,21 +719,11 @@ function writeLoop(loop: GoalLoop): boolean {
         // and overwriting main with it would roll the state back.
         if (code === "ENOENT" && !fs.existsSync(temp) && fs.existsSync(file)) return true;
         if (attempt >= 2 || !transient) {
-          // Keep the temp until the overwrite succeeds so a torn write can still
-          // be recovered on the next readLoop.
-          try {
-            fs.writeFileSync(file, content, "utf8");
-            fs.rmSync(temp, { force: true });
-            cleanupOrphanGoalTemps(file, committedMtimeMs);
-            return true;
-          } catch (fallbackError) {
-            console.error("[goal-loop] writeLoop fallback failed:", fallbackError);
-            return false;
-          }
+          console.error("[goal-loop] writeLoop rename failed; recoverable temp retained:", code ?? "unknown error");
+          return false;
         }
-        // 10+15+20 = 45ms over the three retries this loop actually performs
-        // before the overwrite fallback (attempt 0-2); a fourth retry costs more
-        // scheduler delay than the OneDrive lock it waits for.
+        // Wait 10+15ms before the final rename attempt; more retries cost scheduler
+        // delay without making a held OneDrive lock more likely to clear.
         // writeLoopは同期APIなのでイベントループを止めないようCPUだけ休ませる。
         Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 10 + 5 * attempt);
       }
