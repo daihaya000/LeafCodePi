@@ -243,6 +243,8 @@ type Runtime = {
   pendingUiPrompts?: number;
   /** Re-arms a live loop whose scheduler timer was lost to a settle/replace race. */
   watchdogTimer?: ReturnType<typeof setInterval>;
+  /** When the watchdog first saw this runtime idle with a `running` loop; cleared when it is busy again. */
+  runningIdleSince?: number;
   /** Internal abort pause retained until retry or session lifecycle recovery. */
   abortedTurnPausePending: boolean;
   /** Prevent duplicate hidden end notices if persisting their flag fails. */
@@ -1733,10 +1735,12 @@ function ensureScheduled(runtime: Runtime): void {
     !runtime.ctx.isIdle() ||
     runtime.ctx.hasPendingMessages()
   ) {
+    runtime.runningIdleSince = undefined;
     return;
   }
   const loop = currentLoop(runtime);
   if (!loop) return;
+  if (loop.status !== "running") runtime.runningIdleSince = undefined;
   if (isAbortPausedLoop(loop) || (loop.status === "paused" && loop.pauseReason === "turn_timeout")) {
     // Also recover when an internal abort never emitted agent_settled, or the
     // settlement write failed. The idle/pending gates above prevent overlap.
@@ -1748,6 +1752,12 @@ function ensureScheduled(runtime: Runtime): void {
   }
   if (TERMINAL.has(loop.status) || UNSCHEDULABLE.has(loop.status)) return;
   if (loop.status === "running") {
+    // A momentary idle (an abort's waitForIdle, a tool finishing) is not a lost settlement: the real
+    // settlement may land on the next tick. Demote only after idleness persisted across two ticks.
+    const idleSince = runtime.runningIdleSince ?? Date.now();
+    runtime.runningIdleSince = idleSince;
+    if (Date.now() - idleSince < scheduleWatchdogMs() * 2) return;
+    runtime.runningIdleSince = undefined;
     // The run is gone but its settlement never landed: fall back to the status
     // the settle would have produced so the next turn is still sent.
     loop.status = loop.turnKind === "verification" ? "verifying_completed" : "queued";

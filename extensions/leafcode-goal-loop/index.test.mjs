@@ -4643,6 +4643,57 @@ test("re-arms a running loop whose settlement was lost", async () => {
   }
 });
 
+test("a running loop is not demoted by a momentary idle, only after idleness persists", async () => {
+  const cwd = mkdtempSync(join(tmpdir(), "leafcode-goal-loop-idle-grace-"));
+  process.env.LEAFCODE_PI_DATA_DIR = cwd;
+  const stateFile = () => join(cwd, "goals-loop", "idle-grace-session.json");
+  const readState = () => JSON.parse(readFileSync(stateFile(), "utf8"));
+  const sent = [];
+  let busy = true;
+  const handlers = new Map();
+  const ctx = {
+    cwd, mode: "rpc", hasUI: false, isIdle: () => !busy, hasPendingMessages: () => false, abort: () => { busy = false; },
+    sessionManager: { getSessionId: () => "idle-grace-session", getBranch: () => [] },
+    ui: { setStatus() {}, setWidget() {}, notify() {} },
+  };
+  const pi = {
+    on(name, handler) { handlers.set(name, handler); },
+    registerCommand() {},
+    appendEntry() {},
+    sendMessage(message) { sent.push(message); busy = true; },
+  };
+  try {
+    goalLoopTestSeams.setScheduleWatchdogMs(200);
+    goalLoopExtension(pi);
+    await handlers.get("session_start")?.({}, ctx);
+    mkdirSync(join(cwd, "goals-loop"), { recursive: true });
+    const now = new Date().toISOString();
+    writeFileSync(stateFile(), JSON.stringify({
+      id: "idle-grace-session", sessionId: "idle-grace-session", cwd, status: "running", goal: "demo", acceptance: [],
+      maxTurns: 3, cooldownSeconds: 0, nextTurnAt: null, forceFullRun: false, autoAgent: false, turnCount: 1,
+      turnKind: "goal", pauseReason: "", error: "", progress: [], summary: "", evidence: "", blockedReason: "",
+      rejectedClaims: 0, unreadableStreak: 0, pendingTurnRecovery: false, createdAt: now, updatedAt: now,
+    }, null, 2), "utf8");
+    // Idle only for a moment, then busy again: the watchdog must not touch the running loop.
+    busy = false;
+    await new Promise((resolve) => setTimeout(resolve, 260));
+    busy = true;
+    await new Promise((resolve) => setTimeout(resolve, 500));
+    assert.equal(sent.length, 0);
+    assert.equal(readState().status, "running");
+    assert.equal(readState().turnCount, 1);
+    // Idle for good: after the grace the lost settlement is recovered and the next turn is sent.
+    busy = false;
+    await waitFor(() => sent.length === 1, 3_000);
+    assert.equal(readState().turnCount, 2);
+  } finally {
+    goalLoopTestSeams.setScheduleWatchdogMs(undefined);
+    await handlers.get("session_shutdown")?.({}, ctx);
+    delete process.env.LEAFCODE_PI_DATA_DIR;
+    rmSync(cwd, { recursive: true, force: true });
+  }
+});
+
 test("restart resume retries the same Goal Loop turn with a one-shot recovery instruction", async () => {
   const cwd = mkdtempSync(join(tmpdir(), "leafcode-goal-loop-restart-prompt-"));
   process.env.LEAFCODE_PI_DATA_DIR = cwd;
