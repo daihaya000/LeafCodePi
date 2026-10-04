@@ -604,9 +604,12 @@ function recoverLoopFromTemp(
         // crash between temp write and rename, or a torn non-atomic overwrite.
         try {
           renameGoalState(temp.full, file);
-        } catch {
-          fs.writeFileSync(file, JSON.stringify(loop, null, 2), "utf8");
-          fs.rmSync(temp.full, { force: true });
+        } catch (error) {
+          const code = (error as NodeJS.ErrnoException | undefined)?.code;
+          if (!fs.existsSync(temp.full)) return null;
+          // Keep the validated temp and the previous main state intact; callers can
+          // use this snapshot in memory and a later read can retry promotion.
+          console.error("[goal-loop] could not promote recovered temp; temp retained:", code ?? "unknown error");
         }
         return loop;
       } catch {

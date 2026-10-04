@@ -1630,6 +1630,44 @@ test("recovers when the main state hydrates to null but a temp snapshot is valid
   }
 });
 
+test("keeps a valid old main state and recoverable temp when temp promotion fails", () => {
+  const cwd = mkdtempSync(join(tmpdir(), "leafcode-goal-loop-temp-promotion-fail-"));
+  process.env.LEAFCODE_PI_DATA_DIR = cwd;
+  const id = "temp-promotion-fail-session";
+  const stateFile = join(cwd, "goals-loop", `${id}.json`);
+  const tempFile = `${stateFile}.newer.tmp`;
+  const originalError = console.error;
+  try {
+    mkdirSync(join(cwd, "goals-loop"), { recursive: true });
+    const previous = { goal: "previous valid state", acceptance: [], status: "paused", progress: [] };
+    writeFileSync(stateFile, JSON.stringify(previous), "utf8");
+    const old = new Date(Date.now() - 10_000);
+    utimesSync(stateFile, old, old);
+    writeFileSync(tempFile, JSON.stringify({
+      goal: "newer recoverable state", acceptance: ["ok"], status: "queued", progress: [],
+    }), "utf8");
+    goalLoopTestSeams.setRenameSync(() => {
+      const error = new Error("locked");
+      error.code = "EBUSY";
+      throw error;
+    });
+    console.error = () => {};
+    const recovered = goalLoopTestSeams.readLoop(cwd, id);
+    assert.equal(recovered?.goal, "newer recoverable state");
+    assert.deepEqual(JSON.parse(readFileSync(stateFile, "utf8")), previous);
+    assert.equal(existsSync(tempFile), true);
+
+    goalLoopTestSeams.setRenameSync();
+    assert.equal(goalLoopTestSeams.readLoop(cwd, id)?.goal, "newer recoverable state");
+    assert.equal(JSON.parse(readFileSync(stateFile, "utf8")).goal, "newer recoverable state");
+    assert.equal(existsSync(tempFile), false);
+  } finally {
+    console.error = originalError;
+    goalLoopTestSeams.setRenameSync();
+    rmSync(cwd, { recursive: true, force: true });
+  }
+});
+
 test("promotes a newer temp snapshot when the valid main state is stale", () => {
   const cwd = mkdtempSync(join(tmpdir(), "leafcode-goal-loop-stale-main-"));
   process.env.LEAFCODE_PI_DATA_DIR = cwd;
