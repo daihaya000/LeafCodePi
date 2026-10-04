@@ -50,6 +50,39 @@ test("a reclaim lock left by a crashed worker is recovered after its stale limit
   f.service.releaseTaskLease("crashed");
 });
 
+test("an aged reclaim lock held by a live process is kept, one held by a dead process is taken over", (t) => {
+  const f = fixture(t);
+  const path = seed(f.service, "slow", deadLease());
+  mkdirSync(`${path}.reclaim`);
+  writeFileSync(join(`${path}.reclaim`, "owner"), `${process.pid}:slow-holder`, "utf8");
+  const old = new Date(Date.now() - RECLAIM_LOCK_STALE_MS - 5_000);
+  utimesSync(`${path}.reclaim`, old, old);
+  assert.equal(f.service.acquireTaskLease("slow"), false);
+  assert.equal(readFileSync(join(`${path}.reclaim`, "owner"), "utf8"), `${process.pid}:slow-holder`);
+  writeFileSync(join(`${path}.reclaim`, "owner"), "2147483646:dead-holder", "utf8");
+  utimesSync(`${path}.reclaim`, old, old);
+  assert.equal(f.service.acquireTaskLease("slow"), true);
+  assert.equal(existsSync(`${path}.reclaim`), false);
+  f.service.releaseTaskLease("slow");
+});
+
+test("releasing the reclaim lock leaves a lock another worker took over", (t) => {
+  // The holder's revalidation runs while another worker replaces the lock owner.
+  let swapped = false;
+  let path;
+  const f = fixture(t, {
+    isProcessAlive: (pid) => {
+      if (!swapped && path && existsSync(`${path}.reclaim`)) { swapped = true; writeFileSync(join(`${path}.reclaim`, "owner"), "other:token", "utf8"); }
+      return pid === process.pid;
+    },
+  });
+  path = seed(f.service, "takeover", deadLease());
+  assert.equal(f.service.acquireTaskLease("takeover"), true);
+  assert.equal(readFileSync(join(`${path}.reclaim`, "owner"), "utf8"), "other:token");
+  rmSync(`${path}.reclaim`, { recursive: true, force: true });
+  f.service.releaseTaskLease("takeover");
+});
+
 test("the reclaim lock never outlives a successful or refused acquisition", (t) => {
   const f = fixture(t);
   const won = seed(f.service, "won", deadLease());

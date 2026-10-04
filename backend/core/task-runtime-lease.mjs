@@ -9,6 +9,8 @@ const MAX_ACQUIRE_ATTEMPTS = 4;
 const MAX_HEARTBEAT_FAILURES = 3;
 /** Reclaim locks only bridge a read-check-delete, so a long-lived one means its holder crashed. */
 export const RECLAIM_LOCK_STALE_MS = 10_000;
+/** A live owner is trusted only this long past the stale limit (guards against pid reuse). */
+const RECLAIM_LOCK_HARD_CAP_MS = 60_000;
 const MAX_PENDING_ORPHANS = 100;
 const MAX_PENDING_LEASE_LOSSES = 100;
 export const ORPHANED_WORKING_TASK_ERROR = "ホスト再起動後にCodeセッションを復旧できなかったため停止しました";
@@ -129,7 +131,8 @@ export class TaskLeaseService {
    */
   #reclaimStale(path) {
     const lock = `${path}.reclaim`;
-    if (!this.#takeReclaimLock(lock)) return false;
+    const token = this.#takeReclaimLock(lock);
+    if (!token) return false;
     try {
       const now = this.now();
       const current = this.#readLease(path);
@@ -141,22 +144,44 @@ export class TaskLeaseService {
       try { unlinkSync(path); } catch { /* already removed */ }
       return true;
     } finally {
-      try { rmSync(lock, { recursive: true, force: true }); } catch { /* best effort */ }
+      // Only remove the lock while it still carries our token: if it outlived its stale limit
+      // and another worker took it over, deleting it would reopen the race it guards.
+      try { if (this.#readReclaimOwner(lock) === token) rmSync(lock, { recursive: true, force: true }); } catch { /* best effort */ }
     }
   }
 
-  /** The lock is held for microseconds; one older than the stale limit belonged to a crashed worker. */
+  #readReclaimOwner(lock) {
+    try { return readFileSync(join(lock, "owner"), "utf8"); } catch { return null; }
+  }
+
+  /**
+   * The lock is normally held for microseconds. One older than the stale limit is taken over only
+   * when its owner process is gone (or never wrote an owner); a live owner stuck on a slow
+   * filesystem keeps it until the hard cap. Returns the owner token, or null when not acquired.
+   */
   #takeReclaimLock(lock) {
-    try { mkdirSync(lock); return true; }
+    const create = () => {
+      mkdirSync(lock);
+      const token = `${this.pid}:${randomUUID()}`;
+      try { writeFileSync(join(lock, "owner"), token, "utf8"); }
+      catch (error) { rmSync(lock, { recursive: true, force: true }); throw error; }
+      return token;
+    };
+    try { return create(); }
     catch (error) {
       if (error?.code !== "EEXIST") throw error;
     }
     try {
-      if (this.now() - statSync(lock).mtimeMs <= RECLAIM_LOCK_STALE_MS) return false;
+      const age = this.now() - statSync(lock).mtimeMs;
+      if (age <= RECLAIM_LOCK_STALE_MS) return null;
+      const seen = this.#readReclaimOwner(lock);
+      const pid = Number(String(seen ?? "").split(":")[0]);
+      const ownerGone = !Number.isInteger(pid) || pid <= 0 || !this.isProcessAlive(pid);
+      if (!ownerGone && age <= RECLAIM_LOCK_HARD_CAP_MS) return null;
+      if (this.#readReclaimOwner(lock) !== seen) return null;
       rmSync(lock, { recursive: true, force: true });
-      mkdirSync(lock);
-      return true;
-    } catch { return false; }
+      return create();
+    } catch { return null; }
   }
 
   acquireTaskLease(taskId) {
