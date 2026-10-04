@@ -11,6 +11,7 @@ import {
   turnHasActiveTool,
   turnHasAssistantResponse,
 } from "@/lib/aborted-resume";
+import { withDirectoryLock } from "@backend-core/directory-lock.mjs";
 import { markHangRetryPrompt } from "@/lib/hang-retry";
 import { autoResumePrompt } from "@/lib/hang-timeout";
 import { dataDir } from "@/lib/paths";
@@ -158,39 +159,18 @@ function readStoreOrNull(): WatchStore | null {
   return existsSync(file) ? null : { version: 1, watches: [] };
 }
 
-const lockWait = new Int32Array(new SharedArrayBuffer(4));
-
 function withWatchStoreLock<T>(operation: () => T): T {
   const lock = `${watchesPath()}.lock`;
-  const ownerFile = join(lock, "owner");
-  const owner = `${process.pid}:${randomUUID()}`;
-  mkdirSync(dirname(lock), { recursive: true });
-  for (let attempt = 0; ; attempt += 1) {
-    try {
-      mkdirSync(lock);
-      break;
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
-      try {
-        if (Date.now() - statSync(lock).mtimeMs > 30_000) rmSync(lock, { recursive: true, force: true });
-      } catch { /* another writer released the lock */ }
-      if (attempt >= 200) throw new Error("hang-watchdog store lock timeout");
-      Atomics.wait(lockWait, 0, 0, 25);
-    }
-  }
-  try {
-    writeFileSync(ownerFile, owner, "utf8");
-  } catch (error) {
-    rmSync(lock, { recursive: true, force: true });
-    throw error;
-  }
-  try {
-    return operation();
-  } finally {
-    try {
-      if (readFileSync(ownerFile, "utf8") === owner) rmSync(lock, { recursive: true, force: true });
-    } catch { /* a stale lock may have been replaced by another worker */ }
-  }
+  // Shared owner-token lock: a stale lock is removed only when its owner process is gone, and
+  // release only deletes a lock still carrying this call's token (never a reclaimed one).
+  return withDirectoryLock({
+    lockPath: lock,
+    parentDir: dirname(lock),
+    staleMs: 30_000,
+    busyMessage: "hang-watchdog store lock timeout",
+    maxAttempts: 200,
+    waitMs: 25,
+  }, operation);
 }
 
 function writeStore(watches: readonly TaskHangWatchRow[] = [...memoryWatches.values()]): void {

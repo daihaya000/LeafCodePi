@@ -459,6 +459,27 @@ describe("hang-watchdog helpers", () => {
     }
   });
 
+  it("recovers a stale store lock left by a dead process", () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "leafcode-pi-hang-watchdog-deadlock-"));
+    const previousDataDir = process.env.LEAFCODE_PI_DATA_DIR;
+    process.env.LEAFCODE_PI_DATA_DIR = root;
+    try {
+      const lock = path.join(root, "hang-watches.json.lock");
+      fs.mkdirSync(lock);
+      fs.writeFileSync(path.join(lock, "owner"), "2147483646:dead", "utf8");
+      const old = new Date(Date.now() - 60_000);
+      fs.utimesSync(lock, old, old);
+      armTaskHangWatch({ taskId: "after-crash", prompt: "work" });
+      expect(getTaskHangWatch("after-crash")).toMatchObject({ prompt: "work" });
+      expect(fs.existsSync(lock)).toBe(false);
+    } finally {
+      stopHangWatchdogForTests();
+      if (previousDataDir === undefined) delete process.env.LEAFCODE_PI_DATA_DIR;
+      else process.env.LEAFCODE_PI_DATA_DIR = previousDataDir;
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
   it("keeps in-memory watches when the on-disk snapshot becomes unreadable", async () => {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), "leafcode-pi-hang-watchdog-unreadable-"));
     const previousDataDir = process.env.LEAFCODE_PI_DATA_DIR;
