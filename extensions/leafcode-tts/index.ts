@@ -16,6 +16,7 @@ import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node
 import { homedir, tmpdir } from "node:os";
 import { basename, dirname, join, relative, resolve, sep } from "node:path";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
+import { registerTtsSpeakerBackgroundWorkProvider } from "./background-work-provider.ts";
 
 const SUBAGENT_CHILD_ENV = "PI_SUBAGENT_CHILD";
 const CONFIG_FILE = "tts.json";
@@ -496,6 +497,7 @@ export default function (pi: ExtensionAPI): void {
   let botTtsVoice: string | undefined;
   const chunker = new SpeechChunker();
   const speaker = new Speaker(config);
+  let unregisterBackgroundWorkProvider: (() => void) | undefined;
 
   const stop = (): void => {
     chunker.reset();
@@ -510,6 +512,11 @@ export default function (pi: ExtensionAPI): void {
   };
 
   pi.on("session_start", (_event, ctx) => {
+    unregisterBackgroundWorkProvider?.();
+    const sessionId = ctx.sessionManager.getSessionId();
+    unregisterBackgroundWorkProvider = sessionId
+      ? registerTtsSpeakerBackgroundWorkProvider(sessionId, () => speaker.dispose())
+      : undefined;
     config = readTtsConfig();
     enabled = config.enabled;
     sessionCwd = ctx.cwd;
@@ -535,7 +542,11 @@ export default function (pi: ExtensionAPI): void {
     for (const chunk of chunker.flush()) speaker.say(chunk);
   });
 
-  pi.on("session_shutdown", () => speaker.dispose());
+  pi.on("session_shutdown", () => {
+    unregisterBackgroundWorkProvider?.();
+    unregisterBackgroundWorkProvider = undefined;
+    speaker.dispose();
+  });
 
   pi.registerCommand("tts", {
     description: "アシスタントの発言の読み上げ（on / off / test、このセッション限定・既定値は保存しない）",

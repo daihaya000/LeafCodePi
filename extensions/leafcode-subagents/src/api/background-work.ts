@@ -21,6 +21,8 @@ export interface BackgroundWorkReconcileContext {
 export interface BackgroundWorkProvider {
 	name: string;
 	listActiveWork(): readonly BackgroundWorkItem[];
+	/** Session-owned resources to clean up on shutdown; these do not block idle eviction. */
+	listShutdownResources?(): readonly BackgroundWorkItem[];
 	wakeChannels?: readonly string[];
 	reconcile?(context: BackgroundWorkReconcileContext): void;
 	/** Stop one listed item; the registry invokes this only for the requested session. */
@@ -79,11 +81,14 @@ function validateProvider(value: unknown): BackgroundWorkProvider {
 		throw new Error("Background-work provider must be an object.");
 	}
 	const provider = value as Record<string, unknown>;
-	const unknownFields = Object.keys(provider).filter((key) => !["name", "listActiveWork", "wakeChannels", "reconcile", "stopWork", "captureStopWork"].includes(key));
+	const unknownFields = Object.keys(provider).filter((key) => !["name", "listActiveWork", "listShutdownResources", "wakeChannels", "reconcile", "stopWork", "captureStopWork"].includes(key));
 	if (unknownFields.length > 0) throw new Error(`Background-work provider has unknown fields: ${unknownFields.join(", ")}.`);
 	const name = validateString(provider.name, "Background-work provider name", MAX_PROVIDER_NAME_LENGTH);
 	if (typeof provider.listActiveWork !== "function") {
 		throw new Error(`Background-work provider '${name}' must expose listActiveWork().`);
+	}
+	if (provider.listShutdownResources !== undefined && typeof provider.listShutdownResources !== "function") {
+		throw new Error(`Background-work provider '${name}' listShutdownResources must be a function when provided.`);
 	}
 	if (provider.reconcile !== undefined && typeof provider.reconcile !== "function") {
 		throw new Error(`Background-work provider '${name}' reconcile must be a function when provided.`);
@@ -160,11 +165,36 @@ export function listBackgroundWorkWakeChannels(): readonly string[] {
 	return [...channels];
 }
 
-/** Reconcile and snapshot active provider work owned by one exact Pi session. */
+/** Capture stop actions for active work and shutdown resources owned by one exact Pi session. */
 export function captureSessionBackgroundWorkStop(sessionId: string, nowMs = Date.now()): () => Promise<number> {
 	const snapshot = snapshotBackgroundWork(sessionId, nowMs);
-	const providers = new Map(listBackgroundWorkProviders().map((provider) => [provider.name, provider]));
-	const stopCalls = snapshot.items.flatMap((item) => {
+	const registeredProviders = listBackgroundWorkProviders();
+	const providers = new Map(registeredProviders.map((provider) => [provider.name, provider]));
+	const items = [...snapshot.items];
+	const identities = new Set(items.map((item) => `${item.provider}\0${item.id}\0${item.sessionId}`));
+	for (const provider of registeredProviders) {
+		if (!provider.listShutdownResources) continue;
+		let resources: readonly BackgroundWorkItem[];
+		try {
+			resources = provider.listShutdownResources();
+		} catch (error) {
+			throw new Error(
+				`Background-work provider '${provider.name}' listShutdownResources failed: ${error instanceof Error ? error.message : String(error)}`,
+				{ cause: error },
+			);
+		}
+		if (!Array.isArray(resources)) throw new Error(`Background-work provider '${provider.name}' listShutdownResources() must return an array.`);
+		if (resources.length > MAX_ITEMS_PER_PROVIDER) throw new Error(`Background-work provider '${provider.name}' returned more than ${MAX_ITEMS_PER_PROVIDER} shutdown resources.`);
+		resources.forEach((value, index) => {
+			const item = validateItem(provider.name, value, index);
+			if (item.sessionId !== sessionId) return;
+			const identity = `${provider.name}\0${item.id}\0${item.sessionId}`;
+			if (identities.has(identity)) return;
+			identities.add(identity);
+			items.push({ ...item, provider: provider.name });
+		});
+	}
+	const stopCalls = items.flatMap((item) => {
 		const provider = providers.get(item.provider);
 		const capture = provider?.captureStopWork;
 		const action = capture?.call(provider, { id: item.id, sessionId: item.sessionId });

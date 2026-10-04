@@ -2,7 +2,9 @@ import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { captureSessionBackgroundWorkStop, snapshotBackgroundWork } from "../leafcode-subagents/src/api/background-work.ts";
 import { buildHttpTtsBody, cut, isVoicevoxEngineUrl, readBotTtsVoice, readTtsConfig, speakable, Speaker, SpeechChunker, synthesizeVoicevox, writeTtsConfig } from "./index.ts";
+import { registerTtsSpeakerBackgroundWorkProvider } from "./background-work-provider.ts";
 
 afterEach(() => vi.unstubAllGlobals());
 
@@ -10,6 +12,26 @@ afterEach(() => vi.unstubAllGlobals());
 function spoken(chunker: SpeechChunker, delta: string): string[] {
   return chunker.push(delta).map(speakable).filter((text) => text.length > 0);
 }
+
+describe("TTS shutdown cleanup capture", () => {
+  it("disposes only its session speaker after the provider is unregistered", async () => {
+    let disposed = 0;
+    const unregister = registerTtsSpeakerBackgroundWorkProvider("tts-session", () => { disposed += 1; });
+    try {
+      expect(snapshotBackgroundWork("tts-session").items).toEqual([]);
+      const otherSessionStop = captureSessionBackgroundWorkStop("other-session");
+      await expect(otherSessionStop()).resolves.toBe(0);
+      expect(disposed).toBe(0);
+
+      const capturedStop = captureSessionBackgroundWorkStop("tts-session");
+      unregister();
+      await expect(capturedStop()).resolves.toBe(1);
+      expect(disposed).toBe(1);
+    } finally {
+      unregister();
+    }
+  });
+});
 
 describe("cut", () => {
   it("句点・感嘆符・改行で必ず区切る", () => {
