@@ -21,7 +21,7 @@ const ROW_H = 36;
 const DOT_R = 4;
 const DEFAULT_LIMIT = 80;
 /** Poll faster while the agent is actively working (likely to commit soon). */
-const POLL_ACTIVE_MS = 4000;
+const POLL_ACTIVE_MS = 10_000;
 /** Slower baseline poll to pick up commits made outside this session (other terminal, etc.). */
 const POLL_IDLE_MS = 15000;
 
