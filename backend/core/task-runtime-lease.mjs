@@ -5,6 +5,8 @@ import { join } from "node:path";
 export const TASK_LEASE_STALE_MS = 60_000;
 export const HEARTBEAT_MS = 15_000;
 const MAX_ACQUIRE_ATTEMPTS = 4;
+/** 3 missed heartbeats (45s) is still inside TASK_LEASE_STALE_MS, so the loss is reported before takeover. */
+const MAX_HEARTBEAT_FAILURES = 3;
 /** Reclaim locks only bridge a read-check-delete, so a long-lived one means its holder crashed. */
 export const RECLAIM_LOCK_STALE_MS = 10_000;
 const MAX_PENDING_ORPHANS = 100;
@@ -30,6 +32,7 @@ export class TaskLeaseService {
     setHeartbeat = (callback, delayMs) => setInterval(callback, delayMs),
     clearHeartbeat = (timer) => clearInterval(timer),
     warn = (message, error) => console.warn(message, error),
+    renameFile = renameSync,
   }) {
     this.dataDir = dataDir;
     this.listTasks = listTasks;
@@ -42,6 +45,7 @@ export class TaskLeaseService {
     this.setHeartbeat = setHeartbeat;
     this.clearHeartbeat = clearHeartbeat;
     this.warn = warn;
+    this.renameFile = renameFile;
     // Older hot-reloaded states predate notification fields.
     state.orphanListener ??= null;
     state.pendingOrphans ??= [];
@@ -84,11 +88,25 @@ export class TaskLeaseService {
     try {
       const temporary = `${path}.${this.pid}.${Math.random().toString(16).slice(2)}.tmp`;
       writeFileSync(temporary, `${JSON.stringify({ ...record, heartbeatAt: this.now() })}\n`, "utf8");
-      renameSync(temporary, path);
-    } catch { /* cleanup/reconcile handles a transient write failure */ }
+      try { this.renameFile(temporary, path); }
+      catch (error) { try { unlinkSync(temporary); } catch { /* temp may be gone */ } throw error; }
+      this.#heartbeatFailures.delete(taskId);
+    } catch (error) {
+      // A transient failure is tolerated, but a lease that cannot be refreshed turns stale after
+      // TASK_LEASE_STALE_MS and another worker would take the task while this process keeps
+      // running it. Report the loss before that happens so the caller stops the prompt.
+      const failures = (this.#heartbeatFailures.get(taskId) ?? 0) + 1;
+      this.#heartbeatFailures.set(taskId, failures);
+      this.warn(`[task-runtime-lease] heartbeat write failed (${failures}/${MAX_HEARTBEAT_FAILURES})`, error);
+      if (failures >= MAX_HEARTBEAT_FAILURES) this.#loseTaskLease(taskId);
+    }
   }
 
+  /** Consecutive failed heartbeat writes per owned task. */
+  #heartbeatFailures = new Map();
+
   #loseTaskLease(taskId) {
+    this.#heartbeatFailures.delete(taskId);
     if (!this.state.ownedTasks.delete(taskId)) return;
     const listener = this.state.leaseLostListener;
     if (listener) {
@@ -175,6 +193,7 @@ export class TaskLeaseService {
 
   releaseTaskLease(taskId) {
     this.state.ownedTasks.delete(taskId);
+    this.#heartbeatFailures.delete(taskId);
     const path = this.taskRuntimeLeasePath(taskId);
     try {
       if (this.#readLease(path)?.token === this.token) unlinkSync(path);

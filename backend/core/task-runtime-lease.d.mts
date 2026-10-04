@@ -31,6 +31,8 @@ export class TaskLeaseService<T extends TaskLeaseTask = TaskLeaseTask> {
     setHeartbeat?: (callback: () => void, delayMs: number) => HeartbeatHandle;
     clearHeartbeat?: (handle: HeartbeatHandle) => void;
     warn?: (message: string, error: unknown) => void;
+    /** Heartbeat file replacement; injectable so tests can simulate write failures. */
+    renameFile?: (from: string, to: string) => void;
   });
   taskRuntimeLeasePath(taskId: string): string;
   acquireTaskLease(taskId: string): boolean;

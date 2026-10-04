@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
 import { once } from "node:events";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { test } from "node:test";
@@ -116,6 +116,35 @@ test("heartbeat drops a replaced lease and queues one owner-loss notification", 
   assert.deepEqual(f.state.pendingLeaseLosses, []);
   f.timers[0].callback();
   assert.deepEqual(notifications, [["replaced"]]);
+});
+
+test("repeated heartbeat write failures report the lease loss before it can go stale, and success resets the count", (t) => {
+  let now = Date.now();
+  let failing = true;
+  const f = fixture(t, {
+    now: () => now,
+    renameFile: (from, to) => { if (failing) throw new Error("disk full"); renameSync(from, to); },
+  });
+  f.service.acquireTaskLease("held");
+  const notifications = [];
+  f.service.setLeaseLostListener((taskIds) => notifications.push(taskIds));
+  const beat = () => { now += HEARTBEAT_MS; f.timers[0].callback(); };
+  beat();
+  beat();
+  assert.equal(f.service.ownsTaskLease("held"), true);
+  assert.deepEqual(notifications, []);
+  // A successful write resets the consecutive-failure count.
+  failing = false;
+  beat();
+  failing = true;
+  beat();
+  beat();
+  assert.equal(f.service.ownsTaskLease("held"), true);
+  beat();
+  assert.equal(f.service.ownsTaskLease("held"), false);
+  assert.deepEqual(notifications, [["held"]]);
+  // Failed heartbeats leave no temporary files behind.
+  assert.deepEqual(readdirSync(dirname(f.service.taskRuntimeLeasePath("held"))).filter((name) => name.endsWith(".tmp")), []);
 });
 
 test("healthy foreign owners and fresh incomplete writes are not acquired", (t) => {
