@@ -43,17 +43,18 @@ export class AppStore {
       return this.#cachedStore.value;
     }
     try {
-      const parsed = JSON.parse(readFileSync(file, "utf8"));
+      const raw = readFileSync(file, "utf8");
+      const parsed = JSON.parse(raw);
       if (!parsed || parsed.version !== 1 || !Array.isArray(parsed.projects) || !Array.isArray(parsed.tasks)) {
         this.#cachedStore = null;
         return emptyStore();
       }
-      if (this.#cachedStore?.file === file && JSON.stringify(this.#cachedStore.value) === JSON.stringify(parsed)) {
+      if (this.#cachedStore?.file === file && this.#cachedStore.raw === raw) {
         this.#cachedStore.mtimeMs = stat.mtimeMs;
         this.#cachedStore.size = stat.size;
         return this.#cachedStore.value;
       }
-      this.#cachedStore = { file, value: parsed, mtimeMs: stat.mtimeMs, size: stat.size };
+      this.#cachedStore = { file, value: parsed, mtimeMs: stat.mtimeMs, size: stat.size, raw };
       return parsed;
     } catch {
       this.#cachedStore = null;
@@ -79,8 +80,9 @@ export class AppStore {
     mkdirSync(dirname(file), { recursive: true });
     this.#snapshotStore(file);
     const temp = `${file}.${process.pid}.${randomUUID()}.tmp`;
+    const raw = `${JSON.stringify(store, null, 2)}\n`;
     try {
-      writeFileSync(temp, `${JSON.stringify(store, null, 2)}\n`, "utf8");
+      writeFileSync(temp, raw, "utf8");
       renameSync(temp, file);
     } finally { rmSync(temp, { force: true }); }
     let mtimeMs = -1;
@@ -90,7 +92,7 @@ export class AppStore {
       mtimeMs = stat.mtimeMs;
       size = stat.size;
     } catch { /* sentinel values force the next read to refresh */ }
-    this.#cachedStore = { file, value: store, mtimeMs, size };
+    this.#cachedStore = { file, value: store, mtimeMs, size, raw };
   }
 
   listProjects(includeArchived = false) {
