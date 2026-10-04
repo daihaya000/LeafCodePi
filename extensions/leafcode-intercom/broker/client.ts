@@ -39,6 +39,14 @@ function toError(error: unknown): Error {
   return error instanceof Error ? error : new Error(String(error));
 }
 
+class LivenessTransportError extends Error {
+  constructor(message: string, cause?: unknown) {
+    super(message);
+    this.name = "LivenessTransportError";
+    if (cause !== undefined) Object.defineProperty(this, "cause", { value: cause, configurable: true });
+  }
+}
+
 /**
  * Liveness heartbeat interval. A half-open socket (peer killed with SIGKILL or
  * crashed without sending a FIN) stays "writable" indefinitely, so passive
@@ -130,9 +138,9 @@ export class IntercomClient extends EventEmitter {
     try {
       await this.listSessions({ timeoutMs: getLivenessTimeoutMs() });
     } catch (error) {
-      // A timeout or write error means the socket is half-open: the broker is
-      // gone but the OS never delivered a close event. Destroy the socket so
-      // the onClose handler emits "disconnected" and the extension reconnects.
+      // Only transport failures prove this connection is unusable. An application
+      // error is not evidence of a dead broker and must not trigger send retries.
+      if (!(error instanceof LivenessTransportError)) return;
       const socket = this.socket;
       if (socket && !socket.destroyed) {
         this.disconnectError = toError(error);
@@ -604,7 +612,7 @@ export class IntercomClient extends EventEmitter {
       const timeout = setTimeout(() => {
         if (this.pendingLists.has(requestId)) {
           this.pendingLists.delete(requestId);
-          wrappedReject(new Error("List sessions timeout"));
+          wrappedReject(new LivenessTransportError("List sessions timeout"));
         }
       }, options.timeoutMs ?? 5000);
       this.pendingLists.set(requestId, { resolve: wrappedResolve, reject: wrappedReject });
@@ -613,7 +621,7 @@ export class IntercomClient extends EventEmitter {
       } catch (error) {
         clearTimeout(timeout);
         this.pendingLists.delete(requestId);
-        reject(toError(error));
+        reject(new LivenessTransportError(toError(error).message, error));
       }
     });
   }

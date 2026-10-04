@@ -144,6 +144,41 @@ test("client emits disconnected when the peer destroys the socket without a FIN"
   }
 });
 
+test("client keeps the socket when a liveness request fails with an application error", async () => {
+  const { client } = await registeredClientAgainstFakeSocket();
+  let attempts = 0;
+  try {
+    client.listSessions = async () => {
+      attempts += 1;
+      throw new Error("temporary broker application error");
+    };
+    await new Promise((resolve) => setTimeout(resolve, 350));
+    assert.ok(attempts > 0, "expected at least one liveness request");
+    assert.equal(client.isConnected(), true, "application errors must not tear down a healthy socket");
+  } finally {
+    await client.disconnect().catch(() => undefined);
+  }
+});
+
+test("client tears down the socket when a liveness request cannot be written", async () => {
+  const { client } = await registeredClientAgainstFakeSocket();
+  const disconnected = once(client, "disconnected");
+  const socket = (client as unknown as { socket: net.Socket }).socket;
+  const originalWrite = socket.write;
+  socket.write = (() => { throw new Error("simulated write failure"); }) as typeof socket.write;
+  try {
+    const event = await Promise.race([
+      disconnected,
+      new Promise<never>((_, reject) => setTimeout(() => reject(new Error("write failure did not disconnect client")), 1000)),
+    ]);
+    assert.ok(event, "expected a disconnected event");
+    assert.equal(client.isConnected(), false);
+  } finally {
+    socket.write = originalWrite;
+    await client.disconnect().catch(() => undefined);
+  }
+});
+
 test("client liveness heartbeat detects a half-open socket within a bounded window", async () => {
   const { client, stopResponding } = await registeredClientAgainstFakeSocket();
   try {
