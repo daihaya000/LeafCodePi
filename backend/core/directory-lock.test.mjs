@@ -88,6 +88,34 @@ test("a fresh foreign lock is never stolen", (t) => {
   assert.equal(existsSync(options.lockPath), true);
 });
 
+function oldLockWithOwner(options, owner) {
+  mkdirSync(options.parentDir, { recursive: true });
+  mkdirSync(options.lockPath);
+  writeFileSync(join(options.lockPath, "owner"), owner, "utf8");
+  const old = new Date(Date.now() - 60_000);
+  utimesSync(options.lockPath, old, old);
+}
+
+test("a stale-aged lock held by a live process is not stolen, but one held by a dead process is", (t) => {
+  const { options } = setup(t);
+  oldLockWithOwner(options, `${process.pid}:live-token`);
+  assert.throws(() => withDirectoryLock({ ...options, maxAttempts: 2, sleep: () => undefined }, () => "stolen"), /busy/);
+  assert.equal(readFileSync(join(options.lockPath, "owner"), "utf8"), `${process.pid}:live-token`);
+  rmSync(options.lockPath, { recursive: true });
+  oldLockWithOwner(options, "2147483646:dead-token");
+  assert.equal(withDirectoryLock({ ...options, sleep: () => undefined }, () => "reclaimed"), "reclaimed");
+});
+
+test("release never deletes a lock that was reclaimed by another owner (sync and async)", async (t) => {
+  const { options } = setup(t);
+  const takeOver = () => writeFileSync(join(options.lockPath, "owner"), "other:token", "utf8");
+  withDirectoryLock(options, takeOver);
+  assert.equal(readFileSync(join(options.lockPath, "owner"), "utf8"), "other:token");
+  rmSync(options.lockPath, { recursive: true });
+  await withDirectoryLockAsync(options, async () => takeOver());
+  assert.equal(readFileSync(join(options.lockPath, "owner"), "utf8"), "other:token");
+});
+
 test("separate Node processes serialize a read-modify-write on one file without losing updates", { timeout: 25_000 }, async (t) => {
   const { root, options } = setup(t);
   const counter = join(root, "counter.txt");
