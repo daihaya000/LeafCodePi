@@ -130,7 +130,7 @@ describe("bot store", () => {
     const configPath = join(root, "bots", bot.id, "config.json");
     const config = JSON.parse(readFileSync(configPath, "utf8"));
     // Previous default allowlist (the newest legacy set) plus one name this build does not know.
-    const previousDefault = BOT_DEFAULT_TOOL_NAMES.filter((tool) => tool !== "mcp");
+    const previousDefault = [...BOT_DEFAULT_TOOL_NAMES];
     config.tools = [...previousDefault, "future_tool"];
     fs.writeFileSync(configPath, JSON.stringify(config));
 
