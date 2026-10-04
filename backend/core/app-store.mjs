@@ -45,7 +45,8 @@ export class AppStore {
       if (strict && error?.code !== "ENOENT") throw new Error(`store file could not be inspected; refusing to overwrite: ${file}`, { cause: error });
       return emptyStore();
     }
-    if (!fresh && this.#cachedStore?.file === file && this.#cachedStore.mtimeMs === stat.mtimeMs && this.#cachedStore.size === stat.size) {
+    if (!fresh && this.#cachedStore?.file === file && this.#cachedStore.mtimeMs === stat.mtimeMs && this.#cachedStore.size === stat.size
+      && this.#cachedStore.ctimeMs === stat.ctimeMs && this.#cachedStore.ino === stat.ino) {
       return this.#cachedStore.value;
     }
     try {
@@ -59,9 +60,12 @@ export class AppStore {
       if (this.#cachedStore?.file === file && this.#cachedStore.raw === raw) {
         this.#cachedStore.mtimeMs = stat.mtimeMs;
         this.#cachedStore.size = stat.size;
+        this.#cachedStore.ctimeMs = stat.ctimeMs;
+        this.#cachedStore.ino = stat.ino;
         return this.#cachedStore.value;
       }
-      this.#cachedStore = { file, value: parsed, mtimeMs: stat.mtimeMs, size: stat.size, raw };
+      // ctime/inode join mtime/size: a restore or copy tool that preserves mtime and size still changes them.
+      this.#cachedStore = { file, value: parsed, mtimeMs: stat.mtimeMs, size: stat.size, ctimeMs: stat.ctimeMs, ino: stat.ino, raw };
       return parsed;
     } catch (error) {
       this.#cachedStore = null;
@@ -95,12 +99,16 @@ export class AppStore {
     } finally { rmSync(temp, { force: true }); }
     let mtimeMs = -1;
     let size = -1;
+    let ctimeMs = -1;
+    let ino = -1;
     try {
       const stat = statSync(file);
       mtimeMs = stat.mtimeMs;
       size = stat.size;
+      ctimeMs = stat.ctimeMs;
+      ino = stat.ino;
     } catch { /* sentinel values force the next read to refresh */ }
-    this.#cachedStore = { file, value: store, mtimeMs, size, raw };
+    this.#cachedStore = { file, value: store, mtimeMs, size, ctimeMs, ino, raw };
   }
 
   listProjects(includeArchived = false) {

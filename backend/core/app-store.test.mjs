@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, renameSync, rmSync, statSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
@@ -116,6 +116,24 @@ test("no-op patches skip writes, real patches advance time and metadata can pres
   assert.equal(task.accountId, undefined);
   assert.ok(task.updatedAt > changedTime);
   assert.equal("accountId" in f.read().tasks[0], false);
+});
+
+test("a same-size, same-mtime replacement (a restore tool) is still noticed by the read cache", (t) => {
+  const f = fixture(t);
+  f.store.insertTask({ project: null, title: "aaaa" });
+  // A whole-second timestamp can be restored exactly, like a backup tool that preserves mtime.
+  utimesSync(f.file(), 1_700_000_000, 1_700_000_000);
+  assert.equal(f.store.listTasks()[0].title, "aaaa");
+  const before = statSync(f.file());
+  const replacement = readFileSync(f.file(), "utf8").replace("aaaa", "bbbb");
+  assert.equal(Buffer.byteLength(replacement), before.size);
+  const temporary = `${f.file()}.restore`;
+  writeFileSync(temporary, replacement, "utf8");
+  renameSync(temporary, f.file());
+  utimesSync(f.file(), 1_700_000_000, 1_700_000_000);
+  assert.equal(statSync(f.file()).mtimeMs, before.mtimeMs);
+  assert.equal(statSync(f.file()).size, before.size);
+  assert.equal(f.store.listTasks()[0].title, "bbbb");
 });
 
 test("delete operations return the same counts and do not delete workspaces", (t) => {
