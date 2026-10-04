@@ -66,6 +66,20 @@ describe("CodeRequestCard", () => {
     expect(getJson).not.toHaveBeenCalled();
   });
 
+  it("polls a live preview every five seconds", async () => {
+    vi.useFakeTimers();
+    getJson.mockResolvedValue({ task: null });
+
+    const view = render(<CodeRequestCard taskId="task-1" state="running" />);
+    fireEvent.click(view.getByRole("button", { name: "プレビュー" }));
+    expect(getJson).toHaveBeenCalledTimes(1);
+
+    await act(async () => { await vi.advanceTimersByTimeAsync(4_999); });
+    expect(getJson).toHaveBeenCalledTimes(1);
+    await act(async () => { await vi.advanceTimersByTimeAsync(1); });
+    expect(getJson).toHaveBeenCalledTimes(2);
+  });
+
   it("does not overlap preview requests while the current poll is pending", async () => {
     vi.useFakeTimers();
     let resolveRequest!: (value: { task: null }) => void;
@@ -79,7 +93,7 @@ describe("CodeRequestCard", () => {
     expect(getJson).toHaveBeenCalledTimes(1);
 
     await act(async () => {
-      await vi.advanceTimersByTimeAsync(2_000);
+      await vi.advanceTimersByTimeAsync(5_000);
     });
     expect(getJson).toHaveBeenCalledTimes(1);
 

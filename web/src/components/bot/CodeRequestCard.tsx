@@ -111,7 +111,7 @@ export function CodeRequestCard({
     const timer = window.setInterval(() => {
       if (document.visibilityState === "hidden") return;
       void load();
-    }, 2_000);
+    }, 5_000);
     return () => { closed = true; window.clearInterval(timer); };
   }, [live, open, taskId, state]);
 
