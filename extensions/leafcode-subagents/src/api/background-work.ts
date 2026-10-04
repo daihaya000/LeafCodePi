@@ -25,6 +25,8 @@ export interface BackgroundWorkProvider {
 	reconcile?(context: BackgroundWorkReconcileContext): void;
 	/** Stop one listed item; the registry invokes this only for the requested session. */
 	stopWork?(item: BackgroundWorkItem): void | Promise<void>;
+	/** Capture a stop action before shutdown mutates or unregisters this provider. */
+	captureStopWork?(item: BackgroundWorkItem): (() => void | Promise<void>) | undefined;
 }
 
 export interface RegisteredBackgroundWorkItem extends BackgroundWorkItem {
@@ -77,7 +79,7 @@ function validateProvider(value: unknown): BackgroundWorkProvider {
 		throw new Error("Background-work provider must be an object.");
 	}
 	const provider = value as Record<string, unknown>;
-	const unknownFields = Object.keys(provider).filter((key) => !["name", "listActiveWork", "wakeChannels", "reconcile", "stopWork"].includes(key));
+	const unknownFields = Object.keys(provider).filter((key) => !["name", "listActiveWork", "wakeChannels", "reconcile", "stopWork", "captureStopWork"].includes(key));
 	if (unknownFields.length > 0) throw new Error(`Background-work provider has unknown fields: ${unknownFields.join(", ")}.`);
 	const name = validateString(provider.name, "Background-work provider name", MAX_PROVIDER_NAME_LENGTH);
 	if (typeof provider.listActiveWork !== "function") {
@@ -88,6 +90,9 @@ function validateProvider(value: unknown): BackgroundWorkProvider {
 	}
 	if (provider.stopWork !== undefined && typeof provider.stopWork !== "function") {
 		throw new Error(`Background-work provider '${name}' stopWork must be a function when provided.`);
+	}
+	if (provider.captureStopWork !== undefined && typeof provider.captureStopWork !== "function") {
+		throw new Error(`Background-work provider '${name}' captureStopWork must be a function when provided.`);
 	}
 	if (provider.wakeChannels !== undefined) {
 		if (!Array.isArray(provider.wakeChannels)) {
@@ -156,6 +161,28 @@ export function listBackgroundWorkWakeChannels(): readonly string[] {
 }
 
 /** Reconcile and snapshot active provider work owned by one exact Pi session. */
+export function captureSessionBackgroundWorkStop(sessionId: string, nowMs = Date.now()): () => Promise<number> {
+	const snapshot = snapshotBackgroundWork(sessionId, nowMs);
+	const providers = new Map(listBackgroundWorkProviders().map((provider) => [provider.name, provider]));
+	const stopCalls = snapshot.items.flatMap((item) => {
+		const provider = providers.get(item.provider);
+		const capture = provider?.captureStopWork;
+		const action = capture?.call(provider, { id: item.id, sessionId: item.sessionId });
+		return action ? [action] : [];
+	});
+	let invoked = false;
+	return async () => {
+		if (invoked) return 0;
+		invoked = true;
+		const results = await Promise.allSettled(stopCalls.map((stop) => Promise.resolve().then(stop)));
+		const failures = results.filter((result): result is PromiseRejectedResult => result.status === "rejected");
+		if (failures.length > 0) {
+			throw new AggregateError(failures.map((result) => result.reason), `Failed to stop ${failures.length} captured background-work item(s) for session '${sessionId}'.`);
+		}
+		return stopCalls.length;
+	};
+}
+
 export async function stopSessionBackgroundWork(sessionId: string, nowMs = Date.now()): Promise<number> {
 	const snapshot = snapshotBackgroundWork(sessionId, nowMs);
 	const providers = new Map(listBackgroundWorkProviders().map((provider) => [provider.name, provider]));

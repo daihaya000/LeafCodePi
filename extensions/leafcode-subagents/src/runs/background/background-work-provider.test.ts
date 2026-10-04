@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { snapshotBackgroundWork } from "../../api/background-work.ts";
+import { captureSessionBackgroundWorkStop, snapshotBackgroundWork } from "../../api/background-work.ts";
 import type { AsyncJobState, SubagentState } from "../../shared/types.ts";
 import { createSubagentBackgroundWorkProvider, registerSubagentBackgroundWorkProvider } from "./background-work-provider.ts";
 
@@ -41,6 +41,27 @@ describe("createSubagentBackgroundWorkProvider", () => {
 			unregister();
 		}
 		expect(snapshotBackgroundWork("session-a").items).toEqual([]);
+	});
+
+	it("captures the owned run before runtime cleanup clears state", async () => {
+		const state = stateFor("session-a", [
+			{ asyncId: "owned", asyncDir: "a", sessionId: "session-a", status: "running", mode: "single" },
+		]);
+		const stopped: { sessionId: string | null; ids: string[] }[] = [];
+		const unregister = registerSubagentBackgroundWorkProvider(state, "session-a", (capturedState, _id) => {
+			stopped.push({ sessionId: capturedState.currentSessionId, ids: [...capturedState.asyncJobs.keys()] });
+			return null;
+		});
+		try {
+			const stopCaptured = captureSessionBackgroundWorkStop("session-a");
+			state.asyncJobs.clear();
+			state.currentSessionId = null;
+			unregister();
+			await expect(stopCaptured()).resolves.toBe(1);
+		} finally {
+			unregister();
+		}
+		expect(stopped).toEqual([{ sessionId: "session-a", ids: ["owned"] }]);
 	});
 
 	it("fails closed when asked to stop another session's run or after ownership changes", () => {
