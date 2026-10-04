@@ -131,6 +131,17 @@ test("a record for another id, a missing name or unreadable JSON parses as null 
   assert.equal(parseBotConfig({ id: ID, readText: () => { throw new Error("EACCES"); }, writeConfig: () => undefined, toolNames: TOOL_NAMES, defaultToolNames: DEFAULT_TOOL_NAMES }), null);
 });
 
+test("a shape migration keeps fields written by a newer build and drops an invalid eye color", () => {
+  const { config, writes } = parse(stored({ futureField: { keep: true }, avatarEyeColor: "not-a-color" }));
+  assert.equal(writes.length, 1);
+  assert.deepEqual(writes[0].futureField, { keep: true });
+  assert.equal("avatarEyeColor" in writes[0], false);
+  // Normalized values win over the stored legacy ones, and the returned config stays closed over known fields.
+  assert.equal(writes[0].label, "");
+  assert.equal(writes[0].notificationsEnabled, true);
+  assert.equal("futureField" in config, false);
+});
+
 test("a migration write failing still returns the normalized config so the bot is not dropped", () => {
   let attempts = 0;
   const { config } = parse(stored(), { writeConfig: () => { attempts += 1; throw new Error("disk full"); } });

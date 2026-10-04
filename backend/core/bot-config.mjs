@@ -131,7 +131,13 @@ export function parseBotConfig({ id, readText, writeConfig, toolNames, defaultTo
     // "no such bot": the normalized config is still returned and the migration is retried on the
     // next read, because the stored file still looks legacy.
     try {
-      if (needsShapeRewrite) writeConfig(config);
+      if (needsShapeRewrite) {
+        // Keep fields this build does not know (written by a newer build) instead of dropping them;
+        // known fields take the normalized values, and an invalid optional eye color is removed.
+        const merged = { ...value, ...config };
+        if (!("avatarEyeColor" in config)) delete merged.avatarEyeColor;
+        writeConfig(merged);
+      }
       // A tool-allowlist migration alone must not rewrite the rest of the file: a value this build does
       // not know (a newer permission mode, a field from a later build) has to stay on disk untouched,
       // exactly like an unknown tool name does.
