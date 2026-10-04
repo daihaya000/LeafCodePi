@@ -176,6 +176,17 @@ export async function GET(req: NextRequest) {
       { status: 400 },
     );
   }
+  // A network location makes the server walk a remote share with local privileges.
+  // Local drives and POSIX paths are untouched, so a model directory on an
+  // external disk keeps working; only UNC / drive-relative targets are refused.
+  // Checked before isAbsolute so Windows rejects them regardless of how the host
+  // classifies the string.
+  if (/^[\\/]{2}/.test(dir) || /^[A-Za-z]:[^\\/]/.test(dir)) {
+    return NextResponse.json(
+      { error: "ネットワーク・ドライブ相対パスはモデル保存先に指定できません" },
+      { status: 400 },
+    );
+  }
   if (!path.isAbsolute(dir)) {
     return NextResponse.json(
       { error: "モデル保存先は絶対パスで指定してください" },

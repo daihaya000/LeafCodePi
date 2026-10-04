@@ -52,3 +52,37 @@ describe("defaultModelDir", () => {
     ).toBe("/srv/models/llm");
   });
 });
+
+describe("model directory target safety", () => {
+  const dirs: string[] = [];
+  afterEach(() => {
+    resetLlamaModelScanCacheForTests();
+    for (const dir of dirs.splice(0)) rmSync(dir, { recursive: true, force: true });
+  });
+
+  const request = (dir: string) =>
+    new NextRequest(`http://127.0.0.1:3010/api/llama-server/models?dir=${encodeURIComponent(dir)}`);
+
+  it("refuses a UNC network path so the server never walks a remote share", async () => {
+    const unc = String.raw`\\server\models`;
+    const response = await GET(request(unc));
+    expect(response.status).toBe(400);
+    expect((await response.json()).error).toMatch(/ネットワーク/);
+  });
+
+  it("refuses a drive-relative path, which resolves against per-drive cwd", async () => {
+    const response = await GET(request("C:models"));
+    expect(response.status).toBe(400);
+    expect((await response.json()).error).toMatch(/ネットワーク/);
+  });
+
+  it("still serves a local directory, so an external disk keeps working", async () => {
+    const dir = mkdtempSync(path.join(tmpdir(), "llama-local-"));
+    dirs.push(dir);
+    writeFileSync(path.join(dir, "local.gguf"), "a", "utf8");
+
+    const response = await GET(request(dir));
+    expect(response.status).toBe(200);
+    expect((await response.json()).models).toEqual(["local.gguf"]);
+  });
+});
