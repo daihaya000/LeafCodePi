@@ -57,7 +57,7 @@ describe("Jev model settings API", () => {
     expect(mocks.save).not.toHaveBeenCalled();
   });
 
-  it("saves multiple enabled models when every reference is detected and one provider is enabled", async () => {
+  it("saves only detected enabled models when at least one provider is enabled", async () => {
     const second = { ...candidate, accountId: "two", modelId: "typesafe/jev-1.14" };
     const secondRef = { providerId: "openrouter", modelId: second.modelId, accountId: "two" };
     const settings = { ...DEFAULT_JEV_MODEL_SETTINGS, provider: "registered", registeredModel: secondRef, enabledModels: [secondRef, ref] };
@@ -73,6 +73,25 @@ describe("Jev model settings API", () => {
     mocks.list.mockResolvedValue([{ ...candidate, providerEnabled: false }, { ...second, providerEnabled: false }]);
     expect((await PUT(request({ settings }))).status).toBe(400);
     mocks.list.mockResolvedValue([candidate]);
+    expect((await PUT(request({ settings }))).status).toBe(200);
+    expect(mocks.save).toHaveBeenCalledWith({ ...settings, registeredModel: ref, enabledModels: [ref] }, undefined);
+  });
+
+  it("drops undetected selections and repairs the primary reference while retaining paused selections", async () => {
+    const missing = { providerId: "commandcode", modelId: "typesafe/jev" };
+    const pausedRef = { ...ref, accountId: "paused" };
+    const settings = { ...DEFAULT_JEV_MODEL_SETTINGS, provider: "registered", registeredModel: missing, enabledModels: [missing, ref, pausedRef] };
+    mocks.list.mockResolvedValue([candidate, { ...candidate, ...pausedRef, providerEnabled: false }]);
+    expect((await PUT(request({ settings }))).status).toBe(200);
+    expect(mocks.save).toHaveBeenCalledWith({ ...settings, registeredModel: ref, enabledModels: [ref, pausedRef] }, undefined);
+  });
+
+  it("does not save or select another account when all selected references are undetected", async () => {
+    const settings = { ...DEFAULT_JEV_MODEL_SETTINGS, provider: "registered", registeredModel: ref, enabledModels: [ref] };
+    mocks.list.mockResolvedValue([{ ...candidate, accountId: "unselected" }]);
+    expect((await PUT(request({ settings }))).status).toBe(400);
+    expect(mocks.save).not.toHaveBeenCalled();
+    mocks.list.mockRejectedValue(new Error("offline"));
     expect((await PUT(request({ settings }))).status).toBe(400);
     expect(mocks.save).not.toHaveBeenCalled();
   });

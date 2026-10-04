@@ -106,9 +106,13 @@ export function normalizeJevModelSettings(value: unknown): JevModelSettings {
   };
 }
 
+/** Undetected selections are inert; detected models under disabled providers stay selected. */
 export function enabledJevModelKeys(settings: JevModelSettings, models: JevCatalogModel[]): Set<string> {
-  if (settings.enabledModels) return new Set(settings.enabledModels.map(jevModelKey));
-  if (settings.provider === "registered") return new Set(settings.registeredModel ? [jevModelKey(settings.registeredModel)] : []);
+  const selected = settings.enabledModels ?? (settings.provider === "registered" ? settings.registeredModel ? [settings.registeredModel] : [] : undefined);
+  if (selected) {
+    const detectedKeys = new Set(models.map(jevModelKey));
+    return new Set(selected.map(jevModelKey).filter((key) => detectedKeys.has(key)));
+  }
   const legacy = settings.provider === "typesafe" && models.find((model) => model.providerId === "typesafe" && model.modelId === settings.typesafeModel);
   return new Set(legacy ? [jevModelKey(legacy)] : []);
 }

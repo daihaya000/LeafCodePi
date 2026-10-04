@@ -106,11 +106,9 @@ export function JevModelSettings({ refreshToken = 0, onProviderCatalogChange }: 
   const selectedKeys = enabledModelKeys(settings, models);
   const savedKeys = saved ? enabledModelKeys(saved.settings, models) : new Set<string>();
   const usableModels = models.filter((model) => model.providerEnabled !== false && selectedKeys.has(jevModelKey(model)));
-  const detectedKeys = new Set(models.map(jevModelKey));
-  // Selections under a disabled provider stay saved but paused; only undetected ones block saving.
+  // Undetected selections are ignored; disabled providers keep their detected selections paused.
   const pausedModels = models.filter((model) => model.providerEnabled === false && selectedKeys.has(jevModelKey(model)));
-  const unavailableSelection = settings.provider === "registered" && [...selectedKeys].some((key) => !detectedKeys.has(key));
-  const selectionUnavailable = settings.provider === "registered" && (usableModels.length === 0 || unavailableSelection);
+  const selectionUnavailable = settings.provider === "registered" && usableModels.length === 0;
   const timeoutInvalid = !Number.isInteger(settings.timeoutMs) || settings.timeoutMs < 100 || settings.timeoutMs > 120_000;
   canSave.current = Boolean(saved) && !selectionUnavailable && !timeoutInvalid;
   const persist = useCallback(async function persist() {
@@ -204,22 +202,12 @@ export function JevModelSettings({ refreshToken = 0, onProviderCatalogChange }: 
     setError(null);
     setSettings((current) => {
       const keys = enabledModelKeys(current, models);
-      const refs = current.enabledModels ?? models.filter((item) => keys.has(jevModelKey(item))).map((item) => ({
+      const refs = models.filter((item) => keys.has(jevModelKey(item))).map((item) => ({
         providerId: item.providerId, modelId: item.modelId, ...(item.accountId ? { accountId: item.accountId } : {}),
       }));
       const next = keys.has(jevModelKey(ref)) ? refs.filter((item) => jevModelKey(item) !== jevModelKey(ref)) : [...refs, ref];
       return { ...current, provider: "registered", registeredModel: next[0], enabledModels: next };
     });
-    setStatus("");
-  }
-
-  function removeUnavailableModels() {
-    if (!usableModels.length) return;
-    const enabledModels = models.filter((model) => selectedKeys.has(jevModelKey(model))).map((model) => ({
-      providerId: model.providerId, modelId: model.modelId, ...(model.accountId ? { accountId: model.accountId } : {}),
-    }));
-    setSettings((current) => ({ ...current, provider: "registered", registeredModel: enabledModels[0], enabledModels }));
-    setError(null);
     setStatus("");
   }
 
@@ -390,10 +378,6 @@ export function JevModelSettings({ refreshToken = 0, onProviderCatalogChange }: 
             </li>)}
           </ul>
           {settings.provider === "registered" && usableModels.length === 0 && <p role="alert" className="text-sm text-danger">有効なJevモデルを1件以上選び、対象プロバイダーを有効にしてください。</p>}
-          {unavailableSelection && usableModels.length > 0 && <p role="alert" className="text-sm text-danger">
-            選択中のJevモデルに未検出のものがあります。設定を保存するには、プロバイダー接続・アカウントを確認するか、
-            <button type="button" onClick={removeUnavailableModels} className="text-accent underline">利用できない選択を解除</button>してください。
-          </p>}
           {settings.provider === "registered" && usableModels.length > 0 && pausedModels.length > 0 && <p className="text-xs text-muted">
             無効なプロバイダーの選択{pausedModels.length}件は停止中です。プロバイダーを有効にすると選択を保ったまま再開します。
           </p>}
@@ -402,7 +386,7 @@ export function JevModelSettings({ refreshToken = 0, onProviderCatalogChange }: 
           {settings.provider === "typesafe" && selectedKeys.size === 0 && <p className="text-xs text-muted">従来のTypeSafeモデルを使用中です。認証はプロバイダー接続で管理してください。</p>}
           {settings.provider === "typesafe" && selectedKeys.size === 0 && latencyText(saved?.latency?.[settings.typesafeModel]) && <p className="text-xs text-muted">Jev応答 {latencyText(saved?.latency?.[settings.typesafeModel])}</p>}
           {settings.provider === "compatible" && latencyText(saved?.latency?.[settings.compatibleModel]) && <p className="text-xs text-muted">Jev応答 {latencyText(saved?.latency?.[settings.compatibleModel])}</p>}
-          <p className="text-xs text-muted">会話・ツール結果を有効なモデルへ上から順に送信します。失敗すると次の有効モデルへ転送します。</p>
+          <p className="text-xs text-muted">会話・ツール結果を検出済みの有効なモデルへ上から順に送信します。未検出のモデルは使用しません。失敗すると次の有効モデルへ転送します。</p>
           <div className="flex flex-wrap items-center gap-3">
             <details className="text-xs text-muted">
               <summary className="cursor-pointer">Jev判定の詳細設定</summary>

@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { isCrossOriginRequest } from "@/lib/same-origin";
-import { normalizeJevModelSettings } from "@/lib/jev-model-settings";
+import { enabledJevModelKeys, normalizeJevModelSettings } from "@/lib/jev-model-settings";
 import { getJevModelSettingsDto, saveJevModelSettings } from "@/lib/pi/jev-model-config";
 import { readJevLatencyStats } from "@/lib/pi/jev-latency";
 import { listJevModels } from "@/lib/pi/harness";
@@ -50,15 +50,12 @@ export async function PUT(req: NextRequest) {
     if (settings.provider === "registered") {
       if (apiKey !== undefined) throw new Error("既存プロバイダーの認証をここで変更することはできません");
       const models = knownModels = await listJevModels().catch(() => []);
-      const selected = settings.enabledModels ?? [settings.registeredModel!];
-      // Selections under a disabled provider are kept (paused) so re-enabling restores them.
-      const detected = selected.map((ref) => models.find((model) => jevModelKey(model) === jevModelKey(ref)));
-      if (detected.some((model) => !model)) throw new Error("有効にしたJevモデルは未検出、またはアカウントが無効です");
-      if (!detected.some((model) => model?.providerEnabled !== false)) {
+      const keys = enabledJevModelKeys(settings, models);
+      // Ignore undetected references; detected selections under disabled providers stay paused.
+      if (!models.some((model) => keys.has(jevModelKey(model)) && model.providerEnabled !== false)) {
         throw new Error("有効なプロバイダーのJevモデルを1件以上選んでください");
       }
       if (settings.enabledModels) {
-        const keys = new Set(settings.enabledModels.map(jevModelKey));
         const rows = new Map<string, typeof models>();
         for (const model of models) {
           const rowKey = model.integrated ? model.providerId : model.accountId ? `${model.accountId}::${model.providerId}` : model.providerId;
