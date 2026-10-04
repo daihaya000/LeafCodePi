@@ -10,6 +10,17 @@ export function isGoalLoopCommandApplied(action: "start" | "resume" | "pause" | 
   return loop.status === "stopped" || loop.status === "completed";
 }
 
+/** Encodes the restart-only instruction so it cannot be split by command parsing. */
+export function buildGoalLoopResumeCommand(input: { maxTurns?: number; restartPrompt?: string }): string {
+  let command = "/goal-resume";
+  if (input.maxTurns !== undefined) command += ` --turns ${Math.trunc(input.maxTurns)}`;
+  const restartPrompt = input.restartPrompt?.trim();
+  if (restartPrompt) {
+    command += ` --restart-prompt ${Buffer.from(restartPrompt, "utf8").toString("base64url")}`;
+  }
+  return command;
+}
+
 /** Goal commands must not enter the SDK's deferred prompt queue during settlement. */
 export async function dispatchGoalLoopCommand(session: AgentSession, command: string): Promise<void> {
   const match = /^\/(goal-(?:start|resume|pause|stop|complete))(?:\s+([\s\S]*))?$/.exec(command);

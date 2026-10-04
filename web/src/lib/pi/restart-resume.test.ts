@@ -111,6 +111,30 @@ describe("restart resume", () => {
     expect(room.promptTask).not.toHaveBeenCalled();
   });
 
+  it("resumes eligible Goal Loops through the dedicated control path", async () => {
+    const resumeGoalLoop = vi.fn(async () => ({ status: "queued" }));
+    const { value, promptTask } = deps(orphaned(), {
+      isGoalLoopOwned: () => true,
+      canResumeGoalLoop: () => true,
+      resumeGoalLoop,
+    });
+    expect(await resumeOrphanedTask(task(), value)).toBe(true);
+    expect(resumeGoalLoop).toHaveBeenCalledWith("t1", RESTART_RESUME_PROMPT);
+    expect(promptTask).not.toHaveBeenCalled();
+  });
+
+  it("keeps operator-paused Goal Loops out of automatic restart resume", async () => {
+    const resumeGoalLoop = vi.fn(async () => ({ status: "queued" }));
+    const { value, promptTask } = deps(orphaned(), {
+      isGoalLoopOwned: () => true,
+      canResumeGoalLoop: () => false,
+      resumeGoalLoop,
+    });
+    expect(await resumeOrphanedTask(task(), value)).toBe(false);
+    expect(resumeGoalLoop).not.toHaveBeenCalled();
+    expect(promptTask).not.toHaveBeenCalled();
+  });
+
   it("caps restart resumes per task within the window and counts again afterwards", async () => {
     let now = NOW;
     const { value, promptTask } = deps(orphaned(), { now: () => now });

@@ -19,6 +19,10 @@ export type RestartResumeTask = {
 export type RestartResumeDeps<T extends RestartResumeTask = RestartResumeTask> = {
   getTask: (id: string) => T | undefined;
   promptTask: (id: string, prompt: string) => Promise<unknown>;
+  /** Dedicated control path for a Goal Loop-owned orphan; never use promptTask for it. */
+  resumeGoalLoop?: (id: string, prompt: string) => Promise<unknown>;
+  /** True only for lifecycle-interrupted loops, not operator-paused or blocked loops. */
+  canResumeGoalLoop?: (task: T) => boolean;
   isGoalLoopOwned: (task: T) => boolean;
   isRoomDelegated: (taskId: string) => boolean;
   now?: () => number;
@@ -27,6 +31,10 @@ export type RestartResumeDeps<T extends RestartResumeTask = RestartResumeTask> =
 };
 
 export function restartResumeSkipReason(snapshot: RestartResumeTask, now: number): string | null;
+export function isGoalLoopRestartResumable(loop: {
+  status?: string | null;
+  pauseReason?: string | null;
+} | null | undefined): boolean;
 
 export class RestartResumeService {
   constructor(options: { dataDir: () => string; orphanedTaskError: string });
@@ -40,4 +48,5 @@ export function restartResumeRefusal(input: {
   orphanedTaskError: string;
   isRoomDelegated: boolean;
   isGoalLoopOwned: boolean;
+  canResumeGoalLoop?: boolean;
 }): "changed" | "room-delegated" | "goal-loop-owned" | null;

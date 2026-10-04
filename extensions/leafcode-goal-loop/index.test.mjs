@@ -182,6 +182,12 @@ test("normal prompts stop at the first verified completion", () => {
   const fullRunPrompt = buildGoalPrompt({ ...loop, forceFullRun: true }, 1);
   assert.doesNotMatch(fullRunPrompt, /turn budget is a ceiling, not a target/);
   assert.match(fullRunPrompt, /Never declare the goal complete/);
+
+  const restartPrompt = "Restart recovery: continue without repeating completed operations.";
+  const recovering = { ...loop, restartResumePrompt: restartPrompt };
+  assert.match(buildGoalPrompt(recovering, 1), /Restart recovery: continue without repeating completed operations/);
+  assert.match(buildGoalContinuationPrompt(recovering, 2), /Restart recovery: continue without repeating completed operations/);
+  assert.match(buildVerificationPrompt(recovering), /Restart recovery: continue without repeating completed operations/);
 });
 
 test("normal mode requires a verification turn", () => {
@@ -4531,6 +4537,109 @@ test("re-arms a running loop whose settlement was lost", async () => {
   } finally {
     goalLoopTestSeams.setScheduleWatchdogMs(undefined);
     await handlers.get("session_shutdown")?.({}, ctx);
+    delete process.env.LEAFCODE_PI_DATA_DIR;
+    rmSync(cwd, { recursive: true, force: true });
+  }
+});
+
+test("restart resume retries the same Goal Loop turn with a one-shot recovery instruction", async () => {
+  const cwd = mkdtempSync(join(tmpdir(), "leafcode-goal-loop-restart-prompt-"));
+  process.env.LEAFCODE_PI_DATA_DIR = cwd;
+  const stateFile = () => join(cwd, "goals-loop", "restart-prompt-session.json");
+  const branch = [];
+  let busy = false;
+  let sendCount = 0;
+  let piA;
+  let ctxA;
+  let piB;
+  let ctxB;
+
+  const makeEnv = () => ({
+    cwd,
+    mode: "rpc",
+    hasUI: false,
+    isIdle: () => !busy,
+    hasPendingMessages: () => false,
+    abort: () => { busy = false; },
+    signal: undefined,
+    sessionManager: {
+      getSessionId: () => "restart-prompt-session",
+      getBranch: () => branch,
+    },
+    ui: { setStatus: () => {}, setWidget: () => {}, notify: () => {} },
+  });
+  const makePi = () => ({
+    handlers: new Map(),
+    commands: new Map(),
+    on(name, handler) { this.handlers.set(name, handler); },
+    registerCommand(name, options) { this.commands.set(name, options.handler); },
+    appendEntry() {},
+    sendMessage(message) {
+      sendCount += 1;
+      busy = true;
+      branch.push({
+        type: "custom_message",
+        customType: message.customType,
+        details: message.details,
+        content: message.content,
+      });
+    },
+  });
+
+  try {
+    piA = makePi();
+    ctxA = makeEnv();
+    goalLoopExtension(piA);
+    await piA.handlers.get("session_start")?.({}, ctxA);
+    const payload = Buffer.from(JSON.stringify({ goal: "continue interrupted work", maxTurns: 1 })).toString("base64url");
+    await piA.commands.get("goal-start")?.(payload, ctxA);
+    await waitFor(() => sendCount === 1);
+    branch.push({
+      type: "message",
+      message: { role: "assistant", content: [{ type: "text", text: "A completed operation is already in the transcript." }] },
+    });
+    await piA.handlers.get("session_shutdown")?.({}, ctxA);
+    const interrupted = JSON.parse(readFileSync(stateFile(), "utf8"));
+    assert.equal(interrupted.status, "paused");
+    assert.equal(interrupted.pendingTurnRecovery, true);
+    assert.equal(interrupted.retryInterruptedTurn, true);
+    assert.equal(interrupted.turnCount, 1);
+
+    piB = makePi();
+    ctxB = makeEnv();
+    goalLoopExtension(piB);
+    await piB.handlers.get("session_start")?.({}, ctxB);
+    busy = false;
+    const restartPrompt = "WebUIの再起動で前のターンが中断されました。完了済みの操作は繰り返さず、中断した箇所から作業を続けてください。";
+    const encoded = Buffer.from(restartPrompt, "utf8").toString("base64url");
+    await piB.commands.get("goal-resume")?.(`--restart-prompt ${encoded}`, ctxB);
+    await waitFor(() => sendCount === 2);
+
+    const resumed = JSON.parse(readFileSync(stateFile(), "utf8"));
+    const resumedTurn = branch.filter((entry) => entry.type === "custom_message").at(-1);
+    assert.equal(resumed.status, "running");
+    assert.equal(resumed.turnCount, 1, "an interrupted turn reuses its turn slot");
+    assert.equal(resumedTurn.details.turn, 1);
+    assert.match(resumedTurn.content, /完了済みの操作は繰り返さず/);
+    assert.equal(resumed.restartResumePrompt, restartPrompt);
+
+    const resultMessage = {
+      role: "assistant",
+      content: [{ type: "text", text: JSON.stringify({ status: "progress", summary: "continued without repeating completed work" }) }],
+    };
+    busy = false;
+    await piB.handlers.get("agent_end")?.({ type: "agent_end", messages: [resultMessage] }, ctxB);
+    await piB.handlers.get("agent_settled")?.({ type: "agent_settled" }, ctxB);
+    const settled = JSON.parse(readFileSync(stateFile(), "utf8"));
+    assert.equal(settled.status, "paused");
+    assert.equal(settled.pauseReason, "turn_limit");
+    assert.equal(settled.turnCount, 1);
+    assert.equal(settled.restartResumePrompt, undefined, "a valid result consumes the one-shot instruction");
+    assert.equal(settled.progress.at(-1).summary, "continued without repeating completed work");
+    assert.equal(sendCount, 2);
+  } finally {
+    await piA?.handlers.get("session_shutdown")?.({}, ctxA);
+    await piB?.handlers.get("session_shutdown")?.({}, ctxB);
     delete process.env.LEAFCODE_PI_DATA_DIR;
     rmSync(cwd, { recursive: true, force: true });
   }

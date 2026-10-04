@@ -20,6 +20,12 @@ export function restartResumeSkipReason(snapshot, now) {
   return null;
 }
 
+/** Only lifecycle pauses may be resumed automatically; preserve user/operator holds. */
+export function isGoalLoopRestartResumable(loop) {
+  return loop?.status === "running" ||
+    (loop?.status === "paused" && (loop.pauseReason ?? "") === "");
+}
+
 /**
  * Why a candidate cannot be resumed yet, or null when it is resumable. The order is
  * the refusal precedence: a task the user changed/stopped/deleted, then a
@@ -27,10 +33,16 @@ export function restartResumeSkipReason(snapshot, now) {
  * owns. Callers that only classify (for example a process without a runtime) use this
  * instead of reimplementing the ladder; the resume path uses it too.
  */
-export function restartResumeRefusal({ task, orphanedTaskError, isRoomDelegated, isGoalLoopOwned }) {
+export function restartResumeRefusal({
+  task,
+  orphanedTaskError,
+  isRoomDelegated,
+  isGoalLoopOwned,
+  canResumeGoalLoop,
+}) {
   if (!task || task.status !== "error" || task.error !== orphanedTaskError) return "changed";
   if (isRoomDelegated === true) return "room-delegated";
-  if (isGoalLoopOwned === true) return "goal-loop-owned";
+  if (isGoalLoopOwned === true && canResumeGoalLoop !== true) return "goal-loop-owned";
   return null;
 }
 
@@ -94,11 +106,16 @@ export class RestartResumeService {
     const now = (deps.now ?? Date.now)();
     const task = deps.getTask(snapshot.id);
     // Respect edits/stops/deletion while the delayed resume was waiting.
+    const goalLoopOwned = task ? deps.isGoalLoopOwned(task) === true : false;
+    const canResumeGoalLoop = goalLoopOwned &&
+      typeof deps.resumeGoalLoop === "function" &&
+      deps.canResumeGoalLoop?.(task) === true;
     const refusal = restartResumeRefusal({
       task,
       orphanedTaskError: this.orphanedTaskError,
       isRoomDelegated: task ? deps.isRoomDelegated(task.id) === true : false,
-      isGoalLoopOwned: task ? deps.isGoalLoopOwned(task) === true : false,
+      isGoalLoopOwned: goalLoopOwned,
+      canResumeGoalLoop,
     });
     if (refusal === "changed") return false;
     if (refusal === "room-delegated") {
@@ -120,8 +137,13 @@ export class RestartResumeService {
       return false;
     }
     try {
-      await deps.promptTask(task.id, RESTART_RESUME_PROMPT);
-      log(`resumed ${task.id} after restart`);
+      if (goalLoopOwned) {
+        await deps.resumeGoalLoop(task.id, RESTART_RESUME_PROMPT);
+        log(`resumed Goal Loop ${task.id} after restart`);
+      } else {
+        await deps.promptTask(task.id, RESTART_RESUME_PROMPT);
+        log(`resumed ${task.id} after restart`);
+      }
       return true;
     } catch (error) {
       log(`resume failed for ${task.id}`, error);

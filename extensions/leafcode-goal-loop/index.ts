@@ -94,6 +94,8 @@ export type GoalLoop = {
    * they arrived in is compacted.
    */
   notes?: string[];
+  /** One-shot restart recovery instruction, retained until a valid result is applied. */
+  restartResumePrompt?: string;
   createdAt: string;
   updatedAt: string;
 };
@@ -546,6 +548,9 @@ function hydrateLoop(value: unknown, cwd: string, id: string): GoalLoop | null {
     retryInterruptedTurn: raw.retryInterruptedTurn === true,
     endNoticeSent: !resumeFullRun && raw.endNoticeSent === true,
     notes: normalizeNotes(raw.notes),
+    ...(typeof raw.restartResumePrompt === "string" && raw.restartResumePrompt.trim()
+      ? { restartResumePrompt: raw.restartResumePrompt.trim().slice(0, MAX_NOTE_CHARS) }
+      : {}),
     createdAt: typeof raw.createdAt === "string" ? raw.createdAt : now,
     updatedAt: typeof raw.updatedAt === "string" ? raw.updatedAt : now,
   };
@@ -1016,6 +1021,11 @@ function operatorNotes(loop: GoalLoop): string {
     : "";
 }
 
+function restartResumeInstruction(loop: GoalLoop): string {
+  const prompt = loop.restartResumePrompt?.trim();
+  return prompt ? `\n\n${prompt}` : "";
+}
+
 function jsonInstructions(statuses: string): string {
   return `\n\nThe very last thing you output this turn must be a single fenced JSON block:\n\n\`\`\`json\n{"status":"progress","summary":"what changed this turn","next":"the next step","evidence":"commands run, files touched, results"}\n\`\`\`\n\n- status must be exactly one of: ${statuses}.\n- summary is required. Put a blocked reason in blockedReason when status is blocked.\n- Write nothing after the closing fence.`;
 }
@@ -1025,7 +1035,7 @@ export function buildGoalPrompt(loop: GoalLoop, turn: number): string {
   const turnBudget = max === 0
     ? `This is loop turn ${turn}. There is no automatic turn limit.`
     : `This is turn ${turn} of ${loop.forceFullRun ? "exactly" : "at most"} ${max}. ${turn - 1} loop turn(s) completed before this one.`;
-  const common = `${PROMPT_MARKER}\n\n${turnBudget} The next prompt is sent automatically after this turn ends.\n\nRules:\n- One turn = one iteration. Do the smallest useful increment, then end this turn. Do not simulate future work.\n- Report only work actually performed in this turn.\n- Keep changes incremental and reviewable.\n- Do not ask questions unless truly blocked.\n\nGoal:\n${loop.goal}${acceptanceText(loop)}${recentProgress(loop, 5)}${operatorNotes(loop)}`;
+  const common = `${PROMPT_MARKER}\n\n${turnBudget} The next prompt is sent automatically after this turn ends.\n\nRules:\n- One turn = one iteration. Do the smallest useful increment, then end this turn. Do not simulate future work.\n- Report only work actually performed in this turn.\n- Keep changes incremental and reviewable.\n- Do not ask questions unless truly blocked.\n\nGoal:\n${loop.goal}${acceptanceText(loop)}${recentProgress(loop, 5)}${restartResumeInstruction(loop)}${operatorNotes(loop)}`;
   if (loop.forceFullRun) {
     return `${common}\n\nYou are running in LeafCode full-run mode. Never declare the goal complete. The host will ${max === 0 ? "continue until you pause or stop it" : `run exactly ${max} goal turns`}. A completion claim is treated as progress.${jsonInstructions("progress, blocked")}`;
   }
@@ -1039,7 +1049,7 @@ export function buildGoalContinuationPrompt(loop: GoalLoop, turn: number): strin
   const missingResultReminder = loop.unreadableStreak > 0
     ? "\n\nYour previous reply did not include the required JSON result block, so the loop could not read a result. This turn MUST end with the fenced JSON block described below, and nothing may come after it."
     : "";
-  const common = `${PROMPT_MARKER}\n\nContinue the persistent goal loop. Work on exactly one smallest useful step, then end this turn. ${turnBudget}${missingResultReminder}\n\nGoal:\n${loop.goal}${acceptanceText(loop)}${recentProgress(loop, 2)}${operatorNotes(loop)}`;
+  const common = `${PROMPT_MARKER}\n\nContinue the persistent goal loop. Work on exactly one smallest useful step, then end this turn. ${turnBudget}${missingResultReminder}\n\nGoal:\n${loop.goal}${acceptanceText(loop)}${recentProgress(loop, 2)}${restartResumeInstruction(loop)}${operatorNotes(loop)}`;
   if (loop.forceFullRun) {
     return `${common}\n\nFull-run mode: never declare completion. The loop will ${loop.maxTurns === 0 ? "continue until you pause or stop it" : "run until the turn limit"}. Do not simulate future work.${jsonInstructions("progress, blocked")}`;
   }
@@ -1048,7 +1058,7 @@ export function buildGoalContinuationPrompt(loop: GoalLoop, turn: number): strin
 
 export function buildVerificationPrompt(loop: GoalLoop): string {
   const claim = [...loop.progress].reverse().find((item) => item.status === "completed") ?? loop.progress.at(-1);
-  return `${PROMPT_MARKER}\n\nThe previous turn claimed the goal was completed. Independently verify that claim. Inspect the repository and run appropriate checks; do not trust the claim's narration. Do not make unrelated cleanup, refactoring, polish, or speculative changes.\n\nGoal:\n${loop.goal}${acceptanceText(loop, "Acceptance criteria to verify")}\n\nClaimed completion:\n${claim ? `summary: ${claim.summary}\nevidence: ${claim.evidence ?? "(none)"}` : "(none)"}\n\nReturn verified_completed only when every criterion is backed by observable evidence. Return progress when more work is required, or blocked when verification cannot proceed.${jsonInstructions("verified_completed, progress, blocked")}`;
+  return `${PROMPT_MARKER}${restartResumeInstruction(loop)}\n\nThe previous turn claimed the goal was completed. Independently verify that claim. Inspect the repository and run appropriate checks; do not trust the claim's narration. Do not make unrelated cleanup, refactoring, polish, or speculative changes.\n\nGoal:\n${loop.goal}${acceptanceText(loop, "Acceptance criteria to verify")}\n\nClaimed completion:\n${claim ? `summary: ${claim.summary}\nevidence: ${claim.evidence ?? "(none)"}` : "(none)"}\n\nReturn verified_completed only when every criterion is backed by observable evidence. Return progress when more work is required, or blocked when verification cannot proceed.${jsonInstructions("verified_completed, progress, blocked")}`;
 }
 
 export function applyResult(loop: GoalLoop, result: GoalLoopProgress | null): boolean {
@@ -1057,8 +1067,9 @@ export function applyResult(loop: GoalLoop, result: GoalLoopProgress | null): bo
     return applyMissingResult(loop, "");
   }
   loop.unreadableStreak = 0;
-  // A real result ends the interrupted-turn retry (the turn produced an outcome).
+  // A real result ends the interrupted-turn retry and retires its one-shot instruction.
   loop.retryInterruptedTurn = false;
+  delete loop.restartResumePrompt;
 
   // Full-run never performs completion verification. A stale verifying_* state or
   // a model returning verified_completed must not end the loop early.
@@ -2162,7 +2173,7 @@ function statusMessage(loop: GoalLoop | null): string {
   return `${statusLabel(loop.status)} ${shownTurn}/${max}${mode} · ${short(loop.goal, 140)}${detail}`;
 }
 
-function resumeLoop(runtime: Runtime, maxTurns?: unknown): boolean {
+function resumeLoop(runtime: Runtime, maxTurns?: unknown, restartPrompt?: string): boolean {
   const loop = currentLoop(runtime);
   if (!loop || (loop.status !== "paused" && loop.status !== "blocked")) {
     runtime.ctx.ui.notify("一時停止中または要対応の Goal loop はありません。", "info");
@@ -2196,6 +2207,7 @@ function resumeLoop(runtime: Runtime, maxTurns?: unknown): boolean {
     // JSON after resume still gets the one free retry.
     loop.unreadableStreak = 0;
   }
+  if (restartPrompt) loop.restartResumePrompt = restartPrompt.slice(0, MAX_NOTE_CHARS);
   if (runtime.pausedTurnPending || loop.pendingTurnRecovery) {
     const recovered = lateTurnResult(runtime, loop);
     if (recovered) {
@@ -2271,6 +2283,20 @@ function resumeLoop(runtime: Runtime, maxTurns?: unknown): boolean {
   return true;
 }
 
+function decodeRestartResumePrompt(args: string): string | null | undefined {
+  if (!/(?:^|\s)--restart-prompt(?=\s|$)/i.test(args)) return undefined;
+  const encoded = args.match(/(?:^|\s)--restart-prompt\s+([A-Za-z0-9_-]+)(?=\s|$)/i)?.[1];
+  // UTF-8 can use up to three bytes per UTF-16 code unit, then base64url expands by 4/3.
+  if (!encoded || encoded.length > MAX_NOTE_CHARS * 4) return null;
+  const decoded = Buffer.from(encoded, "base64url").toString("utf8");
+  if (
+    !decoded.trim() ||
+    decoded.length > MAX_NOTE_CHARS ||
+    Buffer.from(decoded, "utf8").toString("base64url") !== encoded
+  ) return null;
+  return decoded.trim();
+}
+
 function handleAction(runtime: Runtime, action: "pause" | "resume" | "stop" | "complete", args = ""): void {
   if (action === "pause") {
     const loop = currentLoop(runtime);
@@ -2332,7 +2358,12 @@ function handleAction(runtime: Runtime, action: "pause" | "resume" | "stop" | "c
     runtime.ctx.ui.notify("再開ターン数が不正です。例: /goal-resume --turns 20", "warning");
     return;
   }
-  if (resumeLoop(runtime, turns)) runtime.ctx.ui.notify("Goal loop を再開しました。", "info");
+  const restartPrompt = decodeRestartResumePrompt(args);
+  if (restartPrompt === null) {
+    runtime.ctx.ui.notify("再起動復帰指示が不正です。", "warning");
+    return;
+  }
+  if (resumeLoop(runtime, turns, restartPrompt)) runtime.ctx.ui.notify("Goal loop を再開しました。", "info");
 }
 
 function decodeStartConfig(args: string): {

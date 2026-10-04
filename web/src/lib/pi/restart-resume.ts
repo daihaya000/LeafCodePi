@@ -11,6 +11,7 @@ export {
   RESTART_RESUME_WINDOW_MS,
   RESTART_RESUME_MAX_STALE_MS,
   restartResumeSkipReason,
+  isGoalLoopRestartResumable,
 } from "@backend-core/restart-resume.mjs";
 
 export type RestartResumeDeps = CoreRestartResumeDeps<TaskSummary>;

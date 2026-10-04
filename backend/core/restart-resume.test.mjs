@@ -5,7 +5,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
 import {
-  RestartResumeService, restartResumeRefusal, RESTART_RESUME_DELAY_MS, RESTART_RESUME_STAGGER_MS,
+  RestartResumeService, restartResumeRefusal, isGoalLoopRestartResumable,
+  RESTART_RESUME_DELAY_MS, RESTART_RESUME_STAGGER_MS,
   RESTART_RESUME_WINDOW_MS, RESTART_RESUME_MAX_STALE_MS, RESTART_RESUME_PROMPT,
 } from "./restart-resume.mjs";
 
@@ -36,6 +37,19 @@ function fixture(t) {
 }
 
 const readBudget = (root) => JSON.parse(readFileSync(join(root, "restart-resume.json"), "utf8"));
+
+test("only running and lifecycle-paused Goal Loops are restart-resumable", () => {
+  assert.equal(isGoalLoopRestartResumable({ status: "running" }), true);
+  assert.equal(isGoalLoopRestartResumable({ status: "paused", pauseReason: "" }), true);
+  assert.equal(isGoalLoopRestartResumable({ status: "paused" }), true);
+  for (const pauseReason of ["user", "manual_send", "turn_limit", "unknown_delivery"]) {
+    assert.equal(isGoalLoopRestartResumable({ status: "paused", pauseReason }), false);
+  }
+  for (const status of ["queued", "verifying_completed", "blocked", "completed", "stopped", null]) {
+    assert.equal(isGoalLoopRestartResumable({ status }), false);
+  }
+  assert.equal(isGoalLoopRestartResumable(null), false);
+});
 
 test("service construction and skipped candidates do not touch storage", () => {
   let reads = 0;
@@ -91,6 +105,25 @@ test("user actions and Goal Loop/Room ownership prevent both prompting and budge
   assert.equal(await f.service.resumeOrphanedTask(task(), { ...f.deps, isRoomDelegated: () => true }), false);
   assert.equal(f.prompts.length, 0);
   assert.equal(existsSync(join(f.root, "restart-resume.json")), false);
+});
+
+test("Goal Loop restarts use the dedicated resume path and persist the shared retry budget", async (t) => {
+  const f = fixture(t);
+  const resumed = [];
+  const deps = {
+    ...f.deps,
+    isGoalLoopOwned: () => true,
+    canResumeGoalLoop: () => true,
+    resumeGoalLoop: async (...args) => { resumed.push(args); },
+  };
+  assert.equal(await f.service.resumeOrphanedTask(task(), deps), true);
+  assert.deepEqual(resumed, [["t1", RESTART_RESUME_PROMPT]]);
+  assert.equal(f.prompts.length, 0, "Goal Loop must not receive a normal prompt");
+  assert.deepEqual(readBudget(f.root), { t1: { count: 1, lastAt: NOW } });
+
+  const held = { ...deps, canResumeGoalLoop: () => false };
+  assert.equal(await f.service.resumeOrphanedTask(task({ id: "held" }), held), false);
+  assert.deepEqual(readBudget(f.root), { t1: { count: 1, lastAt: NOW } });
 });
 
 test("unwritable retry budget fails closed without a resend", async (t) => {
@@ -151,6 +184,8 @@ test("the refusal ladder reports the first reason and nothing when resumable", (
   assert.equal(restartResumeRefusal({ ...base, task: { status: "error", error: "user stopped it" } }), "changed");
   assert.equal(restartResumeRefusal({ ...base, isRoomDelegated: true }), "room-delegated");
   assert.equal(restartResumeRefusal({ ...base, isGoalLoopOwned: true }), "goal-loop-owned");
+  assert.equal(restartResumeRefusal({ ...base, isGoalLoopOwned: true, canResumeGoalLoop: false }), "goal-loop-owned");
+  assert.equal(restartResumeRefusal({ ...base, isGoalLoopOwned: true, canResumeGoalLoop: true }), null);
   // A changed task wins over both ownership checks: nothing is resumable anyway.
   assert.equal(restartResumeRefusal({ ...base, task: undefined, isRoomDelegated: true, isGoalLoopOwned: true }), "changed");
   assert.equal(restartResumeRefusal({ ...base, isRoomDelegated: true, isGoalLoopOwned: true }), "room-delegated");

@@ -1,4 +1,5 @@
 import { RuntimeStartup, type RuntimeStartupServices } from "@backend-core/runtime-startup.mjs";
+import { isGoalLoopCommandApplied } from "@/lib/pi/goal-loop-command";
 import { localRuntimeBlocked } from "@/lib/pi/runtime-ownership";
 
 const globals = globalThis as typeof globalThis & {
@@ -19,7 +20,7 @@ async function loadServices(): Promise<RuntimeStartupServices> {
         setLeaseLostListener((taskIds) => harness.abortTaskSessionsAfterLeaseLoss(taskIds));
       }
       if (typeof setOrphanedTaskListener !== "function" || typeof harness.promptTask !== "function") return;
-      const { handleOrphanedTasks } = await import("@/lib/pi/restart-resume");
+      const { handleOrphanedTasks, isGoalLoopRestartResumable } = await import("@/lib/pi/restart-resume");
       const { getTask } = await import("@/lib/store");
       const { isGoalLoopSessionOwned, readGoalLoopState } = await import("@/lib/pi/goal-loop-state");
       const { isRoomDelegatedCodeTask } = await import("@/lib/pi/bot-code-relay");
@@ -27,7 +28,17 @@ async function loadServices(): Promise<RuntimeStartupServices> {
         handleOrphanedTasks(tasks, {
           getTask,
           promptTask: (id, prompt) => harness.promptTask(id, prompt, undefined, { resume: true }),
+          ...(typeof harness.goalLoopCommand === "function"
+            ? { resumeGoalLoop: async (id: string, prompt: string) => {
+                const loop = await harness.goalLoopCommand(id, { action: "resume", restartPrompt: prompt });
+                if (!isGoalLoopCommandApplied("resume", loop)) {
+                  throw Object.assign(new Error("Goal Loop の再起動復帰が反映されませんでした"), { status: 409 });
+                }
+                return loop;
+              } }
+            : {}),
           isGoalLoopOwned: (task) => isGoalLoopSessionOwned(readGoalLoopState(task.directory, task.sessionId)),
+          canResumeGoalLoop: (task) => isGoalLoopRestartResumable(readGoalLoopState(task.directory, task.sessionId)),
           isRoomDelegated: isRoomDelegatedCodeTask,
         });
       });

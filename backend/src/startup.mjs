@@ -6,9 +6,19 @@ import { dataDir as defaultDataDir, noProjectSessionDir, samePath, storePath } f
 import { join } from "node:path";
 import { createTaskLeaseState, ORPHANED_WORKING_TASK_ERROR, TaskLeaseService } from "../core/task-runtime-lease.mjs";
 import { RuntimeStartup } from "../core/runtime-startup.mjs";
-import { RestartResumeService, restartResumeRefusal, restartResumeSkipReason } from "../core/restart-resume.mjs";
+import {
+  RestartResumeService,
+  isGoalLoopRestartResumable,
+  restartResumeRefusal,
+  restartResumeSkipReason,
+} from "../core/restart-resume.mjs";
 import { GoalLoopStateStore } from "../core/goal-loop-state.mjs";
-import { clampGoalLoopCooldownSeconds, clampGoalLoopMaxTurns, isGoalLoopSessionOwnedStatus } from "../core/goal-loop-settings.mjs";
+import {
+  clampGoalLoopCooldownSeconds,
+  clampGoalLoopMaxTurns,
+  isGoalLoopLiveStatus,
+  isGoalLoopSessionOwnedStatus,
+} from "../core/goal-loop-settings.mjs";
 
 /** Must match NO_PROJECT_NAME in shared/types.ts (the Backend cannot import TypeScript). */
 const NO_PROJECT_NAME = "プロジェクトなし";
@@ -102,9 +112,25 @@ export function createBackendStartup({
    * detached case deliberately keeps untouched.
    */
   const resumesOrphaned = () => typeof promptTask === "function" && runtimeStatus.ok === true;
-  const goalLoopOwned = (task) => Boolean(
-    task.sessionId && isGoalLoopSessionOwnedStatus(goalLoopStore.read(task.directory, task.sessionId)?.status),
-  );
+  const goalLoopStateForTask = (task) =>
+    task.sessionId ? goalLoopStore.read(task.directory, task.sessionId) : null;
+  const goalLoopOwned = (task) => isGoalLoopSessionOwnedStatus(goalLoopStateForTask(task)?.status);
+  const canResumeGoalLoop = (task) => {
+    const runtime = runtimeStatus.ok === true ? runtimeStatus.runtime : null;
+    return isGoalLoopRestartResumable(goalLoopStateForTask(task)) &&
+      typeof runtime?.goalLoopCommand === "function";
+  };
+  const resumeGoalLoop = async (id, prompt) => {
+    const runtime = runtimeStatus.ok === true ? runtimeStatus.runtime : null;
+    if (typeof runtime?.goalLoopCommand !== "function") {
+      throw Object.assign(new Error("Goal Loop runtime unavailable"), { status: 503 });
+    }
+    const loop = await runtime.goalLoopCommand(id, { action: "resume", restartPrompt: prompt });
+    if (!loop || !isGoalLoopLiveStatus(loop.status)) {
+      throw Object.assign(new Error("Goal Loop restart resume was not applied"), { status: 409 });
+    }
+    return loop;
+  };
 
   /**
    * Runs one startup step against the attached runtime, if any. A detached Backend does nothing:
@@ -134,12 +160,14 @@ export function createBackendStartup({
         continue;
       }
       const stored = store.getTask(task.id) ?? task;
-      const loop = stored.sessionId ? goalLoopStore.read(stored.directory, stored.sessionId) : null;
+      const loop = goalLoopStateForTask(stored);
+      const loopOwned = isGoalLoopSessionOwnedStatus(loop?.status);
       const refusal = restartResumeRefusal({
         task: stored,
         orphanedTaskError: ORPHANED_WORKING_TASK_ERROR,
         isRoomDelegated: false,
-        isGoalLoopOwned: isGoalLoopSessionOwnedStatus(loop?.status),
+        isGoalLoopOwned: loopOwned,
+        canResumeGoalLoop: loopOwned && canResumeGoalLoop(stored),
       });
       if (refusal) resumeSkipped.push({ id: task.id, reason: refusal });
       else resumePending.push(task.id);
@@ -151,7 +179,9 @@ export function createBackendStartup({
     restartResume.handleOrphanedTasks(tasks, {
       getTask: (id) => store.getTask(id),
       promptTask,
+      resumeGoalLoop,
       isGoalLoopOwned: goalLoopOwned,
+      canResumeGoalLoop,
       isRoomDelegated: () => false,
       log: warn,
       ...(schedule ? { schedule } : {}),

@@ -17,7 +17,7 @@ import { assertLocalRuntimeAllowed, localRuntimeBlocked } from "@/lib/pi/runtime
 import { readDiskTodoProgress } from "@/lib/pi/disk-todo-progress";
 import { fetchRemoteCodeProgress, fetchRemoteTodoProgressMany, needsRemoteTodoProgress } from "@/lib/pi/remote-todo-progress";
 import { beginTaskPreparation, hasTaskPreparation, invalidateTaskPreparations, isTaskTreeEditing, withTaskSessionMutation, withTaskTreeEdit } from "./task-operation-guard";
-import { dispatchGoalLoopCommand, isGoalLoopCommandApplied } from "@/lib/pi/goal-loop-command";
+import { buildGoalLoopResumeCommand, dispatchGoalLoopCommand, isGoalLoopCommandApplied } from "@/lib/pi/goal-loop-command";
 import { notifyPushoverCompletion, shouldNotifyPushoverCompletion } from "@/lib/pushover";
 import { BOT_DEFAULT_TOOL_NAMES, BOT_TOOL_NAMES, botPromptSources, botRuntimeContext, botSoulRevision, botTaskId, getBot, listBots, patchBot } from "@/lib/bots";
 import { AGENTS_MD_FILENAME, codeOnDemandPrompt, codePromptSources, compactSdkDocumentation, readAgentsMdFile } from "@/lib/agents-md";
@@ -8060,7 +8060,8 @@ export async function goalLoopCommand(
         autoAgent?: boolean;
         images?: PromptImage[];
       }
-    | { action: "pause" | "resume" | "stop" | "complete"; maxTurns?: number },
+    | { action: "pause" | "stop" | "complete" }
+    | { action: "resume"; maxTurns?: number; restartPrompt?: string },
 ): Promise<GoalLoopDto | null> {
   assertLocalRuntimeAllowed();
   if (isGoalLoopControlAction(input.action)) invalidateTaskPreparations(taskId);
@@ -8101,8 +8102,8 @@ export async function goalLoopCommand(
       "utf8",
     ).toString("base64url");
     command = `/goal-start ${payload}`;
-  } else if (input.action === "resume" && input.maxTurns !== undefined) {
-    command = `/goal-resume --turns ${Math.trunc(input.maxTurns)}`;
+  } else if (input.action === "resume") {
+    command = buildGoalLoopResumeCommand(input);
   } else {
     command = `/goal-${input.action}`;
   }

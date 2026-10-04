@@ -160,6 +160,73 @@ test("a Goal Loop-owned task is never prompted even when a runtime is supplied",
   assert.equal(existsSync(join(dir, "restart-resume.json")), false);
 });
 
+test("a lifecycle-interrupted Goal Loop resumes through its control path with the restart instruction", async (t) => {
+  const { dir, file } = fixture(t, [task("loop-orphan", "working", { sessionId: "session-1" })]);
+  const loopDir = join(dir, "goals-loop");
+  mkdirSync(loopDir, { recursive: true });
+  writeFileSync(join(loopDir, "session-1.json"), `${JSON.stringify({
+    goal: "続けて",
+    status: "running",
+    turnCount: 2,
+    retryInterruptedTurn: true,
+    pendingTurnRecovery: true,
+  })}\n`, "utf8");
+  const prompted = [];
+  const loopCommands = [];
+  const scheduled = [];
+  const started = createBackendStartup({
+    dataDir: () => dir,
+    warn: () => {},
+    schedule: (callback) => { scheduled.push(callback); },
+    promptTask: async (id, prompt) => { prompted.push([id, prompt]); },
+    loadRuntime: async () => ({ ok: true, runtime: {
+      promptTask: async () => {},
+      goalLoopCommand: async (...args) => { loopCommands.push(args); return { status: "queued" }; },
+    } }),
+  });
+  started.store.storePath = () => file;
+  await started.startup.start();
+  assert.deepEqual(started.resumePending(), ["loop-orphan"]);
+  assert.deepEqual(started.resumeSkipped(), []);
+  assert.equal(scheduled.length, 1);
+  scheduled[0]();
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.deepEqual(loopCommands, [["loop-orphan", { action: "resume", restartPrompt: RESTART_RESUME_PROMPT }]]);
+  assert.deepEqual(prompted, [], "Goal Loop must not receive a normal task prompt");
+  assert.equal(existsSync(join(dir, "restart-resume.json")), true);
+});
+
+test("an operator-paused Goal Loop remains skipped during startup recovery", async (t) => {
+  const { dir, file } = fixture(t, [task("loop-hold", "working", { sessionId: "session-1" })]);
+  const loopDir = join(dir, "goals-loop");
+  mkdirSync(loopDir, { recursive: true });
+  writeFileSync(join(loopDir, "session-1.json"), `${JSON.stringify({
+    goal: "手動停止",
+    status: "paused",
+    pauseReason: "user",
+  })}\n`, "utf8");
+  const loopCommands = [];
+  const scheduled = [];
+  const started = createBackendStartup({
+    dataDir: () => dir,
+    warn: () => {},
+    schedule: (callback) => { scheduled.push(callback); },
+    promptTask: async () => {},
+    loadRuntime: async () => ({ ok: true, runtime: {
+      promptTask: async () => {},
+      goalLoopCommand: async (...args) => { loopCommands.push(args); return { status: "queued" }; },
+    } }),
+  });
+  started.store.storePath = () => file;
+  await started.startup.start();
+  assert.deepEqual(started.resumePending(), []);
+  assert.deepEqual(started.resumeSkipped(), [{ id: "loop-hold", reason: "goal-loop-owned" }]);
+  for (const callback of scheduled) callback();
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.deepEqual(loopCommands, []);
+  assert.equal(existsSync(join(dir, "restart-resume.json")), false);
+});
+
 test("a requested runtime is attached during startup and reported as available", async (t) => {
   const { dir, file } = fixture(t);
   const runtime = { promptTask: () => {} };

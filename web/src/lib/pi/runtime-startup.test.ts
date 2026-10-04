@@ -6,13 +6,23 @@ const mocks = vi.hoisted(() => ({
   ensureRoutineScheduler: vi.fn(),
   reconcileRoomRuntime: vi.fn(),
   setLeaseLostListener: vi.fn(),
+  setOrphanedTaskListener: vi.fn(),
   abortTaskSessionsAfterLeaseLoss: vi.fn(),
+  promptTask: vi.fn(),
+  goalLoopCommand: vi.fn(),
+  handleOrphanedTasks: vi.fn(),
+  getTask: vi.fn(),
+  readGoalLoopState: vi.fn(),
+  isGoalLoopSessionOwned: vi.fn(),
+  isGoalLoopRestartResumable: vi.fn(),
+  isRoomDelegatedCodeTask: vi.fn(),
   localRuntimeBlocked: vi.fn(() => false),
 }));
 
 vi.mock("@/lib/pi/harness", () => ({
   startBotCodeRelay: mocks.startBotCodeRelay,
-  promptTask: vi.fn(),
+  promptTask: mocks.promptTask,
+  goalLoopCommand: mocks.goalLoopCommand,
   abortTaskSessionsAfterLeaseLoss: mocks.abortTaskSessionsAfterLeaseLoss,
   // Left out on purpose: the optional warmups are skipped instead of importing their modules here.
   getTaskSummariesWithTodoProgress: undefined,
@@ -22,10 +32,19 @@ vi.mock("@/lib/routines", () => ({ ensureRoutineScheduler: mocks.ensureRoutineSc
 vi.mock("@/lib/task-runtime-lease", () => ({
   reconcileOrphanedWorkingTasks: mocks.reconcileOrphanedWorkingTasks,
   setLeaseLostListener: mocks.setLeaseLostListener,
-  // No orphan listener, so the resume wiring is skipped instead of importing the store here.
-  setOrphanedTaskListener: undefined,
+  setOrphanedTaskListener: mocks.setOrphanedTaskListener,
 }));
 vi.mock("@/lib/room-runtime", () => ({ reconcileRoomRuntime: mocks.reconcileRoomRuntime }));
+vi.mock("@/lib/pi/restart-resume", () => ({
+  handleOrphanedTasks: mocks.handleOrphanedTasks,
+  isGoalLoopRestartResumable: mocks.isGoalLoopRestartResumable,
+}));
+vi.mock("@/lib/store", () => ({ getTask: mocks.getTask }));
+vi.mock("@/lib/pi/goal-loop-state", () => ({
+  isGoalLoopSessionOwned: mocks.isGoalLoopSessionOwned,
+  readGoalLoopState: mocks.readGoalLoopState,
+}));
+vi.mock("@/lib/pi/bot-code-relay", () => ({ isRoomDelegatedCodeTask: mocks.isRoomDelegatedCodeTask }));
 vi.mock("@/lib/pi/runtime-ownership", () => ({
   localRuntimeBlocked: mocks.localRuntimeBlocked,
   assertLocalRuntimeAllowed: vi.fn(),
@@ -56,6 +75,30 @@ describe("startRuntimeServices", () => {
     const lostLeaseListener = mocks.setLeaseLostListener.mock.calls[0]?.[0] as ((taskIds: string[]) => void) | undefined;
     lostLeaseListener?.(["task"]);
     expect(mocks.abortTaskSessionsAfterLeaseLoss).toHaveBeenCalledWith(["task"]);
+  });
+
+  it("routes restart recovery through Goal Loop control instead of a normal task prompt", async () => {
+    const task = { id: "task", sessionId: "session", directory: "C:/work" };
+    mocks.isGoalLoopSessionOwned.mockReturnValue(true);
+    mocks.isGoalLoopRestartResumable.mockReturnValue(true);
+    mocks.readGoalLoopState.mockReturnValue({ status: "running" });
+    mocks.goalLoopCommand.mockResolvedValue({ status: "queued" });
+
+    await startRuntimeServices();
+    const onOrphanedTasks = mocks.setOrphanedTaskListener.mock.calls[0]?.[0] as
+      ((tasks: Array<typeof task>) => void) | undefined;
+    expect(onOrphanedTasks).toBeTypeOf("function");
+    onOrphanedTasks?.([task]);
+    const deps = mocks.handleOrphanedTasks.mock.calls[0]?.[1] as {
+      resumeGoalLoop: (id: string, prompt: string) => Promise<unknown>;
+    } | undefined;
+    expect(deps?.resumeGoalLoop).toBeTypeOf("function");
+    await deps?.resumeGoalLoop("task", "restart instruction");
+    expect(mocks.goalLoopCommand).toHaveBeenCalledWith("task", {
+      action: "resume",
+      restartPrompt: "restart instruction",
+    });
+    expect(mocks.promptTask).not.toHaveBeenCalled();
   });
 
   it("does not start any owner-only service once the Backend owns the runtime", async () => {

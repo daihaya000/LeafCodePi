@@ -5,7 +5,7 @@ import { fauxAssistantMessage, fauxProvider } from "@earendil-works/pi-ai";
 import { createAgentSession, DefaultResourceLoader, ModelRuntime, SessionManager, SettingsManager, type AgentSession } from "@earendil-works/pi-coding-agent";
 import { expect, it, vi } from "vitest";
 import goalLoopExtension from "../../../../extensions/leafcode-goal-loop/index";
-import { dispatchGoalLoopCommand } from "./goal-loop-command";
+import { buildGoalLoopResumeCommand, dispatchGoalLoopCommand } from "./goal-loop-command";
 
 it.each(["pause", "stop", "complete", "start", "resume"] as const)("applies %s immediately while the real SDK is settling", async (action) => {
   const cwd = mkdtempSync(join(tmpdir(), "leafcode-goal-control-"));
@@ -77,13 +77,25 @@ it.each(["pause", "stop", "complete", "start", "resume"] as const)("applies %s i
   }
 });
 
-it.each([["/goal-start payload", "goal-start", "payload"], ["/goal-resume --turns 20", "goal-resume", "--turns 20"]])("dispatches %s directly without leaving a deferred SDK action", async (command, name, args) => {
+it.each([
+  ["/goal-start payload", "goal-start", "payload"],
+  ["/goal-resume --turns 20", "goal-resume", "--turns 20"],
+  ["/goal-resume --restart-prompt cmVzdGFydA", "goal-resume", "--restart-prompt cmVzdGFydA"],
+])("dispatches %s directly without leaving a deferred SDK action", async (command, name, args) => {
   const prompt = vi.fn(); const handler = vi.fn(); const context = {};
   const session = { prompt, extensionRunner: { getCommand: vi.fn(() => ({ handler })), createCommandContext: () => context } } as unknown as AgentSession;
   await dispatchGoalLoopCommand(session, command);
   expect(session.extensionRunner.getCommand).toHaveBeenCalledWith(name);
   expect(handler).toHaveBeenCalledWith(args, context);
   expect(prompt).not.toHaveBeenCalled();
+});
+
+it("encodes restart recovery instructions in the Goal Loop resume command", () => {
+  const prompt = "WebUI restart; do not repeat completed operations.";
+  const encoded = Buffer.from(prompt, "utf8").toString("base64url");
+  expect(buildGoalLoopResumeCommand({ maxTurns: 5, restartPrompt: prompt }))
+    .toBe(`/goal-resume --turns 5 --restart-prompt ${encoded}`);
+  expect(buildGoalLoopResumeCommand({ restartPrompt: "  " })).toBe("/goal-resume");
 });
 
 it("rejects missing controls without sending them to the model", async () => {
