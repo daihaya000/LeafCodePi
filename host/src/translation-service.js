@@ -44,7 +44,7 @@ function executable(dataDir) {
 
 export function createTranslationService({
   repoRoot, dataDir, log = () => {}, installTimeoutMs = INSTALL_TIMEOUT_MS,
-  killTree = hardKillTree, platform = process.platform,
+  killTree = hardKillTree, platform = process.platform, readyTimeoutMs = READY_TIMEOUT_MS,
 }) {
   let child = null;
   let reader = null;
@@ -464,14 +464,18 @@ export function createTranslationService({
     if (oldChild && !oldChild.killed) {
       oldChild.removeAllListeners('exit');
       oldChild.removeAllListeners('error');
-      oldChild.kill();
-      // On Windows kill() reaches only the direct child; take its descendants (pip, model server)
-      // down too so the next start does not find its port or lock files still in use.
-      if (platform === 'win32' && Number.isInteger(oldChild.pid)) {
-        try { killTree(oldChild.pid); } catch { /* the direct child was already signalled */ }
-      }
+      terminateChild(oldChild);
     }
     state = 'stopped';
+  }
+
+  function terminateChild(target) {
+    target.kill();
+    // On Windows kill() reaches only the direct child; take its descendants (pip, model server)
+    // down too so the next start does not find its port or lock files still in use.
+    if (platform === 'win32' && Number.isInteger(target.pid)) {
+      try { killTree(target.pid); } catch { /* the direct child was already signalled */ }
+    }
   }
 
   function start() {
@@ -535,11 +539,11 @@ export function createTranslationService({
       state = 'error';
       clearReadyWait(new Error(lastError));
       try {
-        newChild.kill();
+        terminateChild(newChild);
       } catch {
         /* ignore */
       }
-    }, READY_TIMEOUT_MS);
+    }, readyTimeoutMs);
     return readyPromise;
   }
 

@@ -420,6 +420,33 @@ test('stopping on Windows also takes down the child process tree', async () => {
   }
 });
 
+test('a child that never reports ready is stopped, tree included, after the ready timeout', async () => {
+  const root = join(tmpdir(), `leafcode-translation-never-ready-${process.pid}`);
+  const repoRoot = join(root, 'repo');
+  const dataDir = join(root, 'data');
+  const originalPython = process.env.LEAFCODE_TRANSLATION_PYTHON;
+  process.env.LEAFCODE_TRANSLATION_PYTHON = process.execPath;
+  rmSync(root, { recursive: true, force: true });
+  mkdirSync(join(repoRoot, 'translation'), { recursive: true });
+  writeFileSync(join(repoRoot, 'translation', 'translation_service.py'), 'setInterval(() => {}, 1000);\n', 'utf8');
+  const killed = [];
+  let service;
+  try {
+    service = createTranslationService({
+      repoRoot, dataDir, readyTimeoutMs: 300, platform: 'win32',
+      killTree: (pid) => { killed.push(pid); return true; },
+    });
+    await assert.rejects(service.translate(['Untranslated progress fragment']), /ready timed out/);
+    assert.equal(service.status().state, 'error');
+    assert.equal(killed.length, 1);
+  } finally {
+    service?.stop();
+    if (originalPython === undefined) delete process.env.LEAFCODE_TRANSLATION_PYTHON;
+    else process.env.LEAFCODE_TRANSLATION_PYTHON = originalPython;
+    await cleanupTempDir(root, [service]);
+  }
+});
+
 test('long multi-paragraph summaries are translated per segment and reassembled', async () => {
   const root = join(tmpdir(), `leafcode-translation-long-${process.pid}`);
   const repoRoot = join(root, 'repo');
