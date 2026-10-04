@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, utimesSync, writeFileSync } from "node:fs";
 import { EventEmitter } from "node:events";
 import { join } from "node:path";
 import { randomUUID } from "node:crypto";
@@ -59,6 +59,7 @@ const routineRuns = new Map<string, Promise<unknown>>();
 const ROUTINE_LOCK_STALE_MS = 30_000;
 /** Cross-worker run claim; long enough for a Bot prompt to finish. */
 const ROUTINE_RUN_LOCK_STALE_MS = 2 * 60 * 60 * 1000;
+const ROUTINE_RUN_LOCK_HEARTBEAT_MS = 30_000;
 type RoutineFile = RoutineDto;
 function routineDir(botId: string): string { return join(dataDir(), "bots", botId, "routines"); }
 function routinePath(botId: string, routineId: string): string { return join(routineDir(botId), `${routineId}.json`); }
@@ -185,7 +186,9 @@ function tryClaimRoutineRun(botId: string, routineId: string): RoutineRunClaim |
       // Only a stale claim whose owner process is gone is taken over; the former owner
       // then cannot delete the new claim because release checks the token.
       const seen = readLockOwnerSync(lock);
-      if (lockReclaimable(Date.now() - statSync(lock).mtimeMs, seen, ROUTINE_RUN_LOCK_STALE_MS) && readLockOwnerSync(lock) === seen) {
+      const ownerFile = lockOwnerFile(lock);
+      const agePath = existsSync(ownerFile) ? ownerFile : lock;
+      if (lockReclaimable(Date.now() - statSync(agePath).mtimeMs, seen, ROUTINE_RUN_LOCK_STALE_MS) && readLockOwnerSync(lock) === seen) {
         rmSync(lock, { recursive: true, force: true });
         return claim();
       }
@@ -197,6 +200,27 @@ function tryClaimRoutineRun(botId: string, routineId: string): RoutineRunClaim |
 function releaseRoutineRun(claim: RoutineRunClaim): void {
   // A claim taken over by another worker carries a different token and must stay.
   if (readLockOwnerSync(claim.lock) === claim.token) rmSync(claim.lock, { recursive: true, force: true });
+}
+
+function startRoutineRunClaimHeartbeat(claim: RoutineRunClaim): () => void {
+  let warned = false;
+  const timer = setInterval(() => {
+    try {
+      if (readLockOwnerSync(claim.lock) !== claim.token) {
+        clearInterval(timer);
+        return;
+      }
+      const now = new Date();
+      utimesSync(lockOwnerFile(claim.lock), now, now);
+    } catch (error) {
+      if (!warned) {
+        warned = true;
+        console.warn("[routines] failed to refresh run claim", error);
+      }
+    }
+  }, ROUTINE_RUN_LOCK_HEARTBEAT_MS);
+  (timer as { unref?: () => void }).unref?.();
+  return () => clearInterval(timer);
 }
 
 export async function runRoutine(botId: string, routineId: string): Promise<RoutineDto> {
@@ -216,6 +240,7 @@ export async function runRoutine(botId: string, routineId: string): Promise<Rout
     if (!claim) {
       throw Object.assign(new Error("タスクは別のワーカーで実行中です"), { status: 409 });
     }
+    const stopClaimHeartbeat = startRoutineRunClaimHeartbeat(claim);
     try {
       const routine = getRoutine(botId, routineId);
       const bot = getBot(botId);
@@ -265,6 +290,7 @@ export async function runRoutine(botId: string, routineId: string): Promise<Rout
         throw new Error(`${message}${suffix}`);
       }
     } finally {
+      stopClaimHeartbeat();
       releaseRoutineRun(claim);
     }
   })();

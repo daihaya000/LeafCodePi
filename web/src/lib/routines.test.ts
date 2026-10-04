@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -257,6 +257,45 @@ describe("routine cron and persistence", () => {
       failureCount: 0,
       lastRunAt: null,
     });
+  });
+
+  it("heartbeats a long-running claim so another worker cannot steal it after two hours", async () => {
+    vi.useFakeTimers();
+    let resolvePrompt: (() => void) | undefined;
+    let firstRun: ReturnType<typeof runRoutine> | undefined;
+    try {
+      const startedAt = new Date();
+      vi.setSystemTime(startedAt);
+      const bot = createBot({ name: "Routine bot" });
+      const routine = createRoutine(bot.id, { name: "Hourly", prompt: "Check status", schedule: "0 * * * *" });
+      state.promptTask.mockReturnValueOnce(new Promise<void>((resolve) => { resolvePrompt = resolve; }));
+
+      firstRun = runRoutine(bot.id, routine.id);
+      const lock = join(root, "bots", bot.id, "routines", `${routine.id}.run.lock`);
+      const ownerFile = join(lock, "owner");
+      const owner = readFileSync(ownerFile, "utf8");
+      const initialMtime = statSync(ownerFile).mtimeMs;
+
+      // Simulate a two-hour wall-clock jump while the prompt remains in flight;
+      // the heartbeat must refresh the owner file before another worker checks it.
+      vi.setSystemTime(new Date(startedAt.getTime() + 2 * 60 * 60 * 1000 + 60_000));
+      await vi.advanceTimersByTimeAsync(30_000);
+      expect(statSync(ownerFile).mtimeMs).toBeGreaterThan(initialMtime);
+      expect(readFileSync(ownerFile, "utf8")).toBe(owner);
+      expect(Date.now() - statSync(ownerFile).mtimeMs).toBeLessThan(2 * 60 * 60 * 1000);
+
+      vi.resetModules();
+      const { runRoutine: runRoutineFromOtherWorker } = await import("./routines");
+      await expect(runRoutineFromOtherWorker(bot.id, routine.id)).rejects.toThrow("別のワーカーで実行中");
+      expect(state.promptTask).toHaveBeenCalledTimes(1);
+
+      resolvePrompt?.();
+      await firstRun;
+    } finally {
+      resolvePrompt?.();
+      if (firstRun) await firstRun.catch(() => undefined);
+      vi.useRealTimers();
+    }
   });
 
   it("does not release a run claim that another worker took over", async () => {
