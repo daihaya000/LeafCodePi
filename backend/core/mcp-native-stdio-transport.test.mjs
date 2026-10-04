@@ -280,7 +280,7 @@ lines.on('close',()=>process.exit(0));\n`, { mode: 0o600 });
   assert.equal(result.ok, true); let active = [];
   const pi = { registerTool(tool) { tools.set(tool.name, tool); if (tool.name === "mcp__fixture__echo") resolveReady(); }, registerCommand() {}, on(name, callback) { events.set(name, callback); },
     getSettings: () => ({}), getMcpServers: () => [], getAllTools: () => [...tools.values()], getActiveTools: () => active, setActiveTools: (names) => { active = names; } };
-  const ctx = { cwd: root, mode: "print", modelRegistry: {}, ui: { notify(message) { throw Error(message); } } };
+  const ctx = { cwd: root, sessionManager: { getSessionId: () => root }, mode: "print", modelRegistry: {}, ui: { notify(message) { throw Error(message); } } };
   t.after(async () => { await events.get("session_shutdown")?.({}, ctx); for (const transport of transports) await transport.close(); });
   const oldAmbient = process.env.LEAFCODE_STDIO_PRIVATE_TEST; process.env.LEAFCODE_STDIO_PRIVATE_TEST = "fixture must never inherit";
   try {

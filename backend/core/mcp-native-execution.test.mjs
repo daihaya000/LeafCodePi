@@ -7,6 +7,7 @@ import { test } from "node:test";
 import { LATEST_PROTOCOL_VERSION, StdioTransport } from "@earendil-works/pi-mcp";
 import { createBackendMcpConfigOwner } from "./mcp-native-config-owner.mjs";
 import { prepareBackendMcpExtensionsFromBinding as compose } from "./mcp-native-extensions.mjs";
+import { runBackendMcpNativeSessionShutdownActions } from "./mcp-native-session.mjs";
 const safe = (e) => e instanceof Error && e.message === "MCP extension binding unavailable" && e.cause === undefined;
 const deferred = () => { let resolve; const promise = new Promise((r) => { resolve = r; }); return { promise, resolve }; };
 
@@ -62,7 +63,7 @@ async function fixture(t, start = true, modifyTransport = (transport) => transpo
   const pi = { registerTool(definition) { tools.set(definition.name, definition); if (tools.has("mcp__fixture__echo") && tools.has("read_mcp_resource")) ready.resolve(); },
     registerCommand(name, definition) { commands.set(name, definition); }, on(name, handler) { events.set(name, handler); const unsubscribe = () => events.delete(name); unsubscribes.push(unsubscribe); return unsubscribe; },
     getSettings() { assert.equal(this, pi); return {}; }, getMcpServers: () => { registryReads++; return registered; }, getAllTools: () => [...tools.values()], getActiveTools: () => active, setActiveTools: (names) => { active = names; } };
-  const ctx = { cwd: root, mode: "print", modelRegistry: {}, ui: { notify: (message) => { notices.push(message); failed.resolve(message); } } };
+  const ctx = { cwd: root, sessionManager: { getSessionId: () => root }, mode: "print", modelRegistry: {}, ui: { notify: (message) => { notices.push(message); failed.resolve(message); } } };
   const result = compose({ binding, mcp: { credentials: { forServer() { throw Error("No fixture auth"); }, tokens() {}, remove() {} }, openUrl() { throw Error("No fixture browser"); }, createTransport: (...args) => { factoryCalls.push(args); if (args[0].name === "fixture") return modifyTransport(peer.transport, owner); const extra = transportFixture(true); extraPeers.push(extra); return extra.transport; }, startupWaitMs: 0 } });
   assert.equal(result.ok, true);
   for (const factory of result.factories) await factory(Object.freeze(pi)); // API view must not mutate/fail on a frozen SDK host.
@@ -87,6 +88,16 @@ test("real connected MCP tools/resources keep metadata/results, then reject befo
   assert.deepEqual(f.peer.calls, { start: 1, close: 0, tools: 1, resources: 1 });
   await f.events.get("session_shutdown")({}, f.ctx); await f.events.get("session_shutdown")({}, f.ctx);
   assert.equal(f.peer.calls.close, 1); fresh.assertOwner(); assert.deepEqual(await readFile(f.configPath), bytes); assert.deepEqual((await readdir(f.root)).sort(), ["bundle.json", "mcp.json"]);
+});
+
+test("captured native MCP close action stops only the owning session transport", async (t) => {
+  const f = await fixture(t);
+  assert.equal(f.peer.calls.close, 0);
+  assert.equal(await runBackendMcpNativeSessionShutdownActions(f.root), 1);
+  assert.equal(f.peer.calls.close, 1);
+  assert.equal(await runBackendMcpNativeSessionShutdownActions(f.root), 0);
+  await f.events.get("session_shutdown")({}, f.ctx);
+  assert.equal(f.peer.calls.close, 1);
 });
 
 test("in-flight MCP progress/completion becomes unavailable after cooperative ABA, without pretending the server call was cancelled", async (t) => {

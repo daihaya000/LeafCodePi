@@ -337,7 +337,7 @@ test("real SDK and loopback HTTP preserve configured headers/provider token/prot
   let active = [];
   const pi = { registerTool(tool) { tools.set(tool.name, tool); if (tool.name === "mcp__fixture__echo") ready.resolve(); }, registerCommand() {}, on(name, cb) { events.set(name, cb); },
     getSettings: () => ({}), getMcpServers: () => [], getAllTools: () => [...tools.values()], getActiveTools: () => active, setActiveTools: (names) => { active = names; } };
-  const ctx = { cwd: root, mode: "print", modelRegistry: { async getApiKeyForProvider(provider) { assert.equal(provider, "fixture"); return "fixture-token"; } }, ui: { notify(message) { throw Error(message); } } };
+  const ctx = { cwd: root, sessionManager: { getSessionId: () => root }, mode: "print", modelRegistry: { async getApiKeyForProvider(provider) { assert.equal(provider, "fixture"); return "fixture-token"; } }, ui: { notify(message) { throw Error(message); } } };
   t.after(async () => { await events.get("session_shutdown")?.({}, ctx); for (const transport of transports) await transport.close(); });
   for (const extension of result.factories) await extension(pi); events.get("session_start")({}, ctx);
   const timer = setTimeout(() => ready.resolve(), 5000); timer.unref(); await ready.promise; clearTimeout(timer);

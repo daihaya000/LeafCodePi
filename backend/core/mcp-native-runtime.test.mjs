@@ -72,7 +72,7 @@ test("full runtime connects a real stdio child with explicit env and exposes the
   const runtime = create(base(root, { startupWaitMs: 0 }));
   const result = (await runtime.prepare()).forSession(root); assert.equal(result.ok, true);
   const h = harness(result); await h.register();
-  const ctx = { cwd: root, mode: "print", modelRegistry: {}, ui: { notify(message) { throw Error(message); } } };
+  const ctx = { cwd: root, sessionManager: { getSessionId: () => root }, mode: "print", modelRegistry: {}, ui: { notify(message) { throw Error(message); } } };
   t.after(async () => { try { await h.events.get("session_shutdown")?.({}, ctx); } finally { runtime.dispose(); } }); removeRoot(t, root);
   h.events.get("session_start")({}, ctx);
   for (const deadline = Date.now() + 8000; !h.tools.has("mcp__fixture__echo"); await new Promise((r) => setTimeout(r, 10))) if (Date.now() > deadline) throw Error("registration timeout");
@@ -89,7 +89,7 @@ test("full runtime routes url entries to the HTTP factory with the explicit fetc
   t.after(() => runtime.dispose());
   const result = (await runtime.prepare()).forSession(root); assert.equal(result.ok, true);
   const h = harness(result); await h.register();
-  const ctx = { cwd: root, mode: "print", modelRegistry: {}, ui: { notify() {} } };
+  const ctx = { cwd: root, sessionManager: { getSessionId: () => root }, mode: "print", modelRegistry: {}, ui: { notify() {} } };
   t.after(async () => { try { await h.events.get("session_shutdown")?.({}, ctx); } finally { runtime.dispose(); } }); removeRoot(t, root);
   h.events.get("session_start")({}, ctx); await new Promise((r) => setTimeout(r, 300));
   assert.equal(requests.length, 0); assert.equal(calls.length >= 1, true); assert.equal(calls[0].redirect, "error"); assert.equal(calls[0].header, "fixture-token");

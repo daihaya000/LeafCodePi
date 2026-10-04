@@ -24,8 +24,9 @@ export async function runBackendMcpNativeSessionShutdownActions(sessionId) {
   const actions = shutdownActions.get(sessionId);
   if (!actions) return 0;
   shutdownActions.delete(sessionId);
+  const count = actions.size;
   await Promise.allSettled([...actions].map((stop) => Promise.resolve().then(stop)));
-  return actions.size;
+  return count;
 }
 
 /** INTERNAL process-local switch. Unset (default) keeps the legacy adapter path untouched. When a

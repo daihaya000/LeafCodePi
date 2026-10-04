@@ -62,7 +62,7 @@ test("real SDK ResourceLoader accepts guarded factory signatures but stale facto
 test("SDK session_start uses the same guarded loader; no implicit fresh snapshot after observed source changes", async (t) => {
   const f = await fixture(t), result = compose({ binding: f.binding, mcp: f.mcp }), host = stub(), bytes = await readFile(f.configPath);
   await result.factories[2](host.pi);
-  const ctx = { cwd: f.root, modelRegistry: {}, ui: { notify() { throw Error("Unexpected notification"); } } };
+  const ctx = { cwd: f.root, sessionManager: { getSessionId: () => f.root }, modelRegistry: {}, ui: { notify() { throw Error("Unexpected notification"); } } };
   host.pi.getMcpServers = () => []; host.pi.getAllTools = () => []; host.pi.getActiveTools = () => []; host.pi.setActiveTools = () => {};
   host.events.get("session_start")({}, ctx); // Disabled server: no runtime/transport/credential/log IO.
   await writeFile(f.configPath, Buffer.concat([bytes, Buffer.from("\n")]));
@@ -78,7 +78,7 @@ test("real SDK manager saves through the binding synchronously; invalid selector
     const result = compose({ binding, mcp: f.mcp }), host = stub(), messages = [], menus = [];
     await result.factories[2](host.pi);
     host.pi.getMcpServers = () => []; host.pi.getAllTools = () => []; host.pi.getActiveTools = () => []; host.pi.setActiveTools = () => {};
-    const ctx = { mode: "tui", cwd: f.root, modelRegistry: {}, ui: { notify: (message) => messages.push(message), custom: (build) => new Promise((resolve) => {
+    const ctx = { mode: "tui", cwd: f.root, sessionManager: { getSessionId: () => f.root }, modelRegistry: {}, ui: { notify: (message) => messages.push(message), custom: (build) => new Promise((resolve) => {
       const view = build({ requestRender() {} }, { fg: (_key, text) => text, bold: (text) => text }, { matches: () => false }, resolve);
       view.menu = async (menu) => { menus.push(menu()); return choices.shift(); };
       view.handleInput("\r");
@@ -136,7 +136,7 @@ test("a later family registration error blocks already registered session_start;
   const asyncLoad = () => Promise.reject(Error("private async snapshot"));
   const bad = compose({ binding: { ...f.binding, loadConfig: asyncLoad, prepared: { ...f.binding.prepared, loadConfig: asyncLoad } }, mcp: f.mcp });
   const nextHost = stub(); await bad.factories[2](nextHost.pi);
-  assert.throws(() => nextHost.events.get("session_start")({}, {}), safe);
+  assert.throws(() => nextHost.events.get("session_start")({}, { sessionManager: { getSessionId: () => f.root } }), safe);
   await assert.rejects(bad.factories[0](nextHost.pi), safe); await new Promise((r) => setImmediate(r));
 });
 

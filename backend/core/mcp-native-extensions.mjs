@@ -2,6 +2,7 @@ import { basename, isAbsolute, join } from "node:path";
 import { types } from "node:util";
 import { createCodemodeExtension, createMcpExtension, createToolSearchExtension } from "@earendil-works/pi-coding-agent";
 import { prepareBackendMcpConfigLoader } from "./mcp-native-config-loader.mjs";
+import { registerBackendMcpNativeSessionShutdownAction } from "./mcp-native-session.mjs";
 
 const plain = (value) => value && typeof value === "object" && !Array.isArray(value)
   && [Object.prototype, null].includes(Object.getPrototypeOf(value));
@@ -112,7 +113,7 @@ function guardTransportFactory(createTransport, assertBound) {
 // Metadata/exposure and the host tool pipeline remain intact. Late registrations stay guarded.
 // Shutdown/other events pass through: cleanup must not depend on a valid config binding.
 // No implicit cancellation, effect rollback, background connection drain or session reload.
-function guardExecutionApi(pi, assertBound) {
+function guardExecutionApi(pi, assertBound, onSessionStart) {
   const toolRegistration = pi.registerTool, commandRegistration = pi.registerCommand, eventRegistration = pi.on;
   if ([toolRegistration, commandRegistration, eventRegistration].some((fn) => typeof fn !== "function")) throw new Error("MCP extension binding unavailable");
   const wrap = (callback, receiver, tool) => {
@@ -143,6 +144,7 @@ function guardExecutionApi(pi, assertBound) {
     const guarded = (...args) => {
       assertBound();
       try {
+        if (name === "session_start") onSessionStart?.(args[1]);
         const result = Reflect.apply(callback, undefined, args);
         if (result && typeof result.then === "function") return Promise.resolve(result).then(
           (value) => { assertBound(); return value; }, (error) => { assertBound(); throw error; });
@@ -212,6 +214,24 @@ export function prepareBackendMcpExtensionsFromBinding(options) {
     const ownerServices = captureOwnerServices(mcp, false);
     if (!ownerServices.ok) return ownerServices;
     const requireAvailable = () => { if (fenced || checking) { fenced = true; throw unavailable(); } };
+    let sessionId;
+    const captureSessionId = (context) => {
+      let value;
+      try { value = context?.sessionManager?.getSessionId?.(); } catch { throw unavailable(); }
+      if (typeof value !== "string" || !value || (sessionId !== undefined && sessionId !== value)) throw unavailable();
+      sessionId = value;
+    };
+    const createTransport = guardTransportFactory((...args) => {
+      const transport = Reflect.apply(ownerServices.services.createTransport, undefined, args);
+      if (transport && typeof transport.then === "function") return transport;
+      if (!sessionId || !transport || typeof transport !== "object") throw unavailable();
+      let close, onClose;
+      try { close = transport.close; onClose = transport.onClose; } catch { throw unavailable(); }
+      if (typeof close !== "function" || typeof onClose !== "function") throw unavailable();
+      const dispose = registerBackendMcpNativeSessionShutdownAction(sessionId, () => Reflect.apply(close, transport, []));
+      try { Reflect.apply(onClose, transport, [dispose]); } catch { dispose(); throw unavailable(); }
+      return transport;
+    }, assertBound);
     const consumeAsync = (value) => {
       if (value && typeof value.then === "function") { fenced = true; Promise.resolve(value).catch(() => undefined); throw unavailable(); }
     };
@@ -229,9 +249,8 @@ export function prepareBackendMcpExtensionsFromBinding(options) {
       } catch { throw unavailable(); } // Invalid selectors may leave the real owner binding retryable.
     };
     const factories = nativeFactories({ ...ownerServices.services, loadConfig,
-      createTransport: guardTransportFactory(ownerServices.services.createTransport, assertBound),
-      updateConfig, logPath: captured.logPath }).map((factory) => async (pi) => {
-      try { assertBound(); await factory(guardExecutionApi(pi, assertBound)); assertBound(); }
+      createTransport, updateConfig, logPath: captured.logPath }).map((factory) => async (pi) => {
+      try { assertBound(); await factory(guardExecutionApi(pi, assertBound, captureSessionId)); assertBound(); }
       catch { fenced = true; throw unavailable(); }
     });
     assertBound();
