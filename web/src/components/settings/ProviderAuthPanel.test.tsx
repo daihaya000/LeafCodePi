@@ -787,7 +787,7 @@ describe("ProviderAuthPanel provider-scoped accounts", () => {
     confirmSpy.mockRestore();
   });
 
-  it("pins priority providers first and sorts the rest by name", async () => {
+  it("pins the fixed provider order and sorts newly added providers after it by name", async () => {
     mockAccountsApi();
     const make = (id: string, name: string) => ({
       id,
@@ -801,12 +801,23 @@ describe("ProviderAuthPanel provider-scoped accounts", () => {
       <ProviderAuthPanel
         providers={[
           make("zeta", "Zeta"),
-          make("cursor", "Cursor"),
-          make("opencode-go", "OpenCode Go"),
-          make("beta", "Beta"),
-          make("anthropic", "Anthropic"),
-          make("kana", "\u3042\u3044\u3046"),
+          make("typesafe", "TypeSafe"),
+          make("openrouter", "OpenRouter"),
+          make("ollama-cloud", "Ollama Cloud"),
           make("openai-codex", "OpenAI Codex"),
+          make("orcarouter", "OrcaRouter"),
+          make("beta", "Beta"),
+          make("cursor", "Cursor"),
+          make("meta", "Meta Muse"),
+          make("anthropic", "Anthropic"),
+          make("opencode", "OpenCode Zen"),
+          make("leafcodecloud", "LeafCodeCloud"),
+          make("commandcode", "Command Code"),
+          make("opencode-go", "OpenCode Go"),
+          make("llama-server", "llama-server"),
+          make("experientiallabs", "Experiential Labs"),
+          make("openai", "OpenAI"),
+          make("kana", "\u3042\u3044\u3046"),
         ]}
         onChanged={() => {}}
       />,
@@ -822,8 +833,19 @@ describe("ProviderAuthPanel provider-scoped accounts", () => {
       ).toEqual([
         "OpenAI Codex",
         "Anthropic",
-        "OpenCode Go",
+        "OpenAI",
         "Cursor",
+        "OpenCode Go",
+        "OpenCode Zen",
+        "LeafCodeCloud",
+        "llama-server",
+        "Command Code",
+        "Ollama Cloud",
+        "Meta Muse",
+        "OpenRouter",
+        "OrcaRouter",
+        "Experiential Labs",
+        "TypeSafe",
         "Beta",
         "Zeta",
         "\u3042\u3044\u3046",

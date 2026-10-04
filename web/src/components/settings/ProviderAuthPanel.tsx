@@ -63,10 +63,26 @@ type ResetCreditsConsumeResponse = {
   message: string;
 };
 
-/** 先頭に固定表示するプロバイダー（この順）。 */
-const PRIORITY_PROVIDER_IDS = ["openai-codex", "anthropic", "opencode-go", "cursor"];
+/** プロバイダーカードの固定表示順。今後追加されたプロバイダーはこの並び以降に名前の照合順で並ぶ。 */
+const FIXED_PROVIDER_ORDER = [
+  "openai-codex", // OpenAI Codex
+  "anthropic", // Anthropic
+  "openai", // OpenAI
+  "cursor", // Cursor
+  "opencode-go", // OpenCode Go
+  "opencode", // OpenCode Zen
+  "leafcodecloud", // LeafCodeCloud
+  "llama-server", // llama-server
+  "commandcode", // Command Code
+  "ollama-cloud", // Ollama Cloud
+  "meta", // Meta Muse
+  "openrouter", // OpenRouter
+  "orcarouter", // OrcaRouter
+  "experientiallabs", // Experiential Labs
+  "typesafe", // TypeSafe
+];
 
-/** プロバイダーカードは優先プロバイダーを先頭に、残りは表示名の照合順（日本語は50音、英字はABC）で固定する。 */
+/** 固定リストの後ろに並ぶプロバイダーは表示名の照合順（日本語は50音、英字はABC）で並べる。 */
 const providerNameCollator = new Intl.Collator("ja", {
   numeric: true,
   sensitivity: "base",
@@ -77,8 +93,8 @@ function compareProvidersByName(
   b: { id: string; name: string },
 ): number {
   const rank = (id: string) => {
-    const index = PRIORITY_PROVIDER_IDS.indexOf(id);
-    return index < 0 ? PRIORITY_PROVIDER_IDS.length : index;
+    const index = FIXED_PROVIDER_ORDER.indexOf(id);
+    return index < 0 ? FIXED_PROVIDER_ORDER.length : index;
   };
   return (
     rank(a.id) - rank(b.id) ||
