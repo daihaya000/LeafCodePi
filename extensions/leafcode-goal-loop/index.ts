@@ -1053,7 +1053,7 @@ export function buildGoalPrompt(loop: GoalLoop, turn: number): string {
   const turnBudget = max === 0
     ? `This is loop turn ${turn}. There is no automatic turn limit.`
     : `This is turn ${turn} of ${loop.forceFullRun ? "exactly" : "at most"} ${max}. ${turn - 1} loop turn(s) completed before this one.`;
-  const common = `${PROMPT_MARKER}\n\n${turnBudget} The next prompt is sent automatically after this turn ends.\n\nRules:\n- One turn = one iteration. Do the smallest useful increment, then end this turn. Do not simulate future work.\n- Report only work actually performed in this turn.\n- Keep changes incremental and reviewable.\n- Do not ask questions unless truly blocked.\n\nGoal:\n${loop.goal}${acceptanceText(loop)}${recentProgress(loop, 5)}${restartResumeInstruction(loop)}${operatorNotes(loop)}`;
+  const common = `${PROMPT_MARKER}\n\n${turnBudget} The next prompt is sent automatically after this turn ends.\n\nRules:\n- One turn = one substantial, coherent unit of work (a whole feature, fix, or phase, including its verification), not a tiny step. Do not split the work into small pieces or stop after a trivial change; keep working through related steps in this turn until that unit is done or you are blocked. Do not simulate future work.\n- Report only work actually performed in this turn.\n- Keep changes coherent and reviewable.\n- Do not ask questions unless truly blocked.\n\nGoal:\n${loop.goal}${acceptanceText(loop)}${recentProgress(loop, 5)}${restartResumeInstruction(loop)}${operatorNotes(loop)}`;
   if (loop.forceFullRun) {
     return `${common}\n\nYou are running in LeafCode full-run mode. Never declare the goal complete. The host will ${max === 0 ? "continue until you pause or stop it" : `run exactly ${max} goal turns`}. A completion claim is treated as progress.${jsonInstructions("progress, blocked")}`;
   }
@@ -1067,7 +1067,7 @@ export function buildGoalContinuationPrompt(loop: GoalLoop, turn: number): strin
   const missingResultReminder = loop.unreadableStreak > 0
     ? "\n\nYour previous reply did not include the required JSON result block, so the loop could not read a result. This turn MUST end with the fenced JSON block described below, and nothing may come after it."
     : "";
-  const common = `${PROMPT_MARKER}\n\nContinue the persistent goal loop. Work on exactly one smallest useful step, then end this turn. ${turnBudget}${missingResultReminder}\n\nGoal:\n${loop.goal}${acceptanceText(loop)}${recentProgress(loop, 2)}${restartResumeInstruction(loop)}${operatorNotes(loop)}`;
+  const common = `${PROMPT_MARKER}\n\nContinue the persistent goal loop. Work on one substantial, coherent unit of work (a whole feature, fix, or phase, including its verification) and finish it in this turn; do not split it into small steps or stop after a trivial change. ${turnBudget}${missingResultReminder}\n\nGoal:\n${loop.goal}${acceptanceText(loop)}${recentProgress(loop, 2)}${restartResumeInstruction(loop)}${operatorNotes(loop)}`;
   if (loop.forceFullRun) {
     return `${common}\n\nFull-run mode: never declare completion. The loop will ${loop.maxTurns === 0 ? "continue until you pause or stop it" : "run until the turn limit"}. Do not simulate future work.${jsonInstructions("progress, blocked")}`;
   }
