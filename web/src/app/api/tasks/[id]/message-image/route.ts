@@ -2,6 +2,9 @@ import { NextRequest, NextResponse } from "next/server";
 import { getTaskDetail, jsonError } from "@/lib/pi/harness";
 import { imagePartDataUrl } from "@/lib/task-history";
 import { InvalidTaskMessageCursorError } from "@/lib/task-history";
+import { localRuntimeBlocked } from "@/lib/pi/runtime-ownership";
+import { forwardTaskDetail } from "@/lib/backend-forward";
+import type { UiMessage } from "@/lib/types";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -28,9 +31,35 @@ export async function GET(
       return NextResponse.json({ error: "画像のパラメータが不正です" }, { status: 400 });
     }
 
-    // Transcript on disk is enough; this must never block on ensureLive.
-    const detail = await getTaskDetail(id, { offline: true });
-    const dataUrl = imagePartDataUrl(detail.messages, { messageId, partId });
+    let messages: readonly UiMessage[];
+    if (localRuntimeBlocked()) {
+      // After the cutover the Backend owns the session file. Reading it here would hand this process
+      // a persisting SessionManager for a file it does not own, and an SDK session-format migration
+      // rewrites that file in place. The owner serves the transcript instead.
+      const forwarded = await forwardTaskDetail(id);
+      if (!forwarded.ok) {
+        if (forwarded.reason === "not-found") {
+          return NextResponse.json({ error: "タスクが見つかりません" }, { status: 404 });
+        }
+        if (forwarded.reason === "not-configured") {
+          return NextResponse.json(
+            { error: "Backendが実行を所有しています", code: "RUNTIME_NOT_OWNED" },
+            { status: 409 },
+          );
+        }
+        return NextResponse.json(
+          { error: "Backendから取得できません", code: "BACKEND_FORWARD_FAILED", reason: forwarded.reason },
+          { status: 502 },
+        );
+      }
+      messages = Array.isArray(forwarded.detail?.messages)
+        ? (forwarded.detail.messages as UiMessage[])
+        : [];
+    } else {
+      // Transcript on disk is enough; this must never block on ensureLive.
+      messages = (await getTaskDetail(id, { offline: true })).messages;
+    }
+    const dataUrl = imagePartDataUrl(messages, { messageId, partId });
     if (!dataUrl) return NextResponse.json({ error: "画像が見つかりません" }, { status: 404 });
 
     const match = /^data:([^;,]+);base64,(.*)$/s.exec(dataUrl);
