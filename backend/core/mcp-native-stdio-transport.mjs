@@ -7,6 +7,7 @@ const plain = (v) => v && typeof v === "object" && !Array.isArray(v)
 const own = (v, keys) => plain(v) && keys.every((key) => Object.hasOwn(v, key));
 const only = (v, keys) => Reflect.ownKeys(v).every((key) => keys.includes(key));
 const unavailable = () => new Error("MCP stdio transport unavailable");
+const SERVER_REQUEST_DRAIN_TIMEOUT_MS = 1_000;
 const text = (v) => typeof v === "string" && !v.includes("\0");
 const absolute = (v) => text(v) && isAbsolute(v);
 const envKey = (key) => process.platform === "win32" ? key.toLowerCase() : key;
@@ -61,10 +62,11 @@ function environment(value, identifiers) {
  * Arguments are literal, as in the SDK. Executable contents/ancestors are NOT pinned or attested;
  * cross-spawn/OS internals still have platform behavior. Not a sandbox or full process authorization.
  * Creation/start entry/completion and synchronous JSON-RPC listener dispatch are fenced.
- * Async listener work is not awaited/cancelled. Observed delivery failure emits immediate close
- * to release SDK pending requests, then attempts native child cleanup; close observers are isolated.
- * Already delivered callbacks/started effects are not undone. Send is still the native SDK method;
- * outbound authorization remains a separate gate. No idle revocation monitoring/process drain.
+ * Incoming server-request handlers are allowed up to one second to send their response before native
+ * child cleanup; observed delivery failure still emits immediate close to release pending SDK requests.
+ * Handlers that ignore cancellation may outlive this bounded drain; close observers are isolated.
+ * Already delivered callbacks/started effects are not undone. Send delegates to the native SDK after
+ * tracking incoming-request replies; outbound authorization remains a separate gate. No idle revocation monitoring/process drain.
  * Close/unsubscribe remain usable. Always close in finally, even after start failure.
  * Snapshot/env/options are PRIVATE, never DTOs.
  */
@@ -109,6 +111,32 @@ export function createBackendMcpStdioTransportFactory(options) {
     };
     class OwnerStdioTransport extends StdioTransport {
       #deliveryStopped = false;
+      // McpClient.handleRequest is fire-and-forget; retain peer request IDs until its response is sent.
+      #incomingServerRequests = new Map();
+      #requestDrainWaiters = new Set();
+      #closePromise;
+      #finishIncomingServerRequest(id) {
+        const count = this.#incomingServerRequests.get(id) ?? 0;
+        if (count <= 1) this.#incomingServerRequests.delete(id);
+        else this.#incomingServerRequests.set(id, count - 1);
+        if (this.#incomingServerRequests.size === 0) {
+          for (const resolve of [...this.#requestDrainWaiters]) resolve(true);
+        }
+      }
+      #waitForIncomingServerRequests() {
+        if (this.#incomingServerRequests.size === 0) return Promise.resolve(true);
+        return new Promise((resolve) => {
+          let timer;
+          const finish = (drained) => {
+            if (!this.#requestDrainWaiters.delete(finish)) return;
+            clearTimeout(timer);
+            resolve(drained);
+          };
+          this.#requestDrainWaiters.add(finish);
+          timer = setTimeout(() => finish(false), SERVER_REQUEST_DRAIN_TIMEOUT_MS);
+          if (this.#incomingServerRequests.size === 0) finish(true);
+        });
+      }
       #stopDelivery() {
         if (this.#deliveryStopped) return;
         this.#deliveryStopped = true;
@@ -121,12 +149,43 @@ export function createBackendMcpStdioTransportFactory(options) {
         return super.onMessage((message) => {
           if (this.#deliveryStopped) return;
           try { assertOwner(); } catch { this.#stopDelivery(); return; }
-          try { listener(message); }
-          finally { try { assertOwner(); } catch { this.#stopDelivery(); } }
+          const isServerRequest = message && typeof message === "object" && typeof message.method === "string"
+            && Object.hasOwn(message, "id");
+          if (isServerRequest) {
+            const id = message.id;
+            this.#incomingServerRequests.set(id, (this.#incomingServerRequests.get(id) ?? 0) + 1);
+          }
+          let result;
+          try { result = listener(message); }
+          catch (error) {
+            if (isServerRequest) this.#finishIncomingServerRequest(message.id);
+            try { assertOwner(); } catch { this.#stopDelivery(); }
+            throw error;
+          }
+          try { assertOwner(); } catch { this.#stopDelivery(); }
+          return result;
         });
       }
       onClose(listener) { return super.onClose(() => { try { listener(); } catch {} }); }
-      async close() { this.#deliveryStopped = true; await super.close(); }
+      async send(message) {
+        await super.send(message);
+        // Responses have an id and no method; outbound requests carry both.
+        if (message && typeof message === "object" && !Array.isArray(message)
+          && !Object.hasOwn(message, "method") && Object.hasOwn(message, "id")) {
+          this.#finishIncomingServerRequest(message.id);
+        }
+      }
+      async close() {
+        this.#deliveryStopped = true;
+        if (this.#closePromise) return this.#closePromise;
+        this.#closePromise = (async () => {
+          if (!(await this.#waitForIncomingServerRequests())) {
+            try { this.emitError(new Error("MCP server request did not settle before stdio close")); } catch {}
+          }
+          await super.close();
+        })();
+        return this.#closePromise;
+      }
       async start() {
         assertOwner();
         try { await super.start(); assertOwner(); }

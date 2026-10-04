@@ -218,36 +218,55 @@ async function waitUntil(check) {
   while (!check()) { if (Date.now() >= deadline) throw Error("Stdio fixture condition timeout"); await new Promise((resolve) => setTimeout(resolve, 5)); }
 }
 
-test("real SDK late child reply releases pending before process exit, despite throwing observers, and preserves stderr/cleanup", async (t) => {
+test("close bounds a server-request drain and reports when its handler never settles", async () => {
+  const options = input();
+  const transport = call(create(options), options);
+  const errors = [];
+  transport.onError((error) => errors.push(error));
+  transport.onMessage(() => {});
+  transport.handleStdout('{"jsonrpc":"2.0","id":"server-request","method":"fixture/slow"}\n');
+  const startedAt = Date.now();
+  await transport.close();
+  assert.equal(Date.now() - startedAt >= 900, true);
+  assert.equal(errors.length, 1);
+  assert.equal(errors[0].message, "MCP server request did not settle before stdio close");
+});
+
+test("real SDK close drains an incoming async request before child exit and still releases pending calls", async (t) => {
   const root = await mkdtemp(join(tmpdir(), "leafcode-stdio-delivery-"));
-  const script = join(root, "peer.mjs"), release = join(root, "release"), allowExit = join(root, "allow-exit"), stdinClosed = join(root, "stdin-closed");
+  const script = join(root, "peer.mjs"), release = join(root, "release"), allowExit = join(root, "allow-exit"), stdinClosed = join(root, "stdin-closed"), serverResponse = join(root, "server-response");
   let transport, client;
   t.after(async () => { try { await writeFile(allowExit, "exit"); await client?.close(); await transport?.close(); await within(waitUntil(() => !transport || transport.pid === undefined)); } finally { await rm(root, { recursive: true, force: true }); } });
   await writeFile(script, `import fs from 'node:fs';import readline from 'node:readline';
-const [release,allowExit,stdinClosed]=process.argv.slice(2);let held,ended=false;
+const [release,allowExit,stdinClosed,serverResponse]=process.argv.slice(2);let held,ended=false;
 const lines=readline.createInterface({input:process.stdin});
 const send=(value)=>process.stdout.write(JSON.stringify({jsonrpc:'2.0',...value})+'\\n');
 lines.on('line',line=>{const message=JSON.parse(line);if(message.id===undefined)return;
 if(message.method==='initialize')send({id:message.id,result:{protocolVersion:message.params.protocolVersion,capabilities:{tools:{}},serverInfo:{name:'fixture',version:'1'}}});
-else if(message.method==='tools/call'){held=message.id;send({method:'fixture/ready'});}
+else if(message.method==='tools/call'){held=message.id;send({method:'fixture/ready'});send({id:'server-request',method:'fixture/slow'});}
+else if(message.id==='server-request'&&message.method===undefined)fs.writeFileSync(serverResponse,'received');
 else throw Error('Unexpected fixture request');});
 lines.on('close',()=>{ended=true;fs.writeFileSync(stdinClosed,'closed');});
 setInterval(()=>{if(held!==undefined&&fs.existsSync(release)){process.stderr.write('fixture stderr 日本語😀\\n');
 process.stdout.write(JSON.stringify({jsonrpc:'2.0',id:held,result:{content:[{type:'text',text:'stale private result'}]}})+'\\n'+JSON.stringify({jsonrpc:'2.0',method:'fixture/stale'})+'\\n');held=undefined;}
 if(ended&&fs.existsSync(allowExit))process.exit(0);},5);\n`, { mode: 0o600 });
-  const options = input(); options.sessionCwd = root; options.snapshot.servers[0].config.args = [script, release, allowExit, stdinClosed];
+  const options = input(); options.sessionCwd = root; options.snapshot.servers[0].config.args = [script, release, allowExit, stdinClosed, serverResponse];
   let allowed = true, stale = 0, closed = 0; options.assertSnapshotOwner = () => { if (!allowed) throw Error("private revoked"); };
-  transport = call(create(options), options); const ready = deferred(), observedClose = deferred();
+  transport = call(create(options), options); const ready = deferred(), observedClose = deferred(), requestStarted = deferred(), finishRequest = deferred();
   transport.onError(() => { throw Error("fixture throwing error observer"); }); transport.onClose(() => { throw Error("fixture throwing close observer"); });
   const unsubscribe = transport.onMessage((message) => { if (message.method === "fixture/ready") ready.resolve(); if ((message.id !== undefined && message.result?.content) || message.method === "fixture/stale") stale++; });
   transport.onClose(() => { closed++; observedClose.resolve(); });
   client = new McpClient({ name: "fixture", version: "1", requestTimeoutMs: 60000 });
+  client.setRequestHandler("fixture/slow", async (_params, { signal }) => { requestStarted.resolve(signal); await finishRequest.promise; return { done: true }; });
   await client.connect(transport); const pid = transport.pid; assert.equal(pid > 0, true);
   const rejected = assert.rejects(client.callTool("held", {}), (error) => error instanceof McpConnectionClosedError);
-  await within(ready.promise); allowed = false; await writeFile(release, "release");
+  await within(ready.promise); const requestSignal = await within(requestStarted.promise); allowed = false; await writeFile(release, "release");
   await within(rejected); await within(observedClose.promise); assert.equal(client.connectionState, "closed");
-  assert.equal(stale, 0); assert.equal(closed, 1); assert.equal(transport.pid, pid); // Notification does not claim completed shutdown.
-  await within(waitUntil(() => fs.existsSync(stdinClosed))); assert.equal(await readFile(stdinClosed, "utf8"), "closed");
+  assert.equal(requestSignal.aborted, true); assert.equal(stale, 0); assert.equal(closed, 1); assert.equal(transport.pid, pid);
+  assert.equal(fs.existsSync(stdinClosed), false); // Native child cleanup waits for the in-flight server request.
+  finishRequest.resolve();
+  await within(waitUntil(() => fs.existsSync(serverResponse) && fs.existsSync(stdinClosed)));
+  assert.equal(await readFile(serverResponse, "utf8"), "received"); assert.equal(await readFile(stdinClosed, "utf8"), "closed");
   unsubscribe(); await writeFile(allowExit, "exit"); await within(waitUntil(() => transport.pid === undefined));
   assert.equal(transport.stderr.includes("fixture stderr 日本語😀"), true); assert.equal(stale, 0); assert.equal(closed, 1);
   await client.close(); await transport.close(); await transport.close(); assert.equal(transport instanceof StdioTransport, true);
