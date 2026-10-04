@@ -86,12 +86,17 @@ test("Room stops flush the mailbox after publishing, and flush failures are only
   assert.equal(plain.order.some((entry) => entry.startsWith("flush:")), false);
 });
 
-test("cleanup failures propagate before idle is saved, matching the original behavior", async () => {
+test("cleanup failures still save idle and release the lease before the error propagates", async () => {
   const f = fixture();
   f.deps.stopGoalLoop = async () => { throw new Error("goal stop failed"); };
   await assert.rejects(runUserAbort("task", f.deps), /goal stop failed/);
-  assert.equal(f.order.includes("idle"), false);
-  assert.equal(f.order.includes("release"), false);
+  assert.equal(f.order.includes("idle"), true);
+  assert.equal(f.order.includes("release"), true);
+  const snapshotFailing = fixture();
+  snapshotFailing.deps.snapshotMessages = () => { throw new Error("snapshot failed"); };
+  await assert.rejects(runUserAbort("task", snapshotFailing.deps), /snapshot failed/);
+  assert.equal(snapshotFailing.order.includes("idle"), true);
+  assert.equal(snapshotFailing.order.includes("release"), true);
 });
 
 test("Goal cleanup failure still stops children and waits for the native abort", async () => {
@@ -107,13 +112,14 @@ test("Goal cleanup failure still stops children and waits for the native abort",
   assert.match((await running).message, /goal stop failed/);
   assert.equal(premature, false);
   assert.equal(f.order.includes("subagents:0"), true);
-  assert.equal(f.order.includes("idle"), false);
+  assert.equal(f.order.includes("idle"), true);
 });
 test("simultaneous Goal and native abort failures do not leave an unobserved rejection", async () => {
   const f = fixture({ abort: () => Promise.reject(new Error("native abort failed")) });
   f.deps.stopGoalLoop = async () => { throw new Error("goal stop failed"); };
   await assert.rejects(runUserAbort("task", f.deps), /goal stop failed/);
   assert.equal(f.order.includes("subagents:0"), true);
+  assert.equal(f.order.includes("idle"), false);
 });
 test("a synchronous abort failure happens after resumable work was already cleared", async () => {
   const f = fixture();
@@ -226,10 +232,14 @@ test("Room hang aborts flush after idle announcement and only warn when the mail
   assert.deepEqual(failing.warnings, [["[bot-intercom] flush after Room hang abort failed", failure]]);
 });
 
-test("hang cleanup failures propagate before idle is saved", async () => {
+test("hang cleanup failures still save idle and release the lease before the error propagates", async () => {
   const f = hangFixture();
   f.deps.stopSubagentRuns = async () => { throw new Error("subagent stop failed"); };
   await assert.rejects(runHangWatchdogAbort("task", f.deps), /subagent stop failed/);
-  assert.equal(f.order.includes("idle"), false);
-  assert.equal(f.order.includes("release"), false);
+  assert.equal(f.order.includes("idle"), true);
+  assert.equal(f.order.includes("release"), true);
+  const replaced = hangFixture({ before: 10, after: { startedAt: 99 } });
+  replaced.deps.stopSubagentRuns = async () => { throw new Error("subagent stop failed"); };
+  await assert.rejects(runHangWatchdogAbort("task", replaced.deps), /subagent stop failed/);
+  assert.equal(replaced.order.includes("idle"), false);
 });

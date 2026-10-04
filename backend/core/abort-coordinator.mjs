@@ -42,7 +42,17 @@ export async function runUserAbort(id, deps) {
     // Detached children must still stop if Goal state cannot be persisted.
     try { await deps.stopSubagentRuns(live, messages); } catch (error) { captureFailure(error); }
     const aborted = await abortPromise;
-    if (failed) throw failure;
+    if (failed) {
+      // The native abort succeeded, so only history/Goal/child cleanup failed: the
+      // task must still leave `working` and drop its lease before the error surfaces.
+      // A failed native abort stays working (the SDK may still be running).
+      if (aborted.ok) {
+        try { deps.setIdle(id); } catch (error) { deps.warn?.("[abort] setIdle after cleanup failure failed", error); }
+        try { deps.releaseLease(id); } catch (error) { deps.warn?.("[abort] releaseLease after cleanup failure failed", error); }
+        try { deps.emitAbort(live); } catch (error) { deps.warn?.("[abort] emitAbort after cleanup failure failed", error); }
+      }
+      throw failure;
+    }
     if (!aborted.ok) throw aborted.error;
   }
   const task = deps.setIdle(id);
@@ -73,6 +83,8 @@ export async function runHangWatchdogAbort(taskId, deps) {
   // Capture before any await: a newer prompt may replace the watch while the
   // SDK abort settles, and then idle/lease must not tear down that turn.
   const startedAtBeforeAbort = deps.getHangWatchStartedAt(taskId);
+  let cleanupFailed = false;
+  let cleanupFailure;
   const live = deps.getLive(taskId);
   deps.clearPendingAttention(taskId);
   if (live) {
@@ -92,13 +104,18 @@ export async function runHangWatchdogAbort(taskId, deps) {
       // Emit before idle so clients clear queued follow-ups before hang_retry.
       deps.emitHangAbort(live);
       await deps.stopSubagentRuns(live, messages);
-    } finally {
-      const aborted = await abortPromise;
-      if (!aborted.ok) throw aborted.error;
+    } catch (error) {
+      // Remember the cleanup failure; idle/lease release below must still run once the
+      // native abort settled successfully, then the failure is rethrown.
+      cleanupFailed = true;
+      cleanupFailure = error;
     }
+    const aborted = await abortPromise;
+    if (!aborted.ok) throw aborted.error;
   }
   if (isHangWatchReplaced(startedAtBeforeAbort, deps.getHangWatch(taskId))) {
     // The replacement turn keeps its working state and lease.
+    if (cleanupFailed) throw cleanupFailure;
     return;
   }
   deps.setIdle(taskId);
@@ -117,4 +134,5 @@ export async function runHangWatchdogAbort(taskId, deps) {
       deps.warn("[bot-intercom] flush after Room hang abort failed", error);
     }
   }
+  if (cleanupFailed) throw cleanupFailure;
 }
