@@ -327,8 +327,8 @@ function SidebarFooter({ health, onSettings }: { health: HealthDto | null; onSet
       <div className="mt-2">
         <SystemMonitorWidget />
       </div>
-      <div className="mt-2 flex flex-wrap items-center justify-between gap-1">
-        <div className="min-w-28 flex-1 px-2">
+      <div className="mt-2 flex flex-nowrap items-center justify-between gap-1">
+        <div className="min-w-0 flex-1 px-2">
           <p className="truncate text-[11px] text-muted">
             {health?.engineOk ? `Pi ${health.version ?? ""} · モデル ${health.modelCount}` : "Pi 未接続"}
           </p>
