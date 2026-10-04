@@ -95,6 +95,40 @@ test("an HTTPS MCP endpoint may not name a private, link-local or metadata desti
   await authorized.close();
 });
 
+test("an IPv6 literal or a dotted name is no way around the destination rules", async () => {
+  const refused = async (url) => {
+    const changed = input(); changed.snapshot.servers[0].config.url = url;
+    try { await call(create(changed), changed).close(); return false; } catch (error) { assert.equal(safe(error), true, `${url}: refused for the wrong reason`); return true; }
+  };
+  for (const url of [
+    "https://[::ffff:169.254.169.254]/mcp", "https://[::ffff:a9fe:a9fe]/mcp", "https://[::ffff:10.0.0.1]/mcp",
+    "https://[::ffff:192.168.1.1]/mcp", "https://[::ffff:100.64.0.1]/mcp", "https://[::]/mcp", "https://[fec0::1]/mcp",
+    "https://[ff02::1]/mcp", "https://[64:ff9b::a9fe:a9fe]/mcp", "https://[64:ff9b:1::1]/mcp",
+    "https://[2002:a9fe:a9fe::1]/mcp", "https://[::a9fe:a9fe]/mcp", "https://[::ffff:0:a9fe:a9fe]/mcp",
+    "https://168.63.129.16/mcp", "https://metadata.google.internal./mcp", "https://METADATA.GOOGLE.INTERNAL./mcp",
+    "https://metadata.goog./mcp", "https://instance-data.ec2.internal./mcp",
+  ]) assert.equal(await refused(url), true, `${url} must be refused`);
+  // Loopback stays trusted in every spelling, and public destinations stay reachable.
+  for (const url of [
+    "https://[::1]:8443/mcp", "https://[::ffff:127.0.0.1]/mcp", "https://[::ffff:8.8.8.8]/mcp", "https://[64:ff9b::808:808]/mcp",
+    "https://[2002:808:808::1]/mcp", "https://[2606:4700:4700::1111]/mcp", "https://[2a00:1450:4001:81b::200e]/mcp",
+    "https://mcp.example.test./mcp",
+  ]) assert.equal(await refused(url), false, `${url} must stay reachable`);
+  // An IPv4 address embedded in an IPv6 literal is judged exactly like the same IPv4 address, whichever
+  // way it is embedded: mapped, compatible, translated, NAT64 or 6to4.
+  for (const address of ["8.8.8.8", "1.1.1.1", "169.254.169.254", "10.1.2.3", "172.15.0.1", "172.16.0.1", "172.31.255.255",
+    "172.32.0.1", "192.168.0.1", "192.169.0.1", "100.63.255.255", "100.64.0.1", "100.127.255.255", "100.128.0.1",
+    "198.17.0.1", "198.18.0.1", "198.19.255.255", "198.20.0.1", "223.255.255.255", "224.0.0.1", "255.255.255.255",
+    "168.63.129.16", "127.0.0.1"]) {
+    const [a, b, c, d] = address.split(".").map(Number);
+    const high = ((a << 8) | b).toString(16), low = ((c << 8) | d).toString(16);
+    const expected = await refused(`https://${address}/mcp`);
+    for (const literal of [`::ffff:${high}:${low}`, `::${high}:${low}`, `::ffff:0:${high}:${low}`, `64:ff9b::${high}:${low}`, `2002:${high}:${low}::`]) {
+      assert.equal(await refused(`https://[${literal}]/mcp`), expected, `[${literal}] must be judged like ${address}`);
+    }
+  }
+});
+
 test("ambient variable names are kept but unreferencable; invalid keys/values still refuse", async () => {
   const options = input(); options.variables = { ...options.variables, "ProgramFiles(x86)": "C:\\Program Files (x86)" };
   const factory = create(options); const transport = call(factory, options); assert.equal(transport instanceof StreamableHttpTransport, true); await transport.close();

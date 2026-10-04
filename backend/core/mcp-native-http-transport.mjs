@@ -11,6 +11,8 @@ const absolute = (v) => text(v) && isAbsolute(v);
 
 /** Cloud metadata hostnames that are not IP literals. */
 const METADATA_HOSTNAMES = new Set(["metadata.google.internal", "metadata.goog", "instance-data.ec2.internal"]);
+/** Platform endpoints that sit on a public address (Azure's WireServer). */
+const METADATA_ADDRESSES = new Set(["168.63.129.16"]);
 
 /**
  * Headers the transport owns: hop-by-hop and framing fields. A configured value would rewrite the
@@ -22,28 +24,68 @@ const FORBIDDEN_HEADERS = new Set([
   "proxy-authorization", "proxy-connection",
 ]);
 
+/** True for the IPv4 ranges an HTTPS endpoint may not name. Loopback (127/8) is deliberately absent. */
+function isPrivateIpv4([first, second, third, fourth]) {
+  return first === 0 || first === 10
+    || (first === 169 && second === 254) || (first === 172 && second >= 16 && second <= 31)
+    || (first === 192 && second === 168) || (first === 100 && second >= 64 && second <= 127)
+    || (first === 198 && (second === 18 || second === 19)) || first >= 224
+    || METADATA_ADDRESSES.has(`${first}.${second}.${third}.${fourth}`);
+}
+
+/** The eight 16-bit groups of an IPv6 literal in the canonical form the URL parser emits, or null. */
+function parseIpv6(literal) {
+  const halves = literal.split("::");
+  if (halves.length > 2) return null;
+  const groups = (part) => (part === "" ? [] : part.split(":"));
+  const head = groups(halves[0]);
+  const tail = halves.length === 2 ? groups(halves[1]) : [];
+  const missing = 8 - head.length - tail.length;
+  if (halves.length === 1 ? missing !== 0 : missing < 1) return null;
+  const values = [...head, ...Array(missing).fill("0"), ...tail]
+    .map((group) => (/^[0-9a-f]{1,4}$/.test(group) ? parseInt(group, 16) : Number.NaN));
+  return values.some(Number.isNaN) ? null : values;
+}
+
+/** True for the IPv6 ranges an HTTPS endpoint may not name, judging an embedded IPv4 address by its own rules. */
+function isPrivateIpv6(g) {
+  const zero = (from, to) => g.slice(from, to).every((group) => group === 0);
+  const embedded = (high, low) => isPrivateIpv4([high >> 8, high & 255, low >> 8, low & 255]);
+  if (zero(0, 8)) return true; // :: (unspecified)
+  if (zero(0, 6)) return g[6] === 0 && g[7] === 1 ? false : embedded(g[6], g[7]); // ::1 is loopback; ::a.b.c.d is IPv4-compatible
+  if (zero(0, 5) && g[5] === 0xffff) return embedded(g[6], g[7]); // ::ffff:a.b.c.d (IPv4-mapped)
+  if (zero(0, 4) && g[4] === 0xffff && g[5] === 0) return embedded(g[6], g[7]); // ::ffff:0:a.b.c.d (IPv4-translated)
+  // NAT64: only the well-known /96 embeds an address; the rest of 64:ff9b::/32 is local-use or reserved.
+  if (g[0] === 0x64 && g[1] === 0xff9b) return zero(2, 6) ? embedded(g[6], g[7]) : true;
+  if (g[0] === 0x2002) return embedded(g[1], g[2]); // 6to4 carries the IPv4 address in bits 16-47
+  return (g[0] & 0xfe00) === 0xfc00 // unique-local
+    || (g[0] & 0xffc0) === 0xfe80 // link-local
+    || (g[0] & 0xffc0) === 0xfec0 // site-local (deprecated, still routable inside some networks)
+    || (g[0] & 0xff00) === 0xff00; // multicast
+}
+
 /**
- * Destinations an HTTPS endpoint may not name: private, link-local, carrier-grade NAT and benchmark
- * ranges, IPv6 unique-local/link-local, and cloud metadata names. Loopback stays allowed because the
- * HTTP rule already trusts it explicitly. A DNS name that resolves into one of these ranges is NOT
- * covered: this transport resolves nothing and pins nothing, so a hostname can still point inward.
- * Refusing literals only removes the destinations an endpoint can name outright.
+ * Destinations an HTTPS endpoint may not name: private, link-local, carrier-grade NAT, benchmark and
+ * multicast ranges, IPv6 unique-local/link-local/site-local, and cloud metadata names and addresses.
+ * An IPv6 literal that embeds an IPv4 address (IPv4-mapped/-compatible/-translated, NAT64, 6to4) is
+ * judged by the address it embeds, so `[::ffff:169.254.169.254]` is no way around the IPv4 rules.
+ * Loopback stays allowed because the HTTP rule already trusts it explicitly. A DNS name that resolves
+ * into one of these ranges is NOT covered (nor a wildcard-DNS name that spells an address, such as
+ * `169.254.169.254.nip.io`): this transport resolves nothing and pins nothing, so a hostname can still
+ * point inward. Refusing literals only removes the destinations an endpoint can name outright.
  */
 function isPrivateDestination(hostname) {
-  const host = hostname.startsWith("[") && hostname.endsWith("]") ? hostname.slice(1, -1) : hostname;
-  const lower = host.toLowerCase();
-  if (METADATA_HOSTNAMES.has(lower)) return true;
+  const bracketed = hostname.startsWith("[") && hostname.endsWith("]");
+  // A trailing dot names the same host (`metadata.google.internal.`), and the URL parser keeps it.
+  const host = (bracketed ? hostname.slice(1, -1) : hostname).toLowerCase().replace(/\.+$/, "");
+  if (METADATA_HOSTNAMES.has(host)) return true;
   // The URL parser already folds IPv4 literals (0177.0.0.1, 2130706433) to dotted decimal.
-  const ipv4 = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/.exec(lower);
-  if (ipv4) {
-    const [first, second] = ipv4.slice(1).map(Number);
-    return first === 0 || first === 10
-      || (first === 169 && second === 254) || (first === 172 && second >= 16 && second <= 31)
-      || (first === 192 && second === 168) || (first === 100 && second >= 64 && second <= 127)
-      || (first === 198 && (second === 18 || second === 19)) || first >= 224;
-  }
-  if (!lower.includes(":")) return false;
-  return lower.startsWith("fc") || lower.startsWith("fd") || /^fe[89ab]/.test(lower);
+  const ipv4 = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/.exec(host);
+  if (ipv4) return isPrivateIpv4(ipv4.slice(1).map(Number));
+  if (!host.includes(":")) return false;
+  const groups = parseIpv6(host);
+  // An IPv6 literal this check cannot read is not one it can vouch for.
+  return groups === null || isPrivateIpv6(groups);
 }
 
 /** INTERNAL inert constructor from SDK-validated private snapshot + SAME binding authority.
