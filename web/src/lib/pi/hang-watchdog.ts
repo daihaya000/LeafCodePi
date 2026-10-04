@@ -173,6 +173,7 @@ function withWatchStoreLock<T>(operation: () => T): T {
     lockPath: lock,
     parentDir: dirname(lock),
     staleMs: 30_000,
+    heartbeatMs: 10_000,
     busyMessage: "hang-watchdog store lock timeout",
     maxAttempts: 200,
     waitMs: 25,

@@ -1,10 +1,72 @@
 import { mkdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { mkdir, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { randomUUID } from "node:crypto";
+import { Worker } from "node:worker_threads";
 import { join } from "node:path";
 
 /** A live owner pid is trusted only this long past `staleMs` (guards against pid reuse). */
 const LIVE_OWNER_HARD_CAP_MS = 10 * 60_000;
+const LOCK_HEARTBEAT_WORKER_SOURCE = `
+const { parentPort } = require("node:worker_threads");
+const { readFileSync, utimesSync } = require("node:fs");
+const { join } = require("node:path");
+const active = new Map();
+function stopLock(lockPath, owner) {
+  const current = active.get(lockPath);
+  if (!current || current.owner !== owner) return;
+  clearInterval(current.timer);
+  active.delete(lockPath);
+}
+function beatLock(lockPath, owner) {
+  const current = active.get(lockPath);
+  if (!current || current.owner !== owner) return;
+  try {
+    if (readFileSync(join(lockPath, "owner"), "utf8") !== owner) {
+      stopLock(lockPath, owner);
+      return;
+    }
+    const now = new Date();
+    utimesSync(lockPath, now, now);
+  } catch (error) {
+    if (error?.code === "ENOENT") stopLock(lockPath, owner);
+  }
+}
+parentPort.on("message", (message) => {
+  if (message?.type === "start") {
+    const previous = active.get(message.lockPath);
+    if (previous) clearInterval(previous.timer);
+    const timer = setInterval(() => beatLock(message.lockPath, message.owner), message.heartbeatMs);
+    timer.unref?.();
+    active.set(message.lockPath, { owner: message.owner, timer });
+  } else if (message?.type === "stop") {
+    stopLock(message.lockPath, message.owner);
+  }
+});
+`;
+let lockHeartbeatWorker;
+
+function registerLockHeartbeat(lockPath, owner, heartbeatMs) {
+  if (!Number.isFinite(heartbeatMs) || heartbeatMs <= 0) {
+    throw new RangeError("directory lock heartbeatMs must be a positive finite number");
+  }
+  let worker = lockHeartbeatWorker;
+  if (!worker) {
+    worker = new Worker(LOCK_HEARTBEAT_WORKER_SOURCE, { eval: true });
+    lockHeartbeatWorker = worker;
+    worker.on("error", (error) => {
+      console.error("[directory-lock] heartbeat worker failed; stale-owner hard cap remains active", error);
+      if (lockHeartbeatWorker === worker) lockHeartbeatWorker = null;
+    });
+    worker.on("exit", () => {
+      if (lockHeartbeatWorker === worker) lockHeartbeatWorker = null;
+    });
+    worker.unref();
+  }
+  worker.postMessage({ type: "start", lockPath, owner, heartbeatMs });
+  return () => {
+    try { worker.postMessage({ type: "stop", lockPath, owner }); } catch { /* worker already exited */ }
+  };
+}
 
 function blockingSleep(ms) {
   Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
@@ -53,13 +115,15 @@ async function release(lockPath, owner) {
  * `busyMessage`. The lock directory carries an `owner` token (`pid:uuid`). A lock
  * older than `staleMs` is removed only when its owner process is gone (or the
  * token is missing, or the hard cap passed) and the token is unchanged at removal
- * time; losing that race to another worker just means retrying. Release only
- * deletes the lock while it still carries this call's token, including when
- * `action` throws.
+ * time; losing that race to another worker just means retrying. Optional `heartbeatMs`
+ * refreshes the lock mtime from a worker thread, so long synchronous actions do not
+ * appear stale while the owning event loop is blocked. If the process exits, heartbeats
+ * stop and the hard cap still bounds PID-reuse risk. Release only deletes the lock while
+ * it still carries this call's token, including when `action` throws.
  */
 export function withDirectoryLock({
   lockPath, parentDir, staleMs, busyMessage,
-  maxAttempts = 300, waitMs = 10, now = () => Date.now(), sleep = blockingSleep,
+  maxAttempts = 300, waitMs = 10, now = () => Date.now(), sleep = blockingSleep, heartbeatMs,
 }, action) {
   mkdirSync(parentDir, { recursive: true });
   const owner = newOwner();
@@ -86,7 +150,14 @@ export function withDirectoryLock({
       sleep(waitMs);
     }
   }
-  try { return action(); } finally { releaseSync(lockPath, owner); }
+  let stopHeartbeat = () => {};
+  try {
+    if (heartbeatMs !== undefined) stopHeartbeat = registerLockHeartbeat(lockPath, owner, heartbeatMs);
+    return action();
+  } finally {
+    stopHeartbeat();
+    releaseSync(lockPath, owner);
+  }
 }
 
 /**

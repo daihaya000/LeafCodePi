@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
-import { spawn } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import { once } from "node:events";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, utimesSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
@@ -104,6 +104,48 @@ test("a stale-aged lock held by a live process is not stolen, but one held by a 
   rmSync(options.lockPath, { recursive: true });
   oldLockWithOwner(options, "2147483646:dead-token");
   assert.equal(withDirectoryLock({ ...options, sleep: () => undefined }, () => "reclaimed"), "reclaimed");
+});
+
+test("worker heartbeat protects a sync lock during an event-loop stall beyond the live-owner hard cap", (t) => {
+  const { options } = setup(t);
+  const moduleUrl = new URL("./directory-lock.mjs", import.meta.url).href;
+  const childOptions = JSON.stringify({ ...options, maxAttempts: 0, waitMs: 0 });
+  const childSource = `
+    import { withDirectoryLock } from ${JSON.stringify(moduleUrl)};
+    const options = ${childOptions};
+    try {
+      withDirectoryLock({ ...options, sleep: () => {} }, () => process.stdout.write("acquired"));
+    } catch (error) {
+      if (error?.message !== options.busyMessage) { console.error(error); process.exitCode = 1; }
+      else process.stdout.write("busy");
+    }
+  `;
+
+  const result = withDirectoryLock({ ...options, heartbeatMs: 10 }, () => {
+    const old = new Date(Date.now() - 11 * 60_000);
+    utimesSync(options.lockPath, old, old);
+    // Block the owning thread; the worker thread must still renew the lock mtime.
+    const waitArray = new Int32Array(new SharedArrayBuffer(4));
+    const heartbeatDeadline = Date.now() + 2_000;
+    let lockAgeMs = Date.now() - statSync(options.lockPath).mtimeMs;
+    while (lockAgeMs >= options.staleMs && Date.now() < heartbeatDeadline) {
+      Atomics.wait(waitArray, 0, 0, 20);
+      lockAgeMs = Date.now() - statSync(options.lockPath).mtimeMs;
+    }
+    assert.ok(lockAgeMs < options.staleMs);
+
+    const child = spawnSync(process.execPath, ["--input-type=module", "-e", childSource], {
+      encoding: "utf8",
+      timeout: 5_000,
+    });
+    assert.equal(child.error, undefined, child.error?.message);
+    assert.equal(child.status, 0, child.stderr);
+    assert.equal(child.stdout, "busy");
+    return "held";
+  });
+
+  assert.equal(result, "held");
+  assert.equal(existsSync(options.lockPath), false);
 });
 
 test("release never deletes a lock that was reclaimed by another owner (sync and async)", async (t) => {

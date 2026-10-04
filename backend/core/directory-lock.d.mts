@@ -8,6 +8,8 @@ export function withDirectoryLock<T>(
     waitMs?: number;
     now?: () => number;
     sleep?: (ms: number) => void;
+    /** Refresh the lock from a worker thread so sync actions can block the caller's event loop safely. */
+    heartbeatMs?: number;
   },
   action: () => T,
 ): T;
