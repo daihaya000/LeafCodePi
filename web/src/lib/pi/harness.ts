@@ -198,7 +198,7 @@ import {
 import { hasIdentityChanges, sessionIdentityPatch, sessionIdentitySource } from "@/lib/pi/session-identity";
 import { nestedCallsStoreFor, trackNestedToolEvent } from "@/lib/pi/nested-live-calls";
 import { sessionToolSelection, shouldUseDynamicMcpTools } from "@/lib/pi/session-tool-selection";
-import { attachCodeToolPolicy, codeToolAllowed, registerCodeToolPolicy, updateCodeSubagentPolicy, type CodeToolPolicy } from "@/lib/pi/session-tool-policy";
+import { attachCodeToolPolicy, codeToolAllowed, preservingPendingToolNames, registerCodeToolPolicy, updateCodeSubagentPolicy, type CodeToolPolicy } from "@/lib/pi/session-tool-policy";
 import {
   bundledExtensionEntries,
   filterExtensionsByState,
@@ -10147,25 +10147,6 @@ export async function setBotThinkingLevel(botId: string, level: string): Promise
   const summary = primary ?? (await setTaskThinkingLevel(botTaskId(botId), level));
   patchColdBotSiblingTasks(botId, { thinkingLevel: summary.thinkingLevel });
   return summary;
-}
-
-/**
- * The SDK drops its pending tool names whenever a loadout deactivates any tool, so removing one tool
- * would silently drop MCP tools that are still connecting after a reload. Restore them around the
- * rewrite. The field is SDK-private, so every access is guarded.
- */
-function preservingPendingToolNames(session: AgentSession, dropped: string, apply: () => void): void {
-  const pending = (session as unknown as { _pendingToolNames?: unknown })._pendingToolNames;
-  if (!(pending instanceof Set)) {
-    apply();
-    return;
-  }
-  const saved = [...(pending as Set<string>)];
-  apply();
-  const active = new Set(session.getActiveToolNames());
-  // The tool this call removes must stay out: restoring it would let a later registry refresh
-  // declare it to the model again.
-  for (const name of saved) if (name !== dropped && !active.has(name)) pending.add(name);
 }
 
 /**
