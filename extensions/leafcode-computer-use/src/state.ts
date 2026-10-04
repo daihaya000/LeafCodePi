@@ -30,6 +30,7 @@ export interface CurrentCapture {
 }
 
 export interface OperationState {
+	ownerSessionId?: string;
 	currentTarget?: CurrentTarget;
 	currentCapture?: CurrentCapture;
 	currentStateTarget?: StateTargetSnapshot;
@@ -80,6 +81,10 @@ export class SavedStates {
 		this.store.set(record);
 	}
 
+	clearSession(sessionId: string): void {
+		this.store.clearSession(sessionId);
+	}
+
 	clear(): void {
 		this.store.clear();
 	}
@@ -89,6 +94,7 @@ export class SavedStates {
 		if (record.value.kind === "browser") {
 			const outline = restoreOutline(record.value.outline);
 			return {
+				ownerSessionId: record.ownerSessionId,
 				currentCapture: { stateId: record.stateId, width: 0, height: 0, scaleFactor: 1, timestamp: record.value.snapshot.capturedAt },
 				currentLook: {
 					lookId: record.value.snapshot.snapshotId,
@@ -113,6 +119,7 @@ export class SavedStates {
 			currentImageMode: record.value.imageMode,
 			currentLook: { ...record.value.look, outline: outline.root, parsedOutline: outline },
 			currentOutline: outline,
+			ownerSessionId: record.ownerSessionId,
 			currentNote: record.value.note ? structuredClone(record.value.note) : undefined,
 			resourceKey: record.resourceKey,
 			epoch: record.epoch,
@@ -123,6 +130,7 @@ export class SavedStates {
 		if (!state.currentTarget || !state.currentCapture || !state.currentLook || !state.currentOutline) return;
 		this.store.set({
 			stateId: state.currentCapture.stateId,
+			ownerSessionId: state.ownerSessionId,
 			resourceKey,
 			epoch,
 			value: {

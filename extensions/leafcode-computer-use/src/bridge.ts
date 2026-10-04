@@ -336,7 +336,7 @@ function persistOperation(state: OperationState): void {
 }
 
 /** Release handles and state owned by the current Pi session. */
-export async function shutdownComputerUseSession(): Promise<void> {
+export async function shutdownComputerUseSession(ownerSessionId: string): Promise<void> {
 	await resourceScheduler.close();
 	resourceScheduler = new ResourceScheduler();
 	disconnectCdp();
@@ -354,7 +354,7 @@ export async function shutdownComputerUseSession(): Promise<void> {
 	runtimeState.managedBrowserCdpPort = undefined;
 	runtimeState.previousCdpPort = undefined;
 
-	savedStates.clear();
+	savedStates.clearSession(ownerSessionId);
 	clearStoredOutputs();
 	runtimeState.windowRefs.clear();
 	runtimeState.windowRefByIdentity.clear();
@@ -1385,7 +1385,7 @@ async function withBrowserWrite<T>(contextId: string, work: () => Promise<T>): P
 }
 
 function browserObservationResult(browser: CdpPageSnapshot, resourceKey: string, epoch: number, tool: string, base?: { stateId: string; outline: SerializedOutline }): AgentToolResult<BrowserObservationDetails> {
-	savedStates.set({ stateId: browser.snapshotId, resourceKey, epoch, value: { kind: "browser", snapshot: browser, outline: browser.outline } });
+	savedStates.set({ ownerSessionId: operationState().ownerSessionId, stateId: browser.snapshotId, resourceKey, epoch, value: { kind: "browser", snapshot: browser, outline: browser.outline } });
 	const currentOutline = restoreOutline(browser.outline);
 	const transition = base ? changesBetween(restoreOutline(base.outline), currentOutline) : undefined;
 	const useDiff = Boolean(transition && !transition.useFullView);
@@ -1539,7 +1539,7 @@ async function performWaitFor(params: WaitForParams, signal?: AbortSignal): Prom
 		let lastEpoch = state.epoch ?? resourceScheduler.epoch(state.resourceKey);
 		const finish = (found: boolean, timedOut?: boolean): AgentToolResult<WaitForDetails> => {
 			if (!lastSnapshot) throw new Error("Browser wait completed without an observation.");
-			savedStates.set({ stateId: lastSnapshot.snapshotId, resourceKey: state.resourceKey!, epoch: lastEpoch, value: { kind: "browser", snapshot: lastSnapshot, outline: lastSnapshot.outline } });
+			savedStates.set({ ownerSessionId: state.ownerSessionId, stateId: lastSnapshot.snapshotId, resourceKey: state.resourceKey!, epoch: lastEpoch, value: { kind: "browser", snapshot: lastSnapshot, outline: lastSnapshot.outline } });
 			const successorOutline = restoreOutline(lastSnapshot.outline);
 			const transition = changesBetween(restoreOutline(baseSnapshot.outline), successorOutline);
 			const useDiff = !transition.useFullView;
@@ -2265,11 +2265,13 @@ async function performEvaluateBrowser(params: EvaluateBrowserParams): Promise<Ag
 async function executeTool<P, T>(ctx: ExtensionContext, params: P, signal: AbortSignal | undefined, run: () => Promise<T>): Promise<T> {
 	const outputRef = trimOrUndefined((params as { ref?: string } | undefined)?.ref)?.startsWith("@o") === true;
 	const requestedStateId = outputRef ? undefined : trimOrUndefined((params as { stateId?: string } | undefined)?.stateId);
+	const ownerSessionId = ctx.sessionManager.getSessionId();
 	const stateRecord = requestedStateId ? savedStates.get(requestedStateId) : undefined;
-	if (requestedStateId && !stateRecord) {
+	if (requestedStateId && (!stateRecord || stateRecord.ownerSessionId !== ownerSessionId)) {
 		throw new Error(`State '${requestedStateId}' is unavailable or was evicted. Observe the root again.`);
 	}
 	const operation = savedStates.hydrate(stateRecord);
+	operation.ownerSessionId = ownerSessionId;
 	return await savedStates.operations.run(operation, async () => {
 		await resourceScheduler.read("session-lifecycle", async () => await ensureReady(ctx, signal));
 		throwIfAborted(signal);
@@ -2308,7 +2310,8 @@ export const executeEvaluateBrowser = makeToolExecutor("evaluate_browser", perfo
 export const executeLaunchBrowser = makeToolExecutor("launch_browser", performLaunchBrowser);
 
 export function reconstructStateFromBranch(ctx: ExtensionContext): void {
-	savedStates.clear();
+	const ownerSessionId = ctx.sessionManager.getSessionId();
+	savedStates.clearSession(ownerSessionId);
 	clearStoredOutputs();
 	runtimeState.windowRefs.clear();
 	runtimeState.windowRefByIdentity.clear();
@@ -2386,6 +2389,7 @@ export function reconstructStateFromBranch(ctx: ExtensionContext): void {
 			resourceScheduler.restoreEpoch(resourceKey, epoch);
 			savedStates.set({
 				stateId: capture.stateId,
+				ownerSessionId,
 				resourceKey,
 				epoch,
 				value: {

@@ -163,7 +163,7 @@ export default function computerUseExtension(pi: ExtensionAPI): void {
 		reconstructStateFromBranch(ctx);
 	});
 
-	pi.on("session_shutdown", async () => {
-		await shutdownComputerUseSession();
+	pi.on("session_shutdown", async (_event, ctx) => {
+		await shutdownComputerUseSession(ctx.sessionManager.getSessionId());
 	});
 }
