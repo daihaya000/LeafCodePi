@@ -30,11 +30,14 @@ export class TaskLeaseService<T extends TaskLeaseTask = TaskLeaseTask> {
     pid?: number;
     now?: () => number;
     isProcessAlive?: (pid: number) => boolean;
+    getProcessStartKey?: (pid: number) => string | undefined;
     setHeartbeat?: (callback: () => void, delayMs: number) => HeartbeatHandle;
     clearHeartbeat?: (handle: HeartbeatHandle) => void;
     warn?: (message: string, error: unknown) => void;
     /** Heartbeat file replacement; injectable so tests can simulate write failures. */
     renameFile?: (from: string, to: string) => void;
+    /** Atomically publishes a fully populated reclaim-lock directory; injectable for tests. */
+    renameDirectory?: (from: string, to: string) => void;
     /** Atomic exclusive create of the lease file (hard link); injectable for tests. */
     linkFile?: (existing: string, target: string) => void;
   });

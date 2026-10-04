@@ -14,7 +14,9 @@ function fixture(t, options = {}) {
   const state = createTaskLeaseState();
   const service = new TaskLeaseService({
     dataDir: () => root, listTasks: () => [], patchTask: () => undefined, state,
-    setHeartbeat: () => ({ unref() {} }), clearHeartbeat: () => undefined, ...options,
+    setHeartbeat: () => ({ unref() {} }), clearHeartbeat: () => undefined,
+    getProcessStartKey: (pid) => `test:${pid}`,
+    ...options,
   });
   t.after(() => rmSync(root, { recursive: true, force: true }));
   return { root, service, state };
@@ -42,12 +44,59 @@ test("a reclaim lock left by a crashed worker is recovered after its stale limit
   const f = fixture(t);
   const path = seed(f.service, "crashed", deadLease());
   mkdirSync(`${path}.reclaim`);
+  writeFileSync(join(`${path}.reclaim`, "owner"), "999999:crashed", "utf8");
   const old = new Date(Date.now() - RECLAIM_LOCK_STALE_MS - 5_000);
   utimesSync(`${path}.reclaim`, old, old);
   assert.equal(f.service.acquireTaskLease("crashed"), true);
   assert.equal(read(path).token, f.state.token);
   assert.equal(existsSync(`${path}.reclaim`), false);
   f.service.releaseTaskLease("crashed");
+});
+
+test("a long-lived reclaim lock is retained, while a process-start mismatch proves PID reuse", (t) => {
+  let ownerStartKey = "owner-start";
+  const f = fixture(t, {
+    isProcessAlive: (pid) => pid === 4242,
+    getProcessStartKey: (pid) => pid === 4242 ? ownerStartKey : `test:${pid}`,
+  });
+  const path = seed(f.service, "slow-owner", deadLease());
+  const lock = `${path}.reclaim`;
+  mkdirSync(lock);
+  const owner = JSON.stringify({ pid: 4242, processStartKey: ownerStartKey, token: "slow-owner" });
+  writeFileSync(join(lock, "owner"), owner, "utf8");
+  const old = new Date(Date.now() - RECLAIM_LOCK_STALE_MS - 120_000);
+  utimesSync(lock, old, old);
+
+  assert.equal(f.service.acquireTaskLease("slow-owner"), false);
+  assert.equal(readFileSync(join(lock, "owner"), "utf8"), owner);
+
+  ownerStartKey = "reused-pid-start";
+  assert.equal(f.service.acquireTaskLease("slow-owner"), true);
+  assert.equal(read(path).token, f.state.token);
+  assert.equal(existsSync(lock), false);
+  f.service.releaseTaskLease("slow-owner");
+});
+
+test("a stale reclaim lock without a verifiable owner fails closed", (t) => {
+  const f = fixture(t);
+  const path = seed(f.service, "unknown-owner", deadLease());
+  const lock = `${path}.reclaim`;
+  mkdirSync(lock);
+  const old = new Date(Date.now() - RECLAIM_LOCK_STALE_MS - 120_000);
+  utimesSync(lock, old, old);
+
+  assert.equal(f.service.acquireTaskLease("unknown-owner"), false);
+  assert.equal(existsSync(lock), true);
+  assert.equal(existsSync(path), true);
+});
+
+test("a caller without a process-start key cannot publish a reclaim lock", (t) => {
+  const f = fixture(t, { getProcessStartKey: () => undefined });
+  const path = seed(f.service, "no-self-key", deadLease());
+
+  assert.equal(f.service.acquireTaskLease("no-self-key"), false);
+  assert.equal(existsSync(`${path}.reclaim`), false);
+  assert.equal(existsSync(path), true);
 });
 
 test("an aged reclaim lock held by a live process is kept, one held by a dead process is taken over", (t) => {
@@ -124,7 +173,10 @@ async function raceOnce(t, round, workers) {
   const code = `
     import { existsSync } from "node:fs";
     import { TaskLeaseService } from ${JSON.stringify(moduleUrl)};
-    const service = new TaskLeaseService({ dataDir: () => ${JSON.stringify(f.root)}, listTasks: () => [], patchTask: () => undefined });
+    const service = new TaskLeaseService({
+      dataDir: () => ${JSON.stringify(f.root)}, listTasks: () => [], patchTask: () => undefined,
+      getProcessStartKey: (pid) => "test:" + pid,
+    });
     process.send({ ready: true, pid: process.pid });
     while (!existsSync(${JSON.stringify(go)})) { /* spin so every worker starts together */ }
     process.send({ acquired: service.acquireTaskLease("contended"), pid: process.pid });

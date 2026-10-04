@@ -1,6 +1,7 @@
 import { closeSync, linkSync, mkdirSync, openSync, readFileSync, renameSync, rmSync, statSync, unlinkSync, writeFileSync } from "node:fs";
 import { randomUUID } from "node:crypto";
 import { join } from "node:path";
+import { processStartKey } from "../../shared/process-identity.mjs";
 
 export const TASK_LEASE_STALE_MS = 60_000;
 export const HEARTBEAT_MS = 15_000;
@@ -9,8 +10,6 @@ const MAX_ACQUIRE_ATTEMPTS = 4;
 const MAX_HEARTBEAT_FAILURES = 3;
 /** Reclaim locks only bridge a read-check-delete, so a long-lived one means its holder crashed. */
 export const RECLAIM_LOCK_STALE_MS = 10_000;
-/** A live owner is trusted only this long past the stale limit (guards against pid reuse). */
-const RECLAIM_LOCK_HARD_CAP_MS = 60_000;
 const MAX_PENDING_ORPHANS = 100;
 export const ORPHANED_WORKING_TASK_ERROR = "ホスト再起動後にCodeセッションを復旧できなかったため停止しました";
 
@@ -39,10 +38,12 @@ export class TaskLeaseService {
   constructor({
     dataDir, listTasks, patchTask, state = createTaskLeaseState(),
     pid = process.pid, now = () => Date.now(), isProcessAlive = processAlive,
+    getProcessStartKey = processStartKey,
     setHeartbeat = (callback, delayMs) => setInterval(callback, delayMs),
     clearHeartbeat = (timer) => clearInterval(timer),
     warn = (message, error) => console.warn(message, error),
     renameFile = renameSync,
+    renameDirectory = renameSync,
     linkFile = linkSync,
   }) {
     this.dataDir = dataDir;
@@ -53,10 +54,14 @@ export class TaskLeaseService {
     this.pid = pid;
     this.now = now;
     this.isProcessAlive = isProcessAlive;
+    this.getProcessStartKey = getProcessStartKey;
+    this.reclaimOwnerStartKeyRead = false;
+    this.reclaimOwnerStartKey = null;
     this.setHeartbeat = setHeartbeat;
     this.clearHeartbeat = clearHeartbeat;
     this.warn = warn;
     this.renameFile = renameFile;
+    this.renameDirectory = renameDirectory;
     this.linkFile = linkFile;
     // Older hot-reloaded states predate notification fields.
     state.orphanListener ??= null;
@@ -171,30 +176,91 @@ export class TaskLeaseService {
   }
 
   /**
-   * The lock is normally held for microseconds. One older than the stale limit is taken over only
-   * when its owner process is gone (or never wrote an owner); a live owner stuck on a slow
-   * filesystem keeps it until the hard cap. Returns the owner token, or null when not acquired.
+   * The owner record is written in a temporary directory and renamed into place so a crash cannot
+   * leave an ownerless lock while a live process is still creating it. An old lock is reclaimed
+   * only after its PID is gone or its process-start key proves that the PID was reused; unknown
+   * identity fails closed. Returns the serialized owner token, or null when not acquired.
    */
   #takeReclaimLock(lock) {
+    const readOwnStartKey = () => {
+      if (!this.reclaimOwnerStartKeyRead) {
+        try {
+          const startKey = this.getProcessStartKey(this.pid);
+          if (typeof startKey === "string" && startKey) {
+            this.reclaimOwnerStartKey = startKey;
+            this.reclaimOwnerStartKeyRead = true;
+          }
+        } catch { /* retry later; unknown identity is never treated as dead */ }
+      }
+      return this.reclaimOwnerStartKeyRead ? this.reclaimOwnerStartKey : null;
+    };
     const create = () => {
-      mkdirSync(lock);
-      const token = `${this.pid}:${randomUUID()}`;
-      try { writeFileSync(join(lock, "owner"), token, "utf8"); }
-      catch (error) { rmSync(lock, { recursive: true, force: true }); throw error; }
-      return token;
+      const ownStartKey = readOwnStartKey();
+      if (!ownStartKey) {
+        try { statSync(lock); }
+        catch { return null; }
+        const occupied = new Error("reclaim lock already exists");
+        occupied.code = "EEXIST";
+        throw occupied;
+      }
+      const ownerToken = JSON.stringify({
+        pid: this.pid,
+        processStartKey: ownStartKey,
+        token: randomUUID(),
+      });
+      const temporary = `${lock}.${this.pid}.${randomUUID()}.tmp`;
+      mkdirSync(temporary);
+      try {
+        writeFileSync(join(temporary, "owner"), ownerToken, "utf8");
+        try {
+          statSync(lock);
+          const occupied = new Error("reclaim lock already exists");
+          occupied.code = "EEXIST";
+          throw occupied;
+        } catch (error) {
+          if (error?.code !== "ENOENT") throw error;
+        }
+        try { this.renameDirectory(temporary, lock); }
+        catch (error) {
+          let lockExists = false;
+          try { statSync(lock); lockExists = true; } catch { /* no competing lock */ }
+          if (lockExists) {
+            const occupied = new Error("reclaim lock already exists");
+            occupied.code = "EEXIST";
+            throw occupied;
+          }
+          throw error;
+        }
+        return ownerToken;
+      } finally {
+        try { rmSync(temporary, { recursive: true, force: true }); } catch { /* renamed or already gone */ }
+      }
     };
     try { return create(); }
     catch (error) {
       if (error?.code !== "EEXIST") throw error;
     }
     try {
-      const age = this.now() - statSync(lock).mtimeMs;
-      if (age <= RECLAIM_LOCK_STALE_MS) return null;
+      if (this.now() - statSync(lock).mtimeMs <= RECLAIM_LOCK_STALE_MS) return null;
       const seen = this.#readReclaimOwner(lock);
-      const pid = Number(String(seen ?? "").split(":")[0]);
-      const ownerGone = !Number.isInteger(pid) || pid <= 0 || !this.isProcessAlive(pid);
-      if (!ownerGone && age <= RECLAIM_LOCK_HARD_CAP_MS) return null;
-      if (this.#readReclaimOwner(lock) !== seen) return null;
+      if (!seen) return null;
+      let owner;
+      try { owner = JSON.parse(seen); } catch { /* accept legacy PID:token records below */ }
+      if (owner && typeof owner === "object" && !Array.isArray(owner)) {
+        if (!Number.isSafeInteger(owner.pid) || owner.pid <= 0 || typeof owner.token !== "string" || !owner.token) return null;
+      } else {
+        const pid = Number(seen.split(":")[0]);
+        owner = Number.isSafeInteger(pid) && pid > 0 ? { pid, processStartKey: null } : null;
+      }
+      if (!owner || !Number.isSafeInteger(owner.pid) || owner.pid <= 0) return null;
+
+      let ownerGone = !this.isProcessAlive(owner.pid);
+      if (!ownerGone && typeof owner.processStartKey === "string" && owner.processStartKey) {
+        let currentStartKey;
+        try { currentStartKey = this.getProcessStartKey(owner.pid); } catch { /* unknown is not dead */ }
+        if (typeof currentStartKey === "string" && currentStartKey && currentStartKey !== owner.processStartKey) ownerGone = true;
+      }
+      if (!ownerGone || this.#readReclaimOwner(lock) !== seen || !this.reclaimOwnerStartKeyRead) return null;
       rmSync(lock, { recursive: true, force: true });
       return create();
     } catch { return null; }
