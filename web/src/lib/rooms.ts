@@ -52,10 +52,9 @@ export function consumeRoomRelayEnvelope(roomId: string, token: string): Omit<Ro
 
 /** Serialize room and relay read/check/write operations across workers. */
 export function withRoomLock<T>(roomId: string, action: () => T): T {
-  // Keep the public missing-room behavior for malformed route parameters.
-  if (!isValidId(roomId)) return action();
+  const lockPath = roomLockPath(roomId);
   return withDirectoryLock({
-    lockPath: roomLockPath(roomId),
+    lockPath,
     parentDir: roomsRoot(),
     staleMs: 30_000,
     busyMessage: "room file is busy",
@@ -75,7 +74,7 @@ const roomFileStore = new RoomFileStore({
 });
 
 function assertId(id: string): void {
-  if (!isValidId(id)) throw new Error("invalid room id");
+  if (!isValidId(id)) throw Object.assign(new Error("invalid room id"), { status: 400 });
 }
 function roomPath(id: string): string { return roomFileStore.roomPath(id); }
 function readRoom(id: string): RoomDto | undefined { return roomFileStore.readRoom(id); }

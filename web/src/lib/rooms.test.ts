@@ -5,7 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 const testState = vi.hoisted(() => ({ root: "" }));
 vi.mock("./paths", async (importOriginal) => { const actual = await importOriginal<typeof import("./paths")>(); return { ...actual, dataDir: () => testState.root, storePath: () => join(testState.root, "store.json") }; });
 import { botTaskId, createBot, deleteBot, patchBot } from "./bots";
-import { appendRoomMessage, botsForRoomPrompt, consumeRoomRelayEnvelope, createRoom, deleteRoom, ensureRoomBotTask, getRoom, issueRoomRelayEnvelope, patchRoom, readRoomFile, readRoomImage, removeRoomMember, roomFileRejection, roomImageRejection, roomRequestFiles, roomRequestImages, saveRoomFiles, saveRoomImages, updateRoomMessage } from "./rooms";
+import { appendRoomMessage, botsForRoomPrompt, consumeRoomRelayEnvelope, createRoom, deleteRoom, ensureRoomBotTask, getRoom, issueRoomRelayEnvelope, patchRoom, readRoomFile, readRoomImage, removeRoomMember, roomFileRejection, roomImageRejection, roomRequestFiles, roomRequestImages, saveRoomFiles, saveRoomImages, updateRoomMessage, withRoomLock } from "./rooms";
 import { MAX_PROMPT_FILE_TOTAL_BYTES, MAX_PROMPT_IMAGE_TOTAL_BYTES } from "./prompt-images";
 import { getTask } from "./store";
 import { isRoomNameWithinSize, MAX_ROOM_NAME_CHARS } from "./rooms";
@@ -25,6 +25,18 @@ describe("room store and mention routing", () => {
   let root = "";
   beforeEach(() => { root = mkdtempSync(join(tmpdir(), "leafcode-rooms-")); testState.root = root; });
   afterEach(() => { rmSync(root, { recursive: true, force: true }); testState.root = ""; });
+  it("rejects invalid room ids before running an unlocked mutation", () => {
+    const action = vi.fn(() => "mutated");
+    let thrown: unknown;
+    try {
+      withRoomLock("../outside", action);
+    } catch (error) {
+      thrown = error;
+    }
+    expect(thrown).toMatchObject({ message: "invalid room id", status: 400 });
+    expect(action).not.toHaveBeenCalled();
+  });
+
   it("persists a room and keeps only bot allowlist members on create", () => {
     const first = createBot({ name: "Alpha" });
     const second = createBot({ name: "Beta" });
