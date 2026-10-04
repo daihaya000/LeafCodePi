@@ -1,4 +1,4 @@
-import { existsSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync, statSync, unlinkSync, writeFileSync } from "node:fs";
 
 export function readLock(lockFile, deps = {}) {
   const exists = deps.existsSync ?? existsSync;
@@ -15,6 +15,28 @@ export function readLock(lockFile, deps = {}) {
     return Number.isFinite(pid) ? { pid } : null;
   } catch {
     return null;
+  }
+}
+
+/**
+ * A lock file that parses as no owner is either a crashed leftover or a lock whose creator is
+ * still between the exclusive create and the content write. Give a young file a short grace
+ * period to finish before treating it as unreadable; an old one returns null immediately.
+ * Returns the owner once it becomes readable, otherwise null.
+ */
+export function awaitLockOwner(lockFile, deps = {}) {
+  const graceMs = deps.graceMs ?? 2_000;
+  const pollMs = deps.pollMs ?? 50;
+  const stat = deps.statSync ?? statSync;
+  const now = deps.now ?? Date.now;
+  const sleep = deps.sleep ?? ((ms) => Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms));
+  let ageMs;
+  try { ageMs = now() - stat(lockFile).mtimeMs; } catch { return readLock(lockFile, deps); }
+  const deadline = now() + Math.max(0, graceMs - Math.max(0, ageMs));
+  for (;;) {
+    const owner = readLock(lockFile, deps);
+    if (owner || now() >= deadline) return owner;
+    sleep(pollMs);
   }
 }
 

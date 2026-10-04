@@ -17,7 +17,7 @@ import {
   webUiUrl,
 } from "./config.js";
 import { isThisModuleEntrypoint } from "./entry.js";
-import { pidAlive, readLock, removeLock, writeLock } from "./lock.js";
+import { awaitLockOwner, pidAlive, readLock, removeLock, writeLock } from "./lock.js";
 import { formatLogLine } from "./log-file.js";
 import { localLeafcodePiTempDir } from "./tray-temp.js";
 import { consumeSkipStaleRebuild, formatWebStatus, getPostBuildLaunchPlan, getWebLaunchPlan, isWebBuildStale, staleRebuildFailureAction } from "./web-plan.js";
@@ -268,6 +268,30 @@ test("formatWebStatus labels", () => {
   assert.equal(formatWebStatus({ building: false, running: true, httpUp: true }), "LeafCodePi: running");
   assert.equal(formatWebStatus({ building: false, running: true, httpUp: false }), "LeafCodePi: starting...");
   assert.equal(formatWebStatus({ building: false, running: false, httpUp: false }), "LeafCodePi: stopped");
+});
+
+test("awaitLockOwner gives a young half-written lock time to finish but not an old one", () => {
+  let time = 10_000;
+  let contents = "";
+  const deps = {
+    existsSync: () => true,
+    readFileSync: () => contents,
+    statSync: () => ({ mtimeMs: mtime }),
+    now: () => time,
+    sleep: (ms) => { time += ms; if (time >= 10_150) contents = '{"pid":77}\n'; },
+  };
+  let mtime = 9_990;
+  assert.deepEqual(awaitLockOwner("lock", deps), { pid: 77 });
+  // An old unreadable file is reported immediately without waiting.
+  contents = "";
+  mtime = 1_000;
+  time = 20_000;
+  let slept = 0;
+  assert.equal(awaitLockOwner("lock", { ...deps, sleep: () => { slept += 1; } }), null);
+  assert.equal(slept, 0);
+  // A young file that never completes is given up after the grace period.
+  mtime = time;
+  assert.equal(awaitLockOwner("lock", { ...deps, sleep: (ms) => { time += ms; } }), null);
 });
 
 test("lock file round-trip and stale pid", () => {

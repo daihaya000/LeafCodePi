@@ -11,7 +11,7 @@ import { isThisModuleEntrypoint } from "./entry.js";
 import { createLlamaControlServer, closeControlServer, listenControlServer } from "./llama-control-server.js";
 import { createLoopbackWebUiProxy, listenLoopbackWebUiProxy, closeLoopbackWebUiProxy } from "./loopback-webui-proxy.js";
 import { createLlamaServerService } from "./llama-server-service.js";
-import { pidAlive, readLock, removeLock, writeLock } from "./lock.js";
+import { awaitLockOwner, pidAlive, readLock, removeLock, writeLock } from "./lock.js";
 import { createLogFileWriter, formatLogLine } from "./log-file.js";
 import { getListeningPids, getPortListenerStatus } from "./port-scanner.js";
 import { hardKillTree, stopProcessTreeGracefully } from "./process-stop.js";
@@ -991,6 +991,14 @@ function acquireLock() {
     // A lock killed mid-write (or written on a full disk) parses as no lock but
     // still makes the exclusive create below fail. Drop it so one start is
     // enough instead of erroring out and self-healing only on the retry.
+    // A young file may still be being written by a host that just started, so
+    // give its creator a short grace period before deleting it.
+    const owner = awaitLockOwner(LOCK_FILE);
+    if (owner && pidAlive(owner.pid)) {
+      log(`Already running (PID ${owner.pid})`);
+      if (shouldOpenBrowser()) openBrowser(WEBUI_URL);
+      process.exit(0);
+    }
     log("Removing an unreadable host.lock");
     removeLock(LOCK_FILE);
   }
