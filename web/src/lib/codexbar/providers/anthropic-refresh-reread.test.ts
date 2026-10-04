@@ -4,14 +4,17 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const lockRequested = vi.hoisted(() => vi.fn());
+const atomicWrite = vi.hoisted(() => vi.fn());
 vi.mock("node:os", async (importOriginal) => {
   const actual = await importOriginal<typeof import("node:os")>();
   return { ...actual, homedir: () => process.env.CLAUDE_CONFIG_DIR ?? actual.tmpdir() };
 });
 vi.mock("@/lib/codexbar/utils", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/lib/codexbar/utils")>();
+  atomicWrite.mockImplementation(actual.atomicWriteText);
   return {
     ...actual,
+    atomicWriteText: atomicWrite,
     fetchText: vi.fn(),
     withRefreshFileLock: vi.fn((path: string, run: () => Promise<unknown>) => {
       lockRequested();
@@ -41,6 +44,7 @@ beforeEach(() => {
   vi.stubEnv("CLAUDE_CONFIG_DIR", dir);
   vi.stubEnv("PI_CODING_AGENT_DIR", join(dir, "empty-pi"));
   vi.mocked(fetchText).mockReset();
+  atomicWrite.mockClear();
   vi.mocked(withRefreshFileLock).mockClear();
   lockRequested.mockReset();
   vi.mocked(fetchText).mockImplementation(async (url, init) => {
@@ -66,6 +70,20 @@ function refreshTokensSent(): unknown[] {
 }
 
 describe("Anthropic credentials reread after locking", () => {
+  it("uses rotated tokens for the current fetch when persisting them fails", async () => {
+    store("old-access-fixture", "old-refresh-fixture", Date.now() + 3600_000);
+    atomicWrite.mockImplementationOnce(() => { throw new Error("simulated disk failure"); });
+
+    expect((await createAnthropicProvider(scope).fetch()).windows[0]?.usedPercent).toBe(10);
+    expect(refreshTokensSent()).toEqual(["old-refresh-fixture"]);
+    expect(JSON.parse(readFileSync(path, "utf8")).claudeAiOauth.refreshToken).toBe("old-refresh-fixture");
+    const usageCalls = vi.mocked(fetchText).mock.calls.filter(([url]) => url !== tokenUrl);
+    expect(usageCalls.map(([, init]) => new Headers(init?.headers).get("Authorization"))).toEqual([
+      "Bearer old-access-fixture",
+      "Bearer final-access-fixture",
+    ]);
+  });
+
   it.each(["renewed", "expired", "refresh-only", "deleted"] as const)("handles credentials %s by another lock holder", async (change) => {
     store("old-access-fixture", "old-refresh-fixture", Date.now() + (change === "refresh-only" ? 3600_000 : -1000));
     const actual = await vi.importActual<typeof import("@/lib/codexbar/utils")>("@/lib/codexbar/utils");
