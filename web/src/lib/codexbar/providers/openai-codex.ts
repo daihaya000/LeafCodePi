@@ -148,8 +148,9 @@ function tryRefreshTokens(
 ): Promise<CodexAuth | null> {
   if (!auth.refreshToken) return Promise.resolve(null);
   // The IdP rotates refresh tokens: share one refresh per auth file among concurrent pollers.
-  const key = `codex-cli:${authPath()}`;
-  return singleFlight(key, () => withRefreshFileLock(key, () => refreshTokensOnce(auth, signal)));
+  const path = authPath();
+  const key = `codex-cli:${path}`;
+  return singleFlight(key, () => withRefreshFileLock(path, () => refreshTokensOnce(auth, signal)));
 }
 
 async function refreshTokensOnce(
@@ -377,8 +378,9 @@ function tryRefreshTokensInPi(
   authPathOverride?: string,
 ): Promise<CodexAuth | null> {
   if (!auth.refreshToken) return Promise.resolve(null);
-  const key = `codex-pi:${authPathOverride ?? piAuthPathFor("openai-codex")}`;
-  return singleFlight(key, () => withRefreshFileLock(key, () => refreshTokensInPiOnce(auth, signal, authPathOverride)));
+  const path = authPathOverride ?? piAuthPathFor("openai-codex");
+  const key = `codex-pi:${path}`;
+  return singleFlight(key, () => withRefreshFileLock(path, () => refreshTokensInPiOnce(auth, signal, authPathOverride)));
 }
 
 async function refreshTokensInPiOnce(

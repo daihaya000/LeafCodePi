@@ -59,8 +59,8 @@ describe("cross-process refresh lock", () => {
 
 describe("codex refresh uses the same cross-process lock", () => {
   it("serializes a codex-style auth file the same way", async () => {
-    // The provider passes its single-flight key (which includes the prefix) as the
-    // lock path, so a codex refresh and an anthropic refresh on different files stay apart.
+    // This covers helper serialization; actual provider path handling is covered
+    // by openai-codex-refresh-lock.test.ts.
     const key = `${credentials}.codex-cli`;
     const order: string[] = [];
     const first = withRefreshFileLock(key, async () => {
