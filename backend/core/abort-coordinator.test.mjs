@@ -232,6 +232,17 @@ test("Room hang aborts flush after idle announcement and only warn when the mail
   assert.deepEqual(failing.warnings, [["[bot-intercom] flush after Room hang abort failed", failure]]);
 });
 
+test("a hang-watch snapshot failure still saves idle and releases the lease after native abort", async () => {
+  const f = hangFixture();
+  const failure = new Error("snapshot failed");
+  f.deps.snapshotMessages = () => { f.order.push("snapshot"); throw failure; };
+  await assert.rejects(runHangWatchdogAbort("task", f.deps), (error) => error === failure);
+  assert.deepEqual(f.order, [
+    "watchStart", "getLive", "attention", "queue", "cancelPrompt", "cancelSnapshot", "persist:",
+    "abort", "snapshot", "watchAfter", "idle", "release", "getLive", "emitHangIdle:live",
+  ]);
+});
+
 test("hang cleanup failures still save idle and release the lease before the error propagates", async () => {
   const f = hangFixture();
   f.deps.stopSubagentRuns = async () => { throw new Error("subagent stop failed"); };
