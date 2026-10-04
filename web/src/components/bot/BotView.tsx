@@ -52,6 +52,10 @@ import { detectTtsBackend, getTtsBackend, type TtsVoiceOption, type TtsVoicesDto
 import type { TtsConfigDto } from "@/lib/tts-config";
 import { BOT_CODE_SESSION_CHANGED_EVENT, BOT_DEFAULT_TOOL_NAMES, BOT_TOOL_NAMES, type BotDto, type BotIntercomInboxDto, type BotToolName, type ModelOption, type PermissionRequestDto, type QuestionRequestDto, type RoutineDto, type TaskMessageHistory, type TaskMessagePage, type TaskSummary, type ThinkingLevel, type UiMessage, type UiPart } from "@/lib/types";
 
+/** Transport failures in a row before the composer stops claiming a turn is still being sent. */
+const BOT_SSE_DISCONNECTED_AFTER_ATTEMPTS = 3;
+const BOT_SSE_DISCONNECTED_MESSAGE = "イベント接続が切断されています。再接続しています…";
+
 type BotMessageDisplayData = {
   text: string;
   images: Extract<UiPart, { type: "image" }>[];
@@ -625,6 +629,7 @@ export const BotView = memo(function BotView({ id, active = true }: { id: string
     let source: EventSource | null = null;
     let retry: ReturnType<typeof setTimeout> | null = null;
     let retryCount = 0;
+    let disconnectedShown = false;
     const connect = () => {
       if (closed) return;
       retry = cancelPendingSseReconnect(retry);
@@ -640,6 +645,10 @@ export const BotView = memo(function BotView({ id, active = true }: { id: string
       nextSource.addEventListener("snapshot", (event) => {
         if (!isCurrentSource()) return;
         retryCount = 0;
+        if (disconnectedShown) {
+          disconnectedShown = false;
+          setError((current) => (current === BOT_SSE_DISCONNECTED_MESSAGE ? null : current));
+        }
         try {
           const payload = JSON.parse((event as MessageEvent).data) as {
             task?: TaskSummary;
@@ -784,6 +793,14 @@ export const BotView = memo(function BotView({ id, active = true }: { id: string
         source = closeSseSource(nextSource);
         retry = cancelPendingSseReconnect(retry);
         retryCount += 1;
+        // A proxy drop or 502 never reaches the named `error` handler. After a few failed attempts
+        // stop showing "sending" for a turn whose state we can no longer observe; the next snapshot
+        // after reconnecting restores the real value.
+        if (retryCount >= BOT_SSE_DISCONNECTED_AFTER_ATTEMPTS && !disconnectedShown) {
+          disconnectedShown = true;
+          setSending(false);
+          setError(BOT_SSE_DISCONNECTED_MESSAGE);
+        }
         retry = setTimeout(connect, sseReconnectDelayMs(retryCount));
       };
     };
