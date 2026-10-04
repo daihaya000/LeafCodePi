@@ -641,14 +641,21 @@ function readLoop(cwd: string, id: string): GoalLoop | null {
   return recoverLoopFromTemp(legacyFile, cwd, id, Number.NEGATIVE_INFINITY, true);
 }
 
-function cleanupOrphanGoalTemps(file: string): void {
+/**
+ * Remove crash leftovers that are not newer than the snapshot just committed. A temp written after
+ * ours belongs to a concurrent writer that has not renamed it yet; deleting it would lose that
+ * writer's (newer) snapshot and make its rename fail.
+ */
+function cleanupOrphanGoalTemps(file: string, committedMtimeMs: number = Number.POSITIVE_INFINITY): void {
   try {
     const dir = path.dirname(file);
     const base = path.basename(file);
     for (const name of fs.readdirSync(dir)) {
       if (!name.startsWith(`${base}.`) || !name.endsWith(".tmp")) continue;
       try {
-        fs.rmSync(path.join(dir, name), { force: true });
+        const candidate = path.join(dir, name);
+        if (fs.statSync(candidate).mtimeMs > committedMtimeMs) continue;
+        fs.rmSync(candidate, { force: true });
       } catch {
         // Best-effort; a locked temp can be swept on a later successful write.
       }
@@ -679,6 +686,8 @@ function writeLoop(loop: GoalLoop): boolean {
     fs.mkdirSync(path.dirname(file), { recursive: true });
     const temp = `${file}.${process.pid}.${Date.now()}.tmp`;
     fs.writeFileSync(temp, content, "utf8");
+    let committedMtimeMs = Number.POSITIVE_INFINITY;
+    try { committedMtimeMs = fs.statSync(temp).mtimeMs; } catch { /* sweep everything as before */ }
     // WindowsではWebUIの状態読取やOneDrive同期が対象を掴むとrenameSyncが
     // EPERM/EACCES/EBUSYで即失敗する。スケジューラやsettleAwaitingTurn内のthrowは
     // 未処理reject（プロセス落下）や「queuedのままタイマー無し」を招くため、短い
@@ -688,18 +697,21 @@ function writeLoop(loop: GoalLoop): boolean {
         renameGoalState(temp, file);
         // Main now has the latest snapshot; drop older crash temps so a later
         // torn main cannot revive a stale pre-success state.
-        cleanupOrphanGoalTemps(file);
+        cleanupOrphanGoalTemps(file, committedMtimeMs);
         return true;
       } catch (error) {
         const code = (error as NodeJS.ErrnoException | undefined)?.code;
         const transient = code === "EPERM" || code === "EACCES" || code === "EBUSY";
+        // Our temp vanished: a newer writer's successful commit swept it. This snapshot is superseded,
+        // and overwriting main with it would roll the state back.
+        if (code === "ENOENT" && !fs.existsSync(temp) && fs.existsSync(file)) return true;
         if (attempt >= 2 || !transient) {
           // Keep the temp until the overwrite succeeds so a torn write can still
           // be recovered on the next readLoop.
           try {
             fs.writeFileSync(file, content, "utf8");
             fs.rmSync(temp, { force: true });
-            cleanupOrphanGoalTemps(file);
+            cleanupOrphanGoalTemps(file, committedMtimeMs);
             return true;
           } catch (fallbackError) {
             console.error("[goal-loop] writeLoop fallback failed:", fallbackError);

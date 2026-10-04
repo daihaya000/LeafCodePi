@@ -1292,6 +1292,63 @@ test("writeLoop retries transient rename failures and cleans temp on fallback", 
   }
 });
 
+function baseWriteLoop(cwd, id) {
+  return {
+    id, sessionId: id, cwd, status: "queued", goal: "demo", acceptance: [], maxTurns: 1, cooldownSeconds: 0,
+    nextTurnAt: null, forceFullRun: true, turnCount: 0, turnKind: "goal", pauseReason: "", error: "",
+    progress: [], summary: "", evidence: "", blockedReason: "", rejectedClaims: 0, unreadableStreak: 0,
+    createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(),
+  };
+}
+
+test("a successful writeLoop sweeps older crash temps but keeps a concurrent writer's newer temp", () => {
+  const cwd = mkdtempSync(join(tmpdir(), "leafcode-goal-loop-sweep-"));
+  process.env.LEAFCODE_PI_DATA_DIR = cwd;
+  const goalsDir = join(cwd, "goals-loop");
+  const loop = baseWriteLoop(cwd, "sweep-session");
+  try {
+    mkdirSync(goalsDir, { recursive: true });
+    const stale = join(goalsDir, "sweep-session.json.111.1.tmp");
+    const concurrent = join(goalsDir, "sweep-session.json.222.2.tmp");
+    writeFileSync(stale, "{}");
+    writeFileSync(concurrent, "{}");
+    const past = new Date(Date.now() - 60_000);
+    const future = new Date(Date.now() + 60_000);
+    utimesSync(stale, past, past);
+    utimesSync(concurrent, future, future);
+    applyResult(loop, { time: new Date().toISOString(), status: "progress", summary: "sweep" });
+    assert.equal(JSON.parse(readFileSync(join(goalsDir, "sweep-session.json"), "utf8")).summary, "sweep");
+    assert.equal(existsSync(stale), false);
+    assert.equal(existsSync(concurrent), true);
+  } finally {
+    rmSync(cwd, { recursive: true, force: true });
+  }
+});
+
+test("writeLoop does not overwrite main with a superseded snapshot when its temp was swept", () => {
+  const cwd = mkdtempSync(join(tmpdir(), "leafcode-goal-loop-superseded-"));
+  process.env.LEAFCODE_PI_DATA_DIR = cwd;
+  const goalsDir = join(cwd, "goals-loop");
+  const loop = baseWriteLoop(cwd, "superseded-session");
+  try {
+    mkdirSync(goalsDir, { recursive: true });
+    const main = join(goalsDir, "superseded-session.json");
+    goalLoopTestSeams.setRenameSync((temp) => {
+      // A newer writer committed and swept our temp before the rename ran.
+      rmSync(temp, { force: true });
+      writeFileSync(main, `${JSON.stringify({ summary: "newer" })}\n`, "utf8");
+      const err = new Error("gone");
+      err.code = "ENOENT";
+      throw err;
+    });
+    applyResult(loop, { time: new Date().toISOString(), status: "progress", summary: "stale snapshot" });
+    assert.equal(JSON.parse(readFileSync(main, "utf8")).summary, "newer");
+  } finally {
+    goalLoopTestSeams.setRenameSync();
+    rmSync(cwd, { recursive: true, force: true });
+  }
+});
+
 test("writeLoop gives up on a long-held lock in well under 250ms", () => {
   const cwd = mkdtempSync(join(tmpdir(), "leafcode-goal-loop-wait-"));
   process.env.LEAFCODE_PI_DATA_DIR = cwd;
