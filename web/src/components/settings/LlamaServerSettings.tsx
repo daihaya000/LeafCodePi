@@ -31,7 +31,7 @@ type LlamaServerStatus = {
   health: string | null;
 };
 
-const POLL_INTERVAL_MS = 3000;
+const POLL_INTERVAL_MS = 10_000;
 const START_HEALTH_BUDGET_MS = 120_000;
 const START_POLL_INTERVAL_MS = 1000;
 
