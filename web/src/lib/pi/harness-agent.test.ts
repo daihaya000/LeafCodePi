@@ -18,6 +18,7 @@ import { taskRuntimeLeasePath } from "@/lib/task-runtime-lease";
 import { botTaskId, createBot, getBot, patchBot } from "@/lib/bots";
 import { setAgentEnabled } from "@/lib/agents";
 import { roomBotTaskId } from "@/lib/rooms";
+import { registerBackgroundWorkProvider } from "../../../../extensions/leafcode-subagents/src/api/background-work.ts";
 
 const GLOBAL_KEY = "__leafcodePiHarness";
 const previousHarness = (globalThis as Record<string, unknown>)[GLOBAL_KEY];
@@ -901,6 +902,82 @@ describe("archiveTask", () => {
     assert.equal(getTaskHangWatch(task.id), null);
     assert.equal(live.has(task.id), false);
     assert.equal(detail.status, "archived");
+  });
+
+  it("stops captured session work when extension shutdown times out", async () => {
+    const root = mkdtempSync(join(tmpdir(), "leafcode-pi-harness-shutdown-timeout-"));
+    tempDirs.push(root);
+    process.env.LEAFCODE_PI_DATA_DIR = join(root, "data");
+    process.env.PI_CODING_AGENT_DIR = join(root, "agent");
+    const project = upsertProject({ name: "demo", rootPath: root });
+    const task = insertTask({ project, title: "shutdown timeout" });
+    const sessionId = "shutdown-timeout-session";
+    const events: string[] = [];
+    let unregister = () => {};
+    unregister = registerBackgroundWorkProvider({
+      name: "shutdown-timeout-test",
+      listActiveWork: () => [{ id: "owned-run", sessionId }],
+      captureStopWork: (item) => {
+        events.push(`capture:${item.id}`);
+        return () => { events.push(`stop:${item.id}`); };
+      },
+    });
+    const session = {
+      sessionId,
+      messages: [],
+      agent: { state: { streamingMessage: undefined } },
+      isStreaming: false,
+      sessionManager: { getLeafId: () => null, getBranch: () => [], getCwd: () => root },
+      extensionRunner: {
+        getCommand: () => undefined,
+        hasHandlers: (type: string) => type === "session_shutdown",
+        emit: () => {
+          events.push("session_shutdown");
+          unregister();
+          return new Promise<void>(() => {});
+        },
+      },
+      abort: async () => { events.push("abort"); },
+      dispose: () => { events.push("dispose"); },
+    };
+    const live: Map<string, FixtureLive> = new Map([[task.id, {
+      taskId: task.id,
+      accountId: null,
+      session,
+      skillPermission: "allow",
+      skillPermissionRef: { current: "allow" },
+      unsubscribe: () => {},
+      promptChain: Promise.resolve(),
+      promptActive: false,
+      promptEpoch: 0,
+      throughputByStartedAt: new Map(),
+      persistedThroughputKeys: new Set(),
+      toolStartedAt: new Map(),
+      toolEndedAt: new Map(),
+      toolPartialOutputByCallId: new Map(),
+      snapshotTimer: null,
+      pendingSnapshotEventType: null,
+      revertLeafId: null,
+      manualAbortedAssistantId: null,
+      hangRetryCount: 0,
+      reasoningFallbackTried: false,
+    }]]);
+    installFixtureHarness(live);
+
+    vi.useFakeTimers();
+    try {
+      const archiving = archiveTask(task.id);
+      await vi.advanceTimersByTimeAsync(0);
+      assert.deepEqual(events, ["abort", "capture:owned-run", "session_shutdown"]);
+      await vi.advanceTimersByTimeAsync(5_000);
+      await archiving;
+      assert.deepEqual(events, ["abort", "capture:owned-run", "session_shutdown", "stop:owned-run", "dispose"]);
+      assert.equal(getTask(task.id)?.status, "archived");
+      assert.equal(live.has(task.id), false);
+    } finally {
+      unregister();
+      vi.useRealTimers();
+    }
   });
 
   it("stops a Goal loop and refuses later session recreation", async () => {

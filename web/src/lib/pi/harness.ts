@@ -4,6 +4,7 @@ import { rm } from "node:fs/promises";
 import { homedir } from "node:os";
 import { basename, dirname, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { captureSessionBackgroundWorkStop } from "../../../../extensions/leafcode-subagents/src/api/background-work.ts";
 import {
   dataDir,
   isAbsolutePath,
@@ -11370,12 +11371,30 @@ async function runExtensionShutdown(live: LiveRuntime, logLabel: string): Promis
   try {
     const runner = live.session.extensionRunner;
     if (!runner.hasHandlers("session_shutdown")) return;
-    await Promise.race([
-      runner.emit({ type: "session_shutdown", reason: "quit" }),
-      new Promise<void>((resolve) => {
-        timer = setTimeout(resolve, LIVE_SHUTDOWN_TIMEOUT_MS);
+    let stopCapturedBackgroundWork: (() => Promise<number>) | undefined;
+    if (live.session.sessionId) {
+      try { stopCapturedBackgroundWork = captureSessionBackgroundWorkStop(live.session.sessionId); }
+      catch (error) {
+        const reason = error instanceof Error ? error.message : String(error);
+        console.warn(`[${logLabel}] failed to capture session background work: ${reason}`);
+      }
+    }
+    const shutdownCompleted = await Promise.race([
+      runner.emit({ type: "session_shutdown", reason: "quit" }).then(() => true),
+      new Promise<boolean>((resolve) => {
+        timer = setTimeout(() => resolve(false), LIVE_SHUTDOWN_TIMEOUT_MS);
       }),
     ]);
+    if (!shutdownCompleted) {
+      console.warn(`[${logLabel}] extension shutdown timed out after ${LIVE_SHUTDOWN_TIMEOUT_MS}ms`);
+      if (stopCapturedBackgroundWork) {
+        try { await stopCapturedBackgroundWork(); }
+        catch (error) {
+          const reason = error instanceof Error ? error.message : String(error);
+          console.warn(`[${logLabel}] timed-out session background work stop failed: ${reason}`);
+        }
+      }
+    }
   } catch (error) {
     const reason = error instanceof Error ? error.message : String(error);
     console.warn(`[${logLabel}] extension shutdown failed: ${reason}`);
