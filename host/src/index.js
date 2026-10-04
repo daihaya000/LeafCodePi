@@ -1073,7 +1073,9 @@ async function startControlServer() {
     onOpenExplorer: openProjectInExplorer,
     onTranslationStatus: () => translationService.status(),
     onTranslationStart: () => {
-      translationService.start();
+      void translationService.start().catch((err) => {
+        error(`Translation service start failed: ${err instanceof Error ? err.message : String(err)}`);
+      });
       return translationService.status();
     },
     onTranslationStop: () => translationService.stop(),
@@ -1166,9 +1168,10 @@ async function quit() {
     /* ignore */
   }
   try {
-    translationService.stop();
-  } catch {
-    /* ignore */
+    const stopped = await translationService.stop();
+    if (!stopped) error("Translation service process tree stop could not be confirmed during Host shutdown");
+  } catch (err) {
+    error(`Translation service stop failed during Host shutdown: ${err instanceof Error ? err.message : String(err)}`);
   }
   try {
     // The Backend is this Host's child: it stops with the Host.

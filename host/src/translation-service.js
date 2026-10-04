@@ -4,7 +4,8 @@ import { existsSync, readFileSync } from 'fs';
 import { join } from 'path';
 import { createHash, randomUUID } from 'crypto';
 import { writeSecretFile } from './secure-file.js';
-import { hardKillTree } from './process-stop.js';
+import { processStartKey } from './lock.js';
+import { stopProcessTreeGracefully } from './process-stop.js';
 import {
   TRANSLATION_PIPELINE_VERSION,
   assessReasoningTranslation,
@@ -44,10 +45,18 @@ function executable(dataDir) {
 
 export function createTranslationService({
   repoRoot, dataDir, log = () => {}, installTimeoutMs = INSTALL_TIMEOUT_MS,
-  killTree = hardKillTree, platform = process.platform, readyTimeoutMs = READY_TIMEOUT_MS,
+  spawn: spawnChild = spawn, getProcessStartKey = processStartKey,
+  stopProcessTree = stopProcessTreeGracefully, stopTimeoutMs = 5_000,
+  platform = process.platform, readyTimeoutMs = READY_TIMEOUT_MS,
 }) {
   let child = null;
+  let stoppingChild = null;
+  let childStopPromise = Promise.resolve(true);
+  let childStopPending = false;
+  let lifecycleGeneration = 0;
   let reader = null;
+  const childStartKeys = new WeakMap();
+  const closedChildren = new WeakSet();
   let pending = new Map();
   const inFlight = new Map();
   let state = 'stopped';
@@ -449,11 +458,55 @@ export function createTranslationService({
     else resolve?.();
   }
 
-  function stop() {
+  function waitForChildClose(target) {
+    if (closedChildren.has(target)) return Promise.resolve(true);
+    return new Promise((resolve) => {
+      let settled = false;
+      let timer;
+      const finish = (closed) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        target.removeListener('close', onClose);
+        resolve(closed);
+      };
+      const onClose = () => {
+        closedChildren.add(target);
+        finish(true);
+      };
+      target.once('close', onClose);
+      timer = setTimeout(() => finish(false), stopTimeoutMs);
+      timer.unref?.();
+      if (closedChildren.has(target)) finish(true);
+    });
+  }
+
+  async function terminateChild(target) {
+    const expectedProcessStartKey = childStartKeys.get(target);
+    if (!Number.isSafeInteger(target.pid) || !expectedProcessStartKey) return false;
+    const closePromise = waitForChildClose(target);
+    let result;
+    try {
+      result = await stopProcessTree({
+        pid: target.pid,
+        platform,
+        expectedProcessStartKey,
+        getProcessStartKey: (pid) => getProcessStartKey(pid, { platform }),
+        softWaitMs: 250,
+        pollMs: 50,
+      });
+    } catch {
+      result = 'identity-unknown';
+    }
+    const treeStopped = result === 'gone' || result === 'soft' || result === 'hard';
+    return (await closePromise) && treeStopped;
+  }
+
+  function stopActiveChild() {
     // The installer spawns pip and a model download, so it outlives a plain stop
     // otherwise: quit() would leave it writing into the data dir.
     stopInstall('translation service stopped');
-    const oldChild = child;
+    const oldChild = child ?? stoppingChild;
     child = null;
     if (reader) {
       reader.close();
@@ -461,42 +514,54 @@ export function createTranslationService({
     }
     clearReadyWait(new Error('translation service stopped'));
     rejectPending(new Error('translation service stopped'));
-    if (oldChild && !oldChild.killed) {
-      oldChild.removeAllListeners('exit');
-      oldChild.removeAllListeners('error');
-      terminateChild(oldChild);
-    }
+    if (!oldChild) return childStopPromise;
+    if (oldChild === stoppingChild && childStopPending) return childStopPromise;
+
+    oldChild.removeAllListeners('exit');
+    oldChild.removeAllListeners('error');
+    stoppingChild = oldChild;
+    childStopPending = true;
+    childStopPromise = terminateChild(oldChild)
+      .then((stopped) => {
+        if (stopped && stoppingChild === oldChild) stoppingChild = null;
+        if (!stopped) lastError = 'translation process tree stop could not be confirmed';
+        return stopped;
+      })
+      .catch((error) => {
+        lastError = error instanceof Error ? error.message : String(error);
+        return false;
+      })
+      .finally(() => { childStopPending = false; });
+    return childStopPromise;
+  }
+
+  function stop() {
+    lifecycleGeneration += 1;
+    const generation = lifecycleGeneration;
+    const termination = stopActiveChild();
     state = 'stopped';
-  }
-
-  function terminateChild(target) {
-    target.kill();
-    // On Windows kill() reaches only the direct child; take its descendants (pip, model server)
-    // down too so the next start does not find its port or lock files still in use.
-    if (platform === 'win32' && Number.isInteger(target.pid)) {
-      try { killTree(target.pid); } catch { /* the direct child was already signalled */ }
-    }
-  }
-
-  function start() {
-    if (child && state === 'ready') return Promise.resolve();
-    if (state === 'starting' && readyPromise) return readyPromise;
-    if (!existsSync(script)) throw new Error('translation service script is missing');
-    stop();
-    const python = executable(dataDir);
-    state = 'starting';
-    lastError = null;
-    readyPromise = new Promise((resolve, reject) => {
-      resolveReady = resolve;
-      rejectReady = reject;
+    return termination.then((stopped) => {
+      if (!stopped && lifecycleGeneration === generation && state === 'stopped') state = 'error';
+      return stopped;
     });
-    const newChild = spawn(python.file, [...python.args, script, '--packages-dir', packagesDir], {
+  }
+
+  function launchChildProcess() {
+    const python = executable(dataDir);
+    const newChild = spawnChild(python.file, [...python.args, script, '--packages-dir', packagesDir], {
       cwd: repoRoot,
       windowsHide: true,
+      detached: platform !== 'win32',
       stdio: ['pipe', 'pipe', 'pipe'],
       env: { ...process.env, PYTHONUTF8: '1' },
     });
     child = newChild;
+    newChild.once('close', () => closedChildren.add(newChild));
+    let processKey = null;
+    if (Number.isSafeInteger(newChild.pid)) {
+      try { processKey = getProcessStartKey(newChild.pid, { platform }); } catch { /* cleanup will fail closed */ }
+    }
+    childStartKeys.set(newChild, typeof processKey === 'string' && processKey ? processKey : null);
     reader = createInterface({ input: newChild.stdout, crlfDelay: Infinity });
     reader.on('line', (line) => {
       let response;
@@ -538,13 +603,35 @@ export function createTranslationService({
       lastError = 'translation service ready timed out';
       state = 'error';
       clearReadyWait(new Error(lastError));
-      try {
-        terminateChild(newChild);
-      } catch {
-        /* ignore */
-      }
+      void stopActiveChild();
     }, readyTimeoutMs);
-    return readyPromise;
+  }
+
+  function start() {
+    if (child && state === 'ready') return Promise.resolve();
+    if (state === 'starting' && readyPromise) return readyPromise;
+    if (!existsSync(script)) throw new Error('translation service script is missing');
+
+    const generation = ++lifecycleGeneration;
+    const previousStop = stopActiveChild();
+    state = 'starting';
+    lastError = null;
+    readyPromise = new Promise((resolve, reject) => {
+      resolveReady = resolve;
+      rejectReady = reject;
+    });
+    const startingPromise = readyPromise;
+    void previousStop.then((stopped) => {
+      if (generation !== lifecycleGeneration || readyPromise !== startingPromise || state !== 'starting') return;
+      if (!stopped) throw new Error(lastError || 'previous translation process tree did not stop');
+      launchChildProcess();
+    }).catch((error) => {
+      if (generation !== lifecycleGeneration || readyPromise !== startingPromise) return;
+      lastError = error instanceof Error ? error.message : String(error);
+      state = 'error';
+      clearReadyWait(error instanceof Error ? error : new Error(String(error)));
+    });
+    return startingPromise;
   }
 
   async function requestTranslation(texts) {

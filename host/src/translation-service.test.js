@@ -1,4 +1,6 @@
 import assert from 'node:assert/strict';
+import { EventEmitter } from 'node:events';
+import { PassThrough } from 'node:stream';
 import { test } from 'node:test';
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -27,9 +29,7 @@ function translationPython() {
 }
 
 async function cleanupTempDir(path, services = []) {
-  for (const service of services) {
-    service?.stop();
-  }
+  await Promise.all(services.map((service) => service?.stop()));
   await new Promise((resolve) => setTimeout(resolve, 150));
   try {
     rmSync(path, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
@@ -389,7 +389,7 @@ test('quality failure retries once and persists an improved result', async () =>
   }
 });
 
-test('stopping on Windows also takes down the child process tree', async () => {
+test('stopping sends the verified process tree before waiting for child close', async () => {
   const root = join(tmpdir(), `leafcode-translation-tree-${process.pid}`);
   const repoRoot = join(root, 'repo');
   const dataDir = join(root, 'data');
@@ -397,26 +397,107 @@ test('stopping on Windows also takes down the child process tree', async () => {
   process.env.LEAFCODE_TRANSLATION_PYTHON = process.execPath;
   rmSync(root, { recursive: true, force: true });
   writeFakeService(repoRoot, {});
-  const killed = [];
+  const stopped = [];
   let service;
-  let other;
   try {
-    service = createTranslationService({ repoRoot, dataDir, platform: 'win32', killTree: (pid) => { killed.push(pid); return true; } });
+    service = createTranslationService({
+      repoRoot,
+      dataDir,
+      platform: 'win32',
+      getProcessStartKey: (pid) => `test:${pid}`,
+      stopProcessTree: async ({ pid, expectedProcessStartKey }) => {
+        stopped.push({ pid, expectedProcessStartKey });
+        try { process.kill(pid, 'SIGKILL'); } catch { /* already exited */ }
+        return 'hard';
+      },
+    });
     await service.translate(['Untranslated progress fragment']);
-    service.stop();
-    assert.equal(killed.length, 1);
-    assert.equal(Number.isInteger(killed[0]), true);
-    // Other platforms keep the plain direct-child kill.
-    other = createTranslationService({ repoRoot, dataDir, platform: 'linux', killTree: (pid) => { killed.push(pid); return true; } });
-    await other.translate(['Untranslated progress fragment']);
-    other.stop();
-    assert.equal(killed.length, 1);
+    assert.equal(await service.stop(), true);
+    assert.equal(stopped.length, 1);
+    assert.equal(Number.isInteger(stopped[0].pid), true);
+    assert.equal(stopped[0].expectedProcessStartKey, `test:${stopped[0].pid}`);
   } finally {
-    service?.stop();
-    other?.stop();
+    await service?.stop();
     if (originalPython === undefined) delete process.env.LEAFCODE_TRANSLATION_PYTHON;
     else process.env.LEAFCODE_TRANSLATION_PYTHON = originalPython;
-    await cleanupTempDir(root, [service, other]);
+    await cleanupTempDir(root, [service]);
+  }
+});
+
+test('a restart waits for the old translation child tree to close', async () => {
+  const root = join(tmpdir(), `leafcode-translation-restart-wait-${process.pid}`);
+  const repoRoot = join(root, 'repo');
+  const dataDir = join(root, 'data');
+  rmSync(root, { recursive: true, force: true });
+  mkdirSync(join(repoRoot, 'translation'), { recursive: true });
+  writeFileSync(join(repoRoot, 'translation', 'translation_service.py'), '', 'utf8');
+  const children = [];
+  const stopped = [];
+  let refuseStop = false;
+  const finishChild = (child) => {
+    if (child.exitCode !== null) return;
+    child.exitCode = 0;
+    child.emit('exit', 0, null);
+    child.stdin.end();
+    child.stdout.end();
+    child.stderr.end();
+    child.emit('close', 0, null);
+  };
+  const service = createTranslationService({
+    repoRoot,
+    dataDir,
+    platform: 'win32',
+    stopTimeoutMs: 1_000,
+    spawn: () => {
+      const child = new EventEmitter();
+      Object.assign(child, {
+        pid: 70_000 + children.length,
+        exitCode: null,
+        signalCode: null,
+        stdin: new PassThrough(),
+        stdout: new PassThrough(),
+        stderr: new PassThrough(),
+      });
+      children.push(child);
+      setImmediate(() => child.stdout.write('{"type":"ready","ok":true}\n'));
+      return child;
+    },
+    getProcessStartKey: (pid) => `test:${pid}`,
+    stopProcessTree: async ({ pid, expectedProcessStartKey }) => {
+      stopped.push({ pid, expectedProcessStartKey });
+      if (refuseStop) return 'identity-unknown';
+      if (children.length > 1) setImmediate(() => finishChild(children.at(-1)));
+      return 'hard';
+    },
+  });
+
+  try {
+    await service.start();
+    const oldChild = children[0];
+    const stopping = service.stop();
+    const restarting = service.start();
+    await new Promise((resolve) => setImmediate(resolve));
+    assert.equal(children.length, 1, 'the replacement must wait for old child close');
+    assert.deepEqual(stopped, [{ pid: oldChild.pid, expectedProcessStartKey: `test:${oldChild.pid}` }]);
+
+    finishChild(oldChild);
+    assert.equal(await stopping, true);
+    await restarting;
+    assert.equal(children.length, 2);
+
+    refuseStop = true;
+    const failedStop = service.stop();
+    const blockedRestart = service.start();
+    await new Promise((resolve) => setImmediate(resolve));
+    assert.equal(children.length, 2, 'an unverified tree must block the next spawn');
+    finishChild(children[1]);
+    assert.equal(await failedStop, false);
+    await assert.rejects(blockedRestart, /translation process tree stop could not be confirmed/);
+    assert.equal(children.length, 2);
+  } finally {
+    for (const child of children) finishChild(child);
+    await service.stop();
+    rmSync(root, { recursive: true, force: true });
   }
 });
 
@@ -433,8 +514,16 @@ test('a child that never reports ready is stopped, tree included, after the read
   let service;
   try {
     service = createTranslationService({
-      repoRoot, dataDir, readyTimeoutMs: 300, platform: 'win32',
-      killTree: (pid) => { killed.push(pid); return true; },
+      repoRoot,
+      dataDir,
+      readyTimeoutMs: 300,
+      platform: 'win32',
+      getProcessStartKey: (pid) => `test:${pid}`,
+      stopProcessTree: async ({ pid }) => {
+        killed.push(pid);
+        try { process.kill(pid, 'SIGKILL'); } catch { /* already exited */ }
+        return 'hard';
+      },
     });
     await assert.rejects(service.translate(['Untranslated progress fragment']), /ready timed out/);
     assert.equal(service.status().state, 'error');
