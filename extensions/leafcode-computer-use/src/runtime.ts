@@ -86,6 +86,55 @@ interface ResourceRecord {
  * Orders live operations per physical resource while allowing unrelated
  * resources to overlap. Cached state queries bypass this scheduler entirely.
  */
+export class SessionResourceScheduler {
+	private readonly sessions = new Map<string, ResourceScheduler>();
+
+	constructor(private readonly currentSessionId: () => string | undefined) {}
+
+	epoch(resourceKey: string): number {
+		return this.current().epoch(resourceKey);
+	}
+
+	restoreEpoch(resourceKey: string, epoch: number): void {
+		this.current().restoreEpoch(resourceKey, epoch);
+	}
+
+	restoreEpochFor(sessionId: string, resourceKey: string, epoch: number): void {
+		this.forSession(sessionId).restoreEpoch(resourceKey, epoch);
+	}
+
+	async read<T>(resourceKey: string, work: (epoch: number) => Promise<T>): Promise<{ value: T; epoch: number }> {
+		return await this.current().read(resourceKey, work);
+	}
+
+	async readAt<T>(resourceKey: string, expectedEpoch: number, work: (epoch: number) => Promise<T>): Promise<{ value: T; epoch: number }> {
+		return await this.current().readAt(resourceKey, expectedEpoch, work);
+	}
+
+	async write<T>(resourceKey: string, baseEpoch: number, work: (nextEpoch: number) => Promise<T>): Promise<{ value: T; epoch: number }> {
+		return await this.current().write(resourceKey, baseEpoch, work);
+	}
+
+	async closeSession(sessionId: string): Promise<void> {
+		await this.sessions.get(sessionId)?.close();
+	}
+
+	private current(): ResourceScheduler {
+		const sessionId = this.currentSessionId();
+		if (!sessionId) throw new Error("Computer-use session scheduler is unavailable.");
+		return this.forSession(sessionId);
+	}
+
+	private forSession(sessionId: string): ResourceScheduler {
+		let scheduler = this.sessions.get(sessionId);
+		if (!scheduler) {
+			scheduler = new ResourceScheduler();
+			this.sessions.set(sessionId, scheduler);
+		}
+		return scheduler;
+	}
+}
+
 export class ResourceScheduler {
 	private readonly resources = new Map<string, ResourceRecord>();
 	private closed = false;

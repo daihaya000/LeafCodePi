@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { SessionStateMap, StateStore } from "./runtime.ts";
+import { SessionResourceScheduler, SessionStateMap, StateStore } from "./runtime.ts";
 
 describe("SessionStateMap", () => {
 	it("creates and clears state by exact session id", () => {
@@ -11,6 +11,26 @@ describe("SessionStateMap", () => {
 
 		expect(states.get("session-a")).toBeUndefined();
 		expect(states.get("session-b")?.get("ref")).toBe("b");
+	});
+});
+
+describe("SessionResourceScheduler", () => {
+	it("keeps resource epochs and shutdown isolated by session", async () => {
+		let activeSessionId = "session-a";
+		const scheduler = new SessionResourceScheduler(() => activeSessionId);
+
+		await scheduler.write("desktop:1", 0, async (epoch) => epoch);
+		activeSessionId = "session-b";
+		await scheduler.write("desktop:1", 0, async (epoch) => epoch);
+		expect(scheduler.epoch("desktop:1")).toBe(1);
+
+		await scheduler.closeSession("session-a");
+		activeSessionId = "session-a";
+		await expect(scheduler.read("desktop:1", async () => "unreachable")).rejects.toThrow("shutting down");
+
+		activeSessionId = "session-b";
+		await scheduler.write("desktop:1", 1, async (epoch) => epoch);
+		expect(scheduler.epoch("desktop:1")).toBe(2);
 	});
 });
 

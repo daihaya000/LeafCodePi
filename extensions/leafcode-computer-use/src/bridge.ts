@@ -17,7 +17,7 @@ import { toFiniteNumber } from "./platform/coerce.ts";
 import { currentPlatformBackend } from "./platform/index.ts";
 import type { FramePoints, HelperActPerformed, HelperActResult, NativeInputDelivery, PlatformActRequest, PlatformApp as HelperApp, PlatformDiagnostics, PlatformFrontmostResult as FrontmostResult, PlatformRoot as HelperWindow } from "./platform/types.ts";
 import type { PermissionStatus } from "./permissions.ts";
-import { ResourceScheduler, SessionStateMap } from "./runtime.ts";
+import { SessionResourceScheduler, SessionStateMap } from "./runtime.ts";
 import { scoreWindow, shouldPreferForegroundModalWindow } from "./root-selection.ts";
 import { SavedStates, type CurrentCapture, type CurrentTarget, type OperationState } from "./state.ts";
 import { changesBetween, renderChanges, stabilizeRefs } from "./view.ts";
@@ -319,7 +319,7 @@ const savedStates = new SavedStates();
 	const label = (node.title || node.description || node.identifier).slice(0, 60);
 	return label ? `${node.role} ${JSON.stringify(label)}` : node.role;
 };
-let resourceScheduler = new ResourceScheduler();
+const resourceScheduler = new SessionResourceScheduler(() => savedStates.current().ownerSessionId);
 
 function operationState(): OperationState {
 	return savedStates.current();
@@ -349,8 +349,7 @@ function persistOperation(state: OperationState): void {
 
 /** Release handles and state owned by the current Pi session. */
 export async function shutdownComputerUseSession(ownerSessionId: string): Promise<void> {
-	await resourceScheduler.close();
-	resourceScheduler = new ResourceScheduler();
+	await resourceScheduler.closeSession(ownerSessionId);
 	disconnectCdp();
 
 	const managedBrowser = runtimeState.managedBrowser;
@@ -2397,7 +2396,7 @@ export function reconstructStateFromBranch(ctx: ExtensionContext): void {
 		};
 		if (details.outline?.root && typeof details.outline.lookId === "string") {
 			const epoch = 0;
-			resourceScheduler.restoreEpoch(resourceKey, epoch);
+			resourceScheduler.restoreEpochFor(ownerSessionId, resourceKey, epoch);
 			savedStates.set({
 				stateId: capture.stateId,
 				ownerSessionId,
