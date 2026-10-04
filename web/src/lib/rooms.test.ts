@@ -5,7 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 const testState = vi.hoisted(() => ({ root: "" }));
 vi.mock("./paths", async (importOriginal) => { const actual = await importOriginal<typeof import("./paths")>(); return { ...actual, dataDir: () => testState.root, storePath: () => join(testState.root, "store.json") }; });
 import { botTaskId, createBot, deleteBot, patchBot } from "./bots";
-import { appendRoomMessage, botsForRoomPrompt, consumeRoomRelayEnvelope, createRoom, deleteRoom, ensureRoomBotTask, getRoom, issueRoomRelayEnvelope, patchRoom, readRoomFile, readRoomImage, removeRoomMember, roomFileRejection, roomImageRejection, roomRequestFiles, roomRequestImages, saveRoomFiles, saveRoomImages, updateRoomMessage, withRoomLock } from "./rooms";
+import { appendRoomMessage, botsForRoomPrompt, consumeRoomRelayEnvelope, createRoom, deleteRoom, ensureRoomBotTask, getRoom, issueRoomRelayEnvelope, patchRoom, readRoomFile, readRoomImage, removeRoomMember, roomFileRejection, roomImageRejection, roomRequestFiles, roomRequestImages, saveRoomFiles, saveRoomImages, subscribeRoom, updateRoomMessage, withRoomLock } from "./rooms";
 import { MAX_PROMPT_FILE_TOTAL_BYTES, MAX_PROMPT_IMAGE_TOTAL_BYTES } from "./prompt-images";
 import { getTask } from "./store";
 import { isRoomNameWithinSize, MAX_ROOM_NAME_CHARS } from "./rooms";
@@ -44,6 +44,26 @@ describe("room store and mention routing", () => {
     expect(getRoom(room.id)?.members).toEqual([first.id, second.id]);
     expect(readFileSync(join(root, "bots", "rooms", `${room.id}.json`), "utf8")).toContain('"members"');
     expect(patchRoom(room.id, { members: [second.id] })?.members).toEqual([second.id]);
+  });
+
+  it("keeps the default listener cap and releases room event subscribers", () => {
+    const room = createRoom({ name: "Team" });
+    const listeners = Array.from({ length: 11 }, () => vi.fn());
+    const unsubscribe: Array<() => void> = [];
+    const emitWarning = vi.spyOn(process, "emitWarning").mockImplementation(() => undefined);
+    try {
+      for (const listener of listeners) unsubscribe.push(subscribeRoom(room.id, listener));
+      expect(emitWarning).toHaveBeenCalledWith(expect.objectContaining({ name: "MaxListenersExceededWarning" }));
+      patchRoom(room.id, { name: "Updated" });
+      for (const listener of listeners) expect(listener).toHaveBeenCalledTimes(1);
+
+      for (const stop of unsubscribe) stop();
+      patchRoom(room.id, { name: "After cleanup" });
+      for (const listener of listeners) expect(listener).toHaveBeenCalledTimes(1);
+    } finally {
+      for (const stop of unsubscribe) stop();
+      emitWarning.mockRestore();
+    }
   });
 
   it("removes a member under the room lock without overwriting other members", () => {

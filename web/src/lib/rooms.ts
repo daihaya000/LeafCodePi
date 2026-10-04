@@ -61,8 +61,6 @@ export function withRoomLock<T>(roomId: string, action: () => T): T {
   }, action);
 }
 
-roomEvents.setMaxListeners(0);
-
 function roomsRoot(): string { return join(dataDir(), "bots", "rooms"); }
 function isValidId(id: string): boolean { return /^[0-9a-f]{8}-[0-9a-f-]{27,}$/i.test(id); }
 // File persistence lives in backend core; the shared DTO vocabulary and the
