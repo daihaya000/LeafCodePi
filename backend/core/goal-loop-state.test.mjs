@@ -27,9 +27,28 @@ function fixture(t, overrides = {}) {
 test("the state file lives under the data directory, keyed by a sanitized session id", (t) => {
   const f = fixture(t);
   assert.equal(f.store.stateFile("C:/ignored", "session-1"), join(f.root, "goals-loop", "session-1.json"));
-  assert.equal(f.store.stateFile("C:/ignored", "a/b\\c d"), join(f.root, "goals-loop", "a_b_c_d.json"));
+  // Ids that need sanitizing get a digest suffix (same as the extension), so "a/b" and "a?b" never share a file.
+  const odd = f.store.stateFile("C:/ignored", "a/b\\c d");
+  assert.match(odd, /a_b_c_d-[0-9a-f]{16}\.json$/);
+  assert.notEqual(f.store.stateFile("", "a/b"), f.store.stateFile("", "a?b"));
   assert.equal(f.store.stateFile("", ""), join(f.root, "goals-loop", "session.json"));
-  assert.equal(f.store.stateFile("", "x".repeat(200)).length, join(f.root, "goals-loop", `${"x".repeat(120)}.json`).length);
+  assert.match(f.store.stateFile("", "x".repeat(200)), new RegExp(`${"x".repeat(100)}-[0-9a-f]{16}\\.json$`));
+});
+
+test("a state file under the legacy sanitized name is still read, but never another session's", (t) => {
+  const f = fixture(t);
+  const state = (extra = {}) => ({ goal: "ship", status: "running", ...extra });
+  f.write("a_b", state({ sessionId: "a/b" }));
+  assert.equal(f.store.read("", "a/b")?.goal, "ship");
+  // The same legacy file belongs to "a/b"; "a?b" must not adopt it.
+  assert.equal(f.store.read("", "a?b"), null);
+  // Pre-sessionId snapshots stay readable because their owner is unknown.
+  f.write("c_d", state());
+  assert.equal(f.store.read("", "c/d")?.goal, "ship");
+  // The isolated name wins once it exists.
+  const isolated = f.store.stateFile("", "a/b");
+  writeFileSync(isolated, `${JSON.stringify(state({ sessionId: "a/b", goal: "new" }))}\n`, "utf8");
+  assert.equal(f.store.read("", "a/b")?.goal, "new");
 });
 
 test("a missing session id or unreadable file reads as null and caches nothing", (t) => {
