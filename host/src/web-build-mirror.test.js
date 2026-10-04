@@ -1041,6 +1041,17 @@ test("acquireLock refuses to remove an unreadable host.lock without a confirmed 
   assert.match(lockSource, /Removing stale unreadable host\.lock for PID \$\{owner\.pid\}/);
 });
 
+test("acquireLock stores and checks the process start key", () => {
+  const source = readFileSync(join(REPO_ROOT, "host", "src", "index.js"), "utf8");
+  const lockSource = source.slice(
+    source.indexOf("function acquireLock()"),
+    source.indexOf("async function startControlServer()"),
+  );
+  assert.match(lockSource, /const processKey = processStartKey\(process\.pid\)/);
+  assert.match(lockSource, /lockOwnerAlive\(owner, \{ getProcessKey: processStartKey \}\)/);
+  assert.match(lockSource, /writeLock\(LOCK_FILE, process\.pid, \{ processKey \}\)/);
+});
+
 test("hostControlUrl prefers the running host's file, then the default port", () => {
   const file = () => JSON.stringify({ url: "http://127.0.0.1:18999/" });
   assert.equal(hostControlUrl({ APPDATA: "C:\\data" }, file), "http://127.0.0.1:18999");

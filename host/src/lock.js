@@ -1,4 +1,41 @@
+import { spawnSync } from "node:child_process";
 import { existsSync, readFileSync, statSync, unlinkSync, writeFileSync } from "node:fs";
+
+export function processStartKey(pid, deps = {}) {
+  const platform = deps.platform ?? process.platform;
+  const read = deps.readFileSync ?? readFileSync;
+  const spawn = deps.spawnSync ?? spawnSync;
+  try {
+    if (platform === "linux") {
+      const stat = read(`/proc/${pid}/stat`, "utf8");
+      const commandEnd = stat.lastIndexOf(")");
+      const startTicks = commandEnd >= 0 ? stat.slice(commandEnd + 1).trim().split(/\s+/)[19] : null;
+      const bootId = read("/proc/sys/kernel/random/boot_id", "utf8").trim();
+      return startTicks && bootId ? `linux:${bootId}:${startTicks}` : null;
+    }
+    if (platform === "win32") {
+      const result = spawn(
+        "powershell.exe",
+        ["-NoProfile", "-NonInteractive", "-Command", `(Get-CimInstance Win32_Process -Filter "ProcessId=${pid}").CreationDate`],
+        { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"], timeout: 3_000, windowsHide: true },
+      );
+      if (result.error || result.status !== 0) return null;
+      const value = String(result.stdout ?? "").trim();
+      return value ? `win:${value}` : null;
+    }
+    if (platform === "darwin") {
+      const result = spawn("ps", ["-p", String(pid), "-o", "lstart="], {
+        encoding: "utf8", stdio: ["ignore", "pipe", "ignore"], timeout: 1_000,
+      });
+      if (result.error || result.status !== 0) return null;
+      const value = String(result.stdout ?? "").trim();
+      return value ? `ps:${value}` : null;
+    }
+  } catch {
+    return null;
+  }
+  return null;
+}
 
 export function readLock(lockFile, deps = {}) {
   const exists = deps.existsSync ?? existsSync;
@@ -9,7 +46,9 @@ export function readLock(lockFile, deps = {}) {
     if (raw.startsWith("{")) {
       const data = JSON.parse(raw);
       const pid = Number.parseInt(String(data.pid), 10);
-      return Number.isFinite(pid) ? { pid } : null;
+      if (!Number.isFinite(pid)) return null;
+      const processKey = typeof data.processKey === "string" ? data.processKey.trim() : "";
+      return processKey ? { pid, processKey } : { pid };
     }
     const pid = Number.parseInt(raw, 10);
     return Number.isFinite(pid) ? { pid } : null;
@@ -42,7 +81,9 @@ export function awaitLockOwner(lockFile, deps = {}) {
 
 export function writeLock(lockFile, pid = process.pid, deps = {}) {
   const write = deps.writeFileSync ?? writeFileSync;
-  write(lockFile, `${JSON.stringify({ pid })}\n`, {
+  const processKey = typeof deps.processKey === "string" ? deps.processKey.trim() : "";
+  const data = processKey ? { pid, processKey } : { pid };
+  write(lockFile, `${JSON.stringify(data)}\n`, {
     encoding: "utf8",
     flag: "wx",
   });
@@ -74,6 +115,19 @@ export function pidAlive(pid, deps = {}) {
     // the pid exists but we cannot signal it — treat as alive so we never
     // steal a live host's lock.
     if (code === "ESRCH") return false;
+    return true;
+  }
+}
+
+export function lockOwnerAlive(owner, deps = {}) {
+  const alive = deps.pidAlive ?? pidAlive;
+  if (!owner || !alive(owner.pid)) return false;
+  if (typeof owner.processKey !== "string" || !owner.processKey) return true;
+  try {
+    const currentKey = deps.getProcessKey?.(owner.pid);
+    // Missing process metadata is inconclusive; never steal a possibly live lock.
+    return !currentKey || currentKey === owner.processKey;
+  } catch {
     return true;
   }
 }

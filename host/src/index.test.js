@@ -17,7 +17,7 @@ import {
   webUiUrl,
 } from "./config.js";
 import { isThisModuleEntrypoint } from "./entry.js";
-import { awaitLockOwner, pidAlive, readLock, removeLock, writeLock } from "./lock.js";
+import { awaitLockOwner, lockOwnerAlive, pidAlive, processStartKey, readLock, removeLock, writeLock } from "./lock.js";
 import { formatLogLine } from "./log-file.js";
 import { localLeafcodePiTempDir } from "./tray-temp.js";
 import { consumeSkipStaleRebuild, formatWebStatus, getPostBuildLaunchPlan, getWebLaunchPlan, isWebBuildStale, staleRebuildFailureAction } from "./web-plan.js";
@@ -294,6 +294,24 @@ test("awaitLockOwner gives a young half-written lock time to finish but not an o
   assert.equal(awaitLockOwner("lock", { ...deps, sleep: (ms) => { time += ms; } }), null);
 });
 
+test("processStartKey uses boot id and kernel start ticks on Linux", () => {
+  const fields = Array(20).fill("x");
+  fields[19] = "8842";
+  const files = new Map([
+    ["/proc/42/stat", `42 (worker ) name) ${fields.join(" ")}`],
+    ["/proc/sys/kernel/random/boot_id", "boot-123\n"],
+  ]);
+  assert.equal(processStartKey(42, { platform: "linux", readFileSync: (path) => files.get(path) }), "linux:boot-123:8842");
+});
+
+test("processStartKey namespaces the Windows process creation time", () => {
+  assert.equal(
+    processStartKey(42, { platform: "win32", spawnSync: () => ({ status: 0, stdout: "creation-time\r\n" }) }),
+    "win:creation-time",
+  );
+  assert.equal(processStartKey(42, { platform: "win32", spawnSync: () => ({ status: 1, stdout: "" }) }), null);
+});
+
 test("lock file round-trip and stale pid", () => {
   const files = new Map();
   const deps = {
@@ -309,8 +327,10 @@ test("lock file round-trip and stale pid", () => {
     },
     unlinkSync: (path) => files.delete(path),
   };
-  writeLock("lock", 42, deps);
-  assert.deepEqual(readLock("lock", deps), { pid: 42 });
+  writeLock("lock", 42, { ...deps, processKey: "started-at-1" });
+  assert.deepEqual(readLock("lock", deps), { pid: 42, processKey: "started-at-1" });
+  files.set("legacy-lock", '{"pid":42}\n');
+  assert.deepEqual(readLock("legacy-lock", deps), { pid: 42 });
   removeLock("lock", deps);
   assert.equal(readLock("lock", deps), null);
   assert.equal(pidAlive(process.pid), true);
@@ -335,6 +355,15 @@ test("lock file round-trip and stale pid", () => {
     }),
     false,
   );
+});
+
+test("lockOwnerAlive rejects a reused pid only when process start keys differ", () => {
+  const owner = { pid: 42, processKey: "old-start" };
+  assert.equal(lockOwnerAlive(owner, { pidAlive: () => true, getProcessKey: () => "new-start" }), false);
+  assert.equal(lockOwnerAlive(owner, { pidAlive: () => true, getProcessKey: () => "old-start" }), true);
+  assert.equal(lockOwnerAlive(owner, { pidAlive: () => true, getProcessKey: () => null }), true);
+  assert.equal(lockOwnerAlive({ pid: 42 }, { pidAlive: () => true }), true);
+  assert.equal(lockOwnerAlive(owner, { pidAlive: () => false, getProcessKey: () => "old-start" }), false);
 });
 
 test("an unreadable lock parses as no lock but blocks the exclusive create", () => {

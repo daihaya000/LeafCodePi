@@ -11,7 +11,7 @@ import { isThisModuleEntrypoint } from "./entry.js";
 import { createLlamaControlServer, closeControlServer, listenControlServer } from "./llama-control-server.js";
 import { createLoopbackWebUiProxy, listenLoopbackWebUiProxy, closeLoopbackWebUiProxy } from "./loopback-webui-proxy.js";
 import { createLlamaServerService } from "./llama-server-service.js";
-import { awaitLockOwner, pidAlive, readLock, removeLock, writeLock } from "./lock.js";
+import { awaitLockOwner, lockOwnerAlive, processStartKey, readLock, removeLock, writeLock } from "./lock.js";
 import { createRateLimitedReporter } from "./rate-limited-report.js";
 import { createLogFileWriter, formatLogLine } from "./log-file.js";
 import { getListeningPids, getPortListenerStatus } from "./port-scanner.js";
@@ -979,8 +979,11 @@ async function startTray() {
 
 function acquireLock() {
   mkdirSync(DATA_DIR, { recursive: true });
+  const processKey = processStartKey(process.pid);
+  if (!processKey) throw new Error("Cannot determine host process start key");
+  const isOwnerAlive = (owner) => lockOwnerAlive(owner, { getProcessKey: processStartKey });
   const existing = readLock(LOCK_FILE);
-  if (existing && pidAlive(existing.pid)) {
+  if (existing && isOwnerAlive(existing)) {
     log(`Already running (PID ${existing.pid})`);
     if (shouldOpenBrowser()) openBrowser(WEBUI_URL);
     process.exit(0);
@@ -998,7 +1001,7 @@ function acquireLock() {
       log("Cannot confirm host.lock owner; refusing to remove it");
       throw new Error("Cannot safely reclaim host.lock");
     }
-    if (pidAlive(owner.pid)) {
+    if (isOwnerAlive(owner)) {
       log(`Already running (PID ${owner.pid})`);
       if (shouldOpenBrowser()) openBrowser(WEBUI_URL);
       process.exit(0);
@@ -1007,10 +1010,10 @@ function acquireLock() {
     removeLock(LOCK_FILE);
   }
   try {
-    writeLock(LOCK_FILE);
+    writeLock(LOCK_FILE, process.pid, { processKey });
   } catch {
     const raced = readLock(LOCK_FILE);
-    if (raced && pidAlive(raced.pid)) {
+    if (raced && isOwnerAlive(raced)) {
       log(`Already running (PID ${raced.pid})`);
       if (shouldOpenBrowser()) openBrowser(WEBUI_URL);
       process.exit(0);
