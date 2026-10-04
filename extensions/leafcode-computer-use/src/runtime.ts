@@ -8,6 +8,19 @@ export interface StoredState<T> {
 	value: T;
 }
 
+export class ActiveSessionRegistry {
+	private readonly activeSessions = new Set<string>();
+
+	register(sessionId: string): void {
+		this.activeSessions.add(sessionId);
+	}
+
+	release(sessionId: string): boolean {
+		this.activeSessions.delete(sessionId);
+		return this.activeSessions.size === 0;
+	}
+}
+
 export class SessionStateMap<T> {
 	private readonly sessions = new Map<string, T>();
 

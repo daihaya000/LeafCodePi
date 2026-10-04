@@ -17,7 +17,7 @@ import { toFiniteNumber } from "./platform/coerce.ts";
 import { currentPlatformBackend } from "./platform/index.ts";
 import type { FramePoints, HelperActPerformed, HelperActResult, NativeInputDelivery, PlatformActRequest, PlatformApp as HelperApp, PlatformDiagnostics, PlatformFrontmostResult as FrontmostResult, PlatformRoot as HelperWindow } from "./platform/types.ts";
 import type { PermissionStatus } from "./permissions.ts";
-import { SessionResourceScheduler, SessionStateMap } from "./runtime.ts";
+import { ActiveSessionRegistry, SessionResourceScheduler, SessionStateMap } from "./runtime.ts";
 import { scoreWindow, shouldPreferForegroundModalWindow } from "./root-selection.ts";
 import { SavedStates, type CurrentCapture, type CurrentTarget, type OperationState } from "./state.ts";
 import { changesBetween, renderChanges, stabilizeRefs } from "./view.ts";
@@ -286,6 +286,7 @@ interface SessionPlatformState {
 }
 
 interface RuntimeState {
+	platformSessions: ActiveSessionRegistry;
 	sessionReferences: SessionStateMap<SessionReferences>;
 	managedBrowsers: SessionStateMap<ManagedBrowserSession>;
 	platformStates: SessionStateMap<SessionPlatformState>;
@@ -309,6 +310,7 @@ const EXPLICIT_IMAGE_MAX_DIMENSION = 1_600;
 const BROWSER_TRANSACTION_ACTIONS = new Set<UiAction["action"]>(["press", "click", "setText", "typeText", "keypress", "scroll", "drag", "moveMouse"]);
 
 const runtimeState: RuntimeState = {
+	platformSessions: new ActiveSessionRegistry(),
 	sessionReferences: new SessionStateMap(),
 	managedBrowsers: new SessionStateMap(),
 	platformStates: new SessionStateMap(),
@@ -376,7 +378,7 @@ export async function shutdownComputerUseSession(ownerSessionId: string): Promis
 	clearStoredOutputs(ownerSessionId);
 	runtimeState.sessionReferences.clearSession(ownerSessionId);
 	runtimeState.platformStates.clearSession(ownerSessionId);
-	await currentPlatformBackend.shutdown?.();
+	if (runtimeState.platformSessions.release(ownerSessionId)) await currentPlatformBackend.shutdown?.();
 }
 
 function currentRuntimeMode(): ExecutionVariant {
@@ -573,7 +575,9 @@ async function ensureReady(ctx: ExtensionContext, signal?: AbortSignal): Promise
 	loadComputerUseConfig(ctx.cwd);
 
 	throwIfAborted(signal);
-	const platformState = sessionPlatformState(ctx.sessionManager.getSessionId());
+	const ownerSessionId = ctx.sessionManager.getSessionId();
+	runtimeState.platformSessions.register(ownerSessionId);
+	const platformState = sessionPlatformState(ownerSessionId);
 	const ready = await currentPlatformBackend.ensureReady(ctx, platformState, signal);
 	platformState.permissionStatus = ready.permissionStatus;
 	platformState.lastPermissionCheckAt = ready.lastPermissionCheckAt;
@@ -2319,6 +2323,7 @@ export const executeLaunchBrowser = makeToolExecutor("launch_browser", performLa
 
 export function reconstructStateFromBranch(ctx: ExtensionContext): void {
 	const ownerSessionId = ctx.sessionManager.getSessionId();
+	runtimeState.platformSessions.register(ownerSessionId);
 	savedStates.clearSession(ownerSessionId);
 	clearStoredOutputs(ownerSessionId);
 	runtimeState.sessionReferences.clearSession(ownerSessionId);

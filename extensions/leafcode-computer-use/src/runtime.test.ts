@@ -1,5 +1,16 @@
 import { describe, expect, it } from "vitest";
-import { SessionResourceScheduler, SessionStateMap, StateStore } from "./runtime.ts";
+import { ActiveSessionRegistry, SessionResourceScheduler, SessionStateMap, StateStore } from "./runtime.ts";
+
+describe("ActiveSessionRegistry", () => {
+	it("allows shared shutdown only after the final session releases", () => {
+		const sessions = new ActiveSessionRegistry();
+		sessions.register("session-a");
+		sessions.register("session-b");
+
+		expect(sessions.release("session-a")).toBe(false);
+		expect(sessions.release("session-b")).toBe(true);
+	});
+});
 
 describe("SessionStateMap", () => {
 	it("creates and clears state by exact session id", () => {
