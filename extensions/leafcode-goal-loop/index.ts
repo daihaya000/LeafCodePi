@@ -521,16 +521,27 @@ function hydrateLoop(value: unknown, cwd: string, id: string): GoalLoop | null {
     storedStatus === "completed" &&
     (maxTurns === 0 || turnCount < maxTurns);
   const now = isoNow();
+  const cooldownSeconds = clampCooldownSeconds(raw.cooldownSeconds);
+  const status = resumeFullRun ? "queued" : storedStatus;
+  let nextTurnAt = normalizeNextTurnAt(raw.nextTurnAt);
+  // A present-but-unparseable timestamp (hand edit, torn write) on a loop that is waiting out its
+  // cooldown must not read as "no wait": that would send the next turn at once. Re-arm the cooldown.
+  if (
+    nextTurnAt === null && typeof raw.nextTurnAt === "string" && raw.nextTurnAt.trim() !== "" &&
+    (status === "queued" || status === "verifying_completed") && cooldownSeconds > 0
+  ) {
+    nextTurnAt = new Date(Date.now() + cooldownSeconds * 1000).toISOString();
+  }
   return {
     id,
     sessionId: typeof raw.sessionId === "string" ? raw.sessionId : id,
     cwd,
-    status: resumeFullRun ? "queued" : storedStatus,
+    status,
     goal,
     acceptance,
     maxTurns,
-    cooldownSeconds: clampCooldownSeconds(raw.cooldownSeconds),
-    nextTurnAt: normalizeNextTurnAt(raw.nextTurnAt),
+    cooldownSeconds,
+    nextTurnAt,
     forceFullRun,
     autoAgent: raw.autoAgent === true,
     initialImages: normalizeInitialImages(raw.initialImages),

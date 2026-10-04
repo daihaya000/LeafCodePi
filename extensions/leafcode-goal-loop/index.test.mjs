@@ -89,6 +89,31 @@ test("reads legacy sanitized state filenames", () => {
   }
 });
 
+test("an unparseable nextTurnAt on a cooling-down loop re-arms the cooldown instead of sending at once", () => {
+  const cwd = mkdtempSync(join(tmpdir(), "leafcode-goal-loop-bad-next-"));
+  process.env.LEAFCODE_PI_DATA_DIR = cwd;
+  try {
+    const dir = join(cwd, "goals-loop");
+    mkdirSync(dir, { recursive: true });
+    const write = (id, extra) => writeFileSync(join(dir, `${id}.json`), JSON.stringify({
+      sessionId: id, goal: "wait", acceptance: [], progress: [], turnKind: "goal", turnCount: 1, maxTurns: 5,
+      status: "queued", cooldownSeconds: 300, ...extra,
+    }), "utf8");
+    write("bad-next", { nextTurnAt: "garbage" });
+    const before = Date.now();
+    const loop = goalLoopTestSeams.readLoop(cwd, "bad-next");
+    const rearmed = Date.parse(loop?.nextTurnAt ?? "");
+    assert.ok(Number.isFinite(rearmed) && rearmed >= before + 299_000 && rearmed <= Date.now() + 301_000);
+    // A genuinely missing timestamp keeps its meaning (no wait), and a paused loop is left alone.
+    write("no-next", {});
+    assert.equal(goalLoopTestSeams.readLoop(cwd, "no-next")?.nextTurnAt, null);
+    write("paused-bad", { status: "paused", nextTurnAt: "garbage" });
+    assert.equal(goalLoopTestSeams.readLoop(cwd, "paused-bad")?.nextTurnAt, null);
+  } finally {
+    rmSync(cwd, { recursive: true, force: true });
+  }
+});
+
 test("temp recovery never promotes a snapshot that names another session", () => {
   const cwd = mkdtempSync(join(tmpdir(), "leafcode-goal-loop-temp-owner-"));
   process.env.LEAFCODE_PI_DATA_DIR = cwd;
