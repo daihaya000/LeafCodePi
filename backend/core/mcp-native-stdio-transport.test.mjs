@@ -132,10 +132,16 @@ test("observed authority failure/restoration and reentrant/async acknowledgments
 
 test("only allowlisted names are inherited implicitly, while `${NAME}` still reaches the full snapshot", async () => {
   const options = input();
-  options.environment = { "ProgramFiles(x86)": "C:\\Program Files (x86)", NORMAL: "value", SERVICE_TOKEN: "secret" };
+  options.environment = { "ProgramFiles(x86)": "C:\\Program Files (x86)", HOME: "/home/fixture", LANG: "C.UTF-8",
+    npm_config_registry: "https://registry.example/", npm_config__authToken: "npm-secret", NORMAL: "value", SERVICE_TOKEN: "secret" };
   options.snapshot.servers[0].config.env = { VALUE: "${NORMAL}", TOKEN: "${SERVICE_TOKEN}" };
   const transport = call(create(options), options);
   assert.equal(transport.options.env["ProgramFiles(x86)"], "C:\\Program Files (x86)");
+  // POSIX spellings and a tooling setting are inherited; the same family's credential is not.
+  assert.equal(transport.options.env.HOME, "/home/fixture");
+  assert.equal(transport.options.env.LANG, "C.UTF-8");
+  assert.equal(transport.options.env.npm_config_registry, "https://registry.example/");
+  assert.equal(transport.options.env.npm_config__authToken, undefined);
   assert.equal(transport.options.env.VALUE, "value");
   // Declared explicitly, so the snapshot value is passed on purpose; never inherited implicitly.
   assert.equal(transport.options.env.TOKEN, "secret");
