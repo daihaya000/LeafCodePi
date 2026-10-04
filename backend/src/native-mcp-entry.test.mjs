@@ -17,6 +17,40 @@ import { BACKEND_HEALTH_PATH, BACKEND_MCP_SERVERS_PATH, BACKEND_PROTOCOL_HEADER,
  * preparation refuses must leave the Backend serving (transport up, health honest) instead of taking
  * the whole process down or half-installing a provider.
  */
+test("Backend refuses runtime startup while a dev Web process owns the shared data directory", { timeout: 20_000 }, async (t) => {
+  const root = await mkdtemp(join(tmpdir(), "leafcode-runtime-owner-e2e-"));
+  const dataDir = join(root, "data");
+  const releaseWebOwner = acquireRuntimeOwner(dataDir);
+  const token = randomBytes(32).toString("base64url");
+  const child = spawn(process.execPath, [fileURLToPath(new URL("./entry.mjs", import.meta.url))], {
+    env: { ...process.env, NODE_ENV: "test", PI_CODING_AGENT_DIR: root, LEAFCODE_PI_DATA_DIR: dataDir,
+      LEAFCODE_PI_BACKEND_TOKEN: token, LEAFCODE_PI_BACKEND_PORT: "0",
+      LEAFCODE_PI_BACKEND_RUNTIME: "1", LEAFCODE_PI_BACKEND_GENERATION: "" },
+    stdio: ["ignore", "pipe", "ignore"],
+  });
+  const lines = createInterface({ input: child.stdout });
+  const exit = once(child, "exit");
+  t.after(async () => {
+    lines.close();
+    if (child.exitCode === null && child.signalCode === null) child.kill();
+    await exit;
+    releaseWebOwner();
+  });
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const outcome = await Promise.race([
+    exit.then(([code]) => ({ type: "exit", code })),
+    once(lines, "line").then(([line]) => ({ type: "listening", line })),
+  ]);
+  if (outcome.type === "listening") {
+    child.kill();
+    await exit;
+    assert.fail(`Backend served despite a dev Web owner: ${outcome.line}`);
+  }
+  assert.notEqual(outcome.code, 0);
+  assert.equal(existsSync(join(dataDir, "runtime-owner.json")), true, "Backend refusal must preserve the Web owner's lock");
+  releaseWebOwner();
+});
+
 test("a refused native MCP configuration detaches the runtime but keeps the Backend serving", { timeout: 25_000 }, async (t) => {
   let child, competitor, exit, lines;
   // Register teardown before the fixture removal (after hooks run in order).
