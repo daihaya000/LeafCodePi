@@ -1270,7 +1270,7 @@ export const PartView = memo(
           })
         )}
         {isUser && !nested && (onRevert || (taskId && !taskId.startsWith("bot:"))) && (
-          <div className="flex max-w-full flex-wrap items-center gap-2 pr-14">
+          <div className="flex max-w-full flex-wrap items-center justify-end gap-2">
             {onRevert && <BotRevertButton
               title="このコメントを入力欄に戻して巻き戻す"
               onClick={() => onRevert(message)}

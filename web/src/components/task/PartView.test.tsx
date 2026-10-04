@@ -99,6 +99,23 @@ function readMessage(status: "running" | "error"): UiMessage {
 describe("PartView fork actions", () => {
   afterEach(() => cleanup());
 
+  it("aligns revert and fork actions with the right edge of the user bubble", () => {
+    const view = render(<PartView message={userMessage("Right-aligned actions")} taskId="task-1" onRevert={() => {}} />);
+    const revert = screen.getByRole("button", { name: "入力欄に戻す" });
+    const fork = screen.getByRole("button", { name: "ここから分岐" });
+    const actions = revert.parentElement!;
+    expect(fork.parentElement).toBe(actions);
+    expect(actions.classList.contains("justify-end")).toBe(true);
+    expect(actions.classList.contains("flex-wrap")).toBe(true);
+    expect(actions.classList.contains("pr-14")).toBe(false);
+    expect(actions.parentElement?.classList.contains("items-end")).toBe(true);
+
+    view.rerender(<PartView message={userMessage("Fork only")} taskId="task-1" />);
+    expect(screen.getByRole("button", { name: "ここから分岐" }).parentElement?.classList.contains("justify-end")).toBe(true);
+    view.rerender(<PartView message={userMessage("Revert only")} onRevert={() => {}} />);
+    expect(screen.getByRole("button", { name: "入力欄に戻す" }).parentElement?.classList.contains("justify-end")).toBe(true);
+  });
+
   it("shows a fork action only on top-level Code user inputs", () => {
     const view = render(<PartView message={userMessage("別案")} taskId="task-1" />);
     expect(screen.getByRole("button", { name: "ここから分岐" })).toBeTruthy();
