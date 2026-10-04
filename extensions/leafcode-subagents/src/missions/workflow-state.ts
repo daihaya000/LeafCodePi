@@ -302,9 +302,24 @@ export function createMissionWorkflowState(location: MissionStoreLocation, missi
 		}
 	};
 
+	// Another process may `set` into the same file; the cached copy is trusted only while the file's
+	// mtime/size signature is unchanged, so `get` never serves a value another worker already replaced.
+	let signature = "";
+	const fileSignature = (): string => {
+		try {
+			const stat = fs.statSync(filePath);
+			return `${stat.mtimeMs}:${stat.size}`;
+		} catch (error) {
+			if ((error as NodeJS.ErrnoException).code === "ENOENT") return "missing";
+			return "unknown";
+		}
+	};
+
 	const load = (): Record<string, unknown> => {
-		if (loaded) return values;
+		const current = fileSignature();
+		if (loaded && current === signature && current !== "unknown") return values;
 		values = readStateFile();
+		signature = current;
 		loaded = true;
 		return values;
 	};
@@ -325,6 +340,7 @@ export function createMissionWorkflowState(location: MissionStoreLocation, missi
 				if (bytes > MISSION_STATE_MAX_BYTES) throw new Error(`Mission state exceeds the 256 KiB limit (${bytes} bytes; maximum ${MISSION_STATE_MAX_BYTES} bytes).`);
 				writePrivateAtomicJson(filePath, next);
 				values = next;
+				signature = fileSignature();
 				loaded = true;
 			});
 		},

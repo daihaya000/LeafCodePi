@@ -67,7 +67,8 @@ it("reuses the memoized process start key instead of probing again for the same 
 	const second = createMissionWorkflowState(location, missionId);
 	second.set("checkpoint", "second");
 
-	expect(first.get("checkpoint")).toBe("first");
+	// Both instances share one file, so each read sees the latest write (no stale per-instance copy).
+	expect(first.get("checkpoint")).toBe("second");
 	expect(second.get("checkpoint")).toBe("second");
 });
 
@@ -119,4 +120,25 @@ it("keeps an aged lock whose live owner's start key cannot be verified, until th
 	// ...and an owner unverifiable for the whole hard cap is aged out.
 	writeOwner(11 * 60_000);
 	expect(stateLockIsStale(lockPath, Date.now(), failedProbe)).toBe(true);
+});
+
+it("get sees a value another worker set after this instance first read the file", () => {
+	root = mkdtempSync(join(tmpdir(), "mission-state-fresh-"));
+	const location = {
+		projectRoot: root,
+		missionDir: join(root, "missions"),
+		globalIndexDir: join(root, "index"),
+		writeGlobalIndex: false,
+	};
+	const reader = createMissionWorkflowState(location, "mission-fresh");
+	const writer = createMissionWorkflowState(location, "mission-fresh");
+	expect(reader.get("checkpoint")).toBeUndefined();
+	writer.set("checkpoint", "from-other-worker");
+	expect(reader.get("checkpoint")).toBe("from-other-worker");
+	// A longer value changes the size even if the timestamp resolution is coarse.
+	writer.set("checkpoint", "from-other-worker-again");
+	expect(reader.get("checkpoint")).toBe("from-other-worker-again");
+	reader.set("other", 1);
+	expect(reader.get("checkpoint")).toBe("from-other-worker-again");
+	expect(writer.get("other")).toBe(1);
 });
