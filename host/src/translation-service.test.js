@@ -501,7 +501,7 @@ test('a restart waits for the old translation child tree to close', async () => 
   }
 });
 
-test('a child that never reports ready is stopped, tree included, after the ready timeout', async () => {
+test('a child that writes non-JSON output but never reports ready is stopped after the ready timeout', async () => {
   const root = join(tmpdir(), `leafcode-translation-never-ready-${process.pid}`);
   const repoRoot = join(root, 'repo');
   const dataDir = join(root, 'data');
@@ -509,7 +509,11 @@ test('a child that never reports ready is stopped, tree included, after the read
   process.env.LEAFCODE_TRANSLATION_PYTHON = process.execPath;
   rmSync(root, { recursive: true, force: true });
   mkdirSync(join(repoRoot, 'translation'), { recursive: true });
-  writeFileSync(join(repoRoot, 'translation', 'translation_service.py'), 'setInterval(() => {}, 1000);\n', 'utf8');
+  writeFileSync(
+    join(repoRoot, 'translation', 'translation_service.py'),
+    "process.stdout.write('Traceback (most recent call last):\\n');\nsetInterval(() => {}, 1000);\n",
+    'utf8',
+  );
   const killed = [];
   let service;
   try {
@@ -525,7 +529,15 @@ test('a child that never reports ready is stopped, tree included, after the read
         return 'hard';
       },
     });
-    await assert.rejects(service.translate(['Untranslated progress fragment']), /ready timed out/);
+    const starting = service.start();
+    const retriedStart = service.start();
+    const translating = service.translate(['Untranslated progress fragment']);
+    assert.strictEqual(retriedStart, starting);
+    const results = await Promise.allSettled([starting, retriedStart, translating]);
+    assert.deepEqual(results.map((result) => result.status), ['rejected', 'rejected', 'rejected']);
+    for (const result of results) {
+      if (result.status === 'rejected') assert.match(String(result.reason), /ready timed out/);
+    }
     assert.equal(service.status().state, 'error');
     assert.equal(killed.length, 1);
   } finally {
