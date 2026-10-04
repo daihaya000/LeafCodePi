@@ -4,26 +4,26 @@ import { bundledPathsForNativeMcp, nativeMcpExtensionFactory, registerBackendMcp
 
 afterEach(() => setBackendMcpNativeSessionProvider(undefined));
 
-test("native MCP shutdown actions are isolated by session and attempted despite failures", async () => {
-  const stopped = [];
-  const dispose = registerBackendMcpNativeSessionShutdownAction("session-a", () => { stopped.push("a1"); });
-  registerBackendMcpNativeSessionShutdownAction("session-a", () => { stopped.push("a2"); throw new Error("private close error"); });
-  registerBackendMcpNativeSessionShutdownAction("session-b", () => { stopped.push("b"); });
-  assert.equal(await runBackendMcpNativeSessionShutdownActions("session-a"), 2);
+test("native MCP shutdown actions use exact session-manager identity and attempt peers despite failures", async () => {
+  const stopped = [], sessionA = {}, sessionB = {};
+  const dispose = registerBackendMcpNativeSessionShutdownAction(sessionA, () => { stopped.push("a1"); });
+  registerBackendMcpNativeSessionShutdownAction(sessionA, () => { stopped.push("a2"); throw new Error("private close error"); });
+  registerBackendMcpNativeSessionShutdownAction(sessionB, () => { stopped.push("b"); });
+  assert.equal(await runBackendMcpNativeSessionShutdownActions(sessionA), 2);
   assert.deepEqual(stopped.sort(), ["a1", "a2"]);
-  assert.equal(await runBackendMcpNativeSessionShutdownActions("session-a"), 0);
-  assert.equal(await runBackendMcpNativeSessionShutdownActions("session-b"), 1);
+  assert.equal(await runBackendMcpNativeSessionShutdownActions(sessionA), 0);
+  assert.equal(await runBackendMcpNativeSessionShutdownActions(sessionB), 1);
   dispose();
   assert.deepEqual(stopped.sort(), ["a1", "a2", "b"]);
 });
 
 test("native MCP shutdown action disposer is idempotent and validates inputs", async () => {
-  assert.throws(() => registerBackendMcpNativeSessionShutdownAction("", () => {}), /invalid/);
-  assert.throws(() => registerBackendMcpNativeSessionShutdownAction("session-a", null), /invalid/);
-  const stopped = [];
-  const dispose = registerBackendMcpNativeSessionShutdownAction("session-a", () => stopped.push("a"));
+  assert.throws(() => registerBackendMcpNativeSessionShutdownAction(null, () => {}), /invalid/);
+  assert.throws(() => registerBackendMcpNativeSessionShutdownAction({}, null), /invalid/);
+  const stopped = [], sessionManager = {};
+  const dispose = registerBackendMcpNativeSessionShutdownAction(sessionManager, () => stopped.push("a"));
   dispose(); dispose();
-  assert.equal(await runBackendMcpNativeSessionShutdownActions("session-a"), 0);
+  assert.equal(await runBackendMcpNativeSessionShutdownActions(sessionManager), 0);
   assert.deepEqual(stopped, []);
 });
 

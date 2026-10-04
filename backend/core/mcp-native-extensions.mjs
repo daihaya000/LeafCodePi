@@ -214,21 +214,25 @@ export function prepareBackendMcpExtensionsFromBinding(options) {
     const ownerServices = captureOwnerServices(mcp, false);
     if (!ownerServices.ok) return ownerServices;
     const requireAvailable = () => { if (fenced || checking) { fenced = true; throw unavailable(); } };
-    let sessionId;
+    let sessionId, sessionManager;
     const captureSessionId = (context) => {
-      let value;
-      try { value = context?.sessionManager?.getSessionId?.(); } catch { throw unavailable(); }
-      if (typeof value !== "string" || !value || (sessionId !== undefined && sessionId !== value)) throw unavailable();
-      sessionId = value;
+      let value, manager;
+      try { manager = context?.sessionManager; value = manager?.getSessionId?.(); } catch { throw unavailable(); }
+      if (typeof manager !== "object" || manager === null || typeof value !== "string" || !value
+        || (sessionId !== undefined && (sessionId !== value || sessionManager !== manager))) throw unavailable();
+      sessionId = value; sessionManager = manager;
     };
     const createTransport = guardTransportFactory((...args) => {
       const transport = Reflect.apply(ownerServices.services.createTransport, undefined, args);
       if (transport && typeof transport.then === "function") return transport;
-      if (!sessionId || !transport || typeof transport !== "object") throw unavailable();
+      if (!sessionId || !sessionManager || !transport || typeof transport !== "object") throw unavailable();
+      let config;
+      try { config = args[0]?.config; } catch { throw unavailable(); }
+      if (config && Object.hasOwn(config, "url")) return transport; // HTTP cleanup remains with session_shutdown; this registry targets child processes.
       let close, onClose;
       try { close = transport.close; onClose = transport.onClose; } catch { throw unavailable(); }
       if (typeof close !== "function" || typeof onClose !== "function") throw unavailable();
-      const dispose = registerBackendMcpNativeSessionShutdownAction(sessionId, () => Reflect.apply(close, transport, []));
+      const dispose = registerBackendMcpNativeSessionShutdownAction(sessionManager, () => Reflect.apply(close, transport, []));
       try { Reflect.apply(onClose, transport, [dispose]); } catch { dispose(); throw unavailable(); }
       return transport;
     }, assertBound);

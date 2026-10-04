@@ -19,6 +19,7 @@ import { botTaskId, createBot, getBot, patchBot } from "@/lib/bots";
 import { setAgentEnabled } from "@/lib/agents";
 import { roomBotTaskId } from "@/lib/rooms";
 import { registerBackgroundWorkProvider } from "../../../../extensions/leafcode-subagents/src/api/background-work.ts";
+import { registerBackendMcpNativeSessionShutdownAction } from "../../../../backend/core/mcp-native-session.mjs";
 
 const GLOBAL_KEY = "__leafcodePiHarness";
 const previousHarness = (globalThis as Record<string, unknown>)[GLOBAL_KEY];
@@ -913,7 +914,10 @@ describe("archiveTask", () => {
     const task = insertTask({ project, title: "shutdown timeout" });
     const sessionId = "shutdown-timeout-session";
     const events: string[] = [];
+    const sessionManager = { getLeafId: () => null, getBranch: () => [], getCwd: () => root };
     let unregister = () => {};
+    let unregisterMcp = () => {};
+    unregisterMcp = registerBackendMcpNativeSessionShutdownAction(sessionManager, () => { events.push("stop:native-mcp"); });
     unregister = registerBackgroundWorkProvider({
       name: "shutdown-timeout-test",
       listActiveWork: () => [{ id: "owned-run", sessionId }],
@@ -927,7 +931,7 @@ describe("archiveTask", () => {
       messages: [],
       agent: { state: { streamingMessage: undefined } },
       isStreaming: false,
-      sessionManager: { getLeafId: () => null, getBranch: () => [], getCwd: () => root },
+      sessionManager,
       extensionRunner: {
         getCommand: () => undefined,
         hasHandlers: (type: string) => type === "session_shutdown",
@@ -972,11 +976,12 @@ describe("archiveTask", () => {
       assert.deepEqual(events, ["abort", "capture:owned-run", "session_shutdown"]);
       await vi.advanceTimersByTimeAsync(5_000);
       await archiving;
-      assert.deepEqual(events, ["abort", "capture:owned-run", "session_shutdown", "invalidate", "stop:owned-run", "dispose"]);
+      assert.deepEqual(events, ["abort", "capture:owned-run", "session_shutdown", "invalidate", "stop:owned-run", "stop:native-mcp", "dispose"]);
       assert.equal(getTask(task.id)?.status, "archived");
       assert.equal(live.has(task.id), false);
     } finally {
       unregister();
+      unregisterMcp();
       vi.useRealTimers();
     }
   });

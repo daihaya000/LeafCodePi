@@ -5,6 +5,7 @@ import { homedir } from "node:os";
 import { basename, dirname, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { captureSessionBackgroundWorkStop, captureSessionShutdownResourceStop } from "../../../../extensions/leafcode-subagents/src/api/background-work.ts";
+import { runBackendMcpNativeSessionShutdownActions } from "../../../../backend/core/mcp-native-session.mjs";
 import {
   dataDir,
   isAbsolutePath,
@@ -5110,10 +5111,21 @@ async function disposeSessionBestEffort(session: AgentSession): Promise<void> {
   if (sessionId) {
     let timer: ReturnType<typeof setTimeout> | undefined;
     let timedOut = false;
+    let nativeMcpCleanupStarted = false;
     try {
       const stopShutdownResources = captureSessionShutdownResourceStop(sessionId);
+      const stopCapturedResources = async () => {
+        nativeMcpCleanupStarted = true;
+        const results = await Promise.allSettled([
+          stopShutdownResources(),
+          runBackendMcpNativeSessionShutdownActions(session.sessionManager),
+        ]);
+        const failure = results.find((result) => result.status === "rejected");
+        if (failure?.status === "rejected") throw failure.reason;
+        return results.reduce((count, result) => count + (result.status === "fulfilled" ? result.value : 0), 0);
+      };
       await Promise.race([
-        stopShutdownResources(),
+        stopCapturedResources(),
         new Promise<number>((resolve) => {
           timer = setTimeout(() => {
             timedOut = true;
@@ -5127,6 +5139,13 @@ async function disposeSessionBestEffort(session: AgentSession): Promise<void> {
       console.warn(`[unattached-session] shutdown resource cleanup failed: ${reason}`);
     } finally {
       if (timer) clearTimeout(timer);
+      if (!nativeMcpCleanupStarted) {
+        try { await runBackendMcpNativeSessionShutdownActions(session.sessionManager); }
+        catch (error) {
+          const reason = error instanceof Error ? error.message : String(error);
+          console.warn(`[unattached-session] native MCP shutdown actions failed: ${reason}`);
+        }
+      }
     }
   }
   // Keep shared session_shutdown handlers suppressed for an unattached session.
@@ -11527,6 +11546,14 @@ async function runExtensionShutdown(live: LiveRuntime, logLabel: string): Promis
     console.warn(`[${logLabel}] extension shutdown failed: ${reason}`);
   } finally {
     if (timer) clearTimeout(timer);
+    const sessionId = live.session.sessionId;
+    if (sessionId) {
+      try { await runBackendMcpNativeSessionShutdownActions(live.session.sessionManager); }
+      catch (error) {
+        const reason = error instanceof Error ? error.message : String(error);
+        console.warn(`[${logLabel}] native MCP shutdown actions failed: ${reason}`);
+      }
+    }
   }
 }
 

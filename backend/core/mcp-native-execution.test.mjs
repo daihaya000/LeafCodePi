@@ -93,9 +93,9 @@ test("real connected MCP tools/resources keep metadata/results, then reject befo
 test("captured native MCP close action stops only the owning session transport", async (t) => {
   const f = await fixture(t);
   assert.equal(f.peer.calls.close, 0);
-  assert.equal(await runBackendMcpNativeSessionShutdownActions(f.root), 1);
+  assert.equal(await runBackendMcpNativeSessionShutdownActions(f.ctx.sessionManager), 1);
   assert.equal(f.peer.calls.close, 1);
-  assert.equal(await runBackendMcpNativeSessionShutdownActions(f.root), 0);
+  assert.equal(await runBackendMcpNativeSessionShutdownActions(f.ctx.sessionManager), 0);
   await f.events.get("session_shutdown")({}, f.ctx);
   assert.equal(f.peer.calls.close, 1);
 });

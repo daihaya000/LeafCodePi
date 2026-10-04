@@ -1,29 +1,29 @@
 const ADAPTER = "leafcode-mcp-adapter";
 let provider;
-const shutdownActions = new Map();
+const shutdownActions = new WeakMap();
 
-/** Register a session-owned native MCP shutdown action. The returned disposer is idempotent. */
-export function registerBackendMcpNativeSessionShutdownAction(sessionId, stop) {
-  if (typeof sessionId !== "string" || !sessionId || typeof stop !== "function") {
+/** Register a native MCP shutdown action for the exact SDK session-manager instance. */
+export function registerBackendMcpNativeSessionShutdownAction(sessionManager, stop) {
+  if (!sessionManager || typeof sessionManager !== "object" || typeof stop !== "function") {
     throw new Error("MCP native session shutdown action invalid");
   }
-  let actions = shutdownActions.get(sessionId);
-  if (!actions) shutdownActions.set(sessionId, actions = new Set());
+  let actions = shutdownActions.get(sessionManager);
+  if (!actions) shutdownActions.set(sessionManager, actions = new Set());
   actions.add(stop);
   let registered = true;
   return () => {
     if (!registered) return;
     registered = false;
     actions.delete(stop);
-    if (actions.size === 0 && shutdownActions.get(sessionId) === actions) shutdownActions.delete(sessionId);
+    if (actions.size === 0 && shutdownActions.get(sessionManager) === actions) shutdownActions.delete(sessionManager);
   };
 }
 
-/** Stop only resources captured for this session; a failed action cannot skip the others. */
-export async function runBackendMcpNativeSessionShutdownActions(sessionId) {
-  const actions = shutdownActions.get(sessionId);
+/** Stop only resources captured for this exact SDK session; failures cannot skip other actions. */
+export async function runBackendMcpNativeSessionShutdownActions(sessionManager) {
+  const actions = shutdownActions.get(sessionManager);
   if (!actions) return 0;
-  shutdownActions.delete(sessionId);
+  shutdownActions.delete(sessionManager);
   const count = actions.size;
   await Promise.allSettled([...actions].map((stop) => Promise.resolve().then(stop)));
   return count;
