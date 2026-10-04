@@ -12,12 +12,20 @@ export const RECLAIM_LOCK_STALE_MS = 10_000;
 /** A live owner is trusted only this long past the stale limit (guards against pid reuse). */
 const RECLAIM_LOCK_HARD_CAP_MS = 60_000;
 const MAX_PENDING_ORPHANS = 100;
-const MAX_PENDING_LEASE_LOSSES = 100;
 export const ORPHANED_WORKING_TASK_ERROR = "ホスト再起動後にCodeセッションを復旧できなかったため停止しました";
 
 /** Caller-owned state can outlive module reloads without creating another owner. */
 export function createTaskLeaseState() {
-  return { token: randomUUID(), ownedTasks: new Set(), heartbeatTimer: null, orphanListener: null, pendingOrphans: [], leaseLostListener: null, pendingLeaseLosses: [] };
+  return {
+    token: randomUUID(),
+    ownedTasks: new Set(),
+    heartbeatTimer: null,
+    orphanListener: null,
+    pendingOrphans: [],
+    leaseLostListener: null,
+    pendingLeaseLosses: [],
+    pendingLeaseLossIds: new Set(),
+  };
 }
 
 function processAlive(pid) {
@@ -55,6 +63,7 @@ export class TaskLeaseService {
     state.pendingOrphans ??= [];
     state.leaseLostListener ??= null;
     state.pendingLeaseLosses ??= [];
+    state.pendingLeaseLossIds ??= new Set(state.pendingLeaseLosses);
   }
 
   taskRuntimeLeasePath(taskId) {
@@ -117,11 +126,12 @@ export class TaskLeaseService {
       this.#notifyLeaseLoss(listener, [taskId]);
       return;
     }
-    const losses = [...(this.state.pendingLeaseLosses ?? []), taskId];
-    if (losses.length > MAX_PENDING_LEASE_LOSSES) {
-      this.warn(`[task-runtime-lease] ${losses.length - MAX_PENDING_LEASE_LOSSES} oldest lease-loss notifications dropped (cap ${MAX_PENDING_LEASE_LOSSES})`);
+    const losses = this.state.pendingLeaseLosses ??= [];
+    const lossIds = this.state.pendingLeaseLossIds ??= new Set(losses);
+    if (!lossIds.has(taskId)) {
+      lossIds.add(taskId);
+      losses.push(taskId);
     }
-    this.state.pendingLeaseLosses = losses.slice(-MAX_PENDING_LEASE_LOSSES);
   }
 
   #isStalePath(path, existing, now) {
@@ -277,6 +287,7 @@ export class TaskLeaseService {
     if (!listener) return;
     const pending = this.state.pendingLeaseLosses ?? [];
     this.state.pendingLeaseLosses = [];
+    this.state.pendingLeaseLossIds?.clear();
     if (pending.length > 0) this.#notifyLeaseLoss(listener, pending);
   }
 

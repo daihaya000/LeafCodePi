@@ -14,7 +14,9 @@ export type TaskLeaseState<T extends TaskLeaseTask = TaskLeaseTask> = {
   orphanListener?: OrphanedTaskListener<T> | null;
   pendingOrphans?: T[];
   leaseLostListener?: TaskLeaseLostListener | null;
+  /** Unbounded, deduplicated task ids awaiting local abort after lease loss. */
   pendingLeaseLosses?: string[];
+  pendingLeaseLossIds?: Set<string>;
 };
 
 export function createTaskLeaseState<T extends TaskLeaseTask = TaskLeaseTask>(): TaskLeaseState<T>;

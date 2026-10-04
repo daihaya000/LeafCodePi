@@ -118,6 +118,27 @@ test("heartbeat drops a replaced lease and queues one owner-loss notification", 
   assert.deepEqual(notifications, [["replaced"]]);
 });
 
+test("lease-loss notifications are retained without a listener beyond 100 tasks", (t) => {
+  const f = fixture(t);
+  const ids = Array.from({ length: 101 }, (_, index) => `lost-${index}`);
+  for (const id of ids) assert.equal(f.service.acquireTaskLease(id), true);
+  for (const id of ids) seed(f.service, id, { ...record(f.service, id), token: `foreign-${id}` });
+
+  f.timers[0].callback();
+  assert.deepEqual(f.state.pendingLeaseLosses, ids);
+  rmSync(f.service.taskRuntimeLeasePath(ids[0]));
+  assert.equal(f.service.acquireTaskLease(ids[0]), true);
+  seed(f.service, ids[0], { ...record(f.service, ids[0]), token: "foreign-again" });
+  f.timers[0].callback();
+  assert.deepEqual(f.state.pendingLeaseLosses, ids, "repeated losses of one task are deduplicated");
+  assert.deepEqual(f.warnings, []);
+
+  const notifications = [];
+  f.service.setLeaseLostListener((taskIds) => notifications.push(taskIds));
+  assert.deepEqual(notifications, [ids]);
+  assert.deepEqual(f.state.pendingLeaseLosses, []);
+});
+
 test("repeated heartbeat write failures report the lease loss before it can go stale, and success resets the count", (t) => {
   let now = Date.now();
   let failing = true;
