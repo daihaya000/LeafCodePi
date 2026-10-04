@@ -132,7 +132,7 @@ describe("harness lifecycle characterization", () => {
     expect(getTask(task.id)?.status).toBe("idle");
   });
 
-  it("restart guard counts only live Goal Loop statuses", () => {
+  it("restart guard finds live Goal Loop statuses in resident and persisted-only sessions", () => {
     const root = mkdtempSync(join(tmpdir(), "leafcode-harness-active-goal-loop-"));
     roots.push(root);
     vi.stubEnv("LEAFCODE_PI_DATA_DIR", join(root, "data"));
@@ -145,6 +145,15 @@ describe("harness lifecycle characterization", () => {
       ["completed", "completed"],
     ] as const;
     mkdirSync(join(root, "data", "goals-loop"), { recursive: true });
+    const project = upsertProject({ name: "persisted-goal-loop", rootPath: root });
+    const persistedOnly = insertTask({ project, title: "Cold queued loop" });
+    const persistedSessionId = "persisted-only-session";
+    patchTask(persistedOnly.id, { sessionId: persistedSessionId });
+    writeFileSync(
+      goalLoopStateFile(root, persistedSessionId),
+      JSON.stringify({ goal: "ship", status: "queued", sessionId: persistedSessionId }),
+      "utf8",
+    );
     for (const [sessionId, status] of states) {
       writeFileSync(
         goalLoopStateFile(root, sessionId),
@@ -164,7 +173,7 @@ describe("harness lifecycle characterization", () => {
       events: new EventEmitter(),
     };
 
-    expect(activeGoalLoopTaskIds()).toEqual(["queued", "running", "verifying"]);
+    expect(activeGoalLoopTaskIds()).toEqual(["queued", "running", "verifying", persistedOnly.id]);
   });
 
   it.each([

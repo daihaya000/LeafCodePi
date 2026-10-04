@@ -8098,16 +8098,22 @@ export async function readTaskProgressSnapshot(
 }
 
 /**
- * Goal Loop sessions with a live turn owned by this WebUI process. A WebUI
- * restart ends every Pi session, and the loop pauses on session_shutdown, so
- * the host control plane refuses to restart while this list is non-empty.
- * Process scoped on purpose: a persisted "running" file left by a killed
- * worker must not block restart forever.
+ * Goal Loops whose live status would be affected by restarting the runtime.
+ * Include persisted tasks without an attached session: queued loops can auto-start
+ * when a session is attached, so a live-state file must not be invisible to the guard.
  */
 export function activeGoalLoopTaskIds(): string[] {
-  return [...state().live.values()]
-    .filter((live) => isLiveGoalLoopSession(live.session))
-    .map((live) => live.taskId);
+  const taskIds = new Set<string>();
+  for (const live of state().live.values()) {
+    if (isLiveGoalLoopSession(live.session)) taskIds.add(live.taskId);
+  }
+  for (const task of listTasks(false, "all")) {
+    if (!task.sessionId || taskIds.has(task.id)) continue;
+    if (isGoalLoopLiveStatus(readGoalLoopState(task.directory, task.sessionId)?.status)) {
+      taskIds.add(task.id);
+    }
+  }
+  return [...taskIds];
 }
 
 export async function goalLoopState(
