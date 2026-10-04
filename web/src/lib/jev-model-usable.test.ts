@@ -1,10 +1,28 @@
 import { describe, expect, it } from "vitest";
-import { DEFAULT_JEV_MODEL_SETTINGS, hasUsableJevModel } from "./jev-model-settings";
-import type { JevCatalogModel } from "./jev-model-catalog";
+import { DEFAULT_JEV_MODEL_SETTINGS, enabledJevModelKeys, hasUsableJevModel } from "./jev-model-settings";
+import { jevModelKey, type JevCatalogModel } from "./jev-model-catalog";
 
 const row = (patch: Partial<JevCatalogModel>): JevCatalogModel => ({
   providerId: "typesafe", providerName: "TypeSafe", modelId: "jev-latest", name: "Jev",
   baseUrl: "https://example.test", source: "documented", ...patch,
+});
+
+describe("enabledJevModelKeys", () => {
+  it("ignores undetected references without changing saved selections or selecting replacements", () => {
+    const missing = { providerId: "commandcode", modelId: "typesafe/jev" };
+    const detected = { providerId: "typesafe", modelId: "jev-latest" };
+    const settings = { ...DEFAULT_JEV_MODEL_SETTINGS, provider: "registered" as const, registeredModel: missing, enabledModels: [missing, detected] };
+    expect(enabledJevModelKeys(settings, [row({}), row({ modelId: "jev-other" })])).toEqual(new Set([jevModelKey(detected)]));
+    expect(enabledJevModelKeys(settings, [])).toEqual(new Set());
+    expect(settings.enabledModels).toEqual([missing, detected]);
+  });
+
+  it("matches account-specific keys and retains detected selections under disabled providers", () => {
+    const ref = { providerId: "openrouter", modelId: "typesafe/jev", accountId: "one" };
+    const settings = { ...DEFAULT_JEV_MODEL_SETTINGS, provider: "registered" as const, registeredModel: ref };
+    expect(enabledJevModelKeys(settings, [row({ ...ref, accountId: "two" })])).toEqual(new Set());
+    expect(enabledJevModelKeys(settings, [row({ ...ref, providerEnabled: false })])).toEqual(new Set([jevModelKey(ref)]));
+  });
 });
 
 describe("hasUsableJevModel", () => {

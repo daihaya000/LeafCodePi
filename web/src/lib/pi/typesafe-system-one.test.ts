@@ -2,8 +2,9 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { DEFAULT_JEV_MODEL_SETTINGS, jevModelEndpoint } from "@/lib/jev-model-settings";
 import { evaluateTypeSafe } from "./typesafe-system-one";
 
-const mocks = vi.hoisted(() => ({ readSettings: vi.fn(), readKey: vi.fn(), resolve: vi.fn(), readState: vi.fn(), readRouting: vi.fn(), recordUsage: vi.fn(), recordLatency: vi.fn() }));
+const mocks = vi.hoisted(() => ({ readSettings: vi.fn(), readKey: vi.fn(), resolve: vi.fn(), list: vi.fn(), readState: vi.fn(), readRouting: vi.fn(), recordUsage: vi.fn(), recordLatency: vi.fn() }));
 vi.mock("./jev-model-config", () => ({ readJevModelSettings: mocks.readSettings, resolveJevModelConnection: mocks.resolve }));
+vi.mock("./harness", () => ({ listJevModels: mocks.list }));
 vi.mock("@/lib/codexbar/providers/typesafe", () => ({ recordTypesafeUsage: mocks.recordUsage }));
 vi.mock("@/lib/provider-model-state", () => ({ readProviderModelState: mocks.readState, accountProviderModelKey: (id: string, accountId?: string) => accountId ? `${accountId}::${id}` : id }));
 vi.mock("@/lib/provider-routing", () => ({ readProviderRouting: mocks.readRouting, accountRoutingMode: (id: string, state: { modes: Record<string, string> }) => state.modes[id] ?? "separate" }));
@@ -27,6 +28,13 @@ beforeEach(() => {
   mocks.readState.mockReturnValue({ providerOrder: [], modelOrder: {} });
   mocks.readRouting.mockReturnValue({ modes: {} });
   mocks.resolve.mockImplementation(async (settings) => ({ ...jevModelEndpoint(settings), apiKey: await mocks.readKey(settings) }));
+  mocks.list.mockImplementation(async () => {
+    const settings = mocks.readSettings();
+    const refs = settings.enabledModels ?? (settings.registeredModel ? [settings.registeredModel] : []);
+    return refs.map((ref: { providerId: string; modelId: string; accountId?: string }) => ({
+      ...ref, providerName: ref.providerId, name: ref.modelId, baseUrl: "https://example.test/v1", source: "catalog",
+    }));
+  });
 });
 
 describe("evaluateTypeSafe", () => {
@@ -40,6 +48,7 @@ describe("evaluateTypeSafe", () => {
       body: JSON.stringify({ ...request, model: "jev-latest" }),
     }));
     expect(mocks.recordUsage).toHaveBeenCalledWith(result.usage);
+    expect(mocks.list).not.toHaveBeenCalled();
   });
 
   it("records the answering model's round-trip latency once per success", async () => {
@@ -144,6 +153,65 @@ describe("evaluateTypeSafe", () => {
     await expect(evaluateTypeSafe(request, { fetchImpl })).resolves.toEqual(result);
     expect(fetchImpl.mock.calls.map(([, init]) => JSON.parse(init.body).model)).toEqual(["jev-b", "jev-a"]);
     expect(fetchImpl).toHaveBeenCalledTimes(2);
+  });
+
+  it("never resolves or sends state to an undetected reference, even when it is the primary selection", async () => {
+    const missing = { providerId: "commandcode", modelId: "typesafe/jev" };
+    const detected = { providerId: "typesafe", modelId: "jev-latest" };
+    const settings = { ...DEFAULT_JEV_MODEL_SETTINGS, provider: "registered", registeredModel: missing, enabledModels: [missing, detected] };
+    mocks.readSettings.mockReturnValue(settings);
+    mocks.readState.mockReturnValue({ providerOrder: ["commandcode", "typesafe"], modelOrder: {} });
+    mocks.list.mockResolvedValue([{ ...detected, providerName: "TypeSafe", name: "Jev", baseUrl: "https://api.typesafe.ai/v1", source: "documented" }]);
+    mocks.resolve.mockResolvedValue({ baseUrl: "https://api.typesafe.ai/v1", model: detected.modelId });
+    const fetchImpl = respond();
+    await expect(evaluateTypeSafe(request, { fetchImpl })).resolves.toEqual(result);
+    expect(mocks.list).toHaveBeenCalledTimes(1);
+    expect(mocks.resolve).toHaveBeenCalledExactlyOnceWith({ ...settings, registeredModel: detected });
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+    expect(settings.enabledModels).toEqual([missing, detected]);
+  });
+
+  it.each([false, true])("does not use unselected accounts when the registered selection is undetected (multiple=%s)", async (multiple) => {
+    const ref = { providerId: "openrouter", modelId: "typesafe/jev", accountId: "missing" };
+    mocks.readSettings.mockReturnValue({ ...DEFAULT_JEV_MODEL_SETTINGS, provider: "registered", registeredModel: ref, ...(multiple ? { enabledModels: [ref] } : {}) });
+    mocks.list.mockResolvedValue([{ ...ref, accountId: "other", providerName: "OpenRouter", name: "Jev", baseUrl: "https://example.test/v1", source: "catalog" }]);
+    const fetchImpl = respond();
+    await expect(evaluateTypeSafe(request, { fetchImpl })).rejects.toThrow("有効なJevモデルがありません");
+    expect(mocks.resolve).not.toHaveBeenCalled();
+    expect(fetchImpl).not.toHaveBeenCalled();
+  });
+
+  it("keeps the last detected failure when the saved fallback list ends with an undetected model", async () => {
+    const detected = { providerId: "typesafe", modelId: "jev-latest" };
+    const missing = { providerId: "commandcode", modelId: "typesafe/jev" };
+    mocks.readSettings.mockReturnValue({ ...DEFAULT_JEV_MODEL_SETTINGS, provider: "registered", registeredModel: detected, enabledModels: [detected, missing] });
+    mocks.readState.mockReturnValue({ providerOrder: ["typesafe", "commandcode"], modelOrder: {} });
+    mocks.list.mockResolvedValue([{ ...detected, providerName: "TypeSafe", name: "Jev", baseUrl: "https://api.typesafe.ai/v1", source: "documented" }]);
+    mocks.resolve.mockResolvedValue({ baseUrl: "https://api.typesafe.ai/v1", model: detected.modelId });
+    const fetchImpl = vi.fn().mockResolvedValue(new Response(null, { status: 503 }));
+    await expect(evaluateTypeSafe(request, { fetchImpl })).rejects.toThrow("Jev API error: 503");
+    expect(mocks.resolve).toHaveBeenCalledTimes(1);
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+  });
+
+  it("never sends state when catalog discovery fails", async () => {
+    const ref = { providerId: "typesafe", modelId: "jev-latest" };
+    mocks.readSettings.mockReturnValue({ ...DEFAULT_JEV_MODEL_SETTINGS, provider: "registered", registeredModel: ref, enabledModels: [ref] });
+    mocks.list.mockRejectedValue(new Error("catalog unavailable"));
+    const fetchImpl = respond();
+    await expect(evaluateTypeSafe(request, { fetchImpl })).rejects.toThrow("catalog unavailable");
+    expect(mocks.resolve).not.toHaveBeenCalled();
+    expect(fetchImpl).not.toHaveBeenCalled();
+  });
+
+  it("skips detected models marked as paused in the live catalog", async () => {
+    const ref = { providerId: "typesafe", modelId: "jev-latest" };
+    mocks.readSettings.mockReturnValue({ ...DEFAULT_JEV_MODEL_SETTINGS, provider: "registered", registeredModel: ref });
+    mocks.list.mockResolvedValue([{ ...ref, providerName: "TypeSafe", name: "Jev", baseUrl: "https://api.typesafe.ai/v1", source: "documented", providerEnabled: false }]);
+    const fetchImpl = respond();
+    await expect(evaluateTypeSafe(request, { fetchImpl })).rejects.toThrow("有効なJevモデルがありません");
+    expect(mocks.resolve).not.toHaveBeenCalled();
+    expect(fetchImpl).not.toHaveBeenCalled();
   });
 
   it("falls back when the first model cannot resolve and reports the final failure", async () => {

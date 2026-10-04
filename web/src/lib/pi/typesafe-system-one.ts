@@ -1,4 +1,6 @@
 import { recordTypesafeUsage } from "@/lib/codexbar/providers/typesafe";
+import { jevModelKey } from "@/lib/jev-model-catalog";
+import { enabledJevModelKeys } from "@/lib/jev-model-settings";
 import { accountProviderModelKey, readProviderModelState } from "@/lib/provider-model-state";
 import { accountRoutingMode, readProviderRouting } from "@/lib/provider-routing";
 import { recordJevLatency } from "./jev-latency";
@@ -74,11 +76,16 @@ export async function evaluateTypeSafe(
   } = {},
 ): Promise<TypeSafeResponse> {
   const settings = readJevModelSettings();
-  const state = settings.enabledModels ? readProviderModelState() : null;
-  const routing = settings.enabledModels ? readProviderRouting() : null;
-  const integrated = new Set(settings.enabledModels?.filter((ref) => ref.accountId && routing && accountRoutingMode(ref.providerId, routing) === "integrated").map((ref) => ref.providerId));
+  const registered = settings.enabledModels ?? (settings.provider === "registered" ? settings.registeredModel ? [settings.registeredModel] : [] : undefined);
+  // A catalog read never rewrites saved selections or enables an unselected replacement.
+  const models = registered ? await (await import("./harness")).listJevModels() : [];
+  const detectedKeys = enabledJevModelKeys(settings, models.filter((model) => model.providerEnabled !== false));
+  const selected = registered?.filter((ref) => detectedKeys.has(jevModelKey(ref)));
+  const state = selected ? readProviderModelState() : null;
+  const routing = selected ? readProviderRouting() : null;
+  const integrated = new Set(selected?.filter((ref) => ref.accountId && routing && accountRoutingMode(ref.providerId, routing) === "integrated").map((ref) => ref.providerId));
   const integratedRank = new Map<string, number>();
-  for (const ref of settings.enabledModels ?? []) {
+  for (const ref of selected ?? []) {
     if (!ref.accountId || !integrated.has(ref.providerId)) continue;
     const rank = state?.providerOrder.indexOf(`${ref.accountId}::${ref.providerId}`) ?? -1;
     if (rank >= 0) integratedRank.set(ref.providerId, Math.min(integratedRank.get(ref.providerId) ?? rank, rank));
@@ -96,7 +103,7 @@ export async function evaluateTypeSafe(
   };
   // Selections under a disabled provider stay saved but are paused until the provider is re-enabled.
   const paused = (ref: { providerId: string; accountId?: string }) => state?.disabled?.[accountProviderModelKey(ref.providerId, ref.accountId)] === true;
-  const refs = settings.enabledModels?.filter((ref) => !paused(ref)).map((ref, index) => ({ ref, index })).sort((a, b) => {
+  const refs = selected?.filter((ref) => !paused(ref)).map((ref, index) => ({ ref, index })).sort((a, b) => {
     const aRank = providerRank(a.ref);
     const bRank = providerRank(b.ref);
     if (aRank !== bRank) return (aRank < 0 ? Number.MAX_SAFE_INTEGER : aRank) - (bRank < 0 ? Number.MAX_SAFE_INTEGER : bRank);
