@@ -11,11 +11,11 @@ afterEach(async () => {
   vi.restoreAllMocks();
 });
 
-const state = vi.hoisted(() => ({ relay: vi.fn(), scheduler: vi.fn(), reconcileTasks: vi.fn(), reconcileRooms: vi.fn(), prewarmTasks: vi.fn(() => Promise.resolve([])), warmModels: vi.fn(() => Promise.resolve([])), listAccounts: vi.fn(() => []), backfillLabels: vi.fn(() => Promise.resolve(0)), promptTask: vi.fn(() => Promise.resolve({})), setOrphanListener: vi.fn(), handleOrphans: vi.fn(), order: [] as string[] }));
-vi.mock("@/lib/pi/harness", () => ({ startBotCodeRelay: state.relay, getTaskSummariesWithTodoProgress: state.prewarmTasks, listModelsForAccounts: state.warmModels, promptTask: state.promptTask }));
+const state = vi.hoisted(() => ({ relay: vi.fn(), scheduler: vi.fn(), reconcileTasks: vi.fn(), reconcileRooms: vi.fn(), prewarmTasks: vi.fn(() => Promise.resolve([])), warmModels: vi.fn(() => Promise.resolve([])), listAccounts: vi.fn(() => []), backfillLabels: vi.fn(() => Promise.resolve(0)), promptTask: vi.fn(() => Promise.resolve({})), setOrphanListener: vi.fn(), setLeaseLostListener: vi.fn(), abortAfterLeaseLoss: vi.fn(), handleOrphans: vi.fn(), order: [] as string[] }));
+vi.mock("@/lib/pi/harness", () => ({ startBotCodeRelay: state.relay, getTaskSummariesWithTodoProgress: state.prewarmTasks, listModelsForAccounts: state.warmModels, promptTask: state.promptTask, abortTaskSessionsAfterLeaseLoss: state.abortAfterLeaseLoss }));
 vi.mock("@/lib/accounts", () => ({ listAccounts: state.listAccounts }));
 vi.mock("@/lib/routines", () => ({ ensureRoutineScheduler: state.scheduler }));
-vi.mock("@/lib/task-runtime-lease", () => ({ reconcileOrphanedWorkingTasks: state.reconcileTasks, setOrphanedTaskListener: state.setOrphanListener }));
+vi.mock("@/lib/task-runtime-lease", () => ({ reconcileOrphanedWorkingTasks: state.reconcileTasks, setOrphanedTaskListener: state.setOrphanListener, setLeaseLostListener: state.setLeaseLostListener }));
 vi.mock("@/lib/room-runtime", () => ({ reconcileRoomRuntime: state.reconcileRooms }));
 vi.mock("@/lib/direct-title", () => ({ backfillMissingTaskLabels: state.backfillLabels }));
 vi.mock("@/lib/pi/restart-resume", () => ({ handleOrphanedTasks: state.handleOrphans }));
@@ -37,6 +37,8 @@ describe("runtime startup", () => {
     state.backfillLabels.mockClear();
     state.promptTask.mockClear();
     state.setOrphanListener.mockReset();
+    state.setLeaseLostListener.mockReset();
+    state.abortAfterLeaseLoss.mockReset();
     state.handleOrphans.mockReset();
     state.order.length = 0;
   });
@@ -59,12 +61,16 @@ describe("runtime startup", () => {
 
   it("registers restart resume before reconciling and resumes with the task's own settings", async () => {
     vi.stubEnv("NEXT_RUNTIME", "nodejs");
+    state.setLeaseLostListener.mockImplementation(() => { state.order.push("lease-listener"); });
     state.setOrphanListener.mockImplementation(() => { state.order.push("listener"); });
     state.reconcileTasks.mockImplementation(() => { state.order.push("reconcile"); });
 
     await register();
 
-    expect(state.order).toEqual(["listener", "reconcile"]);
+    expect(state.order).toEqual(["lease-listener", "listener", "reconcile"]);
+    const leaseLostListener = state.setLeaseLostListener.mock.calls[0]?.[0] as (taskIds: string[]) => void;
+    leaseLostListener(["t1"]);
+    expect(state.abortAfterLeaseLoss).toHaveBeenCalledWith(["t1"]);
     const listener = state.setOrphanListener.mock.calls[0]?.[0] as (tasks: unknown[]) => void;
     const snapshot = { id: "t1" };
     listener([snapshot]);
@@ -93,6 +99,7 @@ describe("runtime startup", () => {
     vi.stubEnv("NEXT_RUNTIME", "nodejs");
     await Promise.all([register(), register(), register()]);
     expect(state.setOrphanListener).toHaveBeenCalledOnce();
+    expect(state.setLeaseLostListener).toHaveBeenCalledOnce();
     expect(state.reconcileTasks).toHaveBeenCalledOnce();
     expect(state.relay).toHaveBeenCalledOnce();
     expect(state.scheduler).toHaveBeenCalledOnce();
@@ -126,5 +133,7 @@ describe("runtime startup", () => {
     expect(state.warmModels).not.toHaveBeenCalled();
     expect(state.backfillLabels).not.toHaveBeenCalled();
     expect(state.setOrphanListener).not.toHaveBeenCalled();
+    expect(state.setLeaseLostListener).not.toHaveBeenCalled();
+    expect(state.abortAfterLeaseLoss).not.toHaveBeenCalled();
   });
 });
