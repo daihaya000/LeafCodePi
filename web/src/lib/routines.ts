@@ -5,7 +5,7 @@ import { randomUUID } from "node:crypto";
 import { dataDir } from "@/lib/paths";
 import { cronMatches, parseCron, weekdayMatches } from "@/lib/routine-schedule";
 import { isTransientRoutineStartError, nextRoutineFailureState, routineAutoDisabled, releaseSchedulerLock, runSchedulerTick, tryAcquireSchedulerLock } from "@backend-core/routine-scheduler.mjs";
-import { withDirectoryLock } from "@backend-core/directory-lock.mjs";
+import { newOwner as newLockOwner, ownerFile as lockOwnerFile, readOwnerSync as readLockOwnerSync, reclaimable as lockReclaimable, withDirectoryLock } from "@backend-core/directory-lock.mjs";
 import { botTaskId, getBot, listBots } from "@/lib/bots";
 import { getTaskDetail, promptTask } from "@/lib/pi/harness";
 import type { RoutineDto, RoutineRunEventDto, UiMessage } from "@/lib/types";
@@ -166,22 +166,37 @@ function updateRoutine(botId: string, routineId: string, update: (routine: Routi
   });
 }
 
-function tryClaimRoutineRun(botId: string, routineId: string): string | undefined {
+type RoutineRunClaim = { lock: string; token: string };
+
+function tryClaimRoutineRun(botId: string, routineId: string): RoutineRunClaim | undefined {
   const lock = routineRunLockPath(botId, routineId);
   mkdirSync(routineDir(botId), { recursive: true });
-  try {
+  const claim = (): RoutineRunClaim => {
     mkdirSync(lock);
-    return lock;
+    const token = newLockOwner();
+    try { writeFileSync(lockOwnerFile(lock), token, "utf8"); }
+    catch (error) { rmSync(lock, { recursive: true, force: true }); throw error; }
+    return { lock, token };
+  };
+  try {
+    return claim();
   } catch {
     try {
-      if (Date.now() - statSync(lock).mtimeMs > ROUTINE_RUN_LOCK_STALE_MS) {
+      // Only a stale claim whose owner process is gone is taken over; the former owner
+      // then cannot delete the new claim because release checks the token.
+      const seen = readLockOwnerSync(lock);
+      if (lockReclaimable(Date.now() - statSync(lock).mtimeMs, seen, ROUTINE_RUN_LOCK_STALE_MS) && readLockOwnerSync(lock) === seen) {
         rmSync(lock, { recursive: true, force: true });
-        mkdirSync(lock);
-        return lock;
+        return claim();
       }
     } catch { /* another worker owns or replaced the lock */ }
     return undefined;
   }
+}
+
+function releaseRoutineRun(claim: RoutineRunClaim): void {
+  // A claim taken over by another worker carries a different token and must stay.
+  if (readLockOwnerSync(claim.lock) === claim.token) rmSync(claim.lock, { recursive: true, force: true });
 }
 
 export async function runRoutine(botId: string, routineId: string): Promise<RoutineDto> {
@@ -250,7 +265,7 @@ export async function runRoutine(botId: string, routineId: string): Promise<Rout
         throw new Error(`${message}${suffix}`);
       }
     } finally {
-      rmSync(claim, { recursive: true, force: true });
+      releaseRoutineRun(claim);
     }
   })();
   routineRuns.set(key, run);

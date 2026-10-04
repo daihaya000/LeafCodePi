@@ -25,3 +25,15 @@ export function withDirectoryLockAsync<T>(
   },
   action: () => Promise<T> | T,
 ): Promise<T>;
+
+/** Fresh owner token (`pid:uuid`) for a lock directory. */
+export function newOwner(): string;
+/** Path of the owner file inside a lock directory. */
+export function ownerFile(lockPath: string): string;
+/** The owner token stored in a lock directory, or null when missing/unreadable. */
+export function readOwnerSync(lockPath: string): string | null;
+/**
+ * Whether a lock of the given age and owner token may be reclaimed: past `staleMs`, and its owner
+ * process is gone (or unidentifiable, or past the live-owner hard cap).
+ */
+export function reclaimable(ageMs: number, owner: string | null, staleMs: number): boolean;

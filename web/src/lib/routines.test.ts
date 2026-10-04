@@ -259,6 +259,26 @@ describe("routine cron and persistence", () => {
     });
   });
 
+  it("does not release a run claim that another worker took over", async () => {
+    const bot = createBot({ name: "Routine bot" });
+    const routine = createRoutine(bot.id, { name: "Hourly", prompt: "Check status", schedule: "0 * * * *" });
+    const lock = join(root, "bots", bot.id, "routines", `${routine.id}.run.lock`);
+    state.promptTask.mockImplementationOnce(async () => {
+      // Simulate a takeover while this run is in flight: the claim now carries another owner.
+      writeFileSync(join(lock, "owner"), "other:token", "utf8");
+    });
+    state.getTaskDetail.mockResolvedValueOnce({ status: "idle", messages: [] });
+
+    await runRoutine(bot.id, routine.id);
+    expect(readFileSync(join(lock, "owner"), "utf8")).toBe("other:token");
+    // An ordinary run releases its own claim.
+    rmSync(lock, { recursive: true, force: true });
+    state.promptTask.mockResolvedValueOnce(undefined);
+    state.getTaskDetail.mockResolvedValueOnce({ status: "idle", messages: [] });
+    await runRoutine(bot.id, routine.id);
+    expect(existsSync(lock)).toBe(false);
+  });
+
   it("publishes a run event for the global routine notification", async () => {
     const bot = createBot({ name: "Routine bot" });
     const routine = createRoutine(bot.id, { name: "Hourly", prompt: "Check status", schedule: "0 * * * *" });
