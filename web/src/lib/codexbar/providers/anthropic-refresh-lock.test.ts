@@ -50,8 +50,8 @@ describe("cross-process refresh lock", () => {
     const lockPath = `${credentials}.leafcode-refresh.lock`;
     let releaseHolder!: () => void;
     const holder = withRefreshFileLock(credentials, () => new Promise<void>((resolve) => { releaseHolder = resolve; }));
-    const future = new Date(Date.now() + 60_000);
-    utimesSync(lockPath, future, future);
+    const stale = new Date(Date.now() - 120_000);
+    utimesSync(lockPath, stale, stale);
     vi.useFakeTimers();
     const run = vi.fn(async () => "refreshed");
     const pending = withRefreshFileLock(credentials, run);

@@ -1,4 +1,4 @@
-import { chmodSync, closeSync, copyFileSync, mkdirSync, openSync, renameSync, statSync, unlinkSync, writeFileSync, writeSync } from "node:fs";
+import { chmodSync, closeSync, copyFileSync, mkdirSync, openSync, readFileSync, renameSync, statSync, unlinkSync, writeFileSync, writeSync } from "node:fs";
 import { randomUUID } from "node:crypto";
 import { dirname } from "node:path";
 import { lookup as osLookup, promises as dnsPromises } from "node:dns";
@@ -208,6 +208,22 @@ export function singleFlight<T>(key: string, run: () => Promise<T>): Promise<T> 
  */
 const REFRESH_LOCK_STALE_MS = 30_000;
 
+function isRefreshLockOwnerAlive(lockPath: string): boolean {
+  let pid: number;
+  try {
+    pid = Number(readFileSync(lockPath, "utf8").trim());
+  } catch {
+    return true; // Unknown owner: preserve the lock rather than risk a concurrent refresh.
+  }
+  if (!Number.isSafeInteger(pid) || pid <= 0) return true;
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (error) {
+    return (error as NodeJS.ErrnoException).code !== "ESRCH";
+  }
+}
+
 export async function withRefreshFileLock<T>(path: string, run: () => Promise<T>): Promise<T> {
   const lockPath = `${path}.leafcode-refresh.lock`;
   const deadline = Date.now() + REFRESH_LOCK_STALE_MS;
@@ -224,7 +240,12 @@ export async function withRefreshFileLock<T>(path: string, run: () => Promise<T>
         throw new Error("Timed out waiting for OAuth refresh lock");
       }
       try {
-        if (Date.now() - statSync(lockPath).mtimeMs > REFRESH_LOCK_STALE_MS) unlinkSync(lockPath);
+        if (
+          Date.now() - statSync(lockPath).mtimeMs > REFRESH_LOCK_STALE_MS &&
+          !isRefreshLockOwnerAlive(lockPath)
+        ) {
+          unlinkSync(lockPath);
+        }
       } catch {
         // The holder released it between the failed create and this stat.
       }
