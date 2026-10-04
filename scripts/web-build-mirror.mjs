@@ -114,13 +114,16 @@ function isUpToDate(sourceStat, targetStat, from, to) {
   }
 }
 
-function syncDir(sourceDir, targetDir, counters, reserved = []) {
+function syncDir(sourceDir, targetDir, counters, reserved = [], included = null, relativeDir = "") {
   mkdirSync(targetDir, { recursive: true });
 
   const sourceEntries = readdirSync(sourceDir, { withFileTypes: true });
   const keep = new Set(reserved);
+  const includedPaths = included ? [...included] : null;
 
   for (const entry of sourceEntries) {
+    const relativePath = relativeDir ? `${relativeDir}/${entry.name}` : entry.name;
+    if (includedPaths && !includedPaths.some((path) => path === relativePath || path.startsWith(`${relativePath}/`))) continue;
     // Name-based: also exclude the updater's private staging trees and mutex.
     if (SKIP_DIRS.has(entry.name) || SKIP_FILES.has(entry.name) || entry.name.startsWith(".leafcode-pi-")) continue;
 
@@ -141,7 +144,7 @@ function syncDir(sourceDir, targetDir, counters, reserved = []) {
     keep.add(entry.name);
 
     if (kind === "dir") {
-      syncDir(from, to, counters);
+      syncDir(from, to, counters, [], included, relativePath);
       continue;
     }
 
@@ -189,13 +192,21 @@ export function syncMirror(options = {}) {
   }
 
   // Transitional runtime imports are copied as source, never as dependencies.
+  // Keep their original relative-import layout inside the mirror.
   const extras = [
-    { name: "shared", source: join(dirname(sourceDir), "shared") },
-    { name: "backend-core", source: join(dirname(sourceDir), "backend", "core") },
+    { name: "shared", path: ["shared"], source: join(dirname(sourceDir), "shared") },
+    { name: "backend/core", path: ["backend", "core"], source: join(dirname(sourceDir), "backend", "core") },
+    {
+      name: "extensions/leafcode-subagents",
+      path: ["extensions", "leafcode-subagents"],
+      source: join(dirname(sourceDir), "extensions", "leafcode-subagents"),
+      include: new Set(["src/api/background-work.ts"]),
+    },
   ];
+  const reservedNames = [...new Set(extras.map((extra) => extra.path[0]))];
   for (const extra of extras) {
-    if (existsSync(join(sourceDir, extra.name))) {
-      throw new Error(`web/${extra.name} is reserved for mirrored checkout sources`);
+    if (existsSync(join(sourceDir, extra.path[0]))) {
+      throw new Error(`web/${extra.path[0]} is reserved for mirrored checkout sources`);
     }
     const normalized = process.platform === "win32" ? extra.source.toLowerCase() : extra.source;
     if (target === normalized || target.startsWith(normalized + sep) || normalized.startsWith(target.endsWith(sep) ? target : target + sep)) {
@@ -207,18 +218,20 @@ export function syncMirror(options = {}) {
         throw new Error(`The checkout ${extra.name} directory must be a regular directory`);
       }
     }
-    const destination = join(mirrorRoot, extra.name);
-    if (existsSync(destination) && lstatSync(destination).isSymbolicLink()) {
-      throw new Error(`The mirrored ${extra.name} directory must not be a symbolic link`);
+    for (let length = 1; length <= extra.path.length; length += 1) {
+      const destination = join(mirrorRoot, ...extra.path.slice(0, length));
+      if (existsSync(destination) && lstatSync(destination).isSymbolicLink()) {
+        throw new Error(`The mirrored ${extra.name} directory must not be a symbolic link`);
+      }
     }
   }
   const counters = { copied: 0, unchanged: 0, removed: 0 };
   const startedAt = Date.now();
-  syncDir(sourceDir, mirrorRoot, counters, extras.map((extra) => extra.name));
+  syncDir(sourceDir, mirrorRoot, counters, reservedNames);
   for (const extra of extras) {
-    const destination = join(mirrorRoot, extra.name);
+    const destination = join(mirrorRoot, ...extra.path);
     if (existsSync(extra.source)) {
-      syncDir(extra.source, destination, counters);
+      syncDir(extra.source, destination, counters, [], extra.include);
     } else if (existsSync(destination)) {
       rmSync(destination, { recursive: true, force: true });
       counters.removed += 1;

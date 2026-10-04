@@ -4,8 +4,8 @@ import { rm } from "node:fs/promises";
 import { homedir } from "node:os";
 import { basename, dirname, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { captureSessionBackgroundWorkStop, captureSessionShutdownResourceStop } from "../../../../extensions/leafcode-subagents/src/api/background-work.ts";
-import { runBackendMcpNativeSessionShutdownActions } from "../../../../backend/core/mcp-native-session.mjs";
+import { captureSessionBackgroundWorkStop, captureSessionShutdownResourceStop } from "@extensions/leafcode-subagents/src/api/background-work.ts";
+import { runBackendMcpNativeSessionShutdownActions } from "@backend-core/mcp-native-session.mjs";
 import {
   dataDir,
   isAbsolutePath,

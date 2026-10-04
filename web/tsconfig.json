@@ -36,8 +36,12 @@
         "../shared/*"
       ],
       "@backend-core/*": [
-        "./backend-core/*",
+        "./backend/core/*",
         "../backend/core/*"
+      ],
+      "@extensions/*": [
+        "./extensions/*",
+        "../extensions/*"
       ]
     }
   },

@@ -167,7 +167,7 @@ test("syncMirror isolates shared contracts per checkout and prunes removed contr
   }
 });
 
-test("syncMirror copies only the transitional backend core, not its dependencies or server", () => {
+test("syncMirror preserves relative imports for transitional runtime sources", () => {
   const { root, source, mirror } = sandbox();
   try {
     mkdirSync(source, { recursive: true });
@@ -176,10 +176,28 @@ test("syncMirror copies only the transitional backend core, not its dependencies
     writeFileSync(join(backend, "core", "manager.mjs"), "export class Manager {}\n");
     writeFileSync(join(backend, "src", "entry.mjs"), "server\n");
     writeFileSync(join(backend, "node_modules", "secret"), "dependency\n");
+    const subagentsApi = join(root, "extensions", "leafcode-subagents", "src", "api");
+    mkdirSync(join(subagentsApi, "node_modules"), { recursive: true });
+    writeFileSync(join(subagentsApi, "background-work.ts"), "export const registry = true;\n");
+    writeFileSync(join(subagentsApi, "capability-ceiling.ts"), "not needed by the WebUI\n");
+    writeFileSync(join(subagentsApi, "node_modules", "secret"), "dependency\n");
+    const staleExtension = join(mirror, "extensions", "leafcode-subagents", "src", "agents", "stale.ts");
+    mkdirSync(dirname(staleExtension), { recursive: true });
+    writeFileSync(staleExtension, "stale mirrored source\n");
+    mkdirSync(join(mirror, "backend-core"), { recursive: true });
+    writeFileSync(join(mirror, "backend-core", "stale.mjs"), "legacy mirror layout\n");
+
     syncMirror({ sourceDir: source, mirrorRoot: mirror });
-    assert.equal(readFileSync(join(mirror, "backend-core", "manager.mjs"), "utf8"), "export class Manager {}\n");
-    assert.equal(existsSync(join(mirror, "backend-core", "entry.mjs")), false);
-    assert.equal(existsSync(join(mirror, "backend-core", "node_modules")), false);
+
+    assert.equal(readFileSync(join(mirror, "backend", "core", "manager.mjs"), "utf8"), "export class Manager {}\n");
+    assert.equal(existsSync(join(mirror, "backend", "src", "entry.mjs")), false);
+    assert.equal(existsSync(join(mirror, "backend", "core", "node_modules")), false);
+    assert.equal(existsSync(join(mirror, "backend-core")), false);
+    assert.equal(existsSync(staleExtension), false);
+    const mirroredApi = join(mirror, "extensions", "leafcode-subagents", "src", "api");
+    assert.equal(readFileSync(join(mirroredApi, "background-work.ts"), "utf8"), "export const registry = true;\n");
+    assert.equal(existsSync(join(mirroredApi, "capability-ceiling.ts")), false);
+    assert.equal(existsSync(join(mirroredApi, "node_modules")), false);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
