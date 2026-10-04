@@ -177,6 +177,18 @@ test("missing, corrupt and unsupported files return an empty store without eager
   }
 });
 
+test("mutations refuse to overwrite corrupt or unsupported store files", (t) => {
+  const f = fixture(t);
+  for (const text of ["{invalid", "", JSON.stringify({ version: 2, projects: [], tasks: [] }), JSON.stringify({ version: 1, projects: [], tasks: null })]) {
+    writeFileSync(f.file(), text, "utf8");
+    assert.throws(() => f.store.insertTask({ project: null, title: "must not persist" }), /refusing to overwrite/);
+    assert.throws(() => f.store.upsertProject({ name: "p", rootPath: "C:/Work" }), /refusing to overwrite/);
+    assert.equal(readFileSync(f.file(), "utf8"), text);
+  }
+  rmSync(f.file());
+  assert.equal(f.store.upsertProject({ name: "p", rootPath: "C:/Work" }).name, "p");
+});
+
 test("a failed mutation leaves the previous destination and read cache intact", (t) => {
   const f = fixture(t);
   const project = f.store.upsertProject({ rootPath: "first" });

@@ -22,7 +22,7 @@ export class AppStore {
   #mutate(update) {
     return withFileLock(this.storePath(), () => {
       try {
-        this.#readStore(true);
+        this.#readStore(true, true);
         return update();
       } catch (error) {
         this.#cachedStore = null;
@@ -31,12 +31,18 @@ export class AppStore {
     });
   }
 
-  #readStore(fresh = false) {
+  /**
+   * `strict` (mutations only): an existing file that cannot be interpreted throws instead of
+   * yielding an empty store, so a transient/corrupt read never replaces real data on write.
+   * A missing file is still a valid empty store.
+   */
+  #readStore(fresh = false, strict = false) {
     const file = this.storePath();
     let stat;
     try { stat = statSync(file); }
-    catch {
+    catch (error) {
       if (this.#cachedStore?.file === file) this.#cachedStore = null;
+      if (strict && error?.code !== "ENOENT") throw new Error(`store file could not be inspected; refusing to overwrite: ${file}`, { cause: error });
       return emptyStore();
     }
     if (!fresh && this.#cachedStore?.file === file && this.#cachedStore.mtimeMs === stat.mtimeMs && this.#cachedStore.size === stat.size) {
@@ -47,6 +53,7 @@ export class AppStore {
       const parsed = JSON.parse(raw);
       if (!parsed || parsed.version !== 1 || !Array.isArray(parsed.projects) || !Array.isArray(parsed.tasks)) {
         this.#cachedStore = null;
+        if (strict) throw new Error(`store file has an unsupported format; refusing to overwrite: ${file}`);
         return emptyStore();
       }
       if (this.#cachedStore?.file === file && this.#cachedStore.raw === raw) {
@@ -56,8 +63,9 @@ export class AppStore {
       }
       this.#cachedStore = { file, value: parsed, mtimeMs: stat.mtimeMs, size: stat.size, raw };
       return parsed;
-    } catch {
+    } catch (error) {
       this.#cachedStore = null;
+      if (strict) throw new Error(`store file could not be read; refusing to overwrite: ${file}`, { cause: error });
       return emptyStore();
     }
   }
