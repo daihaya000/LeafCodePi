@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, rmSync, statSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, expect, it } from "vitest";
@@ -132,4 +132,28 @@ it("get sees a value another worker set after this instance first read the file"
 	reader.set("other", 1);
 	expect(reader.get("checkpoint")).toBe("from-other-worker-again");
 	expect(writer.get("other")).toBe(1);
+});
+
+it("get sees same-size external updates when the file timestamp is unchanged", () => {
+	root = mkdtempSync(join(tmpdir(), "mission-state-same-signature-"));
+	const location = {
+		projectRoot: root,
+		missionDir: join(root, "missions"),
+		globalIndexDir: join(root, "index"),
+		writeGlobalIndex: false,
+	};
+	const reader = createMissionWorkflowState(location, "mission-same-signature");
+	const writer = createMissionWorkflowState(location, "mission-same-signature");
+	reader.set("checkpoint", "before");
+	const fixedTime = new Date("2024-01-01T00:00:00.000Z");
+	utimesSync(reader.path, fixedTime, fixedTime);
+	const before = statSync(reader.path);
+	expect(reader.get("checkpoint")).toBe("before");
+
+	writer.set("checkpoint", "after!");
+	utimesSync(reader.path, fixedTime, fixedTime);
+	const after = statSync(reader.path);
+	expect(after.size).toBe(before.size);
+	expect(after.mtimeMs).toBe(before.mtimeMs);
+	expect(reader.get("checkpoint")).toBe("after!");
 });

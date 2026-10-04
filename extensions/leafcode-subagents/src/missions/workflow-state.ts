@@ -275,8 +275,6 @@ function validateStateKey(value: unknown): string {
 
 export function createMissionWorkflowState(location: MissionStoreLocation, missionId: string): MissionWorkflowState {
 	const filePath = missionStatePath(location, missionId);
-	let loaded = false;
-	let values: Record<string, unknown> = Object.create(null) as Record<string, unknown>;
 
 	const readStateFile = (): Record<string, unknown> => {
 		let raw: string;
@@ -298,33 +296,13 @@ export function createMissionWorkflowState(location: MissionStoreLocation, missi
 		}
 	};
 
-	// Another process may `set` into the same file; the cached copy is trusted only while the file's
-	// mtime/size signature is unchanged, so `get` never serves a value another worker already replaced.
-	let signature = "";
-	const fileSignature = (): string => {
-		try {
-			const stat = fs.statSync(filePath);
-			return `${stat.mtimeMs}:${stat.size}`;
-		} catch (error) {
-			if ((error as NodeJS.ErrnoException).code === "ENOENT") return "missing";
-			return "unknown";
-		}
-	};
-
-	const load = (): Record<string, unknown> => {
-		const current = fileSignature();
-		if (loaded && current === signature && current !== "unknown") return values;
-		values = readStateFile();
-		signature = current;
-		loaded = true;
-		return values;
-	};
+	// Atomic replacement lets each get read a complete snapshot while keeping other processes' sets visible.
 
 	return {
 		path: filePath,
 		get(key) {
 			const validKey = validateStateKey(key);
-			const current = load();
+			const current = readStateFile();
 			return Object.hasOwn(current, validKey) ? current[validKey] : undefined;
 		},
 		set(key, value) {
@@ -335,9 +313,6 @@ export function createMissionWorkflowState(location: MissionStoreLocation, missi
 				const bytes = Buffer.byteLength(JSON.stringify(next, null, 2));
 				if (bytes > MISSION_STATE_MAX_BYTES) throw new Error(`Mission state exceeds the 256 KiB limit (${bytes} bytes; maximum ${MISSION_STATE_MAX_BYTES} bytes).`);
 				writePrivateAtomicJson(filePath, next);
-				values = next;
-				signature = fileSignature();
-				loaded = true;
 			});
 		},
 	};
