@@ -92,8 +92,8 @@ export function normalizeBotSkills(value) {
 /**
  * Read one stored config. Anything unreadable, malformed or belonging to another
  * id parses as null. A legacy default allowlist, or a field written by an older
- * build, is migrated once through `writeConfig` — and a failure there is a read
- * failure, exactly as when the migration wrote the file inline.
+ * build, is migrated once through `writeConfig`; a failed migration write still
+ * returns the normalized config and is retried by the next read.
  */
 export function parseBotConfig({ id, readText, writeConfig, toolNames, defaultToolNames }) {
   try {
@@ -127,11 +127,16 @@ export function parseBotConfig({ id, readText, writeConfig, toolNames, defaultTo
     // Migrate legacy bots once, keeping the fallback stable for every subsequent read.
     const needsShapeRewrite = !isAvatarColor(value.avatarColor) || typeof value.label !== "string"
       || typeof value.notificationsEnabled !== "boolean" || typeof value.codeAutoApprove !== "boolean";
-    if (needsShapeRewrite) writeConfig(config);
-    // A tool-allowlist migration alone must not rewrite the rest of the file: a value this build does
-    // not know (a newer permission mode, a field from a later build) has to stay on disk untouched,
-    // exactly like an unknown tool name does.
-    else if (migrateTools) writeConfig({ ...value, tools });
+    // A failed migration write (EPERM from a sync tool, disk full) must not turn a valid bot into
+    // "no such bot": the normalized config is still returned and the migration is retried on the
+    // next read, because the stored file still looks legacy.
+    try {
+      if (needsShapeRewrite) writeConfig(config);
+      // A tool-allowlist migration alone must not rewrite the rest of the file: a value this build does
+      // not know (a newer permission mode, a field from a later build) has to stay on disk untouched,
+      // exactly like an unknown tool name does.
+      else if (migrateTools) writeConfig({ ...value, tools });
+    } catch { /* retried on the next read */ }
     return config;
   } catch { return null; }
 }

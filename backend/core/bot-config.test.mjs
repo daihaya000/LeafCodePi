@@ -131,9 +131,15 @@ test("a record for another id, a missing name or unreadable JSON parses as null 
   assert.equal(parseBotConfig({ id: ID, readText: () => { throw new Error("EACCES"); }, writeConfig: () => undefined, toolNames: TOOL_NAMES, defaultToolNames: DEFAULT_TOOL_NAMES }), null);
 });
 
-test("a migration write failing makes the read fail, as before", () => {
-  const { config } = parse(stored(), { writeConfig: () => { throw new Error("disk full"); } });
-  assert.equal(config, null);
+test("a migration write failing still returns the normalized config so the bot is not dropped", () => {
+  let attempts = 0;
+  const { config } = parse(stored(), { writeConfig: () => { attempts += 1; throw new Error("disk full"); } });
+  assert.equal(config?.id, ID);
+  assert.equal(attempts, 1);
+  // Reading again retries the migration because the file on disk is unchanged.
+  const again = parse(stored(), { writeConfig: () => { attempts += 1; throw new Error("disk full"); } });
+  assert.equal(again.config?.id, ID);
+  assert.equal(attempts, 2);
 });
 
 test("values written by older builds are normalized on read and migrated once", () => {
