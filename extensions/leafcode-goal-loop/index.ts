@@ -755,6 +755,13 @@ function currentLoop(runtime: Runtime): GoalLoop | null {
   return readLoop(runtime.cwd, runtime.sessionId);
 }
 
+function syncScheduleWatchdogRef(runtime: Runtime, status: GoalLoopStatus | null | undefined): void {
+  const timer = runtime.watchdogTimer;
+  if (!timer) return;
+  if (status === "queued" || status === "running" || status === "verifying_completed") timer.ref?.();
+  else timer.unref?.();
+}
+
 function clearTimer(runtime: Runtime): void {
   if (runtime.timer) clearTimeout(runtime.timer);
   if (runtime.timeoutTimer) clearTimeout(runtime.timeoutTimer);
@@ -763,7 +770,7 @@ function clearTimer(runtime: Runtime): void {
   runtime.lastTurnActivityAt = undefined;
 }
 
-/** One timer per turn; streaming tokens only update a timestamp, not timers or disk. */
+/** One referenced timer per live turn; streaming tokens only update a timestamp, not timers or disk. */
 function armTurnTimeout(runtime: Runtime): void {
   if (runtime.timeoutTimer) clearTimeout(runtime.timeoutTimer);
   const timeoutMs = turnTimeoutMs();
@@ -778,14 +785,12 @@ function armTurnTimeout(runtime: Runtime): void {
       : timeoutMs - (now - (runtime.lastTurnActivityAt ?? now));
     if (remaining > 0) {
       runtime.timeoutTimer = setTimeout(check, remaining);
-      runtime.timeoutTimer.unref?.();
       return;
     }
     if (currentLoop(runtime)?.status !== "running") return;
     if (!pauseLoop(runtime, "turn_timeout", "進捗が確認できないまま時間切れになったため一時停止しました。")) {
       // A failed state write must not leave a running turn without its watchdog.
       runtime.timeoutTimer = setTimeout(check, Math.max(250, timeoutMs));
-      runtime.timeoutTimer.unref?.();
       return;
     }
     try {
@@ -795,7 +800,6 @@ function armTurnTimeout(runtime: Runtime): void {
     }
   };
   runtime.timeoutTimer = setTimeout(check, timeoutMs);
-  runtime.timeoutTimer.unref?.();
 }
 
 function short(value: string, max: number): string {
@@ -824,6 +828,7 @@ function nextTurnNumber(loop: GoalLoop): number {
 }
 
 function updateUI(runtime: Runtime, loop: GoalLoop | null): void {
+  syncScheduleWatchdogRef(runtime, loop?.status);
   try {
     if (!loop) {
       runtime.ctx.ui.setStatus(WIDGET_KEY, undefined);
@@ -1716,7 +1721,6 @@ function schedule(runtime: Runtime, delay = 250): void {
         runtime.sendTurnInFlight = false;
       });
   }, delay);
-  runtime.timer.unref?.();
 }
 
 /**
@@ -1777,7 +1781,7 @@ function ensureScheduled(runtime: Runtime): void {
 function startScheduleWatchdog(runtime: Runtime): void {
   if (runtime.watchdogTimer) return;
   runtime.watchdogTimer = setInterval(() => ensureScheduled(runtime), scheduleWatchdogMs());
-  runtime.watchdogTimer.unref?.();
+  syncScheduleWatchdogRef(runtime, currentLoop(runtime)?.status);
 }
 
 /**
@@ -2969,5 +2973,17 @@ export const goalLoopTestSeams = {
       typeof count === "number" && Number.isFinite(count)
         ? Math.max(0, Math.trunc(count))
         : undefined;
+  },
+  disposeAllForTests() {
+    for (const runtime of [...runtimes.values()]) retireRuntime(runtime);
+  },
+  timerRefState(sessionId: string) {
+    const runtime = [...runtimes.values()].find((candidate) => candidate.sessionId === sessionId);
+    if (!runtime) return null;
+    return {
+      schedule: runtime.timer?.hasRef?.() ?? null,
+      turnTimeout: runtime.timeoutTimer?.hasRef?.() ?? null,
+      watchdog: runtime.watchdogTimer?.hasRef?.() ?? null,
+    };
   },
 };

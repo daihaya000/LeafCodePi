@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import test from "node:test";
+import test, { after } from "node:test";
 import {
   extractGoalResult,
   extractGoalResultFromMessages,
@@ -20,6 +20,8 @@ import {
   safeIdPart,
 } from "./index.ts";
 import goalLoopExtensionImplementation, { goalLoopTestSeams } from "./index.ts";
+
+after(() => goalLoopTestSeams.disposeAllForTests());
 
 // Existing tests count sendMessage calls as agent-turn deliveries. The end
 // notice is a hidden follow-up, not a new turn, so keep that distinction in
@@ -5732,6 +5734,43 @@ function loopEndNoticeHarness(sessionId) {
   };
   return { sent, notices, readState, handlers, commands, ctx, pi, setBusy: (value) => { busy = value; } };
 }
+
+test("keeps scheduler and turn timers referenced only while the Goal Loop is live", async () => {
+  const cwd = mkdtempSync(join(tmpdir(), "leafcode-goal-loop-timer-ref-"));
+  process.env.LEAFCODE_PI_DATA_DIR = cwd;
+  const sessionId = "timer-ref-session";
+  const harness = loopEndNoticeHarness(sessionId);
+  const { handlers, commands, ctx, pi, readState } = harness;
+
+  try {
+    goalLoopExtension(pi);
+    await handlers.get("session_start")?.({}, ctx);
+    assert.deepEqual(goalLoopTestSeams.timerRefState(sessionId), {
+      schedule: null, turnTimeout: null, watchdog: false,
+    });
+
+    await commands.get("goal-start")?.(Buffer.from(JSON.stringify({ goal: "demo", maxTurns: 2 })).toString("base64url"), ctx);
+    assert.equal(readState().status, "queued");
+    assert.deepEqual(goalLoopTestSeams.timerRefState(sessionId), {
+      schedule: true, turnTimeout: null, watchdog: true,
+    });
+
+    await waitFor(() => readState().status === "running");
+    assert.deepEqual(goalLoopTestSeams.timerRefState(sessionId), {
+      schedule: null, turnTimeout: true, watchdog: true,
+    });
+
+    await commands.get("goal-pause")?.("", ctx);
+    assert.equal(readState().status, "paused");
+    assert.deepEqual(goalLoopTestSeams.timerRefState(sessionId), {
+      schedule: null, turnTimeout: null, watchdog: false,
+    });
+  } finally {
+    await handlers.get("session_shutdown")?.({}, ctx);
+    delete process.env.LEAFCODE_PI_DATA_DIR;
+    rmSync(cwd, { recursive: true, force: true });
+  }
+});
 
 test("queues a single hidden loop-end notice after the loop stops", async () => {
   const cwd = mkdtempSync(join(tmpdir(), "leafcode-goal-loop-end-notice-"));
