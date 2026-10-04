@@ -103,7 +103,10 @@ function openSource() {
   try {
     next = new EventSource(`/api/bots/events?epoch=${Date.now()}`);
   } catch {
-    // An unavailable transport leaves the consumers' idle polls as the fallback.
+    // Consumers' idle polls cover the gap, but subscribers stay registered, so keep
+    // retrying with backoff instead of going silent for the life of the tab.
+    notifyError();
+    scheduleReconnect();
     return;
   }
   source = next;

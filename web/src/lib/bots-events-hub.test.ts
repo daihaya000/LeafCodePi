@@ -125,6 +125,29 @@ describe("bots-events-hub", () => {
     stop();
   });
 
+  it("retries with backoff when the EventSource constructor throws", () => {
+    vi.useFakeTimers();
+    let attempts = 0;
+    vi.stubGlobal("EventSource", class {
+      constructor() {
+        attempts += 1;
+        if (attempts === 1) throw new Error("transport unavailable");
+        return new TestSource("/api/bots/events") as unknown as object;
+      }
+    });
+    const onError = vi.fn();
+    const onOpen = vi.fn();
+    const stop = subscribeBotsEvents({ onOpen, onError });
+    expect(attempts).toBe(1);
+    expect(onError).toHaveBeenCalledTimes(1);
+
+    vi.advanceTimersByTime(sseReconnectDelayMs(1));
+    expect(attempts).toBe(2);
+    lastSource().fireOpen();
+    expect(onOpen).toHaveBeenCalledTimes(1);
+    stop();
+  });
+
   it("keeps a malformed frame from taking down other subscribers", () => {
     const dirty = vi.fn();
     const routine = vi.fn();
