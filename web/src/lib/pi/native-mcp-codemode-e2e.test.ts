@@ -70,7 +70,8 @@ async function run(code: string) {
   mkdirSync(agentDir, { recursive: true });
   const script = join(root, "peer.mjs");
   writeFileSync(script, PEER, "utf8");
-  writeFileSync(join(agentDir, "mcp.json"), JSON.stringify({ mcpServers: { fixture: { command: process.execPath, args: [script], cwd: tmpdir() } } }), "utf8");
+  // Native MCP refuses a server cwd outside the session directory, so the fixture stays inside it.
+  writeFileSync(join(agentDir, "mcp.json"), JSON.stringify({ mcpServers: { fixture: { command: process.execPath, args: [script], cwd: root } } }), "utf8");
   writeFileSync(join(agentDir, "bundle.json"), "{}", "utf8");
   const runtime = createBackendMcpNativeRuntime({
     agentDir, bundledConfigPath: join(agentDir, "bundle.json"), homeDir: root,

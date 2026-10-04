@@ -15,12 +15,21 @@ const envKey = (key) => process.platform === "win32" ? key.toLowerCase() : key;
  * not move that root out of the session directory: the session cwd is already an authority check, so
  * the child inherits the same boundary. This refuses a configured cwd that used to launch outside the
  * session (including `~/...` when the home directory is elsewhere) instead of silently trusting it.
+ *
+ * Both sides go through the platform's own path rules rather than string equality: the session
+ * directory spelled with forward slashes, a trailing separator or `.`/`..` segments is still the same
+ * directory (and, on Windows, so is a different letter case), so it must not be refused.
+ *
+ * The boundary is lexical: symlinks and junctions are not resolved (this factory does no IO), so it
+ * stops a configured path from naming a place outside the session, not a link inside it that leads out.
  */
 function resolveChildCwd(sessionCwd, configured) {
-  const childCwd = resolve(sessionCwd, configured);
-  if (childCwd === sessionCwd) return childCwd;
-  const inside = relative(sessionCwd, childCwd);
-  if (!inside || inside.startsWith("..") || isAbsolute(inside) || inside.split(sep).includes("..")) throw unavailable();
+  const root = resolve(sessionCwd);
+  const childCwd = resolve(root, configured);
+  const inside = relative(root, childCwd);
+  // "" is the session directory itself. A path on another drive comes back absolute, and a path above
+  // or beside the session starts with a `..` segment (a directory merely named `..x` is inside).
+  if (isAbsolute(inside) || inside === ".." || inside.startsWith(`..${sep}`)) throw unavailable();
   return childCwd;
 }
 /** `identifiers` is true for server-declared config env (must be `${NAME}`-referable and predictable);

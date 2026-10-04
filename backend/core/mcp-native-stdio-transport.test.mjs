@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import { mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join, resolve } from "node:path";
+import { join, resolve, sep } from "node:path";
 import { test } from "node:test";
 import { McpClient, McpConnectionClosedError, StdioTransport } from "@earendil-works/pi-mcp";
 import { createBackendMcpStdioTransportFactory as create } from "./mcp-native-stdio-transport.mjs";
@@ -57,6 +57,29 @@ test("a server cwd may not leave the session directory", async () => {
     const transport = call(create(options), options);
     assert.equal(transport.options.cwd, resolve(options.sessionCwd, cwd ?? "."));
     await transport.close();
+  }
+});
+
+test("the session directory may be spelled any way the platform accepts", async () => {
+  const root = input().sessionCwd;
+  const spellings = {
+    "forward slashes": root.split(sep).join("/"),
+    "trailing separator": root + sep,
+    "dot segments": root + sep + "sub" + sep + "..",
+    ...(process.platform === "win32" ? { "another letter case": root.toUpperCase() } : {}),
+  };
+  for (const [label, sessionCwd] of Object.entries(spellings)) {
+    // The same directory under another spelling, and a directory that merely starts with two dots.
+    for (const cwd of [undefined, "work", "..hidden"]) {
+      const options = input(); options.sessionCwd = sessionCwd; options.snapshot.servers[0].config.cwd = cwd;
+      const transport = call(create(options), options);
+      assert.equal(transport.options.cwd, resolve(sessionCwd, cwd ?? "."), `${label}: ${cwd}`);
+      await transport.close();
+    }
+    for (const cwd of ["..", "../outside", "sub/../../outside"]) {
+      const options = input(); options.sessionCwd = sessionCwd; options.snapshot.servers[0].config.cwd = cwd;
+      assert.throws(() => call(create(options), options), safe, `${label}: ${cwd} must be refused`);
+    }
   }
 });
 
