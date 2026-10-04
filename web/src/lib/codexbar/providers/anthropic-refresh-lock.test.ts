@@ -31,6 +31,25 @@ describe("cross-process refresh lock", () => {
     expect(existsSync(lockPath)).toBe(false);
   });
 
+  it("does not remove a replacement lock when the previous refresh releases", async () => {
+    const lockPath = `${credentials}.leafcode-refresh.lock`;
+    let signalReady!: () => void;
+    let releaseHolder!: () => void;
+    const ready = new Promise<void>((resolve) => { signalReady = resolve; });
+    const holder = withRefreshFileLock(credentials, () => new Promise<void>((resolve) => {
+      releaseHolder = resolve;
+      signalReady();
+    }));
+    await ready;
+
+    const successor = JSON.stringify({ pid: process.pid + 1, processKey: "successor", nonce: "next-owner" });
+    writeFileSync(lockPath, successor, "utf8");
+    releaseHolder();
+    await holder;
+
+    expect(readFileSync(lockPath, "utf8")).toBe(successor);
+  });
+
   it("serializes a second holder that waits for the first to finish", async () => {
     const order: string[] = [];
     const first = __withRefreshLockForTests(credentials, async () => {
