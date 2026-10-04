@@ -1,4 +1,5 @@
-import { chmodSync, closeSync, copyFileSync, mkdirSync, openSync, readFileSync, renameSync, statSync, unlinkSync, writeFileSync, writeSync } from "node:fs";
+import { execFileSync } from "node:child_process";
+import { chmodSync, closeSync, copyFileSync, mkdirSync, openSync, readFileSync, renameSync, rmdirSync, statSync, unlinkSync, writeFileSync, writeSync } from "node:fs";
 import { randomUUID } from "node:crypto";
 import { dirname } from "node:path";
 import { lookup as osLookup, promises as dnsPromises } from "node:dns";
@@ -202,53 +203,154 @@ export function singleFlight<T>(key: string, run: () => Promise<T>): Promise<T> 
 
 /**
  * Cross-process refresh lock. OAuth refresh tokens rotate, so the CLI and the WebUI
- * must not spend the same one concurrently. A pid-stamped lock file serializes them
- * across processes; a lock with an old mtime is taken over. Wait is bounded, and
- * timeout rejects rather than refreshing without cross-process exclusion.
+ * must not spend the same one concurrently. A PID/start-key lock serializes them
+ * across processes; keyed stale locks are reclaimed only after owner exit or confirmed
+ * PID reuse. Legacy/unverifiable owners fail closed. Timeout rejects rather than refreshing unlocked.
  */
 const REFRESH_LOCK_STALE_MS = 30_000;
 
-function isRefreshLockOwnerAlive(lockPath: string): boolean {
-  let pid: number;
-  try {
-    pid = Number(readFileSync(lockPath, "utf8").trim());
-  } catch {
-    return true; // Unknown owner: preserve the lock rather than risk a concurrent refresh.
+interface RefreshLockOwner {
+  pid: number;
+  processKey?: string;
+}
+
+const PROCESS_START_KEY_CACHE_TTL_MS = 30_000;
+const PROCESS_START_KEY_FAILURE_CACHE_TTL_MS = 1_000;
+const PROCESS_START_KEY_CACHE_LIMIT = 32;
+const processStartKeyCache = new Map<number, { checkedAt: number; key?: string }>();
+
+function cacheProcessStartKey(pid: number, key?: string): void {
+  if (processStartKeyCache.size >= PROCESS_START_KEY_CACHE_LIMIT) {
+    const oldest = [...processStartKeyCache.entries()].sort((a, b) => a[1].checkedAt - b[1].checkedAt)[0];
+    if (oldest) processStartKeyCache.delete(oldest[0]);
   }
-  if (!Number.isSafeInteger(pid) || pid <= 0) return true;
+  processStartKeyCache.set(pid, { checkedAt: Date.now(), ...(key ? { key } : {}) });
+}
+
+function processStartKey(pid: number): string | undefined {
+  const cached = processStartKeyCache.get(pid);
+  if (cached && Date.now() - cached.checkedAt < (cached.key ? PROCESS_START_KEY_CACHE_TTL_MS : PROCESS_START_KEY_FAILURE_CACHE_TTL_MS)) return cached.key;
+  if (cached) processStartKeyCache.delete(pid);
+
+  let key: string | undefined;
   try {
-    process.kill(pid, 0);
-    return true;
+    if (process.platform === "linux") {
+      const stat = readFileSync(`/proc/${pid}/stat`, "utf8");
+      const commandEnd = stat.lastIndexOf(")");
+      const startTicks = commandEnd >= 0 ? stat.slice(commandEnd + 1).trim().split(/\s+/)[19] : undefined;
+      const bootId = readFileSync("/proc/sys/kernel/random/boot_id", "utf8").trim();
+      if (startTicks && bootId) key = `linux:${bootId}:${startTicks}`;
+    } else if (process.platform === "win32") {
+      const raw = execFileSync("powershell.exe", ["-NoProfile", "-NonInteractive", "-Command", `(Get-CimInstance Win32_Process -Filter "ProcessId=${pid}").CreationDate`], { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"], timeout: 1000, windowsHide: true }).trim();
+      if (raw) key = `win:${raw}`;
+    } else if (process.platform === "darwin") {
+      const raw = execFileSync("ps", ["-p", String(pid), "-o", "lstart="], { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"], timeout: 1000 }).trim();
+      if (raw) key = `ps:${raw}`;
+    }
+  } catch {
+    cacheProcessStartKey(pid);
+    return undefined;
+  }
+  cacheProcessStartKey(pid, key);
+  return key;
+}
+
+function readRefreshLockOwner(lockPath: string): RefreshLockOwner | null | undefined {
+  let raw: string;
+  try {
+    raw = readFileSync(lockPath, "utf8").trim();
+  } catch {
+    return undefined; // Unreadable or concurrently released: owner state is unknown.
+  }
+  const legacyPid = Number(raw);
+  if (Number.isSafeInteger(legacyPid) && legacyPid > 0) return { pid: legacyPid };
+  try {
+    const owner = JSON.parse(raw) as { pid?: unknown; processKey?: unknown };
+    if (!Number.isSafeInteger(owner.pid) || (owner.pid as number) <= 0) return null;
+    if (owner.processKey !== undefined && (typeof owner.processKey !== "string" || !owner.processKey)) return null;
+    return { pid: owner.pid as number, ...(typeof owner.processKey === "string" ? { processKey: owner.processKey } : {}) };
+  } catch {
+    return null;
+  }
+}
+
+function isRefreshLockOwnerAlive(lockPath: string): boolean {
+  const owner = readRefreshLockOwner(lockPath);
+  if (owner === null) return false; // A stale, malformed lock cannot identify a live holder.
+  if (owner === undefined) return true;
+  try {
+    process.kill(owner.pid, 0);
   } catch (error) {
-    return (error as NodeJS.ErrnoException).code !== "ESRCH";
+    const code = (error as NodeJS.ErrnoException).code;
+    if (code === "ESRCH") return false;
+    if (code !== "EPERM") return true; // Unknown probe failure: preserve the lock.
+  }
+  if (!owner.processKey) return true; // Legacy lock or unavailable start identity: fail closed.
+  const currentKey = processStartKey(owner.pid);
+  return currentKey === undefined || currentKey === owner.processKey;
+}
+
+function isRefreshLockStale(lockPath: string): boolean {
+  try {
+    return Date.now() - statSync(lockPath).mtimeMs > REFRESH_LOCK_STALE_MS;
+  } catch {
+    return false;
+  }
+}
+
+/** Serialize stale removal because cross-process start-key probes can block. */
+function reclaimStaleRefreshLock(lockPath: string, reclaimPath: string): void {
+  if (!isRefreshLockStale(lockPath) || isRefreshLockOwnerAlive(lockPath)) return;
+  try {
+    mkdirSync(reclaimPath, { mode: 0o700 });
+  } catch {
+    return; // Another contender owns the reclaim transaction.
+  }
+  try {
+    if (isRefreshLockStale(lockPath) && !isRefreshLockOwnerAlive(lockPath)) unlinkSync(lockPath);
+  } catch {
+    // The old lock was released or replaced while reclaiming.
+  } finally {
+    try { rmdirSync(reclaimPath); } catch { /* another contender already recovered it */ }
   }
 }
 
 export async function withRefreshFileLock<T>(path: string, run: () => Promise<T>): Promise<T> {
   const lockPath = `${path}.leafcode-refresh.lock`;
+  const reclaimPath = `${lockPath}.reclaim`;
+  const processKey = processStartKey(process.pid);
+  const ownerData = JSON.stringify({ pid: process.pid, ...(processKey ? { processKey } : {}) });
   const deadline = Date.now() + REFRESH_LOCK_STALE_MS;
   let fd: number | undefined;
   for (;;) {
+    if (Date.now() >= deadline) {
+      // Never spend a rotating refresh token without cross-process exclusion.
+      throw new Error("Timed out waiting for OAuth refresh lock");
+    }
+    try {
+      if (Date.now() - statSync(reclaimPath).mtimeMs <= REFRESH_LOCK_STALE_MS) {
+        await new Promise<void>((done) => { setTimeout(done, 25); });
+        continue;
+      }
+      // Recover a reclaim guard left by a process that exited mid-transaction.
+      rmdirSync(reclaimPath);
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "ENOENT") {
+        await new Promise<void>((done) => { setTimeout(done, 25); });
+        continue;
+      }
+    }
     try {
       mkdirSync(dirname(lockPath), { recursive: true, mode: 0o700 });
       fd = openSync(lockPath, "wx", 0o600);
-      writeSync(fd, String(process.pid));
+      writeSync(fd, ownerData);
       break;
     } catch {
       if (Date.now() >= deadline) {
         // Never spend a rotating refresh token without cross-process exclusion.
         throw new Error("Timed out waiting for OAuth refresh lock");
       }
-      try {
-        if (
-          Date.now() - statSync(lockPath).mtimeMs > REFRESH_LOCK_STALE_MS &&
-          !isRefreshLockOwnerAlive(lockPath)
-        ) {
-          unlinkSync(lockPath);
-        }
-      } catch {
-        // The holder released it between the failed create and this stat.
-      }
+      reclaimStaleRefreshLock(lockPath, reclaimPath);
       await new Promise<void>((done) => { setTimeout(done, 25); });
     }
   }

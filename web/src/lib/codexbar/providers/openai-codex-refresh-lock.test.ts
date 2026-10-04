@@ -52,7 +52,7 @@ describe("Codex refresh lock paths", () => {
       if (url === "https://auth.openai.com/oauth/token") {
         refreshCalls += 1;
         expect(existsSync(lockPath)).toBe(true);
-        expect(readFileSync(lockPath, "utf8")).toBe(String(process.pid));
+        expect(JSON.parse(readFileSync(lockPath, "utf8"))).toMatchObject({ pid: process.pid });
         expect(JSON.parse(String(init?.body)).refresh_token).toBe("old-refresh-fixture");
         await new Promise((resolve) => setTimeout(resolve, 10));
         return { ok: true, status: 200, body: JSON.stringify({ access_token: "new-access-fixture", refresh_token: "new-refresh-fixture" }) };

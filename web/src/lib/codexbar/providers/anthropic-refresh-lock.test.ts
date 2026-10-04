@@ -25,7 +25,7 @@ describe("cross-process refresh lock", () => {
     let sawLockInside = false;
     await __withRefreshLockForTests(credentials, async () => {
       sawLockInside = existsSync(lockPath);
-      expect(readFileSync(lockPath, "utf8")).toBe(String(process.pid));
+      expect(JSON.parse(readFileSync(lockPath, "utf8"))).toMatchObject({ pid: process.pid });
     });
     expect(sawLockInside).toBe(true);
     expect(existsSync(lockPath)).toBe(false);
@@ -66,6 +66,30 @@ describe("cross-process refresh lock", () => {
       releaseHolder();
       await holder;
     }
+    expect(existsSync(lockPath)).toBe(false);
+  });
+
+  it("reclaims a stale lock when its live PID belongs to a newer process", async () => {
+    const lockPath = `${credentials}.leafcode-refresh.lock`;
+    let releaseHolder!: () => void;
+    let processKey: string | undefined;
+    const holder = withRefreshFileLock(credentials, async () => {
+      processKey = (JSON.parse(readFileSync(lockPath, "utf8")) as { processKey?: string }).processKey;
+      await new Promise<void>((resolve) => { releaseHolder = resolve; });
+    });
+    try {
+      expect(processKey).toEqual(expect.any(String));
+    } finally {
+      releaseHolder();
+      await holder;
+    }
+
+    writeFileSync(lockPath, JSON.stringify({ pid: process.pid, processKey: `reused:${processKey}` }), "utf8");
+    const stale = new Date(Date.now() - 120_000);
+    utimesSync(lockPath, stale, stale);
+    let ran = false;
+    await __withRefreshLockForTests(credentials, async () => { ran = true; });
+    expect(ran).toBe(true);
     expect(existsSync(lockPath)).toBe(false);
   });
 
