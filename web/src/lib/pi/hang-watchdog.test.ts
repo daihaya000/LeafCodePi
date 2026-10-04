@@ -529,6 +529,38 @@ describe("hang-watchdog helpers", () => {
     }
   });
 
+  it("retries promotion of a valid temp snapshot during a tick when the main file is unreadable", async () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "leafcode-pi-hang-watchdog-tick-temp-"));
+    const previousDataDir = process.env.LEAFCODE_PI_DATA_DIR;
+    process.env.LEAFCODE_PI_DATA_DIR = root;
+    try {
+      armTaskHangWatch({ taskId: "tick-recovery", prompt: "work" });
+      const file = path.join(root, "hang-watches.json");
+      const snapshot = JSON.parse(fs.readFileSync(file, "utf8"));
+      snapshot.watches[0].state = "resolving";
+      snapshot.watches[0].retryUsed = MAX_HANG_RETRIES;
+      const temp = `${file}.777.00000000-0000-4000-8000-000000000001.tmp`;
+      fs.writeFileSync(temp, JSON.stringify(snapshot));
+      fs.writeFileSync(file, "{torn");
+      registerHangWatchdogHooks({
+        getLive: () => ({ messages: [], isStreaming: true, isCompacting: false }),
+        abortTask: async () => undefined,
+        resumePrompt: () => undefined,
+        notifyHangRetry: () => undefined,
+      });
+
+      await runHangWatchdogTick();
+
+      expect(getTaskHangWatch("tick-recovery")).toMatchObject({ state: "armed", retryUsed: MAX_HANG_RETRIES });
+      expect(JSON.parse(fs.readFileSync(file, "utf8")).watches[0]).toMatchObject({ state: "armed", retryUsed: MAX_HANG_RETRIES });
+      expect(fs.existsSync(temp)).toBe(false);
+    } finally {
+      if (previousDataDir === undefined) delete process.env.LEAFCODE_PI_DATA_DIR;
+      else process.env.LEAFCODE_PI_DATA_DIR = previousDataDir;
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
   it("keeps in-memory watches unchanged when recovery cannot persist", () => {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), "leafcode-pi-hang-watchdog-recovery-save-"));
     const previousDataDir = process.env.LEAFCODE_PI_DATA_DIR;

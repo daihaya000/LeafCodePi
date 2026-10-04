@@ -353,7 +353,9 @@ function recoverInterruptedHangWatchesLocked(): void {
   } catch { /* missing directory: keep the main snapshot */ }
   const recovered: WatchStore = {
     version: 1,
-    watches: (snapshot?.watches ?? []).map((row) => row.state === "resolving"
+    // If the main file is unreadable and no valid temp exists, retain this process's
+    // last known watches instead of writing an empty store over them.
+    watches: (snapshot?.watches ?? [...memoryWatches.values()]).map((row) => row.state === "resolving"
       ? { ...row, state: "armed", updatedAt: Date.now() }
       : row),
   };
@@ -721,7 +723,15 @@ export async function runHangWatchdogTick(): Promise<void> {
   if (watchdogTicking || !hooks) return;
   watchdogTicking = true;
   try {
-    syncMemoryFromDisk();
+    const snapshot = readStoreOrNull();
+    if (snapshot) {
+      syncMemoryFromDisk(snapshot);
+    } else {
+      // A temp may be the only complete snapshot after an interrupted rename. Retry
+      // promotion on ticks too; a failed repair leaves the in-memory watches intact.
+      try { recoverInterruptedHangWatches(); }
+      catch (error) { console.error("[hang-watchdog] failed to recover unreadable watch store:", error); }
+    }
     if (memoryWatches.size === 0) return;
     const timeoutMs = readHangTimeoutSettingMs();
     for (const row of [...memoryWatches.values()]) {
