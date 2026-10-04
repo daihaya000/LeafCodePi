@@ -561,7 +561,6 @@ function recoverLoopFromTemp(
   cwd: string,
   id: string,
   newerThan = Number.NEGATIVE_INFINITY,
-  requireSessionIdMatch = false,
 ): GoalLoop | null {
   try {
     const dir = path.dirname(file);
@@ -583,7 +582,9 @@ function recoverLoopFromTemp(
       try {
         const raw = JSON.parse(fs.readFileSync(temp.full, "utf8"));
         const record = asRecord(raw);
-        if (requireSessionIdMatch && typeof record?.sessionId === "string" && record.sessionId !== id) continue;
+        // A temp naming another session must never be promoted over this session's file, whichever name
+        // it was found under (legacy sanitized names are shared by several ids).
+        if (typeof record?.sessionId === "string" && record.sessionId !== id) continue;
         const loop = hydrateLoop(raw, cwd, id);
         if (!loop) continue;
         // Promote the newest valid temp so later reads stay consistent after a
@@ -638,7 +639,7 @@ function readLoop(cwd: string, id: string): GoalLoop | null {
   } catch {
     // Missing/torn legacy state may still have a recoverable temp snapshot.
   }
-  return recoverLoopFromTemp(legacyFile, cwd, id, Number.NEGATIVE_INFINITY, true);
+  return recoverLoopFromTemp(legacyFile, cwd, id, Number.NEGATIVE_INFINITY);
 }
 
 /**

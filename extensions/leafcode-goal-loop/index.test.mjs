@@ -89,6 +89,25 @@ test("reads legacy sanitized state filenames", () => {
   }
 });
 
+test("temp recovery never promotes a snapshot that names another session", () => {
+  const cwd = mkdtempSync(join(tmpdir(), "leafcode-goal-loop-temp-owner-"));
+  process.env.LEAFCODE_PI_DATA_DIR = cwd;
+  try {
+    const dir = join(cwd, "goals-loop");
+    mkdirSync(dir, { recursive: true });
+    const snapshot = (sessionId, goal) => JSON.stringify({ sessionId, goal, acceptance: [], status: "paused", progress: [] });
+    // The main file is missing; a temp under this session's name belongs to a different session.
+    writeFileSync(join(dir, "owned-session.json.1.1.tmp"), snapshot("someone-else", "foreign goal"), "utf8");
+    assert.equal(goalLoopTestSeams.readLoop(cwd, "owned-session"), null);
+    assert.equal(existsSync(join(dir, "owned-session.json")), false);
+    // Its own temp is still recovered.
+    writeFileSync(join(dir, "owned-session.json.2.2.tmp"), snapshot("owned-session", "own goal"), "utf8");
+    assert.equal(goalLoopTestSeams.readLoop(cwd, "owned-session")?.goal, "own goal");
+  } finally {
+    rmSync(cwd, { recursive: true, force: true });
+  }
+});
+
 test("extracts the last valid structured result", () => {
   const result = extractGoalResult(
     'ignored {"status":"progress","summary":"old"} {"status":"progress","summary":"new"}',
