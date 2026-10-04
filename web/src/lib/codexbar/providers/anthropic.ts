@@ -36,6 +36,7 @@ import {
   listClaudeResetGrants,
 } from "@/lib/codexbar/providers/anthropic-reset";
 import {
+  piAuthPathFor,
   readPiApiKey,
   readPiOAuthTokens,
   writeBackPiOAuthTokens,
@@ -435,11 +436,35 @@ function loadCredentialsFromPi(path?: string): ClaudeCredentials | null {
   };
 }
 
-/** Pi ストア向けトークンリフレッシュ。成功時は Pi auth.json へマージ書き戻しする。 */
-async function tryRefreshTokensInPi(
+/** Pi auth.json refresh. Serialize processes and reuse credentials refreshed while waiting for the lock. */
+function tryRefreshTokensInPi(
   creds: ClaudeCredentials,
   signal?: AbortSignal,
   authPathOverride?: string,
+): Promise<ClaudeCredentials | null> {
+  if (!creds.refreshToken) return Promise.resolve(null);
+  const path = authPathOverride ?? piAuthPathFor("anthropic");
+  const pending = refreshInFlight.get(path);
+  if (pending) return pending;
+  const run = withRefreshFileLock(path, () => {
+    const latest = loadCredentialsFromPi(path);
+    if (!latest) return Promise.resolve(null);
+    const accessChanged = latest.accessToken !== creds.accessToken;
+    if (accessChanged && (!latest.expiresAt || latest.expiresAt.getTime() > Date.now() + 60_000)) {
+      return Promise.resolve(latest);
+    }
+    return refreshTokensInPiOnce(latest, signal, path);
+  }).finally(() => {
+    if (refreshInFlight.get(path) === run) refreshInFlight.delete(path);
+  });
+  refreshInFlight.set(path, run);
+  return run;
+}
+
+async function refreshTokensInPiOnce(
+  creds: ClaudeCredentials,
+  signal: AbortSignal | undefined,
+  authPath: string,
 ): Promise<ClaudeCredentials | null> {
   if (!creds.refreshToken) return null;
   try {
@@ -460,19 +485,20 @@ async function tryRefreshTokensInPi(
     const refreshToken =
       typeof root?.refresh_token === "string" ? root.refresh_token : creds.refreshToken;
     const expiresIn = typeof root?.expires_in === "number" ? root.expires_in : 3600;
+    const expiresAt = new Date(Date.now() + expiresIn * 1000);
     await writeBackPiOAuthTokens(
       "anthropic",
       {
         access: accessToken,
         refresh: refreshToken,
-        expires: Date.now() + expiresIn * 1000,
+        expires: expiresAt.getTime(),
       },
-      authPathOverride ? { authPath: authPathOverride } : undefined,
+      { authPath },
     );
     return {
       accessToken,
       refreshToken,
-      expiresAt: new Date(Date.now() + expiresIn * 1000),
+      expiresAt,
       subscriptionType: null,
     };
   } catch {
