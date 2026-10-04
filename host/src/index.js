@@ -12,6 +12,7 @@ import { createLlamaControlServer, closeControlServer, listenControlServer } fro
 import { createLoopbackWebUiProxy, listenLoopbackWebUiProxy, closeLoopbackWebUiProxy } from "./loopback-webui-proxy.js";
 import { createLlamaServerService } from "./llama-server-service.js";
 import { awaitLockOwner, pidAlive, readLock, removeLock, writeLock } from "./lock.js";
+import { createRateLimitedReporter } from "./rate-limited-report.js";
 import { createLogFileWriter, formatLogLine } from "./log-file.js";
 import { getListeningPids, getPortListenerStatus } from "./port-scanner.js";
 import { hardKillTree, stopProcessTreeGracefully } from "./process-stop.js";
@@ -1313,9 +1314,18 @@ async function main() {
     log("Headless mode (no tray). Ctrl+C to quit.");
   }
 
+  // The 5 s maintenance tick must not fail silently: a tray menu that no longer matches the real
+  // processes is otherwise invisible until a restart. Failures go to the host log, rate-limited.
+  const maintenanceFailures = createRateLimitedReporter({ report: (line) => error(line) });
   setInterval(() => {
-    void reconcileWebUiBinding();
-    refreshStatusMenu().catch(() => {});
+    reconcileWebUiBinding().then(
+      () => maintenanceFailures.success("WebUI binding reconcile"),
+      (err) => maintenanceFailures.failure("WebUI binding reconcile", err),
+    );
+    refreshStatusMenu().then(
+      () => maintenanceFailures.success("Status menu refresh"),
+      (err) => maintenanceFailures.failure("Status menu refresh", err),
+    );
   }, 5000).unref?.();
   await refreshStatusMenu();
 
