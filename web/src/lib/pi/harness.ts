@@ -2582,6 +2582,30 @@ async function attachSession(
     }
     return appendMessage(message);
   };
+  const appendModelChange = session.sessionManager.appendModelChange.bind(session.sessionManager);
+  session.sessionManager.appendModelChange = (provider, modelId) => {
+    if (live.leaseLost) return "";
+    const leaseRequired =
+      live.promptActive || session.isStreaming || hasActiveTaskLease(taskId);
+    if (leaseRequired && !ownsTaskLease(taskId)) {
+      abortTaskSessionsAfterLeaseLoss([taskId]);
+      return "";
+    }
+    return appendModelChange(provider, modelId);
+  };
+  const appendThinkingLevelChange = session.sessionManager.appendThinkingLevelChange.bind(
+    session.sessionManager,
+  );
+  session.sessionManager.appendThinkingLevelChange = (thinkingLevel) => {
+    if (live.leaseLost) return "";
+    const leaseRequired =
+      live.promptActive || session.isStreaming || hasActiveTaskLease(taskId);
+    if (leaseRequired && !ownsTaskLease(taskId)) {
+      abortTaskSessionsAfterLeaseLoss([taskId]);
+      return "";
+    }
+    return appendThinkingLevelChange(thinkingLevel);
+  };
   const appendCustomMessageEntry = session.sessionManager.appendCustomMessageEntry.bind(
     session.sessionManager,
   );

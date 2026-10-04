@@ -4,7 +4,7 @@
 - 実施日: 2026-10-03（Asia/Tokyo）
 - 方針: 読み取り専用スキャンを起点に、各巡で 1 項目ずつ修正・回帰テスト・コミット。
 - 整理: 第1〜7巡を **ジャンル優先度順** に再編（ジャンル間は下表、各表内は重大度順）。第8〜10巡追記。
-- 件数: 合計 78（**全件対応済み**、うち実残存 4 行＝外部要因に依存）
+- 件数: 合計78。**2026-10-04再監査で少なくとも11行が未解消**（57/58/60/105/106/109/118/127/128/160/162）。従来の4行は本文の「残存」ラベルだけを数えた値であり、全件解消や外部要因のみを意味しない。
 
 ## ジャンル優先度
 
@@ -54,7 +54,7 @@
 
 | 重大度 | 箇所 | 内容 |
 | --- | --- | --- |
-| 高 **[一部修正 2026-10-03: heartbeat通知に加えagent_start/tool_execution_startでもtokenを再確認。失効時は旧LiveRuntimeのpromptを無効化し、abortBash→session.abort→破棄]** | `backend/core/task-runtime-lease.mjs`、`web/src/lib/task-runtime-lease.ts`、`web/src/lib/pi/harness.ts`、`web/src/lib/pi/task-fork.ts`、`extensions/leafcode-subagents/src/shared/fork-context.ts`、`extensions/leafcode-subagents/src/runs/foreground/execution.ts`、`extensions/leafcode-subagents/src/runs/foreground/subagent-executor.ts`、`extensions/leafcode-subagents/src/shared/types.ts` | 修正前: lease奪取後も旧runtimeが新規turn/toolを進め、Bashも止められなかった。修正後: turn/tool開始時にlease所有権を再確認し、BashへAbortSignalを送り、旧runtimeを破棄する。残存: あり（仕様どおり）。**確認（2026-10-04）**: lease 喪失後の書込みは harness.ts の 22 箇所（leaseLost 早期 return と ownsTaskLease による中断）で全て遮断済み。残るは喪失**前**に append 済みの entry と開始済み writeFile のみで、これらは巻き戻すと別プロセスの結果を壊すため回収しないのが正しい。 |
+| 高 **[一部修正 2026-10-03: heartbeat通知に加えagent_start/tool_execution_startでもtokenを再確認。失効時は旧LiveRuntimeのpromptを無効化し、abortBash→session.abort→破棄]** | `backend/core/task-runtime-lease.mjs`、`web/src/lib/task-runtime-lease.ts`、`web/src/lib/pi/harness.ts`、`web/src/lib/pi/task-fork.ts`、`extensions/leafcode-subagents/src/shared/fork-context.ts`、`extensions/leafcode-subagents/src/runs/foreground/execution.ts`、`extensions/leafcode-subagents/src/runs/foreground/subagent-executor.ts`、`extensions/leafcode-subagents/src/shared/types.ts` | 修正前: lease奪取後も旧runtimeが新規turn/toolを進め、Bashも止められなかった。修正後: turn/tool開始時にlease所有権を再確認し、BashへAbortSignalを送り、旧runtimeを破棄する。残存: あり（書込み経路の監査継続）。**再監査・修正（2026-10-04）**: appendModelChange/appendThinkingLevelChangeはlease喪失後も追記できたため、既存のleaseガードを追加。idle時の設定変更と所有中の追記は維持し、token置換時・失効確定後は追記せずローカルruntimeを停止する。両経路の回帰テストを追加。「22箇所で全て遮断」という以前の判定は撤回。appendUsage等の残る書込み経路と、チェック後の所有権変更は未検証。喪失前に確定済みのentryを巻き戻さないこととは別問題。 |
 | 高 **[一部修正 2026-10-03: 生存 PID で起動キー取得に失敗しても stale 扱いにせず経過時間で判定。他者 PID の起動キーも30秒TTL・32件上限でメモ化し、同期 powershell（最大1秒）の反復起動を回避。TTL超過後の再 probe は未対応]** | `extensions/leafcode-subagents/src/missions/workflow-state.ts` (~60–66, 105–113, reclaim ~156–161) | 修正前: 起動キー取得に同期powershell(timeout 1000ms)を呼び、取得失敗時は生存ロックを stale 扱いで奪っていた。修正後: 取得失敗時は経過時間で判定し、取得結果もTTLメモ化した。残存: なし。**修正**: 60秒未満の若いロックは stale になり得ないため probe 自体をスキップする。probe は TTL 超過後にのみ走り、回数もテストで計測する（若い所有者には 0 回）。 |
 | 高 **[修正済 2026-10-04: persistMailbox が書込直前にディスクをマージし、他プロセスのメッセージと後の既読マーカーを保全。検知はmtime+size+inoスタンプで行い同一ミリ秒の書き換えも拾う。保証は stamp と lock で取る]** | `web/src/lib/bot-intercom.ts`（~157, 430–437, 508–513） | 修正前: キャッシュしたinboxをそのまま書き戻し、他プロセスの更新を消していた。修正後: 書込前にディスクとマージし、mtime+size+inoスタンプで同一ミリ秒の書き換えも拾う。**修正**: persistMailbox の read-merge-write を withDirectoryLock で直列化し、stamp マージは非ロック書き込み向けのフォールバックとして残す。 |
 | 高〜中 **[一部修正 2026-10-04: anthropic と openai-codex(CLI/Pi) の token refresh を共通の lock file 機構でプロセス間でも直列化（stale な lock は回収、30秒で諦めて unlocked 実行）。pi-auth.ts は atomicWriteText と mkdir lock を実装済みのため変更なし]** | `web/src/lib/codexbar/providers/anthropic.ts`（`persistTokens` ~105–120、`tryRefreshTokens` ~123–145）、`openai-codex.ts`（`persistTokens` ~122、refresh 後 `loadAuth`）、`web/src/lib/codexbar/pi-auth.ts`（`writeBackPiOAuthTokens` ~182–214） | 使用量取得の OAuth refresh に single-flight が無い。IdP が refresh token を回したあと、CLI 側 `persistTokens` は書き込み失敗を握りつぶしてから古いファイルを読み直すので、新しい refresh だけが消える。Pi の `auth.json` はロック内でも `writeFileSync` で、クラッシュで全プロバイダ分が欠ける。並行ポーリングで同じ refresh を二度使うと、後勝ちが無効トークンを残す。 |
@@ -162,13 +162,13 @@
 | 低 **[修正済 2026-10-04: read-only ハンドルを mtime+size+ino のスタンプ付きでキャッシュし、検索ごとの DB 再オープンを解消（60秒 idle・4ファイルで破棄、ファイル変更時は作り直し）。全表スキャンは memory_fts で解消]** | `web/src/lib/memory-search.ts` (~38–47) | 修正前: 検索ごとにDBを再オープンしていた。修正後: read-onlyハンドルをmtime+size+inoスタンプ付きTTLでキャッシュする。残存: なし。memory_fts（fts5/trigram）が既に memories をミラーしているので、3文字以上のクエリは MATCH + bm25 で索引検索し、全表スキャンを排除した。2文字以下や FTS 未構築の古い DB のみ LIKE にフォールバックする。 |
 ## 残存項目の followup 計画（2026-10-04 時点・残存4行）
 
-上記計画表にあった 118 / 107 / 91 はいずれも実装済み。残る4行はすべて外部要因に依存する。
+以下は再監査前の4行集計に基づく旧計画。118には再監査で未解消問題が見つかっており、91のPOSIX実機検証も完了証明ではない。現在の最低残件数は冒頭に記載する。
 
 | 行 | 残存 | 種別 | 理由 |
 | --- | --- | --- | --- |
-| 57 | 喪失**前**に append 済みの entry は巻き戻せない | 仕様どおり | 巻き戻すと他プロセスの結果を壊す。喪失**後**は harness.ts の22箇所で遮断済み |
+| 57 | lease喪失後の書込み経路 | 監査・修正継続 | モデル・thinking追記のガード漏れを修正。appendUsage等の残る経路と所有権変更競合は未検証 |
 | 105 | 許可ルート制限 | 外部判断が必要 | UNC・ドライブ相対・仮想FS・OS標準ツリーは拒否済み。残りは外付けドライブ等のモデル置き場を壊す破壊的変更 |
 | 109 | 同期APIで最大40msのブロック | 構造上回避不可 | リトライ3回は「ロック吸収とtearing回避」の最適バランス |
 | 127 | 親プロセスが watchdog と共に SIGKILL された場合の後始末 | 構造上回避不可 | `finally` が走らない。Job Object または外部 reaper が必要 |
 
-**このスレッドで実行できる作業は完了。** 追加対応には OS 側（Job Object）または破壊的変更の可否判断が必要。
+**全件完了・すべて解消不能という以前の結論は撤回。** 再監査で判明した実装漏れを順次修正し、未検証の経路を確認する。

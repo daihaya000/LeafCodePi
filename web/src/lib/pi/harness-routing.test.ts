@@ -69,6 +69,14 @@ const fakePi = vi.hoisted(() => {
         history.push(message);
         return `message-${history.length}`;
       },
+      appendModelChange: (provider: string, modelId: string) => {
+        history.push({ type: "model_change", provider, modelId });
+        return `model-change-${history.length}`;
+      },
+      appendThinkingLevelChange: (thinkingLevel: string) => {
+        history.push({ type: "thinking_level_change", thinkingLevel });
+        return `thinking-level-change-${history.length}`;
+      },
       appendCustomMessageEntry: (customType: string, content: unknown, display: boolean, details?: unknown) => {
         history.push({ type: "custom_message", customType, content, display, details });
         return `custom-message-${history.length}`;
@@ -1606,6 +1614,60 @@ describe("integrated session routing", () => {
     expect(harness.live.has(task.id)).toBe(false);
     expect(getTask(task.id)?.status).toBe("working");
     expect(JSON.parse(readFileSync(taskRuntimeLeasePath(task.id), "utf8")).token).toBe("other-worker");
+  });
+
+  it.each(["model", "thinking"] as const)("suppresses %s entries after lease ownership changes", async (kind) => {
+    const dir = mkdtempSync(join(tmpdir(), `leafcode-pi-${kind}-lease-`));
+    tempDirs.push(dir);
+    process.env.LEAFCODE_PI_DATA_DIR = dir;
+    process.env.PI_CODING_AGENT_DIR = join(dir, "agent");
+    __resetPiAgentDirCacheForTests();
+    installHarness(new Map());
+    const project = upsertProject({ name: "demo", rootPath: dir });
+    const task = await createTask({ projectId: project.id, prompt: "initial" });
+    const harness = (globalThis as Record<string, unknown>)[GLOBAL_KEY] as {
+      live: Map<string, {
+        promptChain: Promise<void>;
+        session: {
+          sessionManager: {
+            appendModelChange: (provider: string, modelId: string) => string;
+            appendThinkingLevelChange: (thinkingLevel: string) => string;
+            history: unknown[];
+          };
+          abort?: () => Promise<void>;
+        };
+      }>;
+    };
+    const live = harness.live.get(task.id)!;
+    await live.promptChain;
+    const { acquireTaskLease, hasActiveTaskLease } = await import("@/lib/task-runtime-lease");
+    const manager = live.session.sessionManager;
+    const append = () => kind === "model"
+      ? manager.appendModelChange("fixture", "lease-test-model")
+      : manager.appendThinkingLevelChange("high");
+    const history = manager.history;
+    const before = history.length;
+    expect(hasActiveTaskLease(task.id)).toBe(false);
+    expect(append()).not.toBe(""); // Idle settings changes do not require a lease.
+    expect(acquireTaskLease(task.id)).toBe(true);
+    patchTask(task.id, { status: "working" });
+    expect(append()).not.toBe(""); // The current owner may still write.
+    expect(history).toHaveLength(before + 2);
+
+    const sessionEntry = fakePi.sessions.at(-1)!;
+    live.session.abort = async () => { sessionEntry.events.push("abort-requested"); };
+    const leasePath = taskRuntimeLeasePath(task.id);
+    mkdirSync(dirname(leasePath), { recursive: true });
+    writeFileSync(leasePath, JSON.stringify({ token: "other-worker", pid: process.pid, acquiredAt: Date.now(), heartbeatAt: Date.now() }), "utf8");
+    expect(append()).toBe(""); // Detect replacement before the heartbeat arrives.
+    expect(append()).toBe(""); // A lost runtime stays fenced after releasing its lease.
+    await waitFor(() => sessionEntry.disposed);
+
+    expect(history).toHaveLength(before + 2);
+    expect(sessionEntry.events).toContain("abort-requested");
+    expect(harness.live.has(task.id)).toBe(false);
+    expect(getTask(task.id)?.status).toBe("working");
+    expect(JSON.parse(readFileSync(leasePath, "utf8")).token).toBe("other-worker");
   });
 
   it("suppresses extension custom entries after lease ownership changes", async () => {
