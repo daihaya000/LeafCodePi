@@ -56,6 +56,14 @@ type ClaudeCredentials = {
   subscriptionType: string | null;
 };
 
+type PendingClaudeCredentials = {
+  previous: ClaudeCredentials;
+  refreshed: ClaudeCredentials;
+};
+
+// Keep rotated credentials in-process if persistence fails, but only while disk still has the exact prior auth.
+const pendingRefreshCredentials = new Map<string, PendingClaudeCredentials>();
+
 function credentialsPath(): string {
   const configDir = process.env.CLAUDE_CONFIG_DIR;
   const root = configDir?.trim()
@@ -82,14 +90,38 @@ function prettyPlan(raw: string | null | undefined): string | null {
   }
 }
 
+function sameCredentials(left: ClaudeCredentials, right: ClaudeCredentials): boolean {
+  return left.accessToken === right.accessToken &&
+    left.refreshToken === right.refreshToken &&
+    left.expiresAt?.getTime() === right.expiresAt?.getTime() &&
+    left.subscriptionType === right.subscriptionType;
+}
+
 function loadCredentials(path = credentialsPath()): ClaudeCredentials | null {
+  let raw: string;
   try {
-    const root = asRecord(JSON.parse(readFileSync(path, "utf8")));
+    raw = readFileSync(path, "utf8");
+  } catch {
+    const pending = pendingRefreshCredentials.get(path);
+    if (pending && existsSync(path)) return pending.refreshed;
+    pendingRefreshCredentials.delete(path);
+    return null;
+  }
+
+  let loaded: ClaudeCredentials | null;
+  try {
+    const root = asRecord(JSON.parse(raw));
     const oauth = asRecord(root?.claudeAiOauth);
-    if (!oauth) return null;
+    if (!oauth) {
+      pendingRefreshCredentials.delete(path);
+      return null;
+    }
     const accessToken =
       typeof oauth.accessToken === "string" ? oauth.accessToken : null;
-    if (!accessToken) return null;
+    if (!accessToken) {
+      pendingRefreshCredentials.delete(path);
+      return null;
+    }
     const refreshToken =
       typeof oauth.refreshToken === "string" ? oauth.refreshToken : null;
     let expiresAt: Date | null = null;
@@ -98,10 +130,21 @@ function loadCredentials(path = credentialsPath()): ClaudeCredentials | null {
     }
     const subscriptionType =
       typeof oauth.subscriptionType === "string" ? oauth.subscriptionType : null;
-    return { accessToken, refreshToken, expiresAt, subscriptionType };
+    loaded = { accessToken, refreshToken, expiresAt, subscriptionType };
   } catch {
+    pendingRefreshCredentials.delete(path);
     return null;
   }
+
+  const pending = pendingRefreshCredentials.get(path);
+  if (!pending) return loaded;
+  if (sameCredentials(loaded, pending.refreshed)) {
+    pendingRefreshCredentials.delete(path);
+    return loaded;
+  }
+  if (sameCredentials(loaded, pending.previous)) return pending.refreshed;
+  pendingRefreshCredentials.delete(path);
+  return loaded;
 }
 
 function persistTokens(
@@ -185,17 +228,21 @@ async function refreshTokensOnce(
     const expiresIn =
       typeof root?.expires_in === "number" ? root.expires_in : 3600;
     const expiresAt = new Date(Date.now() + expiresIn * 1000);
-    persistTokens(
-      accessToken,
-      refreshToken,
-      expiresAt,
-      credentialsPathOverride ?? credentialsPath(),
-    );
-    const loaded = loadCredentials(credentialsPathOverride ?? credentialsPath());
-    // persistTokens is best effort: if the write failed, the file still holds the old (now rotated-away)
-    // refresh token. Use the tokens just received for this call instead of re-reading the stale file.
-    if (loaded?.refreshToken === refreshToken) return loaded;
-    return { accessToken, refreshToken, expiresAt, subscriptionType: creds.subscriptionType };
+    const path = credentialsPathOverride ?? credentialsPath();
+    persistTokens(accessToken, refreshToken, expiresAt, path);
+    const refreshed = { accessToken, refreshToken, expiresAt, subscriptionType: creds.subscriptionType };
+    const loaded = loadCredentials(path);
+    if (loaded && sameCredentials(loaded, refreshed)) {
+      pendingRefreshCredentials.delete(path);
+      return loaded;
+    }
+    if (
+      (loaded && sameCredentials(loaded, creds)) ||
+      (!loaded && existsSync(path))
+    ) {
+      pendingRefreshCredentials.set(path, { previous: creds, refreshed });
+    }
+    return refreshed;
   } catch {
     return null;
   }

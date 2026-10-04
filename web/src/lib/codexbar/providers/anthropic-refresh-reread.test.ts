@@ -70,7 +70,7 @@ function refreshTokensSent(): unknown[] {
 }
 
 describe("Anthropic credentials reread after locking", () => {
-  it("retries the stale refresh token on the next poll when persisting rotated tokens fails", async () => {
+  it("keeps rotated tokens for later polls when persisting them fails", async () => {
     store("old-access-fixture", "old-refresh-fixture", Date.now() + 3600_000);
     atomicWrite.mockImplementationOnce(() => { throw new Error("simulated disk failure"); });
     let tokenRequests = 0;
@@ -89,14 +89,32 @@ describe("Anthropic credentials reread after locking", () => {
     const provider = createAnthropicProvider(scope);
 
     expect((await provider.fetch()).windows[0]?.usedPercent).toBe(10);
-    await expect(provider.fetch()).rejects.toThrow("OAuth");
-    expect(refreshTokensSent()).toEqual(["old-refresh-fixture", "old-refresh-fixture"]);
+    expect((await provider.fetch()).windows[0]?.usedPercent).toBe(10);
+    expect(refreshTokensSent()).toEqual(["old-refresh-fixture"]);
     expect(JSON.parse(readFileSync(path, "utf8")).claudeAiOauth.refreshToken).toBe("old-refresh-fixture");
     const usageCalls = vi.mocked(fetchText).mock.calls.filter(([url]) => url !== tokenUrl);
     expect(usageCalls.map(([, init]) => new Headers(init?.headers).get("Authorization"))).toEqual([
       "Bearer old-access-fixture",
       "Bearer final-access-fixture",
+      "Bearer final-access-fixture",
+    ]);
+  });
+
+  it("prefers externally updated credentials over the in-memory refresh result", async () => {
+    store("old-access-fixture", "old-refresh-fixture", Date.now() + 3600_000);
+    atomicWrite.mockImplementationOnce(() => { throw new Error("simulated disk failure"); });
+    const provider = createAnthropicProvider(scope);
+
+    expect((await provider.fetch()).windows[0]?.usedPercent).toBe(10);
+    store("external-access-fixture", "external-refresh-fixture", Date.now() + 3600_000);
+    expect((await provider.fetch()).windows[0]?.usedPercent).toBe(10);
+
+    expect(refreshTokensSent()).toEqual(["old-refresh-fixture"]);
+    const usageCalls = vi.mocked(fetchText).mock.calls.filter(([url]) => url !== tokenUrl);
+    expect(usageCalls.map(([, init]) => new Headers(init?.headers).get("Authorization"))).toEqual([
       "Bearer old-access-fixture",
+      "Bearer final-access-fixture",
+      "Bearer external-access-fixture",
     ]);
   });
 
