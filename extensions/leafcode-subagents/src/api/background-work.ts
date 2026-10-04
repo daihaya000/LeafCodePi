@@ -23,6 +23,8 @@ export interface BackgroundWorkProvider {
 	listActiveWork(): readonly BackgroundWorkItem[];
 	wakeChannels?: readonly string[];
 	reconcile?(context: BackgroundWorkReconcileContext): void;
+	/** Stop one listed item; the registry invokes this only for the requested session. */
+	stopWork?(item: BackgroundWorkItem): void | Promise<void>;
 }
 
 export interface RegisteredBackgroundWorkItem extends BackgroundWorkItem {
@@ -75,7 +77,7 @@ function validateProvider(value: unknown): BackgroundWorkProvider {
 		throw new Error("Background-work provider must be an object.");
 	}
 	const provider = value as Record<string, unknown>;
-	const unknownFields = Object.keys(provider).filter((key) => !["name", "listActiveWork", "wakeChannels", "reconcile"].includes(key));
+	const unknownFields = Object.keys(provider).filter((key) => !["name", "listActiveWork", "wakeChannels", "reconcile", "stopWork"].includes(key));
 	if (unknownFields.length > 0) throw new Error(`Background-work provider has unknown fields: ${unknownFields.join(", ")}.`);
 	const name = validateString(provider.name, "Background-work provider name", MAX_PROVIDER_NAME_LENGTH);
 	if (typeof provider.listActiveWork !== "function") {
@@ -83,6 +85,9 @@ function validateProvider(value: unknown): BackgroundWorkProvider {
 	}
 	if (provider.reconcile !== undefined && typeof provider.reconcile !== "function") {
 		throw new Error(`Background-work provider '${name}' reconcile must be a function when provided.`);
+	}
+	if (provider.stopWork !== undefined && typeof provider.stopWork !== "function") {
+		throw new Error(`Background-work provider '${name}' stopWork must be a function when provided.`);
 	}
 	if (provider.wakeChannels !== undefined) {
 		if (!Array.isArray(provider.wakeChannels)) {
@@ -151,6 +156,21 @@ export function listBackgroundWorkWakeChannels(): readonly string[] {
 }
 
 /** Reconcile and snapshot active provider work owned by one exact Pi session. */
+export async function stopSessionBackgroundWork(sessionId: string, nowMs = Date.now()): Promise<number> {
+	const snapshot = snapshotBackgroundWork(sessionId, nowMs);
+	const providers = new Map(listBackgroundWorkProviders().map((provider) => [provider.name, provider]));
+	const stopCalls = snapshot.items.flatMap((item) => {
+		const stopWork = providers.get(item.provider)?.stopWork;
+		return stopWork ? [Promise.resolve().then(() => stopWork.call(providers.get(item.provider), { id: item.id, sessionId: item.sessionId }))] : [];
+	});
+	const results = await Promise.allSettled(stopCalls);
+	const failures = results.filter((result): result is PromiseRejectedResult => result.status === "rejected");
+	if (failures.length > 0) {
+		throw new AggregateError(failures.map((result) => result.reason), `Failed to stop ${failures.length} background-work item(s) for session '${sessionId}'.`);
+	}
+	return stopCalls.length;
+}
+
 export function snapshotBackgroundWork(sessionId: string, nowMs = Date.now()): BackgroundWorkSnapshot {
 	validateString(sessionId, "Background-work snapshot sessionId", MAX_SESSION_ID_LENGTH);
 	const providers = listBackgroundWorkProviders();
