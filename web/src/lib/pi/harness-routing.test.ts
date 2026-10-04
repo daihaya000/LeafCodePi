@@ -411,7 +411,7 @@ import { AUTO_MODEL_VALUE } from "@/lib/auto-model";
 import { setAccountRoutingMode, __resetProviderRoutingQueueForTests, markProviderLimited } from "@/lib/provider-routing";
 import { setSetting } from "@/lib/pi/web-settings";
 import { BOT_PROMPT_PREFIX } from "@/lib/pi/messages";
-import { disarmTaskHangWatch, getTaskHangWatch } from "@/lib/pi/hang-watchdog";
+import { armTaskHangWatch, disarmTaskHangWatch, getTaskHangWatch } from "@/lib/pi/hang-watchdog";
 import { AccountRuntimeManager } from "./account-runtime-manager";
 import { goalLoopStateFile } from "./goal-loop-state";
 import { taskRuntimeLeasePath } from "@/lib/task-runtime-lease";
@@ -900,11 +900,39 @@ describe("integrated session routing", () => {
     expect(routingHooks?.sessionManager).toBe(live.session.sessionManager);
     expect(routingHooks?.releaseGoalLoopTurn).toBeTypeOf("function");
     expect(routingHooks?.canRetryGoalLoopProviderLimit).toBeTypeOf("function");
+    expect(routingHooks?.isGoalLoopHangAbort).toBeTypeOf("function");
+    expect((routingHooks?.isGoalLoopHangAbort as (() => boolean))()).toBe(false);
     const prepare = routingHooks?.prepareGoalLoopTurn as
       | ((prompt: string) => Promise<boolean | "retry">)
       | undefined;
     assert.ok(prepare);
     assert.equal(await prepare("busy"), "retry");
+  });
+
+  it("reports only resolving skip-resume watches as Goal Loop hang aborts", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "leafcode-pi-goal-loop-hang-routing-"));
+    tempDirs.push(dir);
+    process.env.LEAFCODE_PI_DATA_DIR = dir;
+    process.env.PI_CODING_AGENT_DIR = join(dir, "agent");
+    __resetPiAgentDirCacheForTests();
+    installHarness(new Map());
+
+    const project = upsertProject({ name: "demo", rootPath: dir });
+    const task = await createTask({ projectId: project.id, prompt: "初回" });
+    await waitFor(() => getTask(task.id)?.status === "idle");
+    const routingHooks = fakePi.sessions[0]?.routingHooks;
+    const isHangAbort = routingHooks?.isGoalLoopHangAbort as (() => boolean) | undefined;
+    assert.ok(isHangAbort);
+
+    armTaskHangWatch({ taskId: task.id, prompt: "Goal Loop turn", skipResume: true });
+    const watch = getTaskHangWatch(task.id);
+    expect(watch).toMatchObject({ state: "armed", skipResume: true });
+    expect(isHangAbort()).toBe(false);
+    watch!.state = "resolving";
+    expect(isHangAbort()).toBe(true);
+    watch!.state = "armed";
+    disarmTaskHangWatch(task.id);
+    expect(getTaskHangWatch(task.id)).toBeNull();
   });
 
   it("recovers a stranded working reservation while the Goal Loop is still queued", async () => {

@@ -28,6 +28,7 @@ export type GoalLoopTurnKind = "goal" | "verification";
 export type GoalLoopPauseReason =
   | ""
   | "user"
+  | "hang"
   | "manual_send"
   | "turn_limit"
   | "unreadable_result"
@@ -133,6 +134,7 @@ const SCHEDULE_WATCHDOG_MS = 5_000;
 const TERMINAL = new Set<GoalLoopStatus>(["completed", "stopped"]);
 const UNSCHEDULABLE = new Set<GoalLoopStatus>(["paused", "blocked"]);
 const ABORTED_TURN_PAUSE_ERROR = "実行が中断されたため一時停止しました。";
+const HANG_ABORT_PAUSE_ERROR = "ハング watchdog が停止したため一時停止しました。/goal-resume で再開できます。";
 /**
  * The LeafCodePi WebUI announces its turn routing on this Pi event-bus channel
  * from an inline extension factory (web/src/lib/pi/harness.ts). Pi loads path
@@ -207,6 +209,8 @@ type GoalLoopTurnRoutingHooks = {
   canRetryGoalLoopProviderLimit?: () => Promise<boolean>;
   /** Undoes the host's pre-send bookkeeping when a prepared turn is not sent. */
   releaseGoalLoopTurn?: () => void;
+  /** True only while the host is settling a Goal Loop hang-watchdog abort. */
+  isGoalLoopHangAbort?: () => boolean;
 };
 type GoalLoopTurnRoutingContext = ExtensionContext & GoalLoopTurnRoutingHooks;
 type GoalLoopHostRouting = GoalLoopTurnRoutingHooks & {
@@ -412,6 +416,7 @@ function normalizeTurnKind(value: unknown): GoalLoopTurnKind {
 
 function normalizePauseReason(value: unknown): GoalLoopPauseReason {
   return value === "user" ||
+    value === "hang" ||
     value === "manual_send" ||
     value === "turn_limit" ||
     value === "unreadable_result" ||
@@ -1265,7 +1270,7 @@ function hasInterruptedTurnRecovery(loop: GoalLoop): boolean {
 
 /**
  * Apply a result that arrived after the loop was paused mid-turn.
- * Explicit user/manual_send pauses stay paused; automatic interruptions continue.
+ * Explicit user/manual_send/hang pauses stay paused; automatic interruptions continue.
  */
 function applyLatePausedResult(runtime: Runtime, result: GoalLoopProgress): boolean {
   const loop = currentLoop(runtime);
@@ -1281,7 +1286,8 @@ function applyLatePausedResult(runtime: Runtime, result: GoalLoopProgress): bool
     loop.pauseReason !== "user" &&
     loop.pauseReason !== "manual_send" &&
     loop.pauseReason !== "unknown_delivery" &&
-    loop.pauseReason !== "turn_timeout"
+    loop.pauseReason !== "turn_timeout" &&
+    loop.pauseReason !== "hang"
   ) {
     return false;
   }
@@ -1302,7 +1308,7 @@ function applyLatePausedResult(runtime: Runtime, result: GoalLoopProgress): bool
   updateUI(runtime, updated);
   appendSnapshot(runtime, updated);
   if (
-    (pauseReason === "manual_send" || (pauseReason === "user" && pauseError !== ABORTED_TURN_PAUSE_ERROR)) &&
+    (pauseReason === "manual_send" || pauseReason === "hang" || (pauseReason === "user" && pauseError !== ABORTED_TURN_PAUSE_ERROR)) &&
     !TERMINAL.has(updated.status) &&
     !UNSCHEDULABLE.has(updated.status)
   ) {
@@ -1364,13 +1370,20 @@ async function settleAwaitingTurn(runtime: Runtime): Promise<void> {
   const result = extractGoalResultFromMessages(messages);
   if (aborted) {
     // Explicit pause/stop already changed durable status before settlement.
-    // An otherwise running loop was interrupted internally: keep a late result
-    // or retry the same turn after the SDK has fully settled.
-    const paused = pauseLoop(runtime, "user", ABORTED_TURN_PAUSE_ERROR);
+    // A hang watchdog abort must stay paused; other internal aborts may retry.
+    let hangAbort = false;
+    try {
+      hangAbort = (runtime.hostRouting ?? runtime.ctx).isGoalLoopHangAbort?.() === true;
+    } catch {
+      hangAbort = false;
+    }
+    const pauseReason = hangAbort ? "hang" : "user";
+    const pauseError = hangAbort ? HANG_ABORT_PAUSE_ERROR : ABORTED_TURN_PAUSE_ERROR;
+    const paused = pauseLoop(runtime, pauseReason, pauseError);
     if (!paused) return; // Keep evidence and the watchdog on failed persistence.
-    runtime.abortedTurnPausePending = true;
+    runtime.abortedTurnPausePending = !hangAbort;
     if (result && !applyLatePausedResult(runtime, result)) return;
-    if (!result) requeueInterruptedTurn(runtime);
+    if (!result && !hangAbort) requeueInterruptedTurn(runtime);
     clearPendingAgentRun(runtime);
     return;
   }

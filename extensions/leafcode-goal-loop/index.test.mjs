@@ -2847,6 +2847,60 @@ test("automatic abort preserves a late JSON result and continues", async () => {
   }
 });
 
+test("hang watchdog abort stays paused instead of requeueing the interrupted turn", async () => {
+  const cwd = mkdtempSync(join(tmpdir(), "leafcode-goal-loop-hang-abort-"));
+  process.env.LEAFCODE_PI_DATA_DIR = cwd;
+  const handlers = new Map();
+  const commands = new Map();
+  let busy = false;
+  let sendCount = 0;
+  const stateFile = () => join(cwd, "goals-loop", "hang-abort-session.json");
+  const ctx = {
+    cwd,
+    mode: "rpc",
+    hasUI: false,
+    isIdle: () => !busy,
+    hasPendingMessages: () => false,
+    abort: () => { busy = false; },
+    isGoalLoopHangAbort: () => true,
+    sessionManager: {
+      getSessionId: () => "hang-abort-session",
+      getBranch: () => [],
+    },
+    ui: { setStatus: () => {}, setWidget: () => {}, notify: () => {} },
+  };
+
+  try {
+    goalLoopExtension({
+      on(name, handler) { handlers.set(name, handler); },
+      registerCommand(name, options) { commands.set(name, options.handler); },
+      appendEntry() {},
+      sendMessage() { sendCount += 1; busy = true; },
+    });
+    await handlers.get("session_start")?.({}, ctx);
+    const payload = Buffer.from(JSON.stringify({ goal: "demo", maxTurns: 3 })).toString("base64url");
+    await commands.get("goal-start")?.(payload, ctx);
+    await waitFor(() => sendCount === 1 && JSON.parse(readFileSync(stateFile(), "utf8")).status === "running");
+
+    busy = false;
+    await handlers.get("agent_end")?.({
+      type: "agent_end",
+      messages: [{ role: "assistant", stopReason: "aborted", content: [] }],
+    }, ctx);
+    await handlers.get("agent_settled")?.({ type: "agent_settled" }, ctx);
+
+    const paused = JSON.parse(readFileSync(stateFile(), "utf8"));
+    assert.equal(paused.status, "paused");
+    assert.equal(paused.pauseReason, "hang");
+    assert.equal(paused.retryInterruptedTurn, true);
+    await new Promise((resolve) => setTimeout(resolve, 350));
+    assert.equal(sendCount, 1);
+  } finally {
+    await handlers.get("session_shutdown")?.({}, ctx);
+    rmSync(cwd, { recursive: true, force: true });
+  }
+});
+
 test("manual compaction does not leave an active loop paused after aborting its turn", async () => {
   const cwd = mkdtempSync(join(tmpdir(), "leafcode-goal-loop-manual-compact-"));
   process.env.LEAFCODE_PI_DATA_DIR = cwd;

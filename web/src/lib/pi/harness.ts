@@ -3278,6 +3278,7 @@ type GoalLoopTurnRoutingContext = {
   prepareGoalLoopTurn?: (prompt: string) => Promise<boolean | "retry">;
   releaseGoalLoopTurn?: () => void;
   canRetryGoalLoopProviderLimit?: () => Promise<boolean>;
+  isGoalLoopHangAbort?: () => boolean;
 };
 
 function registerGoalLoopTurnRouting(taskId: string): (pi: ExtensionAPI) => void {
@@ -3430,6 +3431,10 @@ function registerGoalLoopTurnRouting(taskId: string): (pi: ExtensionAPI) => void
         releaseTaskLease(taskId);
         emitTaskSnapshot(live, "goal_turn_not_sent");
       };
+      routingContext.isGoalLoopHangAbort = () => {
+        const watch = getTaskHangWatch(taskId);
+        return watch?.skipResume === true && watch.state === "resolving";
+      };
       routingContext.canRetryGoalLoopProviderLimit = async () => {
         const live = state().live.get(taskId);
         const task = getTask(taskId);
@@ -3472,6 +3477,7 @@ function registerGoalLoopTurnRouting(taskId: string): (pi: ExtensionAPI) => void
         prepareGoalLoopTurn: routingContext.prepareGoalLoopTurn,
         releaseGoalLoopTurn: routingContext.releaseGoalLoopTurn,
         canRetryGoalLoopProviderLimit: routingContext.canRetryGoalLoopProviderLimit,
+        isGoalLoopHangAbort: routingContext.isGoalLoopHangAbort,
       });
     });
   };
