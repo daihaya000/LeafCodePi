@@ -4,7 +4,7 @@
  */
 
 import { createHash, randomUUID } from "node:crypto";
-import { mkdirSync, readFileSync, readdirSync, renameSync, rmSync, statSync, unlinkSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, statSync, unlinkSync, writeFileSync } from "node:fs";
 import { basename, dirname, join } from "node:path";
 import {
   shouldAttachResumeImages,
@@ -146,6 +146,18 @@ function readStore(): WatchStore {
   return readStoreFile(watchesPath()) ?? { version: 1, watches: [] };
 }
 
+/**
+ * Like readStore, but an existing file that cannot be interpreted (transient read failure,
+ * version mismatch, torn content) is reported as null instead of an empty store, so callers
+ * never treat "unreadable" as "no watches". A missing file is a legitimate empty store.
+ */
+function readStoreOrNull(): WatchStore | null {
+  const file = watchesPath();
+  const store = readStoreFile(file);
+  if (store) return store;
+  return existsSync(file) ? null : { version: 1, watches: [] };
+}
+
 const lockWait = new Int32Array(new SharedArrayBuffer(4));
 
 function withWatchStoreLock<T>(operation: () => T): T {
@@ -201,7 +213,10 @@ function writeStore(watches: readonly TaskHangWatchRow[] = [...memoryWatches.val
 
 function writeWatchRow(row: TaskHangWatchRow): void {
   withWatchStoreLock(() => {
-    const merged = new Map(readStore().watches.map((watch) => [watch.taskId, watch]));
+    // An unreadable snapshot must not shrink to just this row: fall back to the memory rows,
+    // which are authoritative for this process.
+    const base = readStoreOrNull()?.watches ?? [...memoryWatches.values()];
+    const merged = new Map(base.map((watch) => [watch.taskId, watch]));
     merged.set(row.taskId, row);
     writeStore([...merged.values()]);
   });
@@ -303,7 +318,9 @@ export function turnHasOnlyActiveSubagentTool(
   return hasActiveTool;
 }
 
-function syncMemoryFromDisk(snapshot = readStore()): void {
+function syncMemoryFromDisk(snapshot: WatchStore | null = readStoreOrNull()): void {
+  // Unreadable on-disk state keeps the previous memory rows instead of dropping every watch.
+  if (!snapshot) return;
   memoryWatches.clear();
   for (const row of snapshot.watches) {
     memoryWatches.set(row.taskId, {
@@ -413,7 +430,8 @@ export function disarmTaskHangWatch(taskId: string): void {
   memoryWatches.delete(id);
   try {
     withWatchStoreLock(() => {
-      const remaining = readStore().watches.filter((watch) => watch.taskId !== id);
+      const base = readStoreOrNull()?.watches ?? [...memoryWatches.values()];
+      const remaining = base.filter((watch) => watch.taskId !== id);
       writeStore(remaining);
     });
   } catch (error) {

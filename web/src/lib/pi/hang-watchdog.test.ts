@@ -459,6 +459,34 @@ describe("hang-watchdog helpers", () => {
     }
   });
 
+  it("keeps in-memory watches when the on-disk snapshot becomes unreadable", async () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "leafcode-pi-hang-watchdog-unreadable-"));
+    const previousDataDir = process.env.LEAFCODE_PI_DATA_DIR;
+    process.env.LEAFCODE_PI_DATA_DIR = root;
+    try {
+      armTaskHangWatch({ taskId: "first", prompt: "work" });
+      const file = path.join(root, "hang-watches.json");
+      fs.writeFileSync(file, "{torn");
+      registerHangWatchdogHooks({
+        getLive: () => ({ messages: [], isStreaming: true, isCompacting: false }),
+        abortTask: async () => undefined,
+        resumePrompt: () => undefined,
+        notifyHangRetry: () => undefined,
+      });
+      await runHangWatchdogTick();
+      expect(getTaskHangWatch("first")).toMatchObject({ prompt: "work" });
+      // A write while the file is unreadable rebuilds from memory instead of keeping only the new row.
+      armTaskHangWatch({ taskId: "second", prompt: "more" });
+      const saved = JSON.parse(fs.readFileSync(file, "utf8")).watches.map((watch: { taskId: string }) => watch.taskId).sort();
+      expect(saved).toEqual(["first", "second"]);
+    } finally {
+      stopHangWatchdogForTests();
+      if (previousDataDir === undefined) delete process.env.LEAFCODE_PI_DATA_DIR;
+      else process.env.LEAFCODE_PI_DATA_DIR = previousDataDir;
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
   it("keeps in-memory watches unchanged when recovery cannot persist", () => {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), "leafcode-pi-hang-watchdog-recovery-save-"));
     const previousDataDir = process.env.LEAFCODE_PI_DATA_DIR;
