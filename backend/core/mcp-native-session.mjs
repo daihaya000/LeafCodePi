@@ -1,5 +1,32 @@
 const ADAPTER = "leafcode-mcp-adapter";
 let provider;
+const shutdownActions = new Map();
+
+/** Register a session-owned native MCP shutdown action. The returned disposer is idempotent. */
+export function registerBackendMcpNativeSessionShutdownAction(sessionId, stop) {
+  if (typeof sessionId !== "string" || !sessionId || typeof stop !== "function") {
+    throw new Error("MCP native session shutdown action invalid");
+  }
+  let actions = shutdownActions.get(sessionId);
+  if (!actions) shutdownActions.set(sessionId, actions = new Set());
+  actions.add(stop);
+  let registered = true;
+  return () => {
+    if (!registered) return;
+    registered = false;
+    actions.delete(stop);
+    if (actions.size === 0 && shutdownActions.get(sessionId) === actions) shutdownActions.delete(sessionId);
+  };
+}
+
+/** Stop only resources captured for this session; a failed action cannot skip the others. */
+export async function runBackendMcpNativeSessionShutdownActions(sessionId) {
+  const actions = shutdownActions.get(sessionId);
+  if (!actions) return 0;
+  shutdownActions.delete(sessionId);
+  await Promise.allSettled([...actions].map((stop) => Promise.resolve().then(stop)));
+  return actions.size;
+}
 
 /** INTERNAL process-local switch. Unset (default) keeps the legacy adapter path untouched. When a
  * provider is installed, sessions get the native MCP factories and the bundled adapter is not loaded
