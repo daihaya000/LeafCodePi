@@ -7,6 +7,9 @@ export function tryAcquireSchedulerLock(options: {
   now?: () => number;
 }): string | undefined;
 
+/** Release a lock from `tryAcquireSchedulerLock`, only while it still carries this process's owner token. */
+export function releaseSchedulerLock(lockPath: string): void;
+
 export function isRoutineDue(
   routine: SchedulableRoutine,
   options: {

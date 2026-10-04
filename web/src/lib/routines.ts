@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { randomUUID } from "node:crypto";
 import { dataDir } from "@/lib/paths";
 import { cronMatches, parseCron, weekdayMatches } from "@/lib/routine-schedule";
-import { isTransientRoutineStartError, nextRoutineFailureState, routineAutoDisabled, runSchedulerTick, tryAcquireSchedulerLock } from "@backend-core/routine-scheduler.mjs";
+import { isTransientRoutineStartError, nextRoutineFailureState, routineAutoDisabled, releaseSchedulerLock, runSchedulerTick, tryAcquireSchedulerLock } from "@backend-core/routine-scheduler.mjs";
 import { withDirectoryLock } from "@backend-core/directory-lock.mjs";
 import { botTaskId, getBot, listBots } from "@/lib/bots";
 import { getTaskDetail, promptTask } from "@/lib/pi/harness";
@@ -272,7 +272,7 @@ export async function tickRoutines(now = new Date()): Promise<void> {
   // the run itself stay here and are resolved at call time.
   return runSchedulerTick({
     acquireLock: () => tryRoutineSchedulerLock(),
-    releaseLock: (lock) => rmSync(lock, { recursive: true, force: true }),
+    releaseLock: (lock) => releaseSchedulerLock(lock),
     listBots: () => listBots(),
     listRoutines: (botId) => listRoutines(botId),
     cronMatches: (schedule, minute) => cronMatches(schedule, minute),

@@ -1,11 +1,11 @@
 import assert from "node:assert/strict";
-import { existsSync, mkdirSync, mkdtempSync, rmSync, utimesSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, rmSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
 import {
   isRoutineDue, isTransientRoutineStartError, nextRoutineFailureState, routineAutoDisabled,
-  runSchedulerTick, tryAcquireSchedulerLock,
+  releaseSchedulerLock, runSchedulerTick, tryAcquireSchedulerLock,
 } from "./routine-scheduler.mjs";
 import { cronMatches as routineScheduleCronMatches } from "./routine-schedule.mjs";
 
@@ -22,8 +22,28 @@ test("the scheduler lock is exclusive, creates its parent, and is reclaimed only
   assert.equal(tryAcquireSchedulerLock(options), undefined);
   const old = new Date(Date.now() - 60_000);
   utimesSync(options.lockPath, old, old);
+  // Old, but its owner (this process) is alive: a slow decision pass must not lose its lock.
+  assert.equal(tryAcquireSchedulerLock(options), undefined);
+  writeFileSync(join(options.lockPath, "owner"), "2147483646:dead", "utf8");
+  utimesSync(options.lockPath, old, old);
   assert.equal(tryAcquireSchedulerLock(options), options.lockPath);
   assert.equal(tryAcquireSchedulerLock(options), undefined);
+});
+
+test("release removes only the lock still carrying this process's token", (t) => {
+  const root = tempRoot(t);
+  const options = { lockPath: join(root, "lock"), parentDir: root, staleMs: 30_000 };
+  assert.equal(tryAcquireSchedulerLock(options), options.lockPath);
+  releaseSchedulerLock(options.lockPath);
+  assert.equal(existsSync(options.lockPath), false);
+  // The lock was reclaimed by someone else while we worked: release must leave it alone.
+  assert.equal(tryAcquireSchedulerLock(options), options.lockPath);
+  writeFileSync(join(options.lockPath, "owner"), "other:token", "utf8");
+  releaseSchedulerLock(options.lockPath);
+  assert.equal(existsSync(options.lockPath), true);
+  // Releasing a lock this process never acquired is a no-op.
+  releaseSchedulerLock(options.lockPath);
+  assert.equal(existsSync(options.lockPath), true);
 });
 
 test("stale detection reads the injected clock at call time and keeps a fresh foreign lock", (t) => {

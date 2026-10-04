@@ -1,27 +1,48 @@
-import { mkdirSync, rmSync, statSync } from "node:fs";
+import { mkdirSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { newOwner, ownerFile, readOwnerSync, reclaimable } from "./directory-lock.mjs";
 import { cronMatches as defaultCronMatches } from "./routine-schedule.mjs";
 
+/** Owner token this process wrote into each scheduler lock it currently holds. */
+const heldTokens = new Map();
+
 /**
- * Cross-worker scheduler lock: an atomically created directory. A holder that
- * died leaves it behind, so one older than `staleMs` is reclaimed (the reclaim
- * itself can lose a race, which just means another worker owns it). Returns the
- * lock path, or undefined when another worker owns it.
+ * Cross-worker scheduler lock: an atomically created directory carrying an owner
+ * token. A holder that died leaves it behind, so one older than `staleMs` whose
+ * owner process is gone is reclaimed (a live owner is not stolen just because a slow
+ * decision pass outlived `staleMs`; the reclaim itself can lose a race, which just
+ * means another worker owns it). Returns the lock path, or undefined when another
+ * worker owns it. Release with `releaseSchedulerLock`.
  */
 export function tryAcquireSchedulerLock({ lockPath, parentDir, staleMs, now = () => Date.now() }) {
   mkdirSync(parentDir, { recursive: true });
-  try {
+  const claim = () => {
     mkdirSync(lockPath);
+    const token = newOwner();
+    try { writeFileSync(ownerFile(lockPath), token, "utf8"); }
+    catch (error) { rmSync(lockPath, { recursive: true, force: true }); throw error; }
+    heldTokens.set(lockPath, token);
     return lockPath;
+  };
+  try {
+    return claim();
   } catch {
     try {
-      if (now() - statSync(lockPath).mtimeMs > staleMs) {
+      const seen = readOwnerSync(lockPath);
+      if (reclaimable(now() - statSync(lockPath).mtimeMs, seen, staleMs) && readOwnerSync(lockPath) === seen) {
         rmSync(lockPath, { recursive: true, force: true });
-        mkdirSync(lockPath);
-        return lockPath;
+        return claim();
       }
     } catch { /* another worker owns or replaced the lock */ }
     return undefined;
   }
+}
+
+/** Remove the lock only while it still carries the token this process wrote. */
+export function releaseSchedulerLock(lockPath) {
+  const token = heldTokens.get(lockPath);
+  heldTokens.delete(lockPath);
+  if (token === undefined) return;
+  if (readOwnerSync(lockPath) === token) rmSync(lockPath, { recursive: true, force: true });
 }
 
 /**

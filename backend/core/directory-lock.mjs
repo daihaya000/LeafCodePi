@@ -10,8 +10,8 @@ function blockingSleep(ms) {
   Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
 }
 
-const newOwner = () => `${process.pid}:${randomUUID()}`;
-const ownerFile = (lockPath) => join(lockPath, "owner");
+export const newOwner = () => `${process.pid}:${randomUUID()}`;
+export const ownerFile = (lockPath) => join(lockPath, "owner");
 
 function pidAlive(pid) {
   try { process.kill(pid, 0); return true; }
@@ -23,7 +23,7 @@ function pidAlive(pid) {
  * (null when unreadable/legacy) may be reclaimed. Time alone never steals a lock
  * held by a live process until the hard cap.
  */
-function reclaimable(ageMs, owner, staleMs) {
+export function reclaimable(ageMs, owner, staleMs) {
   if (!(ageMs > staleMs)) return false;
   const pid = Number(String(owner ?? "").split(":")[0]);
   if (!Number.isInteger(pid) || pid <= 0) return true;
@@ -31,7 +31,7 @@ function reclaimable(ageMs, owner, staleMs) {
   return ageMs > Math.max(staleMs, LIVE_OWNER_HARD_CAP_MS);
 }
 
-function readOwnerSync(lockPath) {
+export function readOwnerSync(lockPath) {
   try { return readFileSync(ownerFile(lockPath), "utf8"); } catch { return null; }
 }
 async function readOwner(lockPath) {
