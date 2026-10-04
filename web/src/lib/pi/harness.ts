@@ -2724,6 +2724,15 @@ async function attachSession(
     }
   };
 
+  // appendUsage returns an entry object, not an id. Reject stale writes instead
+  // of fabricating a successful entry; the SDK cache warmer catches this error.
+  const appendUsage = session.sessionManager.appendUsage.bind(session.sessionManager);
+  const assertUsageLeaseOwnership = leaseGuardedSessionManager.assertLeaseOwnership;
+  session.sessionManager.appendUsage = (...args) => {
+    assertUsageLeaseOwnership();
+    return appendUsage(...args);
+  };
+
   const unsubscribe = session.subscribe((event) => {
     if (live.leaseLost) return;
     if (

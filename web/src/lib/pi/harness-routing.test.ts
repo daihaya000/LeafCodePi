@@ -77,6 +77,11 @@ const fakePi = vi.hoisted(() => {
         history.push({ type: "thinking_level_change", thinkingLevel });
         return `thinking-level-change-${history.length}`;
       },
+      appendUsage: (kind: string, provider: string, model: string, usage: unknown, note?: string) => {
+        const entry = { type: "usage", kind, provider, model, usage, note };
+        history.push(entry);
+        return entry;
+      },
       appendCustomMessageEntry: (customType: string, content: unknown, display: boolean, details?: unknown) => {
         history.push({ type: "custom_message", customType, content, display, details });
         return `custom-message-${history.length}`;
@@ -1661,6 +1666,62 @@ describe("integrated session routing", () => {
     writeFileSync(leasePath, JSON.stringify({ token: "other-worker", pid: process.pid, acquiredAt: Date.now(), heartbeatAt: Date.now() }), "utf8");
     expect(append()).toBe(""); // Detect replacement before the heartbeat arrives.
     expect(append()).toBe(""); // A lost runtime stays fenced after releasing its lease.
+    await waitFor(() => sessionEntry.disposed);
+
+    expect(history).toHaveLength(before + 2);
+    expect(sessionEntry.events).toContain("abort-requested");
+    expect(harness.live.has(task.id)).toBe(false);
+    expect(getTask(task.id)?.status).toBe("working");
+    expect(JSON.parse(readFileSync(leasePath, "utf8")).token).toBe("other-worker");
+  });
+
+  it("suppresses usage entries after lease ownership changes", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "leafcode-pi-usage-lease-"));
+    tempDirs.push(dir);
+    process.env.LEAFCODE_PI_DATA_DIR = dir;
+    process.env.PI_CODING_AGENT_DIR = join(dir, "agent");
+    __resetPiAgentDirCacheForTests();
+    installHarness(new Map());
+    const project = upsertProject({ name: "demo", rootPath: dir });
+    const task = await createTask({ projectId: project.id, prompt: "initial" });
+    const harness = (globalThis as Record<string, unknown>)[GLOBAL_KEY] as {
+      live: Map<string, {
+        promptChain: Promise<void>;
+        session: {
+          sessionManager: {
+            appendUsage: (kind: string, provider: string, model: string, usage: unknown, note?: string) => unknown;
+            history: unknown[];
+          };
+          abort?: () => Promise<void>;
+        };
+      }>;
+    };
+    const live = harness.live.get(task.id)!;
+    await live.promptChain;
+    const { acquireTaskLease, hasActiveTaskLease } = await import("@/lib/task-runtime-lease");
+    const manager = live.session.sessionManager;
+    const usage = { input: 0, output: 0, cacheRead: 100, cacheWrite: 0, totalTokens: 100,
+      cost: { input: 0, output: 0, cacheRead: 0.01, cacheWrite: 0, total: 0.01 } };
+    const append = () => manager.appendUsage("cache_warm", "fixture", "fixture-model", usage, "extension override");
+    const history = manager.history;
+    const before = history.length;
+    expect(hasActiveTaskLease(task.id)).toBe(false);
+    const idleEntry = append();
+    expect(idleEntry).toBe(history.at(-1));
+    expect(idleEntry).toMatchObject({ type: "usage", kind: "cache_warm", provider: "fixture",
+      model: "fixture-model", usage, note: "extension override" });
+    expect(acquireTaskLease(task.id)).toBe(true);
+    patchTask(task.id, { status: "working" });
+    expect(append()).toBe(history.at(-1));
+    expect(history).toHaveLength(before + 2);
+
+    const sessionEntry = fakePi.sessions.at(-1)!;
+    live.session.abort = async () => { sessionEntry.events.push("abort-requested"); };
+    const leasePath = taskRuntimeLeasePath(task.id);
+    mkdirSync(dirname(leasePath), { recursive: true });
+    writeFileSync(leasePath, JSON.stringify({ token: "other-worker", pid: process.pid, acquiredAt: Date.now(), heartbeatAt: Date.now() }), "utf8");
+    expect(append).toThrow("Task runtime lease ownership changed.");
+    expect(append).toThrow("Task runtime lease ownership was lost.");
     await waitFor(() => sessionEntry.disposed);
 
     expect(history).toHaveLength(before + 2);
