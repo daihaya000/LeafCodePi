@@ -19,13 +19,23 @@ test("lock returns values and releases after failures", (t) => {
   assert.throws(() => withFileLock(file, () => { throw new Error("failed"); }), /failed/);
   assert.equal(existsSync(lock), false);
 });
-test("an old lock belonging to a live owner is never stolen", (t) => {
+test("a live owner lock younger than the hard cap is not stolen", (t) => {
   const { file, lock } = fixture(t);
   mkdirSync(lock);
   writeFileSync(join(lock, "owner"), `${process.pid}:live`);
-  utimesSync(lock, new Date(0), new Date(0));
+  const recent = new Date(Date.now() - 60_000);
+  utimesSync(lock, recent, recent);
   assert.throws(() => withFileLock(file, () => assert.fail("stolen"), { timeoutMs: 30 }), /timeout/);
   assert.equal(readFileSync(join(lock, "owner"), "utf8"), `${process.pid}:live`);
+});
+test("a live PID lock older than the hard cap is reclaimed", (t) => {
+  const { file, lock } = fixture(t);
+  mkdirSync(lock);
+  writeFileSync(join(lock, "owner"), `${process.pid}:reused`);
+  const expired = new Date(Date.now() - 11 * 60_000);
+  utimesSync(lock, expired, expired);
+  assert.equal(withFileLock(file, () => "recovered"), "recovered");
+  assert.equal(existsSync(lock), false);
 });
 test("a dead owner is reclaimed without waiting for a time-based expiry", (t) => {
   const { file, lock } = fixture(t);

@@ -4,11 +4,16 @@ import { randomUUID } from "node:crypto";
 import { DatabaseSync } from "node:sqlite";
 
 const sleeper = new Int32Array(new SharedArrayBuffer(4));
+const MAX_LIVE_OWNER_AGE_MS = 10 * 60_000;
 
 function abandoned(lock) {
   try {
+    const ageMs = Date.now() - statSync(lock).mtimeMs;
+    // PID reuse can make a dead owner's lock appear live indefinitely. Bound the wait
+    // without adding an OS-specific process-start-time lookup to this hot path.
+    if (ageMs > MAX_LIVE_OWNER_AGE_MS) return true;
     const pid = Number(readFileSync(join(lock, "owner"), "utf8").split(":")[0]);
-    if (!Number.isInteger(pid) || pid <= 0) return Date.now() - statSync(lock).mtimeMs > 30_000;
+    if (!Number.isInteger(pid) || pid <= 0) return ageMs > 30_000;
     try { process.kill(pid, 0); return false; }
     catch (error) { return error.code === "ESRCH"; }
   } catch {
