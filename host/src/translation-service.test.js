@@ -389,6 +389,37 @@ test('quality failure retries once and persists an improved result', async () =>
   }
 });
 
+test('stopping on Windows also takes down the child process tree', async () => {
+  const root = join(tmpdir(), `leafcode-translation-tree-${process.pid}`);
+  const repoRoot = join(root, 'repo');
+  const dataDir = join(root, 'data');
+  const originalPython = process.env.LEAFCODE_TRANSLATION_PYTHON;
+  process.env.LEAFCODE_TRANSLATION_PYTHON = process.execPath;
+  rmSync(root, { recursive: true, force: true });
+  writeFakeService(repoRoot, {});
+  const killed = [];
+  let service;
+  let other;
+  try {
+    service = createTranslationService({ repoRoot, dataDir, platform: 'win32', killTree: (pid) => { killed.push(pid); return true; } });
+    await service.translate(['Untranslated progress fragment']);
+    service.stop();
+    assert.equal(killed.length, 1);
+    assert.equal(Number.isInteger(killed[0]), true);
+    // Other platforms keep the plain direct-child kill.
+    other = createTranslationService({ repoRoot, dataDir, platform: 'linux', killTree: (pid) => { killed.push(pid); return true; } });
+    await other.translate(['Untranslated progress fragment']);
+    other.stop();
+    assert.equal(killed.length, 1);
+  } finally {
+    service?.stop();
+    other?.stop();
+    if (originalPython === undefined) delete process.env.LEAFCODE_TRANSLATION_PYTHON;
+    else process.env.LEAFCODE_TRANSLATION_PYTHON = originalPython;
+    await cleanupTempDir(root, [service, other]);
+  }
+});
+
 test('long multi-paragraph summaries are translated per segment and reassembled', async () => {
   const root = join(tmpdir(), `leafcode-translation-long-${process.pid}`);
   const repoRoot = join(root, 'repo');

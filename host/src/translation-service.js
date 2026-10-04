@@ -4,6 +4,7 @@ import { existsSync, readFileSync } from 'fs';
 import { join } from 'path';
 import { createHash, randomUUID } from 'crypto';
 import { writeSecretFile } from './secure-file.js';
+import { hardKillTree } from './process-stop.js';
 import {
   TRANSLATION_PIPELINE_VERSION,
   assessReasoningTranslation,
@@ -41,7 +42,10 @@ function executable(dataDir) {
   return { file: 'python3', args: [] };
 }
 
-export function createTranslationService({ repoRoot, dataDir, log = () => {}, installTimeoutMs = INSTALL_TIMEOUT_MS }) {
+export function createTranslationService({
+  repoRoot, dataDir, log = () => {}, installTimeoutMs = INSTALL_TIMEOUT_MS,
+  killTree = hardKillTree, platform = process.platform,
+}) {
   let child = null;
   let reader = null;
   let pending = new Map();
@@ -461,6 +465,11 @@ export function createTranslationService({ repoRoot, dataDir, log = () => {}, in
       oldChild.removeAllListeners('exit');
       oldChild.removeAllListeners('error');
       oldChild.kill();
+      // On Windows kill() reaches only the direct child; take its descendants (pip, model server)
+      // down too so the next start does not find its port or lock files still in use.
+      if (platform === 'win32' && Number.isInteger(oldChild.pid)) {
+        try { killTree(oldChild.pid); } catch { /* the direct child was already signalled */ }
+      }
     }
     state = 'stopped';
   }
