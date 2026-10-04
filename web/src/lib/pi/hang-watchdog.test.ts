@@ -459,6 +459,27 @@ describe("hang-watchdog helpers", () => {
     }
   });
 
+  it("keeps a watch whose retry counter is missing at the retry limit instead of dropping it", () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "leafcode-pi-hang-watchdog-noretry-"));
+    const previousDataDir = process.env.LEAFCODE_PI_DATA_DIR;
+    process.env.LEAFCODE_PI_DATA_DIR = root;
+    try {
+      armTaskHangWatch({ taskId: "counter", prompt: "work" });
+      const file = path.join(root, "hang-watches.json");
+      const store = JSON.parse(fs.readFileSync(file, "utf8"));
+      delete store.watches[0].retryUsed;
+      fs.writeFileSync(file, JSON.stringify(store));
+      recoverInterruptedHangWatches();
+      expect(getTaskHangWatch("counter")).toMatchObject({ prompt: "work", retryUsed: MAX_HANG_RETRIES });
+      expect(JSON.parse(fs.readFileSync(file, "utf8")).watches[0].retryUsed).toBe(MAX_HANG_RETRIES);
+    } finally {
+      stopHangWatchdogForTests();
+      if (previousDataDir === undefined) delete process.env.LEAFCODE_PI_DATA_DIR;
+      else process.env.LEAFCODE_PI_DATA_DIR = previousDataDir;
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
   it("recovers a stale store lock left by a dead process", () => {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), "leafcode-pi-hang-watchdog-deadlock-"));
     const previousDataDir = process.env.LEAFCODE_PI_DATA_DIR;

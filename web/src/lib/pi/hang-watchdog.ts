@@ -126,15 +126,21 @@ function readStoreFile(file: string): WatchStore | null {
   try {
     const parsed = JSON.parse(readFileSync(file, "utf8")) as WatchStore;
     if (!parsed || parsed.version !== 1 || !Array.isArray(parsed.watches)) return null;
-    const watches = parsed.watches.filter((row): row is TaskHangWatchRow =>
-        row && typeof row.taskId === "string" && row.taskId.trim().length > 0 &&
-        typeof row.prompt === "string" && Array.isArray(row.images) &&
-        typeof row.resumeAllowed === "boolean" &&
-        Number.isFinite(row.startedAt) && Number.isFinite(row.lastProgressAt) &&
-        Number.isInteger(row.retryUsed) && row.retryUsed >= 0 &&
-        typeof row.progressFingerprint === "string" &&
-        (row.state === "armed" || row.state === "resolving"),
-    );
+    const hasWatchShape = (row: TaskHangWatchRow | null | undefined): row is TaskHangWatchRow =>
+      Boolean(row) && typeof row!.taskId === "string" && row!.taskId.trim().length > 0 &&
+      typeof row!.prompt === "string" && Array.isArray(row!.images) &&
+      typeof row!.resumeAllowed === "boolean" &&
+      Number.isFinite(row!.startedAt) && Number.isFinite(row!.lastProgressAt) &&
+      typeof row!.progressFingerprint === "string" &&
+      (row!.state === "armed" || row!.state === "resolving");
+    const watches = parsed.watches
+      // A row whose only defect is a missing/invalid retry counter is kept with the counter at its
+      // limit. Dropping it would re-arm the task from zero and break the "stops after
+      // MAX_HANG_RETRIES" contract; at the limit it simply is not auto-resumed again.
+      .map((row) => hasWatchShape(row) && !(Number.isInteger(row.retryUsed) && row.retryUsed >= 0)
+        ? { ...row, retryUsed: MAX_HANG_RETRIES }
+        : row)
+      .filter((row): row is TaskHangWatchRow => hasWatchShape(row) && Number.isInteger(row.retryUsed) && row.retryUsed >= 0);
     // An incomplete temp snapshot must not replace a valid main snapshot.
     if (parsed.watches.length > 0 && watches.length === 0) return null;
     return { version: 1, watches };
