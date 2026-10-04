@@ -235,6 +235,19 @@ describe("GoalLoopPanel progress", () => {
     expect(onResume).toHaveBeenCalledWith();
   });
 
+  it("identifies a lifecycle pause and asks the operator to resume after reconnect", () => {
+    render(
+      <GoalLoopPanel
+        loop={loopFixture({ status: "paused", pauseReason: "session_end", maxTurns: 10, turnCount: 6 })}
+        busy={false}
+        onAction={() => {}}
+        onResume={() => {}}
+      />,
+    );
+
+    expect(screen.getByText("セッション終了時に一時停止しました。再接続後に再開してください。")).toBeTruthy();
+  });
+
   it("shows the same turn and resumes without a turn input after an interrupted turn", () => {
     const onResume = vi.fn();
     render(

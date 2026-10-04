@@ -28,6 +28,7 @@ export type GoalLoopTurnKind = "goal" | "verification";
 export type GoalLoopPauseReason =
   | ""
   | "user"
+  | "session_end"
   | "hang"
   | "manual_send"
   | "turn_limit"
@@ -416,6 +417,7 @@ function normalizeTurnKind(value: unknown): GoalLoopTurnKind {
 
 function normalizePauseReason(value: unknown): GoalLoopPauseReason {
   return value === "user" ||
+    value === "session_end" ||
     value === "hang" ||
     value === "manual_send" ||
     value === "turn_limit" ||
@@ -2320,11 +2322,11 @@ function resumeLoop(runtime: Runtime, maxTurns?: unknown, restartPrompt?: string
     runtime.pausedTurnIndex = undefined;
     loop.pendingTurnRecovery = false;
   }
-  // Lifecycle pauses (pauseReason "") keep absolute nextTurnAt on disk so a
-  // shutdown mid-cooldown does not silently shorten the wait on /goal-resume.
+  // Lifecycle pauses (legacy empty reason or session_end) keep absolute nextTurnAt
+  // on disk so a shutdown mid-cooldown does not shorten the wait on /goal-resume.
   // User/manual pauses already cleared nextTurnAt in pauseLoop.
   const preserveCooldown =
-    loop.pauseReason === "" &&
+    (loop.pauseReason === "" || loop.pauseReason === "session_end") &&
     typeof loop.nextTurnAt === "string" &&
     Number.isFinite(Date.parse(loop.nextTurnAt)) &&
     Date.parse(loop.nextTurnAt) > Date.now();
@@ -2608,7 +2610,7 @@ export default function (pi: ExtensionAPI): void {
             previousLoop.retryInterruptedTurn = true;
           }
           previousLoop.status = "paused";
-          previousLoop.pauseReason = "";
+          previousLoop.pauseReason = "session_end";
           previousLoop.error = "セッション切替時に一時停止しました。";
           if (!writeLoop(previousLoop)) {
             console.error("[goal-loop] session switch failed to persist lifecycle pause");
@@ -2663,7 +2665,7 @@ export default function (pi: ExtensionAPI): void {
         loop.retryInterruptedTurn = true;
       }
       loop.status = "paused";
-      loop.pauseReason = "";
+      loop.pauseReason = "session_end";
       loop.error = "セッション再開時は自動継続しません。/goal-resume で再開してください。";
       // Persist before arming pausedTurnPending. A failed write must not claim
       // recovery against disk that is still mid-turn running.
@@ -2671,6 +2673,12 @@ export default function (pi: ExtensionAPI): void {
         ctx.ui.notify("セッション再開時の状態保存に失敗しました。再接続してから /goal-resume を試してください。", "error");
       } else {
         runtime.pausedTurnPending = loop.pendingTurnRecovery;
+      }
+    } else if (loop?.status === "paused" && loop.pauseReason === "") {
+      // Migrate lifecycle pauses persisted before the dedicated reason existed.
+      loop.pauseReason = "session_end";
+      if (!writeLoop(loop)) {
+        ctx.ui.notify("セッション再開時の状態保存に失敗しました。再接続してから /goal-resume を試してください。", "error");
       }
     }
     const fresh = currentLoop(runtime);
@@ -2895,7 +2903,7 @@ export default function (pi: ExtensionAPI): void {
           loop.retryInterruptedTurn = true;
         }
         loop.status = "paused";
-        loop.pauseReason = "";
+        loop.pauseReason = "session_end";
         loop.error = reloading
           ? "実行中に拡張機能が再読み込みされたため一時停止しました。"
           : "セッション終了時に一時停止しました。";

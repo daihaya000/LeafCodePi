@@ -41,6 +41,7 @@ const readBudget = (root) => JSON.parse(readFileSync(join(root, "restart-resume.
 test("only running and lifecycle-paused Goal Loops are restart-resumable", () => {
   assert.equal(isGoalLoopRestartResumable({ status: "running" }), true);
   assert.equal(isGoalLoopRestartResumable({ status: "paused", pauseReason: "" }), true);
+  assert.equal(isGoalLoopRestartResumable({ status: "paused", pauseReason: "session_end" }), true);
   assert.equal(isGoalLoopRestartResumable({ status: "paused" }), true);
   for (const pauseReason of ["user", "manual_send", "turn_limit", "unknown_delivery"]) {
     assert.equal(isGoalLoopRestartResumable({ status: "paused", pauseReason }), false);

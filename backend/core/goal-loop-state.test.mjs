@@ -137,7 +137,7 @@ test("operator holds are the user-initiated pauses only", () => {
   for (const pauseReason of ["user", "manual_send"]) {
     assert.equal(GoalLoopStateStore.isOperatorHold({ status: "paused", pauseReason }), true, pauseReason);
   }
-  for (const pauseReason of ["turn_limit", "", null, undefined, "other"]) {
+  for (const pauseReason of ["turn_limit", "session_end", "", null, undefined, "other"]) {
     assert.equal(GoalLoopStateStore.isOperatorHold({ status: "paused", pauseReason }), false, String(pauseReason));
   }
   for (const status of ["running", "blocked", "queued", null, undefined]) {

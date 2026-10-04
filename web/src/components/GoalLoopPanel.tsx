@@ -26,6 +26,7 @@ function badgeClass(status: GoalLoopDto["status"]): string {
 
 const pauseHints: Record<string, string> = {
   user: "ユーザー操作で一時停止しました。再開すると次のターンを送信します。",
+  session_end: "セッション終了時に一時停止しました。再接続後に再開してください。",
   manual_send: "手動送信が行われたため一時停止しました。",
   turn_limit: "最大ターン数に到達しました。完了するか、上限を増やして再開できます。",
   unreadable_result: "結果JSONを繰り返し読めなかったため一時停止しました。",

@@ -958,7 +958,7 @@ test("session_start writeLoop failure keeps running and retries pause on reconne
     const paused = JSON.parse(readFileSync(stateFile(), "utf8"));
     assert.equal(paused.status, "paused");
     assert.equal(paused.pendingTurnRecovery, true);
-    assert.equal(paused.pauseReason, "");
+    assert.equal(paused.pauseReason, "session_end");
     await second.handlers.get("session_shutdown")?.({}, second.ctx);
   } finally {
     goalLoopTestSeams.setWriteLoopFail(false);
@@ -1017,7 +1017,7 @@ test("session_shutdown writeLoop failure leaves disk unchanged for session_start
     const repaired = JSON.parse(readFileSync(stateFile(), "utf8"));
     assert.equal(repaired.status, "paused");
     assert.equal(repaired.pendingTurnRecovery, true);
-    assert.equal(repaired.pauseReason, "");
+    assert.equal(repaired.pauseReason, "session_end");
     await second.handlers.get("session_shutdown")?.({}, second.ctx);
   } finally {
     goalLoopTestSeams.setWriteLoopFail(false);
@@ -3045,7 +3045,7 @@ test("session replacement keeps an automatic abort retry lifecycle-paused", asyn
     await handlers.get("session_shutdown")?.({ type: "session_shutdown", reason: "new" }, ctx);
     const lifecycle = JSON.parse(readFileSync(stateFile(), "utf8"));
     assert.equal(lifecycle.status, "paused");
-    assert.equal(lifecycle.pauseReason, "");
+    assert.equal(lifecycle.pauseReason, "session_end");
     assert.equal(lifecycle.error, "セッション終了時に一時停止しました。");
     assert.equal(lifecycle.pendingTurnRecovery, true);
   } finally {
@@ -4082,7 +4082,7 @@ test("old session events do not mutate a newer session in the same extension", a
     await handlers.get("session_start")?.({}, ctxB);
     const switched = JSON.parse(readFileSync(stateFile("cross-session-a"), "utf8"));
     assert.equal(switched.status, "paused");
-    assert.equal(switched.pauseReason, "");
+    assert.equal(switched.pauseReason, "session_end");
     await commands.get("goal-start")?.(payload, ctxB);
     await waitFor(() => JSON.parse(readFileSync(stateFile("cross-session-b"), "utf8")).status === "queued");
     busy = false;
@@ -4502,7 +4502,7 @@ test("ignores a stale turn_timeout after dispose-less session replacement", asyn
     await piB.handlers.get("session_start")?.({}, ctxB);
     const paused = JSON.parse(readFileSync(stateFile(), "utf8"));
     assert.equal(paused.status, "paused");
-    assert.equal(paused.pauseReason, "");
+    assert.equal(paused.pauseReason, "session_end");
 
     busy = false;
     await piB.commands.get("goal-resume")?.("", ctxB);
@@ -4978,7 +4978,7 @@ test("session_shutdown mid-turn recovers via durable pendingTurnRecovery after r
     await piA.handlers.get("session_shutdown")?.({}, ctxA);
     const shutdown = JSON.parse(readFileSync(stateFile(), "utf8"));
     assert.equal(shutdown.status, "paused");
-    assert.equal(shutdown.pauseReason, "");
+    assert.equal(shutdown.pauseReason, "session_end");
     assert.equal(shutdown.pendingTurnRecovery, true);
     assert.equal(shutdown.turnCount, 1);
 
@@ -5004,6 +5004,48 @@ test("session_shutdown mid-turn recovers via durable pendingTurnRecovery after r
     await waitFor(() => sendCount === 2);
     assert.equal(JSON.parse(readFileSync(stateFile(), "utf8")).turnCount, 2);
   } finally {
+    rmSync(cwd, { recursive: true, force: true });
+  }
+});
+
+test("session_start migrates a legacy empty lifecycle pause reason", async () => {
+  const cwd = mkdtempSync(join(tmpdir(), "leafcode-goal-loop-session-end-migration-"));
+  const previousDataDir = process.env.LEAFCODE_PI_DATA_DIR;
+  const id = "legacy-session-end";
+  const stateFile = join(cwd, "goals-loop", `${id}.json`);
+  const handlers = new Map();
+  const ctx = {
+    cwd,
+    mode: "rpc",
+    isIdle: () => true,
+    hasPendingMessages: () => false,
+    abort() {},
+    sessionManager: { getSessionId: () => id, getBranch: () => [] },
+    ui: { setStatus() {}, setWidget() {}, notify() {} },
+  };
+  try {
+    process.env.LEAFCODE_PI_DATA_DIR = cwd;
+    mkdirSync(join(cwd, "goals-loop"), { recursive: true });
+    const legacy = baseWriteLoop(cwd, id);
+    legacy.status = "paused";
+    legacy.pauseReason = "";
+    writeFileSync(stateFile, JSON.stringify(legacy), "utf8");
+    goalLoopExtension({
+      on(name, handler) { handlers.set(name, handler); },
+      registerCommand() {},
+      appendEntry() {},
+      sendMessage() {},
+    });
+
+    await handlers.get("session_start")?.({}, ctx);
+    const migrated = JSON.parse(readFileSync(stateFile, "utf8"));
+    assert.equal(migrated.status, "paused");
+    assert.equal(migrated.pauseReason, "session_end");
+    assert.equal(goalLoopTestSeams.readLoop(cwd, id)?.pauseReason, "session_end");
+  } finally {
+    await handlers.get("session_shutdown")?.({}, ctx);
+    if (previousDataDir === undefined) delete process.env.LEAFCODE_PI_DATA_DIR;
+    else process.env.LEAFCODE_PI_DATA_DIR = previousDataDir;
     rmSync(cwd, { recursive: true, force: true });
   }
 });
@@ -5062,7 +5104,7 @@ test("lifecycle resume keeps an absolute cooldown instead of sending early", asy
 
     const paused = JSON.parse(readFileSync(stateFile(), "utf8"));
     assert.equal(paused.status, "paused");
-    assert.equal(paused.pauseReason, "");
+    assert.equal(paused.pauseReason, "session_end");
     assert.equal(paused.nextTurnAt, nextTurnAt);
     assert.equal(paused.maxTurns, 0);
 
@@ -5123,7 +5165,7 @@ test("preserves queued cooldowns and distinguishes lifecycle pauses from user pa
         await handlers.get("session_start")({}, ctx);
         const loop = readState();
         assert.equal(loop.status, status === "running" ? "paused" : status);
-        assert.equal(loop.pauseReason, status === "paused" ? "user" : "");
+        assert.equal(loop.pauseReason, status === "paused" ? "user" : status === "running" ? "session_end" : "");
         assert.equal(loop.nextTurnAt, nextTurnAt);
         if (status === "running") assert.match(loop.error, /セッション再開時/);
         // Let the scheduler run: a restored absolute cooldown must not be bypassed.
@@ -5132,7 +5174,7 @@ test("preserves queued cooldowns and distinguishes lifecycle pauses from user pa
         await handlers.get("session_shutdown")({}, ctx);
         const stopped = readState();
         assert.equal(stopped.status, "paused");
-        assert.equal(stopped.pauseReason, status === "paused" ? "user" : "");
+        assert.equal(stopped.pauseReason, status === "paused" ? "user" : "session_end");
         if (status === "queued" || status === "verifying_completed") {
           assert.match(stopped.error, /セッション終了時/);
         }

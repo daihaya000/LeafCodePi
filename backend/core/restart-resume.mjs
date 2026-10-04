@@ -23,8 +23,9 @@ export function restartResumeSkipReason(snapshot, now) {
 
 /** Only lifecycle pauses may be resumed automatically; preserve user/operator holds. */
 export function isGoalLoopRestartResumable(loop) {
+  const pauseReason = loop?.pauseReason ?? "";
   return loop?.status === "running" ||
-    (loop?.status === "paused" && (loop.pauseReason ?? "") === "");
+    (loop?.status === "paused" && (pauseReason === "" || pauseReason === "session_end"));
 }
 
 /**
