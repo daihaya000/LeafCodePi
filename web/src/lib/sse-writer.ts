@@ -68,7 +68,17 @@ export function createSseWriter(
     send(event: string, data: unknown) {
       if (closed) return;
       const jsonStartedAt = options.onTiming ? performance.now() : 0;
-      const json = JSON.stringify(data);
+      let json: string;
+      try {
+        json = JSON.stringify(data);
+      } catch (error) {
+        // A payload that cannot be serialized (cycle, BigInt) must not escape to the route with the
+        // heartbeat timer still running: report one error event, then tear the stream down.
+        console.error(`[sse] could not serialize "${event}" event`, error);
+        writer.sendSerialized("error", JSON.stringify({ message: "Failed to serialize event" }));
+        writer.close();
+        return;
+      }
       reportTiming(`sse.json:${event}`, jsonStartedAt);
       writer.sendSerialized(event, json);
     },
@@ -86,6 +96,8 @@ export function createSseWriter(
       heartbeat = setInterval(() => {
         enqueue(encoder.encode(`: ping\n\n`));
       }, intervalMs);
+      // The timer must never keep the process alive on its own.
+      (heartbeat as { unref?: () => void }).unref?.();
     },
     onCleanup(fn: () => void) {
       if (closed) {

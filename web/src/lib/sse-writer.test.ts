@@ -23,6 +23,26 @@ describe("createSseWriter", () => {
     expect(enqueue).toHaveBeenCalledTimes(2);
   });
 
+  it("reports an error event and stops the heartbeat when a payload cannot be serialized", () => {
+    vi.useFakeTimers();
+    const enqueue = vi.fn();
+    const controller = { enqueue, close: vi.fn() } as unknown as ReadableStreamDefaultController<Uint8Array>;
+    const error = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    try {
+      const sse = createSseWriter(controller);
+      sse.startHeartbeat(1_000);
+      expect(() => sse.send("snapshot", { big: BigInt(1) })).not.toThrow();
+      expect(sse.closed).toBe(true);
+      const text = new TextDecoder().decode(enqueue.mock.calls[0][0] as Uint8Array);
+      expect(text).toContain("event: error");
+      expect(vi.getTimerCount()).toBe(0);
+      vi.advanceTimersByTime(5_000);
+      expect(enqueue).toHaveBeenCalledTimes(1);
+    } finally {
+      error.mockRestore();
+    }
+  });
+
   it("does not serialize payloads after cleanup", () => {
     const enqueue = vi.fn();
     const controller = { enqueue } as unknown as ReadableStreamDefaultController<Uint8Array>;
