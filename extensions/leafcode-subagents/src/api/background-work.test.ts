@@ -1,5 +1,35 @@
 import { afterEach, describe, expect, it } from "vitest";
-import { captureSessionBackgroundWorkStop, registerBackgroundWorkProvider, stopSessionBackgroundWork } from "./background-work";
+import { captureSessionBackgroundWorkStop, captureSessionShutdownResourceStop, registerBackgroundWorkProvider, stopSessionBackgroundWork } from "./background-work";
+
+describe("captureSessionShutdownResourceStop", () => {
+	let unregister: (() => void) | undefined;
+	afterEach(() => {
+		unregister?.();
+		unregister = undefined;
+	});
+
+	it("captures only shutdown resources without reconciling or listing active work", async () => {
+		const stopped: string[] = [];
+		let activeListed = 0;
+		let reconciled = 0;
+		unregister = registerBackgroundWorkProvider({
+			name: "test-shutdown-only",
+			listActiveWork: () => { activeListed += 1; return [{ id: "active", sessionId: "session-a" }]; },
+			listShutdownResources: () => [
+				{ id: "resource-a", sessionId: "session-a" },
+				{ id: "resource-b", sessionId: "session-b" },
+			],
+			reconcile: () => { reconciled += 1; },
+			captureStopWork: (item) => () => { stopped.push(item.id); },
+		});
+
+		const stop = captureSessionShutdownResourceStop("session-a");
+		expect(activeListed).toBe(0);
+		expect(reconciled).toBe(0);
+		await expect(stop()).resolves.toBe(1);
+		expect(stopped).toEqual(["resource-a"]);
+	});
+});
 
 describe("stopSessionBackgroundWork", () => {
   let unregister: (() => void) | undefined;

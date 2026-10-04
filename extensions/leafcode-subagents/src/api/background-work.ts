@@ -165,12 +165,12 @@ export function listBackgroundWorkWakeChannels(): readonly string[] {
 	return [...channels];
 }
 
-/** Capture stop actions for active work and shutdown resources owned by one exact Pi session. */
-export function captureSessionBackgroundWorkStop(sessionId: string, nowMs = Date.now()): () => Promise<number> {
-	const snapshot = snapshotBackgroundWork(sessionId, nowMs);
+function captureSessionStops(sessionId: string, nowMs: number, includeActiveWork: boolean): () => Promise<number> {
+	validateString(sessionId, "Background-work stop sessionId", MAX_SESSION_ID_LENGTH);
+	const snapshot = includeActiveWork ? snapshotBackgroundWork(sessionId, nowMs) : undefined;
 	const registeredProviders = listBackgroundWorkProviders();
 	const providers = new Map(registeredProviders.map((provider) => [provider.name, provider]));
-	const items = [...snapshot.items];
+	const items = [...(snapshot?.items ?? [])];
 	const identities = new Set(items.map((item) => `${item.provider}\0${item.id}\0${item.sessionId}`));
 	for (const provider of registeredProviders) {
 		if (!provider.listShutdownResources) continue;
@@ -211,6 +211,16 @@ export function captureSessionBackgroundWorkStop(sessionId: string, nowMs = Date
 		}
 		return stopCalls.length;
 	};
+}
+
+/** Capture stop actions for active work and shutdown resources owned by one exact Pi session. */
+export function captureSessionBackgroundWorkStop(sessionId: string, nowMs = Date.now()): () => Promise<number> {
+	return captureSessionStops(sessionId, nowMs, true);
+}
+
+/** Capture only session-owned shutdown resources, without reconciling or listing active work. */
+export function captureSessionShutdownResourceStop(sessionId: string): () => Promise<number> {
+	return captureSessionStops(sessionId, Date.now(), false);
 }
 
 export async function stopSessionBackgroundWork(sessionId: string, nowMs = Date.now()): Promise<number> {

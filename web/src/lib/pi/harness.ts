@@ -4,7 +4,7 @@ import { rm } from "node:fs/promises";
 import { homedir } from "node:os";
 import { basename, dirname, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { captureSessionBackgroundWorkStop } from "../../../../extensions/leafcode-subagents/src/api/background-work.ts";
+import { captureSessionBackgroundWorkStop, captureSessionShutdownResourceStop } from "../../../../extensions/leafcode-subagents/src/api/background-work.ts";
 import {
   dataDir,
   isAbsolutePath,
@@ -2560,7 +2560,7 @@ async function attachSession(
   const attachedTask = getTask(taskId);
   // Hard-delete can race createSession; never attach a live map entry for a gone task.
   if (!attachedTask) {
-    disposeSessionBestEffort(session);
+    await disposeSessionBestEffort(session);
     throw Object.assign(new Error("タスクが見つかりません"), { status: 404 });
   }
   const current = state();
@@ -5099,10 +5099,33 @@ async function resolveLiveSessionSettings(
  * session_shutdown is intentionally NOT emitted here: the old live session for
  * the same task may still be active, and shutting down a duplicate Goal Loop /
  * intercom runtime would pause the loop or clobber the shared
- * process.env intercom session id. Failure paths only; known residual leak.
+ * process.env intercom session id. Failure paths clean session-owned resources without emitting shutdown.
  */
-function disposeSessionBestEffort(session: AgentSession): void {
-  // The discard contract (no session_shutdown, swallowed errors) lives in backend core.
+async function disposeSessionBestEffort(session: AgentSession): Promise<void> {
+  const sessionId = session.sessionId;
+  if (sessionId) {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    let timedOut = false;
+    try {
+      const stopShutdownResources = captureSessionShutdownResourceStop(sessionId);
+      await Promise.race([
+        stopShutdownResources(),
+        new Promise<number>((resolve) => {
+          timer = setTimeout(() => {
+            timedOut = true;
+            resolve(0);
+          }, LIVE_SHUTDOWN_TIMEOUT_MS);
+        }),
+      ]);
+      if (timedOut) console.warn(`[unattached-session] shutdown resource cleanup timed out after ${LIVE_SHUTDOWN_TIMEOUT_MS}ms`);
+    } catch (error) {
+      const reason = error instanceof Error ? error.message : String(error);
+      console.warn(`[unattached-session] shutdown resource cleanup failed: ${reason}`);
+    } finally {
+      if (timer) clearTimeout(timer);
+    }
+  }
+  // Keep shared session_shutdown handlers suppressed for an unattached session.
   disposeUnattachedSession(session);
 }
 
@@ -5126,7 +5149,7 @@ async function attachCreatedLiveSession(
     hasTask: Boolean(getTask(taskId)),
   });
   if (createdAction !== "attach") {
-    disposeSessionBestEffort(setup.session);
+    await disposeSessionBestEffort(setup.session);
     if (createdAction === "retry") return ensureLive(taskId, options);
     throw Object.assign(new Error("タスクが見つかりません"), { status: 404 });
   }
