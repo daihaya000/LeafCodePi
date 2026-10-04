@@ -29,17 +29,19 @@ const AGENT_FILES = [
   "TOOLS.md",
   "USER.md",
   "WORKFLOW.md",
-  "auth.json",
   "leafcode-memory-config.json",
   "mcp.json",
   "models.json",
   "settings.json",
 ] as const;
+// Legacy v1 profiles may contain credentials here; imports ignore them.
+const LEGACY_AUTH_AGENT_FILES = ["auth.json"] as const;
 // npm and git packages are restored explicitly after import via `pi update --extensions`.
-const EXPORTED_AGENT_DIRECTORIES = ["accounts", "agents", "extensions", "intercom", "skills"] as const;
-const MANAGED_AGENT_DIRECTORIES = [...EXPORTED_AGENT_DIRECTORIES, "git", "npm"] as const;
+const EXPORTED_AGENT_DIRECTORIES = ["agents", "extensions", "intercom", "skills"] as const;
+// Older v1 profiles may contain account auth and peer tokens under this directory.
+const LEGACY_AUTH_AGENT_DIRECTORIES = ["accounts"] as const;
+const MANAGED_AGENT_DIRECTORIES = [...EXPORTED_AGENT_DIRECTORIES, ...LEGACY_AUTH_AGENT_DIRECTORIES, "git", "npm"] as const;
 const DATA_FILES = [
-  "accounts.json",
   "browser-config.json",
   "extensions-state.json",
   "permission-gate.json",
@@ -49,8 +51,11 @@ const DATA_FILES = [
   "skills-state.json",
   "tts.json",
   "web-settings.json",
-  "webui-auth.json",
 ] as const;
+// Account records belong to credential transfer; WebUI access auth stays local.
+const LEGACY_AUTH_DATA_FILES = ["accounts.json", "webui-auth.json"] as const;
+const ALLOWED_AGENT_FILES = new Set<string>([...AGENT_FILES, ...LEGACY_AUTH_AGENT_FILES]);
+const ALLOWED_DATA_FILES = new Set<string>([...DATA_FILES, ...LEGACY_AUTH_DATA_FILES]);
 const DATA_DIRECTORIES = ["settings"] as const;
 
 type ProfileArchive = {
@@ -138,9 +143,9 @@ function isAllowedProfilePath(path: string): boolean {
   }
   const [entry] = parts;
   if (root === "agent") {
-    return (parts.length === 1 && AGENT_FILES.includes(entry as never)) || (parts.length > 1 && MANAGED_AGENT_DIRECTORIES.includes(entry as never));
+    return (parts.length === 1 && ALLOWED_AGENT_FILES.has(entry)) || (parts.length > 1 && MANAGED_AGENT_DIRECTORIES.includes(entry as never));
   }
-  return (parts.length === 1 && DATA_FILES.includes(entry as never)) || (parts.length > 1 && DATA_DIRECTORIES.includes(entry as never));
+  return (parts.length === 1 && ALLOWED_DATA_FILES.has(entry)) || (parts.length > 1 && DATA_DIRECTORIES.includes(entry as never));
 }
 
 type ProfileTotal = { bytes: number; fileCount: number; agentDir: string; leafcodeDir: string };
@@ -176,7 +181,7 @@ function addDirectory(files: Record<string, string>, modes: Record<string, numbe
   }
 }
 
-/** Export only portable settings, credentials, and user-installed agent resources. */
+/** Export portable settings and user-installed agent resources, excluding credentials. */
 export function exportProfile(options: ProfileRoots = {}): { archive: Buffer; summary: ProfileSummary } {
   const { agentDir, leafcodeDir } = roots(options);
   const files: Record<string, string> = {};
@@ -296,17 +301,25 @@ function destination(path: string, agentDir: string, leafcodeDir: string): strin
   return result;
 }
 
+function isLegacyCredentialPath(path: string): boolean {
+  return path === "agent/auth.json" || path.startsWith("agent/accounts/") ||
+    path === "data/accounts.json" || path === "data/webui-auth.json";
+}
+
 function importedFileMode(mode: number | undefined): number {
-  // Profiles contain credentials; preserve only the owner-executable bit needed by package scripts.
+  // Keep imported configuration private; preserve only package scripts' owner-executable bit.
   return 0o600 | ((mode ?? 0) & 0o100);
 }
 
 function applyProfile(profile: ProfileArchive, agentDir: string, leafcodeDir: string): ProfileSummary {
-  const files = Object.entries(profile.files).map(([profilePath, content]) => ({
-    path: destination(profilePath, agentDir, leafcodeDir),
-    content: Buffer.from(content, "base64"),
-    mode: importedFileMode(profile.modes?.[profilePath]),
-  }));
+  const files = Object.entries(profile.files)
+    // Backward-compatible v1 imports ignore credential paths rather than restoring them.
+    .filter(([profilePath]) => !isLegacyCredentialPath(profilePath))
+    .map(([profilePath, content]) => ({
+      path: destination(profilePath, agentDir, leafcodeDir),
+      content: Buffer.from(content, "base64"),
+      mode: importedFileMode(profile.modes?.[profilePath]),
+    }));
   // New profiles omit package artifacts; keep the current copies until explicit reinstallation succeeds.
   const includesPackageArtifacts = Object.keys(profile.files).some((path) => path.startsWith("agent/git/") || path.startsWith("agent/npm/"));
   removeConfiguredPaths(agentDir, leafcodeDir, includesPackageArtifacts);

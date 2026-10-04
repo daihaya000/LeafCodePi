@@ -1,9 +1,10 @@
 import { lstatSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { basename, dirname, join } from "node:path";
 import {
-  accountAuthPath, importAccountRecords, listAccounts, resolvePiAgentDir,
+  accountAuthPath, accountDir, importAccountRecords, listAccounts, resolvePiAgentDir,
   type AccountRecord,
 } from "@/lib/accounts";
+import { parsePeerConfig, writePeerConfig, type PeerConfig } from "@backend-core/peer-auth-config.mjs";
 import {
   accountAnthropicCookiePath, accountOpenCodeCookiePath,
   defaultAnthropicCookiePath, defaultOpenCodeCookiePath, defaultTypesafeCookiePath,
@@ -36,6 +37,7 @@ type AccountBackup = {
   cookies: Partial<Record<CookieName, string>>;
   openrouterManagementKey?: string;
   opencodeWorkspaceId?: string;
+  peer?: PeerConfig;
 };
 type CredentialBackup = {
   defaultAuth: AuthEntries;
@@ -104,6 +106,12 @@ function readAuth(path: string): AuthEntries {
   const text = readOptionalText(path, MAX_ARCHIVE_BYTES);
   return text ? checkAuthEntries(JSON.parse(text) as unknown) : {};
 }
+function readPeerAuth(directory: string): PeerConfig | null {
+  const text = readOptionalText(join(directory, "peer.json"), 16_384);
+  if (!text) return null;
+  try { return parsePeerConfig(JSON.parse(text) as unknown); }
+  catch { return null; }
+}
 function cookiePaths(authPath: string, accountId: string): Record<CookieName, string> {
   const ollama = accountOllamaCookiePath(accountId);
   if (!ollama) invalid("アカウントIDが不正です");
@@ -139,10 +147,12 @@ export async function exportSettingsBackup(scope: TransferScope): Promise<Settin
         const authPath = accountAuthPath(record.id, agentDir);
         const managementKey = readOpenRouterManagementKey(authPath);
         const workspaceId = readAccountOpenCodeGoWorkspace(authPath);
+        const peer = readPeerAuth(accountDir(record.id, agentDir));
         return {
           record,
           auth: readAuth(authPath),
           cookies: readCookies(cookiePaths(authPath, record.id)),
+          ...(peer ? { peer } : {}),
           ...(managementKey ? { openrouterManagementKey: managementKey } : {}),
           ...(workspaceId ? { opencodeWorkspaceId: workspaceId } : {}),
         };
@@ -178,7 +188,7 @@ export type CredentialResetSummary = {
 };
 
 /**
- * 保存済みのプロバイダー認証をバックアップへ退避してから削除する。
+ * 保存済みのプロバイダー認証・アカウント接続認証をバックアップへ退避してから削除する。
  * アカウント一覧・WebUI設定・OS資格情報ストアは変更しない。
  */
 export async function resetStoredCredentials(): Promise<CredentialResetSummary> {
@@ -188,7 +198,7 @@ export async function resetStoredCredentials(): Promise<CredentialResetSummary> 
   const targets: string[] = [join(agentDir, "auth.json")];
   for (const record of accounts) {
     const authPath = accountAuthPath(record.id, agentDir);
-    targets.push(authPath, join(dirname(authPath), "openrouter.json"), ...Object.values(cookiePaths(authPath, record.id)));
+    targets.push(authPath, join(dirname(authPath), "openrouter.json"), join(accountDir(record.id, agentDir), "peer.json"), ...Object.values(cookiePaths(authPath, record.id)));
   }
   targets.push(defaultAnthropicCookiePath(), defaultOpenCodeCookiePath(), defaultOllamaCookiePath(), defaultTypesafeCookiePath());
 
@@ -258,7 +268,9 @@ function validateCredentials(raw: unknown): CredentialBackup {
     if (typeof record.id !== "string" || !/^[A-Za-z0-9_-]{1,64}$/.test(record.id)) invalid("アカウントIDが不正です");
     if (entry.openrouterManagementKey !== undefined && (typeof entry.openrouterManagementKey !== "string" || entry.openrouterManagementKey.length > 4096)) invalid("管理キーが不正です");
     if (entry.opencodeWorkspaceId !== undefined && (typeof entry.opencodeWorkspaceId !== "string" || !entry.opencodeWorkspaceId.trim() || entry.opencodeWorkspaceId.length > 256)) invalid("OpenCode workspace IDが不正です");
-    return { record, auth: checkAuthEntries(entry.auth), cookies: validateCookies(entry.cookies, cookieNames), ...(entry.openrouterManagementKey ? { openrouterManagementKey: entry.openrouterManagementKey as string } : {}), ...(entry.opencodeWorkspaceId ? { opencodeWorkspaceId: entry.opencodeWorkspaceId as string } : {}) };
+    const peer = entry.peer === undefined ? undefined : parsePeerConfig(entry.peer);
+    if (entry.peer !== undefined && !peer) invalid("接続認証の形式が不正です");
+    return { record, auth: checkAuthEntries(entry.auth), cookies: validateCookies(entry.cookies, cookieNames), ...(peer ? { peer } : {}), ...(entry.openrouterManagementKey ? { openrouterManagementKey: entry.openrouterManagementKey as string } : {}), ...(entry.opencodeWorkspaceId ? { opencodeWorkspaceId: entry.opencodeWorkspaceId as string } : {}) };
   });
   const ids = accounts.map(({ record }) => record.id);
   if (new Set(ids).size !== ids.length) invalid("アカウントIDが重複しています");
@@ -296,6 +308,7 @@ function transferTargets(settings: Record<string, string | number> | null, crede
   for (const account of credentials.accounts) {
     const authPath = accountAuthPath(account.record.id, agentDir);
     if (Object.keys(account.auth).length) targets.push(authPath);
+    if (account.peer) targets.push(join(accountDir(account.record.id, agentDir), "peer.json"));
     const paths = cookiePaths(authPath, account.record.id);
     for (const name of cookieNames) if (account.cookies[name]) targets.push(paths[name]);
     if (account.openrouterManagementKey) targets.push(join(dirname(authPath), "openrouter.json"));
@@ -332,6 +345,7 @@ export async function importSettingsBackup(
       for (const account of credentials.accounts) {
         const authPath = accountAuthPath(account.record.id, agentDir);
         await writeAuth(authPath, account.auth);
+        if (account.peer) writePeerConfig(accountDir(account.record.id, agentDir), account.peer);
         writeCookies(account.cookies, authPath, account.record.id);
         if (account.openrouterManagementKey) writeOpenRouterAccountConfig(authPath, { managementKey: account.openrouterManagementKey });
         if (account.opencodeWorkspaceId) writeAccountOpenCodeGoWorkspace(authPath, account.opencodeWorkspaceId);

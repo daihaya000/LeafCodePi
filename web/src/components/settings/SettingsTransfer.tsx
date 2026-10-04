@@ -8,12 +8,12 @@ import { getJson, sendJson } from "@/lib/client";
 import { prepareServerSettingsImport, refreshServerSettings } from "@/lib/setting-sync";
 import type { SettingsBackup, TransferScope } from "@/lib/pi/settings-transfer";
 
-// 設定一式は「設定エクスポート」（ProfileSettings）が担い、ここはプロバイダー認証だけを出力する。
+// 設定エクスポートは構成のみ、ここはPi/プロバイダー/アカウントの認証だけを出力する。
 // インポートは旧版で出力した「設定のみ」「両方」のJSONも受け付ける。
 const labels: Record<TransferScope, string> = {
   settings: "WebUI動作設定",
-  credentials: "プロバイダー認証",
-  all: "WebUI動作設定とプロバイダー認証",
+  credentials: "認証情報",
+  all: "WebUI動作設定と認証情報",
 };
 
 type BusyAction = "export" | "import" | "reset" | "check" | `recover:${string}` | `discard:${string}`;
@@ -26,7 +26,7 @@ export function SettingsTransfer() {
   const [recoveries, setRecoveries] = useState<string[]>([]);
 
   async function exportCredentials() {
-    if (!window.confirm("APIキー・OAuthトークン・cookie を平文JSONで保存します。安全な場所に保管しますか？")) return;
+    if (!window.confirm("APIキー・OAuthトークン・接続トークン・cookieを平文JSONで保存します。安全な場所に保管しますか？")) return;
     setBusy("export");
     setError(null);
     setMessage(null);
@@ -128,14 +128,14 @@ export function SettingsTransfer() {
   }
 
   async function resetCredentials() {
-    if (!window.confirm("保存済みのプロバイダー認証を初期化します。旧認証はバックアップへ退避し、このPCのログイン状態は未ログインへ戻ります。完了後にLeafCodePiを再起動してください。")) return;
+    if (!window.confirm("保存済みのプロバイダー認証とアカウント接続トークンを初期化します。旧認証はバックアップへ退避し、このPCのログイン状態は未ログインへ戻ります。完了後にLeafCodePiを再起動してください。")) return;
     setBusy("reset");
     setError(null);
     setMessage(null);
     setRecoveryId(null);
     try {
       const result = await sendJson<{ backupPath: string; accountCount: number; warning?: string }>("/api/settings/transfer", undefined, "DELETE");
-      setMessage(`旧認証を${result.backupPath}へ退避し、保存済みのプロバイダー認証を初期化しました。LeafCodePiを再起動してください`);
+      setMessage(`旧認証を${result.backupPath}へ退避し、プロバイダー認証とアカウント接続認証を初期化しました。LeafCodePiを再起動してください`);
       if (result.warning) setError(result.warning);
     } catch (cause) {
       const detail = cause instanceof Error ? cause.message : "認証の初期化に失敗しました";
@@ -154,7 +154,7 @@ export function SettingsTransfer() {
     <div className="rounded-2xl border border-border bg-surface p-4">
       <h3 className="text-sm font-semibold">認証エクスポート</h3>
       <p className="mt-1 text-xs leading-5 text-muted">
-        プロバイダーのAuth/APIキー/cookieだけをJSONで転送します。インポートは重複する認証だけを上書きし、他は残します。ブラウザ内のcookie・環境変数・OS資格情報ストアは含みません。
+        Pi既定認証・プロバイダー認証・アカウント認証（接続トークンを含む）・cookieだけをJSONで転送します。インポートは重複する認証だけを上書きし、他は残します。設定エクスポートは構成専用です。WebUIアクセス認証・ブラウザ内cookie・環境変数・OS資格情報ストアは含みません。
       </p>
       <div className="mt-3 space-y-4">
         <TransferActions
@@ -197,7 +197,7 @@ export function SettingsTransfer() {
         </SettingsDisclosure>
         <SettingsDisclosure title="認証の初期化">
           <p className="text-xs leading-5 text-muted">
-            保存済みのプロバイダー認証（auth.json・cookie・アカウント認証）をバックアップへ退避してから削除します。退避したJSONはこのカードのインポートで戻せます。アカウント一覧とWebUI動作設定は残り、OS資格情報ストアとブラウザ内のcookieは変更しません。
+            保存済みのプロバイダー認証（auth.json・cookie・アカウント/接続認証）をバックアップへ退避してから削除します。退避したJSONはこのカードのインポートで戻せます。アカウント一覧とWebUI動作設定は残り、WebUIアクセス認証・OS資格情報ストア・ブラウザ内のcookieは変更しません。
           </p>
           <Button className="w-full" variant="danger" busy={busy === "reset"} disabled={disabled} onClick={() => void resetCredentials()}>
             <RotateCcw className="h-4 w-4" />初期化

@@ -23,6 +23,7 @@ describe("profile", () => {
     const sourceAgent = join(source, "agent");
     const sourceData = join(source, "data");
     mkdirSync(join(sourceAgent, "agents"), { recursive: true });
+    mkdirSync(join(sourceAgent, "accounts", "source"), { recursive: true });
     mkdirSync(join(sourceAgent, "npm", "node_modules"), { recursive: true });
     mkdirSync(join(sourceAgent, "git", "example.test", "package"), { recursive: true });
     mkdirSync(join(sourceData, "settings"), { recursive: true });
@@ -34,6 +35,10 @@ describe("profile", () => {
     writeFileSync(join(sourceAgent, "npm", "node_modules", "package.js"), "generated", "utf8");
     writeFileSync(join(sourceAgent, "git", "example.test", "package", "package.js"), "retrievable", "utf8");
     writeFileSync(join(sourceAgent, "auth.json"), '{"token":"secret"}', "utf8");
+    writeFileSync(join(sourceAgent, "accounts", "source", "auth.json"), '{"token":"account-secret"}', "utf8");
+    writeFileSync(join(sourceAgent, "accounts", "source", "peer.json"), '{"token":"peer-secret"}', "utf8");
+    writeFileSync(join(sourceData, "accounts.json"), '{"accounts":[{"id":"source"}]}', "utf8");
+    writeFileSync(join(sourceData, "webui-auth.json"), '{"token":"webui-secret"}', "utf8");
     writeFileSync(join(sourceData, "permission-gate.json"), '{"mode":"ask"}', "utf8");
     writeFileSync(join(sourceData, "provider-endpoints.json"), '{"leafcodecloud":"https://example.test/v1"}', "utf8");
     writeFileSync(join(sourceData, "provider-model-state.json"), '{"disabled":{}}', "utf8");
@@ -44,23 +49,33 @@ describe("profile", () => {
     writeFileSync(join(sourceData, "store.json"), '{"projects":[]}', "utf8");
 
     const exported = exportProfile({ agentDir: sourceAgent, leafcodeDir: sourceData });
-    expect(exported.summary.fileCount).toBe(13);
+    expect(exported.summary.fileCount).toBe(12);
     const archive = JSON.parse(gunzipSync(exported.archive).toString("utf8")) as { files?: Record<string, unknown>; modes?: Record<string, unknown> };
     expect(archive.modes?.["agent/AGENTS.md"]).toEqual(expect.any(Number));
     expect(archive.files?.["agent/npm/node_modules/package.js"]).toBeUndefined();
     expect(archive.files?.["agent/git/example.test/package/package.js"]).toBeUndefined();
+    expect(archive.files?.["agent/auth.json"]).toBeUndefined();
+    expect(archive.files?.["agent/accounts/source/auth.json"]).toBeUndefined();
+    expect(archive.files?.["agent/accounts/source/peer.json"]).toBeUndefined();
+    expect(archive.files?.["data/accounts.json"]).toBeUndefined();
+    expect(archive.files?.["data/webui-auth.json"]).toBeUndefined();
 
     const target = directory();
     const targetAgent = join(target, "agent");
     const targetData = join(target, "data");
     mkdirSync(join(targetAgent, "skills"), { recursive: true });
+    mkdirSync(join(targetAgent, "accounts", "local"), { recursive: true });
     mkdirSync(join(targetAgent, "npm", "node_modules"), { recursive: true });
     mkdirSync(join(targetData, "settings"), { recursive: true });
     writeFileSync(join(targetAgent, "AGENTS.md"), "old", "utf8");
+    writeFileSync(join(targetAgent, "auth.json"), '{"token":"local-secret"}', "utf8");
+    writeFileSync(join(targetAgent, "accounts", "local", "peer.json"), '{"token":"local-peer"}', "utf8");
     writeFileSync(join(targetAgent, "DESIGN.md"), "old design", "utf8");
     writeFileSync(join(targetAgent, "skills", "old.md"), "old skill", "utf8");
     writeFileSync(join(targetAgent, "npm", "node_modules", "stale.js"), "stale", "utf8");
     writeFileSync(join(targetData, "permission-gate.json"), '{"mode":"allow"}', "utf8");
+    writeFileSync(join(targetData, "accounts.json"), '{"accounts":[{"id":"local"}]}', "utf8");
+    writeFileSync(join(targetData, "webui-auth.json"), '{"token":"local-webui"}', "utf8");
     writeFileSync(join(targetData, "skills-state.json"), '{"code":{"old":true}}', "utf8");
     writeFileSync(join(targetData, "settings", "old.json"), "old", "utf8");
     writeFileSync(join(targetData, "store.json"), '{"projects":["keep"]}', "utf8");
@@ -68,6 +83,10 @@ describe("profile", () => {
     const restored = importProfile(exported.archive, { agentDir: targetAgent, leafcodeDir: targetData });
     expect(restored).toEqual(exported.summary);
     expect(readFileSync(join(targetAgent, "AGENTS.md"), "utf8")).toBe("source instructions");
+    expect(readFileSync(join(targetAgent, "auth.json"), "utf8")).toBe('{"token":"local-secret"}');
+    expect(readFileSync(join(targetAgent, "accounts", "local", "peer.json"), "utf8")).toBe('{"token":"local-peer"}');
+    expect(readFileSync(join(targetData, "accounts.json"), "utf8")).toBe('{"accounts":[{"id":"local"}]}');
+    expect(readFileSync(join(targetData, "webui-auth.json"), "utf8")).toBe('{"token":"local-webui"}');
     expect(readFileSync(join(targetAgent, "DESIGN.md"), "utf8")).toBe("source design");
     expect(readFileSync(join(targetAgent, "TOOLS.md"), "utf8")).toBe("source tools");
     expect(readFileSync(join(targetAgent, "WORKFLOW.md"), "utf8")).toBe("source workflow");
@@ -79,6 +98,35 @@ describe("profile", () => {
     expect(readFileSync(join(targetData, "settings", "llama-server.json"), "utf8")).toBe('{"value":"configured"}');
     expect(existsSync(join(targetData, "settings", "old.json"))).toBe(false);
     expect(readFileSync(join(targetData, "store.json"), "utf8")).toBe('{"projects":["keep"]}');
+  });
+
+  it("ignores credential files in legacy v1 profiles while importing configuration", () => {
+    const target = directory();
+    const targetAgent = join(target, "agent");
+    const targetData = join(target, "data");
+    mkdirSync(join(targetAgent, "accounts", "local"), { recursive: true });
+    mkdirSync(targetData, { recursive: true });
+    writeFileSync(join(targetAgent, "auth.json"), '{"token":"current"}', "utf8");
+    writeFileSync(join(targetAgent, "accounts", "local", "peer.json"), '{"token":"current-peer"}', "utf8");
+    writeFileSync(join(targetData, "accounts.json"), '{"accounts":[{"id":"local"}]}', "utf8");
+    writeFileSync(join(targetData, "webui-auth.json"), '{"token":"current-webui"}', "utf8");
+    const archive = gzipSync(Buffer.from(JSON.stringify({
+      format: "leafcode-pi-profile", version: 1, createdAt: "2026-01-01T00:00:00.000Z",
+      files: {
+        "agent/AGENTS.md": Buffer.from("legacy instructions").toString("base64"),
+        "agent/auth.json": Buffer.from('{"token":"legacy"}').toString("base64"),
+        "agent/accounts/local/peer.json": Buffer.from('{"token":"legacy-peer"}').toString("base64"),
+        "data/accounts.json": Buffer.from('{"accounts":[]}').toString("base64"),
+        "data/webui-auth.json": Buffer.from('{"token":"legacy-webui"}').toString("base64"),
+      },
+    })));
+
+    importProfile(archive, { agentDir: targetAgent, leafcodeDir: targetData });
+    expect(readFileSync(join(targetAgent, "AGENTS.md"), "utf8")).toBe("legacy instructions");
+    expect(readFileSync(join(targetAgent, "auth.json"), "utf8")).toBe('{"token":"current"}');
+    expect(readFileSync(join(targetAgent, "accounts", "local", "peer.json"), "utf8")).toBe('{"token":"current-peer"}');
+    expect(readFileSync(join(targetData, "accounts.json"), "utf8")).toBe('{"accounts":[{"id":"local"}]}');
+    expect(readFileSync(join(targetData, "webui-auth.json"), "utf8")).toBe('{"token":"current-webui"}');
   });
 
   it("reinstalls declared packages only when requested", async () => {
@@ -123,6 +171,11 @@ describe("profile", () => {
     mkdirSync(join(targetAgent, "skills"), { recursive: true });
     mkdirSync(join(targetData, "settings"), { recursive: true });
     writeFileSync(join(targetAgent, "AGENTS.md"), "old instructions", "utf8");
+    writeFileSync(join(targetAgent, "auth.json"), '{"token":"keep-auth"}', "utf8");
+    mkdirSync(join(targetAgent, "accounts", "local"), { recursive: true });
+    writeFileSync(join(targetAgent, "accounts", "local", "peer.json"), '{"token":"keep-peer"}', "utf8");
+    writeFileSync(join(targetData, "accounts.json"), '{"accounts":[{"id":"local"}]}', "utf8");
+    writeFileSync(join(targetData, "webui-auth.json"), '{"token":"keep-webui"}', "utf8");
     writeFileSync(join(targetAgent, "skills", "old.md"), "old skill", "utf8");
     writeFileSync(join(targetData, "web-settings.json"), '{"version":1}', "utf8");
     writeFileSync(join(targetData, "settings", "llama-server.json"), '{"value":"configured"}', "utf8");
@@ -145,6 +198,10 @@ describe("profile", () => {
     expect(new Set(backups.map(({ name }) => name)).size).toBe(2);
     expect(backups.every(({ name }) => /\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}/.test(name))).toBe(true);
     expect(existsSync(join(targetAgent, "AGENTS.md"))).toBe(false);
+    expect(readFileSync(join(targetAgent, "auth.json"), "utf8")).toBe('{"token":"keep-auth"}');
+    expect(readFileSync(join(targetAgent, "accounts", "local", "peer.json"), "utf8")).toBe('{"token":"keep-peer"}');
+    expect(readFileSync(join(targetData, "accounts.json"), "utf8")).toBe('{"accounts":[{"id":"local"}]}');
+    expect(readFileSync(join(targetData, "webui-auth.json"), "utf8")).toBe('{"token":"keep-webui"}');
     expect(existsSync(join(targetAgent, "skills", "old.md"))).toBe(false);
     expect(existsSync(join(targetData, "web-settings.json"))).toBe(false);
     expect(existsSync(join(targetData, "settings", "llama-server.json"))).toBe(false);

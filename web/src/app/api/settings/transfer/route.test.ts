@@ -3,13 +3,14 @@ import { tmpdir } from "node:os";
 import { basename, dirname, join } from "node:path";
 import { NextRequest } from "next/server";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { __resetPiAgentDirCacheForTests, accountAuthPath, createAccount, listAccounts } from "@/lib/accounts";
+import { __resetPiAgentDirCacheForTests, accountAuthPath, accountDir, createAccount, listAccounts } from "@/lib/accounts";
+import { readPeerConfig, writePeerConfig } from "@backend-core/peer-auth-config.mjs";
 import { accountAnthropicCookiePath, defaultTypesafeCookiePath, saveAccountAnthropicCookieFile, saveTypesafeCookieFile } from "@/lib/codexbar/browser-cookies";
 import { accountOllamaCookiePath, saveOllamaCookieFile } from "@/lib/codexbar/providers/ollama-cloud";
 import { readOpenRouterManagementKey, writeOpenRouterAccountConfig } from "@/lib/codexbar/providers/openrouter";
 import { writeAccountOpenCodeGoWorkspace } from "@/lib/codexbar/providers/opencode-go";
 import { getSetting, setSetting } from "@/lib/pi/web-settings";
-import { importSettingsBackup } from "@/lib/pi/settings-transfer";
+import { exportSettingsBackup, importSettingsBackup } from "@/lib/pi/settings-transfer";
 import { TransferRecoveryError, withTransferRecovery } from "@/lib/pi/transfer-recovery";
 import { DELETE, GET, POST } from "./route";
 
@@ -121,6 +122,24 @@ describe("/api/settings/transfer", () => {
     expect(readOpenRouterManagementKey(accountAuthPath(account.id, process.env.PI_CODING_AGENT_DIR!))).toBe("management-secret");
   });
 
+  it("round-trips peer connection credentials through credential export/import", async () => {
+    setup();
+    const account = createAccount({ label: "peer", providers: ["anthropic"] });
+    const peer = writePeerConfig(accountDir(account.id, process.env.PI_CODING_AGENT_DIR!), {
+      peerUrl: "http://100.64.0.2:3000", peerAccountId: null, providers: ["anthropic"], token: "k".repeat(43), createdAt: "2026-01-01T00:00:00.000Z",
+    });
+    const exported = await POST(request({ action: "export", scope: "credentials" }, { cookie: "leafcode-pi-token=test-token" }));
+    expect(exported.status).toBe(200);
+    const { backup } = await exported.json();
+    expect(backup.credentials.accounts[0].peer).toEqual(peer);
+    expect(backup.settings).toBeUndefined();
+
+    setup();
+    const imported = await POST(request({ action: "import", backup }, { cookie: "leafcode-pi-token=test-token" }));
+    expect(imported.status).toBe(200);
+    expect(readPeerConfig(accountDir(account.id, process.env.PI_CODING_AGENT_DIR!))).toEqual(peer);
+  });
+
   it("preserves SDK keyless API placeholders and legacy access-only OAuth entries", async () => {
     setup();
     const account = createAccount({ label: "Go", providers: ["opencode-go", "anthropic"] });
@@ -171,6 +190,9 @@ describe("/api/settings/transfer", () => {
     writeFileSync(authPath, JSON.stringify({ openrouter: { type: "api_key", key: "ACCOUNT-SECRET" } }));
     const defaultAuth = join(agentDir, "auth.json");
     writeFileSync(defaultAuth, JSON.stringify({ typesafe: { type: "api_key", key: "DEFAULT-SECRET" } }));
+    const peer = writePeerConfig(accountDir(account.id, agentDir), {
+      peerUrl: "http://100.64.0.2:3000", peerAccountId: null, providers: ["anthropic"], token: "p".repeat(43), createdAt: "2026-01-01T00:00:00.000Z",
+    });
     const anthCookie = "# Netscape HTTP Cookie File\n.claude.com\tTRUE\t/\tTRUE\t0\tsessionKey\tant-session\n";
     saveAccountAnthropicCookieFile(authPath, anthCookie);
     saveTypesafeCookieFile("# Netscape HTTP Cookie File\nconsole.typesafe.ai\tFALSE\t/\tTRUE\t0\tsession_id\tkey\nconsole.typesafe.ai\tFALSE\t/\tTRUE\t0\torganization_id\torg\n");
@@ -183,6 +205,7 @@ describe("/api/settings/transfer", () => {
     expect(result.accountCount).toBe(1);
     expect(existsSync(defaultAuth)).toBe(false);
     expect(existsSync(authPath)).toBe(false);
+    expect(existsSync(join(accountDir(account.id, agentDir), "peer.json"))).toBe(false);
     expect(existsSync(accountAnthropicCookiePath(authPath))).toBe(false);
     expect(existsSync(defaultTypesafeCookiePath())).toBe(false);
     expect(existsSync(join(dirname(authPath), "openrouter.json"))).toBe(false);
@@ -194,6 +217,7 @@ describe("/api/settings/transfer", () => {
     expect(backup.scope).toBe("credentials");
     expect(backup.credentials.defaultAuth.typesafe.key).toBe("DEFAULT-SECRET");
     expect(backup.credentials.accounts[0].auth.openrouter.key).toBe("ACCOUNT-SECRET");
+    expect(backup.credentials.accounts[0].peer).toEqual(peer);
     expect(backup.credentials.accounts[0].openrouterManagementKey).toBe("management-secret");
     const recoveryDir = join(process.env.LEAFCODE_PI_DATA_DIR!, "settings-transfer-recovery");
     expect(existsSync(recoveryDir) ? readdirSync(recoveryDir) : []).toEqual([]);
@@ -206,14 +230,12 @@ describe("/api/settings/transfer", () => {
     expect((await DELETE(deleteRequest())).status).toBe(200);
   });
 
-  it("imports combined settings and new account references without changing unrelated values", async () => {
+  it("imports legacy combined settings and new account references without changing unrelated values", async () => {
     setup();
     const account = createAccount({ label: "model account", providers: ["openrouter"] });
     setSetting("generation-model", `${account.id}::openrouter::example-model`);
     setSetting("auto-optimize", "balanced");
-    const response = await POST(request({ action: "export", scope: "all" }, { cookie: "leafcode-pi-token=test-token" }));
-    expect(response.status).toBe(200);
-    const { backup } = await response.json();
+    const backup = await exportSettingsBackup("all");
     setup();
     setSetting("auto-agent-prompt", "unrelated");
     const imported = await POST(request({ action: "import", backup }, { cookie: "leafcode-pi-token=test-token" }));
@@ -221,6 +243,13 @@ describe("/api/settings/transfer", () => {
     expect(listAccounts()[0].id).toBe(account.id);
     expect(getSetting("generation-model")).toBe(`${account.id}::openrouter::example-model`);
     expect(getSetting("auto-agent-prompt")).toBe("unrelated");
+  });
+
+  it("rejects combined settings-and-credential exports while keeping import compatibility", async () => {
+    setup();
+    const response = await POST(request({ action: "export", scope: "all" }, { cookie: "leafcode-pi-token=test-token" }));
+    expect(response.status).toBe(400);
+    expect(await response.json()).toEqual({ error: "設定と認証は個別にエクスポートしてください" });
   });
 
   it("blocks credentials without access-token protection and rejects malformed archives before writing", async () => {
@@ -277,8 +306,7 @@ describe("/api/settings/transfer", () => {
     writeFileSync(sourceDefaultAuth, JSON.stringify({ typesafe: { type: "api_key", key: "imported" } }));
     saveOllamaCookieFile(account.id, "# Netscape HTTP Cookie File\n.ollama.com\tTRUE\t/\tTRUE\t0\tsession\timported-cookie\n");
     setSetting("auto-optimize", "balanced");
-    const exported = await POST(request({ action: "export", scope: "all" }, { cookie: "leafcode-pi-token=test-token" }));
-    const { backup } = await exported.json();
+    const backup = await exportSettingsBackup("all");
 
     setup();
     const targetDefaultAuth = join(process.env.PI_CODING_AGENT_DIR!, "auth.json");

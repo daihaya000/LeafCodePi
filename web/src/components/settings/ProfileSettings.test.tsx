@@ -24,6 +24,7 @@ describe("ProfileSettings", () => {
   it("uses the shared export/import row and keeps reset collapsed", async () => {
     render(<ProfileSettings />);
     expect(screen.getByRole("heading", { name: "設定エクスポート" })).toBeTruthy();
+    expect(screen.getByText(/プロバイダー認証・WebUIアクセス認証は含まず/)).toBeTruthy();
     expect(screen.getByRole("button", { name: "エクスポート" })).toBeTruthy();
     const input = screen.getByLabelText("設定ファイルを選択") as HTMLInputElement;
     expect(input.type).toBe("file");
@@ -46,6 +47,7 @@ describe("ProfileSettings", () => {
     const file = new File(["archive"], "settings.lcp.gz", { type: "application/gzip" });
     fireEvent.change(screen.getByLabelText("設定ファイルを選択"), { target: { files: [file] } });
     expect((await screen.findByRole("status")).textContent).toContain("3件を復元しました");
+    expect(window.confirm).toHaveBeenCalledWith(expect.stringContaining("保存済み認証は変更しません"));
     const post = fetchMock.mock.calls.find(([, init]) => init?.method === "POST");
     expect((post?.[1]?.body as FormData | undefined)?.get("profile")).toBeTruthy();
     expect(screen.getByRole("combobox", { name: "復元するバックアップ" })).toBeTruthy();
@@ -58,7 +60,7 @@ describe("ProfileSettings", () => {
     });
     render(<ProfileSettings />);
     fireEvent.click(screen.getByRole("button", { name: "エクスポート" }));
-    expect(window.confirm).toHaveBeenCalledWith("認証情報とWebUIパスワードを含む設定一式をエクスポートします。安全な場所に保管してください。");
+    expect(window.confirm).toHaveBeenCalledWith("認証情報を除く設定とエージェント構成をエクスポートします。プロバイダー認証の移行は「認証エクスポート」を使用してください。");
     expect(await screen.findByRole("alert")).toHaveProperty("textContent", "設定の処理に失敗しました");
   });
 });

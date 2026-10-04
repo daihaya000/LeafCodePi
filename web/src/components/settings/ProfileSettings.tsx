@@ -45,7 +45,7 @@ export function ProfileSettings() {
   };
 
   const exportProfile = async () => {
-    if (!window.confirm("認証情報とWebUIパスワードを含む設定一式をエクスポートします。安全な場所に保管してください。")) return;
+    if (!window.confirm("認証情報を除く設定とエージェント構成をエクスポートします。プロバイダー認証の移行は「認証エクスポート」を使用してください。")) return;
     setBusy("export");
     setError(null);
     setMessage(null);
@@ -71,7 +71,7 @@ export function ProfileSettings() {
   };
 
   const importProfile = async (file: File) => {
-    if (!window.confirm("現在の設定・認証情報・追加エージェント/拡張をバックアップへ退避してから置き換えます。完了後にLeafCodePiを再起動してください。")) return;
+    if (!window.confirm("現在の設定と追加エージェント/拡張をバックアップへ退避してから置き換えます。保存済み認証は変更しません。完了後にLeafCodePiを再起動してください。")) return;
     setBusy("import");
     setError(null);
     setMessage(null);
@@ -151,7 +151,7 @@ export function ProfileSettings() {
   };
 
   const resetProfile = async () => {
-    if (!window.confirm("設定を初期化します。旧設定はバックアップへ退避し、認証情報・追加エージェント・拡張などを削除します。完了後にLeafCodePiを再起動してください。")) return;
+    if (!window.confirm("設定を初期化します。旧設定はバックアップへ退避し、追加エージェント・拡張などを削除します。保存済み認証は変更しません。認証の初期化は「認証エクスポート」から行ってください。完了後にLeafCodePiを再起動してください。")) return;
     setBusy("reset");
     setError(null);
     setMessage(null);
@@ -174,7 +174,7 @@ export function ProfileSettings() {
     <div className="rounded-2xl border border-border bg-surface p-4">
       <h3 className="text-sm font-semibold">設定エクスポート</h3>
       <p className="mt-1 text-xs leading-5 text-muted">
-        Pi認証・モデル・MCP設定、エージェント、拡張、スキル、LeafCodePi設定を一式で1ファイルへ保存・復元します。会話、プロジェクト、OS資格情報ストア、再取得できるパッケージ本体は含みません。
+        Pi・WebUIの動作設定、モデル・MCP設定、エージェント、拡張、スキルなどを保存・復元します。プロバイダー認証・WebUIアクセス認証は含まず、インポートや初期化でも変更しません。認証情報の移行・初期化は「認証エクスポート」を使用してください。会話、プロジェクト、OS資格情報ストア、再取得できるパッケージ本体は含みません。
       </p>
       <div className="mt-3 space-y-4">
         <TransferActions

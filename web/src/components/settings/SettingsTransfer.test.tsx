@@ -45,6 +45,7 @@ describe("SettingsTransfer", () => {
   it("exports provider credentials only after a plaintext warning", async () => {
     render(<SettingsTransfer />);
     expect(screen.getByRole("heading", { name: "認証エクスポート" })).toBeTruthy();
+    expect(screen.getByText(/設定エクスポートは構成専用です/)).toBeTruthy();
     expect(screen.queryByLabelText("エクスポート範囲")).toBeNull();
     vi.mocked(window.confirm).mockReturnValue(false);
     fireEvent.click(screen.getByRole("button", { name: "エクスポート" }));
@@ -66,7 +67,7 @@ describe("SettingsTransfer", () => {
       sendJson.mockResolvedValue({ backup: credentialsBackup });
       render(<SettingsTransfer />);
       fireEvent.click(screen.getByRole("button", { name: "エクスポート" }));
-      expect(await screen.findByRole("status")).toHaveProperty("textContent", "プロバイダー認証をエクスポートしました");
+      expect(await screen.findByRole("status")).toHaveProperty("textContent", "認証情報をエクスポートしました");
       expect(downloads).toHaveLength(1);
       expect(downloads[0]).toMatch(/^leafcode-pi-credentials-\d{4}-\d{2}-\d{2}\.json$/);
     } finally {
@@ -80,9 +81,9 @@ describe("SettingsTransfer", () => {
     render(<SettingsTransfer />);
     fireEvent.change(screen.getByLabelText("認証JSONを選択"), { target: { files: [backupFile(credentialsBackup)] } });
     await waitFor(() => expect(sendJson).toHaveBeenCalledWith("/api/settings/transfer", { action: "import", backup: credentialsBackup }));
-    expect(window.confirm).toHaveBeenCalledWith(expect.stringContaining("プロバイダー認証を取り込みます"));
+    expect(window.confirm).toHaveBeenCalledWith(expect.stringContaining("認証情報を取り込みます"));
     expect(prepareServerSettingsImport).toHaveBeenCalledWith([]);
-    expect((await screen.findByRole("status")).textContent).toContain("プロバイダー認証をインポートしました");
+    expect((await screen.findByRole("status")).textContent).toContain("認証情報をインポートしました");
   });
 
   it("still imports legacy backups that contain WebUI settings", async () => {
@@ -94,6 +95,16 @@ describe("SettingsTransfer", () => {
     expect(prepareServerSettingsImport).toHaveBeenCalledWith(["auto-optimize"]);
     expect(refreshServerSettings).toHaveBeenCalled();
     expect((await screen.findByRole("status")).textContent).toContain("WebUI動作設定をインポートしました");
+  });
+
+  it("continues importing legacy combined settings-and-credentials backups", async () => {
+    const backup = { ...credentialsBackup, scope: "all", settings: { "auto-optimize": "balanced" } };
+    sendJson.mockResolvedValue({ scope: "all" });
+    render(<SettingsTransfer />);
+    fireEvent.change(screen.getByLabelText("認証JSONを選択"), { target: { files: [backupFile(backup)] } });
+    await waitFor(() => expect(sendJson).toHaveBeenCalledWith("/api/settings/transfer", { action: "import", backup }));
+    expect(window.confirm).toHaveBeenCalledWith(expect.stringContaining("WebUI動作設定と認証情報を取り込みます"));
+    expect(prepareServerSettingsImport).toHaveBeenCalledWith(["auto-optimize"]);
   });
 
   it("offers recovery after the server reports a preserved snapshot", async () => {
@@ -149,7 +160,7 @@ describe("SettingsTransfer", () => {
     expect(disclosure?.hasAttribute("open")).toBe(false);
     fireEvent.click(within(disclosure!).getByRole("button", { name: "初期化" }));
     await waitFor(() => expect(sendJson).toHaveBeenCalledWith("/api/settings/transfer", undefined, "DELETE"));
-    expect(window.confirm).toHaveBeenCalledWith(expect.stringContaining("プロバイダー認証を初期化します"));
+    expect(window.confirm).toHaveBeenCalledWith(expect.stringContaining("プロバイダー認証とアカウント接続トークンを初期化します"));
     expect((await screen.findByRole("status")).textContent).toContain("leafcode-pi-credentials-x.json");
     expect((await screen.findByRole("status")).textContent).toContain("初期化しました");
   });

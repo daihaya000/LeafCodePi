@@ -61,6 +61,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ recovered: true }, { headers: noStore });
     }
     const scope = body.action === "export" ? body.scope : (body.backup as { scope?: unknown } | null)?.scope;
+    if (body.action === "export" && scope === "all") return NextResponse.json({ error: "設定と認証は個別にエクスポートしてください" }, { status: 400, headers: noStore });
     if (scope !== "settings" && scope !== "credentials" && scope !== "all") return NextResponse.json({ error: "範囲が不正です" }, { status: 400, headers: noStore });
     if (body.action === "export") {
       const backup = await exportSettingsBackup(scope as TransferScope);
