@@ -942,6 +942,9 @@ describe("integrated session routing", () => {
     assert.ok(prepare);
     expect(await prepare("recover")).toBe(true);
     expect(getTask(task.id)?.status).toBe("working");
+    // The recovery released the stale reservation and the commit took a fresh lease for this turn.
+    const { ownsTaskLease } = await import("@/lib/task-runtime-lease");
+    expect(ownsTaskLease(task.id)).toBe(true);
   });
 
   it("releases a prepared Goal turn even when the session is compacting", async () => {

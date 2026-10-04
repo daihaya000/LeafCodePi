@@ -3304,6 +3304,9 @@ function registerGoalLoopTurnRouting(taskId: string): (pi: ExtensionAPI) => void
           if (loop && (loop.status === "queued" || loop.status === "verifying_completed")) {
             disarmTaskHangWatch(taskId);
             setTaskStatus(taskId, "idle");
+            // Idle must not keep a lease that other workers see as active; the commit below
+            // re-acquires it (and fails with 409 if another worker took it meanwhile).
+            releaseTaskLease(taskId);
             emitTaskSnapshot(before, "goal_turn_reservation_recovered");
           }
         }
