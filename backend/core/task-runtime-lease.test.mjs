@@ -168,18 +168,26 @@ test("repeated heartbeat write failures report the lease loss before it can go s
   assert.deepEqual(readdirSync(dirname(f.service.taskRuntimeLeasePath("held"))).filter((name) => name.endsWith(".tmp")), []);
 });
 
-test("a lease appears already complete and leaves no temporary file, with or without hard-link support", (t) => {
+test("a lease is published complete via hard link, and unsupported filesystems fail closed", (t) => {
   const now = Date.now();
   const linked = fixture(t, { now: () => now });
   assert.equal(linked.service.acquireTaskLease("whole"), true);
   assert.deepEqual(record(linked.service, "whole"), { token: linked.state.token, pid: process.pid, acquiredAt: now, heartbeatAt: now });
   const dir = dirname(linked.service.taskRuntimeLeasePath("whole"));
   assert.deepEqual(readdirSync(dir).filter((name) => name.endsWith(".tmp")), []);
-  // A filesystem without hard links falls back to the exclusive create.
-  const fallback = fixture(t, { now: () => now, linkFile: () => { throw Object.assign(new Error("no links"), { code: "EPERM" }); } });
-  assert.equal(fallback.service.acquireTaskLease("plain"), true);
-  assert.deepEqual(record(fallback.service, "plain"), { token: fallback.state.token, pid: process.pid, acquiredAt: now, heartbeatAt: now });
-  assert.deepEqual(readdirSync(dirname(fallback.service.taskRuntimeLeasePath("plain"))).filter((name) => name.endsWith(".tmp")), []);
+
+  const unsupported = fixture(t, {
+    now: () => now,
+    linkFile: () => { throw Object.assign(new Error("hard links unavailable"), { code: "EPERM" }); },
+  });
+  const unsupportedPath = unsupported.service.taskRuntimeLeasePath("no-hardlink");
+  assert.throws(
+    () => unsupported.service.acquireTaskLease("no-hardlink"),
+    /refusing a non-atomic fallback/,
+  );
+  assert.equal(existsSync(unsupportedPath), false);
+  assert.deepEqual(readdirSync(dirname(unsupportedPath)).filter((name) => name.endsWith(".tmp")), []);
+
   // A lease created by someone else in the meantime is never overwritten.
   const lost = fixture(t, {
     now: () => now,

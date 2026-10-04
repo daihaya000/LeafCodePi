@@ -1,4 +1,4 @@
-import { closeSync, linkSync, mkdirSync, openSync, readFileSync, renameSync, rmSync, statSync, unlinkSync, writeFileSync } from "node:fs";
+import { linkSync, mkdirSync, readFileSync, renameSync, rmSync, statSync, unlinkSync, writeFileSync } from "node:fs";
 import { randomUUID } from "node:crypto";
 import { join } from "node:path";
 import { processStartKey } from "../../shared/process-identity.mjs";
@@ -267,24 +267,21 @@ export class TaskLeaseService {
   }
 
   /**
-   * Create the lease file already complete. A plain O_EXCL create + write leaves an empty file
-   * visible if the process dies in between, which then blocks the task until its mtime ages out.
-   * Hard-linking a fully written temp file makes the create atomic and exclusive (EEXIST when taken);
-   * filesystems without hard links fall back to the O_EXCL create.
+   * Publish a fully written lease with an atomic, exclusive hard link. If the filesystem
+   * cannot provide that primitive, fail before exposing the target path; O_EXCL plus a later
+   * write can leave a fresh empty lease behind if the process exits between those syscalls.
    */
   #createLeaseFile(path, payload) {
     const temporary = `${path}.${this.pid}.${randomUUID()}.tmp`;
     writeFileSync(temporary, payload, "utf8");
     try {
       this.linkFile(temporary, path);
-      return;
     } catch (error) {
       if (error?.code === "EEXIST") throw error;
+      throw new Error("Atomic task lease publication failed; refusing a non-atomic fallback", { cause: error });
     } finally {
       try { unlinkSync(temporary); } catch { /* temp may be gone */ }
     }
-    const fd = openSync(path, "wx");
-    try { writeFileSync(fd, payload, "utf8"); } finally { closeSync(fd); }
   }
 
   acquireTaskLease(taskId) {
