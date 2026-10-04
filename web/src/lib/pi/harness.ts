@@ -11299,6 +11299,9 @@ function isLiveEvictable(live: LiveRuntime, nowMs: number, idleMs: number): bool
   // The store can say idle while the SDK is still running (a stop that failed to persist idle, or a
   // status patch written first). Never dispose a session that is actually streaming or compacting.
   if (live.promptActive || live.session.isStreaming || live.session.isCompacting) return false;
+  // Between turns a Goal Loop is queued/verifying with a cooldown and no store `working` status. Evicting
+  // it would run session_shutdown and rewrite a loop that nobody stopped as paused.
+  if (isLiveGoalLoopSession(live.session)) return false;
   if (nowMs - (live.lastActivityAt ?? nowMs) < idleMs) return false;
   if (state().events.listenerCount(live.taskId) > 0) return false;
   if (isTaskRuntimeBusyForDestructiveEdit(live.taskId)) return false;

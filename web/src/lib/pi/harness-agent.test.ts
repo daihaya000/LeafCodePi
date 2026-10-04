@@ -1032,6 +1032,7 @@ describe("evictIdleLiveSessions", () => {
     const streaming = insertTask({ project, title: "still streaming" });
     const compacting = insertTask({ project, title: "compacting" });
     const prompting = insertTask({ project, title: "prompt active" });
+    const goalLoop = insertTask({ project, title: "goal loop cooling down" });
     const events: string[] = [];
     const now = 10_000_000;
     const streamingLive = idleLive(root, streaming.id, events, now - 3_600_000);
@@ -1049,7 +1050,12 @@ describe("evictIdleLiveSessions", () => {
       [streaming.id, streamingLive],
       [compacting.id, compactingLive],
       [prompting.id, promptingLive],
+      [goalLoop.id, idleLive(root, goalLoop.id, events, now - 3_600_000)],
     ]);
+    // A queued loop waiting out its cooldown is not `working` in the store, yet must not be evicted.
+    const loopDir = join(root, "data", "goals-loop");
+    mkdirSync(loopDir, { recursive: true });
+    writeFileSync(join(loopDir, `session-${goalLoop.id}.json`), JSON.stringify({ goal: "continue", status: "queued" }), "utf8");
     const emitter = new EventEmitter();
     emitter.on(watched.id, () => {});
     installFixtureHarness(live, { events: emitter });
@@ -1071,6 +1077,7 @@ describe("evictIdleLiveSessions", () => {
       assert.equal(live.has(streaming.id), true);
       assert.equal(live.has(compacting.id), true);
       assert.equal(live.has(prompting.id), true);
+      assert.equal(live.has(goalLoop.id), true);
     } finally {
       if (previousRegistry === undefined) delete globals[registryKey];
       else globals[registryKey] = previousRegistry;
