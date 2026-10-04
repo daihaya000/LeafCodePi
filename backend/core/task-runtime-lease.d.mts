@@ -33,6 +33,8 @@ export class TaskLeaseService<T extends TaskLeaseTask = TaskLeaseTask> {
     warn?: (message: string, error: unknown) => void;
     /** Heartbeat file replacement; injectable so tests can simulate write failures. */
     renameFile?: (from: string, to: string) => void;
+    /** Atomic exclusive create of the lease file (hard link); injectable for tests. */
+    linkFile?: (existing: string, target: string) => void;
   });
   taskRuntimeLeasePath(taskId: string): string;
   acquireTaskLease(taskId: string): boolean;

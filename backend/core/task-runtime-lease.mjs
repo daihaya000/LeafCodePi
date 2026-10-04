@@ -1,4 +1,4 @@
-import { closeSync, mkdirSync, openSync, readFileSync, renameSync, rmSync, statSync, unlinkSync, writeFileSync } from "node:fs";
+import { closeSync, linkSync, mkdirSync, openSync, readFileSync, renameSync, rmSync, statSync, unlinkSync, writeFileSync } from "node:fs";
 import { randomUUID } from "node:crypto";
 import { join } from "node:path";
 
@@ -35,6 +35,7 @@ export class TaskLeaseService {
     clearHeartbeat = (timer) => clearInterval(timer),
     warn = (message, error) => console.warn(message, error),
     renameFile = renameSync,
+    linkFile = linkSync,
   }) {
     this.dataDir = dataDir;
     this.listTasks = listTasks;
@@ -48,6 +49,7 @@ export class TaskLeaseService {
     this.clearHeartbeat = clearHeartbeat;
     this.warn = warn;
     this.renameFile = renameFile;
+    this.linkFile = linkFile;
     // Older hot-reloaded states predate notification fields.
     state.orphanListener ??= null;
     state.pendingOrphans ??= [];
@@ -184,6 +186,27 @@ export class TaskLeaseService {
     } catch { return null; }
   }
 
+  /**
+   * Create the lease file already complete. A plain O_EXCL create + write leaves an empty file
+   * visible if the process dies in between, which then blocks the task until its mtime ages out.
+   * Hard-linking a fully written temp file makes the create atomic and exclusive (EEXIST when taken);
+   * filesystems without hard links fall back to the O_EXCL create.
+   */
+  #createLeaseFile(path, payload) {
+    const temporary = `${path}.${this.pid}.${randomUUID()}.tmp`;
+    writeFileSync(temporary, payload, "utf8");
+    try {
+      this.linkFile(temporary, path);
+      return;
+    } catch (error) {
+      if (error?.code === "EEXIST") throw error;
+    } finally {
+      try { unlinkSync(temporary); } catch { /* temp may be gone */ }
+    }
+    const fd = openSync(path, "wx");
+    try { writeFileSync(fd, payload, "utf8"); } finally { closeSync(fd); }
+  }
+
   acquireTaskLease(taskId) {
     mkdirSync(join(this.dataDir(), "task-leases"), { recursive: true });
     const path = this.taskRuntimeLeasePath(taskId);
@@ -202,10 +225,7 @@ export class TaskLeaseService {
       // stays the bounded O_EXCL create below, so exactly one creator wins.
       if (this.#isStalePath(path, existing, now) && !this.#reclaimStale(path)) continue;
       try {
-        const fd = openSync(path, "wx");
-        try {
-          writeFileSync(fd, `${JSON.stringify({ token: this.token, pid: this.pid, acquiredAt: now, heartbeatAt: now })}\n`, "utf8");
-        } finally { closeSync(fd); }
+        this.#createLeaseFile(path, `${JSON.stringify({ token: this.token, pid: this.pid, acquiredAt: now, heartbeatAt: now })}\n`);
         this.state.ownedTasks.add(taskId);
         this.#ensureHeartbeat();
         return true;

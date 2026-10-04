@@ -147,6 +147,28 @@ test("repeated heartbeat write failures report the lease loss before it can go s
   assert.deepEqual(readdirSync(dirname(f.service.taskRuntimeLeasePath("held"))).filter((name) => name.endsWith(".tmp")), []);
 });
 
+test("a lease appears already complete and leaves no temporary file, with or without hard-link support", (t) => {
+  const now = Date.now();
+  const linked = fixture(t, { now: () => now });
+  assert.equal(linked.service.acquireTaskLease("whole"), true);
+  assert.deepEqual(record(linked.service, "whole"), { token: linked.state.token, pid: process.pid, acquiredAt: now, heartbeatAt: now });
+  const dir = dirname(linked.service.taskRuntimeLeasePath("whole"));
+  assert.deepEqual(readdirSync(dir).filter((name) => name.endsWith(".tmp")), []);
+  // A filesystem without hard links falls back to the exclusive create.
+  const fallback = fixture(t, { now: () => now, linkFile: () => { throw Object.assign(new Error("no links"), { code: "EPERM" }); } });
+  assert.equal(fallback.service.acquireTaskLease("plain"), true);
+  assert.deepEqual(record(fallback.service, "plain"), { token: fallback.state.token, pid: process.pid, acquiredAt: now, heartbeatAt: now });
+  assert.deepEqual(readdirSync(dirname(fallback.service.taskRuntimeLeasePath("plain"))).filter((name) => name.endsWith(".tmp")), []);
+  // A lease created by someone else in the meantime is never overwritten.
+  const lost = fixture(t, {
+    now: () => now,
+    linkFile: () => { throw Object.assign(new Error("exists"), { code: "EEXIST" }); },
+  });
+  seed(lost.service, "taken", { token: "other", pid: process.pid, acquiredAt: now, heartbeatAt: now });
+  assert.equal(lost.service.acquireTaskLease("taken"), false);
+  assert.equal(record(lost.service, "taken").token, "other");
+});
+
 test("healthy foreign owners and fresh incomplete writes are not acquired", (t) => {
   const f = fixture(t);
   seed(f.service, "foreign", { token: "foreign", pid: process.pid, acquiredAt: Date.now(), heartbeatAt: Date.now() });
