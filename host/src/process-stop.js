@@ -1,4 +1,5 @@
 import { execSync as defaultExecSync } from "node:child_process";
+import { processStartKey } from "./lock.js";
 
 function asPid(pid, selfPid = process.pid) {
   const n = Number(pid);
@@ -9,9 +10,27 @@ function asPid(pid, selfPid = process.pid) {
   return n;
 }
 
+function readProcessStartKey(pid, deps) {
+  const getKey = deps.getProcessStartKey ?? ((id) => processStartKey(id, { platform: deps.platform }));
+  try {
+    const key = getKey(pid);
+    return typeof key === "string" && key.length > 0 ? key : null;
+  } catch {
+    return null;
+  }
+}
+
 function signalProcessTree(pid, signal, deps) {
   const id = asPid(pid, deps.selfPid);
   if (!id) return false;
+  const expectedStartKey = deps.expectedProcessStartKey !== undefined
+    ? typeof deps.expectedProcessStartKey === "string" && deps.expectedProcessStartKey.length > 0
+      ? deps.expectedProcessStartKey
+      : null
+    : readProcessStartKey(id, deps);
+  // A PID alone is not a stable process identity. Refuse to signal when its
+  // start key cannot be established or no longer matches the captured owner.
+  if (!expectedStartKey || readProcessStartKey(id, deps) !== expectedStartKey) return false;
   const platform = deps.platform ?? process.platform;
   if (platform === "win32") {
     const run = deps.execSync ?? defaultExecSync;
@@ -32,6 +51,7 @@ function signalProcessTree(pid, signal, deps) {
     kill(-id, signal);
     return true;
   } catch {
+    if (readProcessStartKey(id, deps) !== expectedStartKey) return false;
     try {
       kill(id, signal);
       return true;
@@ -79,19 +99,38 @@ function sleep(ms) {
  *   platform?: string,
  *   selfPid?: number,
  *   kill?: (pid: number, signal: string) => void,
+ *   expectedProcessStartKey?: string,
+ *   getProcessStartKey?: (pid: number) => string | null,
  * }} input
  */
 export async function stopProcessTreeGracefully(input) {
   const pid = asPid(input.pid, input.selfPid);
   if (!pid) return "gone";
-  const softKill = input.softKill ?? ((id) => softKillTree(id, { platform: input.platform, selfPid: input.selfPid, kill: input.kill }));
-  const hardKill = input.hardKill ?? ((id) => hardKillTree(id, { platform: input.platform, selfPid: input.selfPid, kill: input.kill }));
   const isAlive = input.isAlive ?? ((id) => isProcessAlive(id));
+  const expectedStartKey = input.expectedProcessStartKey ?? readProcessStartKey(pid, input);
+  if (!expectedStartKey) return isAlive(pid) ? "identity-unknown" : "gone";
+  const sameProcess = () => readProcessStartKey(pid, input) === expectedStartKey;
+  if (!isAlive(pid)) return "gone";
+  if (!sameProcess()) return "identity-changed";
+  const softKill = input.softKill ?? ((id) => softKillTree(id, {
+    platform: input.platform,
+    selfPid: input.selfPid,
+    kill: input.kill,
+    getProcessStartKey: input.getProcessStartKey,
+    expectedProcessStartKey: expectedStartKey,
+  }));
+  const hardKill = input.hardKill ?? ((id) => hardKillTree(id, {
+    platform: input.platform,
+    selfPid: input.selfPid,
+    kill: input.kill,
+    getProcessStartKey: input.getProcessStartKey,
+    expectedProcessStartKey: expectedStartKey,
+  }));
   const wait = input.sleep ?? sleep;
   const softWaitMs = input.softWaitMs ?? 2500;
   const pollMs = input.pollMs ?? 200;
 
-  if (!isAlive(pid)) return "gone";
+  if (!sameProcess()) return "identity-changed";
   softKill(pid);
   const softDeadline = Date.now() + softWaitMs;
   while (Date.now() < softDeadline) {
@@ -99,7 +138,9 @@ export async function stopProcessTreeGracefully(input) {
     await wait(pollMs);
   }
   if (!isAlive(pid)) return "soft";
+  if (!sameProcess()) return "identity-changed";
   hardKill(pid);
   await wait(pollMs);
-  return isAlive(pid) ? "alive" : "hard";
+  if (!isAlive(pid)) return "hard";
+  return sameProcess() ? "alive" : "identity-changed";
 }

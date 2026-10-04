@@ -10,6 +10,8 @@ test("Linux soft kill targets the detached process group", () => {
     softKillTree(EXTERNAL_PID, {
       platform: "linux",
       kill: (pid, signal) => calls.push([pid, signal]),
+      expectedProcessStartKey: "start-1",
+      getProcessStartKey: () => "start-1",
     }),
     true,
   );
@@ -63,6 +65,8 @@ test("Linux kill falls back to the process when it is not a group leader", () =>
         calls.push([pid, signal]);
         if (pid < 0) throw new Error("not a process group");
       },
+      expectedProcessStartKey: "start-1",
+      getProcessStartKey: () => "start-1",
     }),
     true,
   );
@@ -76,6 +80,7 @@ test("stopProcessTreeGracefully uses Linux signals and escalates", async () => {
     pid: EXTERNAL_PID,
     platform: "linux",
     isAlive: () => alive,
+    getProcessStartKey: () => "start-1",
     kill: (pid, signal) => {
       signals.push([pid, signal]);
       if (signal === "SIGKILL") alive = false;
@@ -93,6 +98,8 @@ test("stopProcessTreeGracefully reports alive when hard kill fails", async () =>
     pid: EXTERNAL_PID,
     platform: "linux",
     isAlive: () => true,
+    getProcessStartKey: () => "start-1",
+    expectedProcessStartKey: "start-1",
     kill: () => {},
     sleep: async () => {},
     softWaitMs: 0,
@@ -108,4 +115,47 @@ test("liveness treats only ESRCH as gone; EPERM and unknown errors mean alive", 
   assert.equal(isProcessAlive(EXTERNAL_PID, failing("EPERM")), true);
   assert.equal(isProcessAlive(EXTERNAL_PID, failing("EINVAL")), true);
   assert.equal(isProcessAlive(process.pid), true);
+});
+
+test("process-tree signals fail closed when the PID start key changed", () => {
+  const calls = [];
+  assert.equal(hardKillTree(EXTERNAL_PID, {
+    platform: "linux",
+    expectedProcessStartKey: "old-start",
+    getProcessStartKey: () => "new-start",
+    kill: (pid, signal) => calls.push([pid, signal]),
+  }), false);
+  assert.deepEqual(calls, []);
+});
+
+test("stopProcessTreeGracefully does not hard-kill a PID reused during the soft wait", async () => {
+  let startKey = "original-start";
+  const signals = [];
+  const result = await stopProcessTreeGracefully({
+    pid: EXTERNAL_PID,
+    platform: "linux",
+    expectedProcessStartKey: startKey,
+    getProcessStartKey: () => startKey,
+    isAlive: () => true,
+    softKill: () => { signals.push("SIGTERM"); startKey = "reused-start"; return true; },
+    hardKill: () => { signals.push("SIGKILL"); return true; },
+    sleep: async () => {},
+    softWaitMs: 0,
+    pollMs: 0,
+  });
+  assert.equal(result, "identity-changed");
+  assert.deepEqual(signals, ["SIGTERM"]);
+});
+
+test("stopProcessTreeGracefully refuses to signal when the process start key is unavailable", async () => {
+  const signals = [];
+  const result = await stopProcessTreeGracefully({
+    pid: EXTERNAL_PID,
+    getProcessStartKey: () => null,
+    isAlive: () => true,
+    softKill: () => { signals.push("soft"); return true; },
+    hardKill: () => { signals.push("hard"); return true; },
+  });
+  assert.equal(result, "identity-unknown");
+  assert.deepEqual(signals, []);
 });

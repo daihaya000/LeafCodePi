@@ -99,7 +99,7 @@ function isSafeModelFile(value, platform = process.platform) {
  *   isProcessAlive?: (pid: number) => boolean,
  *   isOwnedProcess?: (pid: number, marker: string | null) => boolean,
  *   isLlamaServerProcess?: (pid: number, marker: string | null) => boolean,
- *   stopProcessTreeGracefully?: (input: { pid: number, softKill?: (pid: number) => boolean, hardKill?: (pid: number) => boolean, isAlive?: (pid: number) => boolean, sleep?: (ms: number) => Promise<void>, softWaitMs?: number, pollMs?: number }) => Promise<'soft' | 'hard' | 'gone'>,
+ *   stopProcessTreeGracefully?: (input: { pid: number, softKill?: (pid: number) => boolean, hardKill?: (pid: number) => boolean, isAlive?: (pid: number) => boolean, sleep?: (ms: number) => Promise<void>, softWaitMs?: number, pollMs?: number, expectedProcessStartKey?: string, getProcessStartKey?: (pid: number) => string | null }) => Promise<'soft' | 'hard' | 'gone' | 'identity-changed' | 'identity-unknown'>,
  * }} deps
  */
 export function createLlamaServerService(deps) {
