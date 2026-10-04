@@ -500,7 +500,7 @@ function NestedCallList({ calls }: { calls: readonly NestedToolCallDto[] }) {
             ) : (
               <Check className="mt-0.5 h-3.5 w-3.5 shrink-0 text-success/70" aria-hidden="true" />
             )}
-            <div className="min-w-0 flex-1">
+            <div className="relative min-w-0 flex-1">
               <span className="break-all text-text">{call.name}</span>
               <span className="sr-only">
                 {call.status === "error" ? "エラー" : call.status === "unfinished" ? "未完了" : "完了"}

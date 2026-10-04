@@ -65,6 +65,32 @@ describe("PartView nested calls", () => {
     expect(screen.getByText("未完了")).toBeTruthy();
   });
 
+  it("anchors every hidden nested-call status inside the clipped card detail", () => {
+    render(
+      <PartView
+        message={scriptMessage(Array.from({ length: 40 }, (_, index) => ({
+          id: `call-1/${index}`,
+          name: `read-${index}`,
+          status: (["ok", "error", "unfinished"] as const)[index % 3],
+        })))}
+      />,
+    );
+    fireEvent.click(screen.getByRole("button", { expanded: false }));
+
+    const list = screen.getByRole("list");
+    const statuses = list.querySelectorAll<HTMLElement>(".sr-only");
+    expect(statuses).toHaveLength(40);
+    for (const status of statuses) {
+      // Absolute sr-only nodes must not use the outer timeline as their containing
+      // block: lower rows would otherwise escape the max-height scroll clipping.
+      expect(status.parentElement?.classList.contains("relative")).toBe(true);
+      expect(status.closest("li")?.contains(status.parentElement)).toBe(true);
+    }
+    expect(new Set(Array.from(statuses, (status) => status.textContent))).toEqual(
+      new Set(["完了", "エラー", "未完了"]),
+    );
+  });
+
   it("shows no list for a tool that made no nested call", () => {
     render(<PartView message={scriptMessage()} />);
     fireEvent.click(screen.getByRole("button", { expanded: false }));
