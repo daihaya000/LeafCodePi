@@ -4884,13 +4884,17 @@ function pendingSummaryOverlay(live: LiveRuntime): Partial<TaskSummary> {
   };
 }
 
-function toSummary(task: TaskSummary): TaskSummary {
+type StoredTaskSummary = TaskSummary & { orphanedSourceUpdatedAt?: string };
+
+function toSummary(task: StoredTaskSummary): TaskSummary {
+  const { orphanedSourceUpdatedAt: _orphanedSourceUpdatedAt, ...publicTask } = task;
+  void _orphanedSourceUpdatedAt;
   const limitError =
     task.status === "error" && isProviderLimitError(task.error)
       ? { limitError: true }
       : {};
   const live = state().live.get(task.id);
-  if (!live) return { ...task, ...limitError };
+  if (!live) return { ...publicTask, ...limitError };
   const ids = modelId(live.session.model);
   const todoProgress = todoProgressFromTodos(
     todosFromPiMessages(live.session.messages),
@@ -4908,7 +4912,7 @@ function toSummary(task: TaskSummary): TaskSummary {
       ? live.session.thinkingLevel
       : task.thinkingLevel);
   return {
-    ...task,
+    ...publicTask,
     ...pendingSummaryOverlay(live),
     // After an explicit idle/error/archived write, do not re-promote to working
     // from a stale session.isStreaming flag (hang abort / Stop races).

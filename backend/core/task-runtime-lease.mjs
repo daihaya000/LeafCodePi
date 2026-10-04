@@ -297,7 +297,11 @@ export class TaskLeaseService {
       if (task.status !== "working" || this.hasActiveTaskLease(task.id)) continue;
       // Store adapters may mutate a cached row during patchTask.
       const snapshot = { ...task };
-      const updated = this.patchTask(task.id, { status: "error", error: ORPHANED_WORKING_TASK_ERROR });
+      const updated = this.patchTask(task.id, {
+        status: "error",
+        error: ORPHANED_WORKING_TASK_ERROR,
+        orphanedSourceUpdatedAt: task.updatedAt,
+      });
       if (updated?.status === "error" && updated.error === ORPHANED_WORKING_TASK_ERROR) {
         reconciled.push(task.id);
         snapshots.push(snapshot);

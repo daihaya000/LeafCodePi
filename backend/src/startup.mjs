@@ -192,6 +192,10 @@ export function createBackendStartup({
     loadServices: () => ({
       registerRestartResume: () => {
         leases.setOrphanedTaskListener(orphanListener);
+        const alreadyNotified = new Set(orphaned);
+        const persistedOrphans = [...store.listTasks(true), ...store.listTasks(true, "bot")]
+          .filter((task) => task.status === "error" && task.error === ORPHANED_WORKING_TASK_ERROR && !alreadyNotified.has(task.id));
+        if (persistedOrphans.length > 0) orphanListener(persistedOrphans);
       },
       reconcileOrphanedWorkingTasks: () => leases.reconcileOrphanedWorkingTasks(),
       // The loader may report detachment so the reconciliation prefix can still run. Owner

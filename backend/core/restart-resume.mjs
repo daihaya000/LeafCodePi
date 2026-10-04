@@ -14,7 +14,7 @@ export const RESTART_RESUME_MAX_STALE_MS = 12 * 60 * 60_000;
 export function restartResumeSkipReason(snapshot, now) {
   if ((snapshot.kind ?? "code") !== "code") return "not a Code task";
   if (snapshot.botId || snapshot.supervisorBotId) return "Bot-managed task";
-  const updatedAt = Date.parse(snapshot.updatedAt);
+  const updatedAt = Date.parse(snapshot.orphanedSourceUpdatedAt ?? snapshot.updatedAt);
   if (Number.isFinite(updatedAt) && now - updatedAt > RESTART_RESUME_MAX_STALE_MS) {
     return "interrupted too long ago";
   }

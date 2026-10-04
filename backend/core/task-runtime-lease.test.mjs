@@ -210,7 +210,7 @@ test("reconciliation preserves working snapshots, caps replay and notifies only 
   assert.equal(received.length, 1);
   assert.equal(received[0][0].id, "orphan-1");
   assert.ok(received[0].every((task) => task.status === "working" && task.updatedAt === "before"));
-  assert.ok(f.rows.slice(1).every((task) => task.status === "error" && task.error === ORPHANED_WORKING_TASK_ERROR));
+  assert.ok(f.rows.slice(1).every((task) => task.status === "error" && task.error === ORPHANED_WORKING_TASK_ERROR && task.orphanedSourceUpdatedAt === "before"));
   f.service.setOrphanedTaskListener((tasks) => { received.push(tasks); });
   assert.deepEqual(f.service.reconcileOrphanedWorkingTasks(), []);
   assert.equal(received.length, 1);

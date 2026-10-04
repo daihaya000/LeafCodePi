@@ -49,6 +49,30 @@ test("startup reconciles working tasks without a live lease and leaves others al
   assert.equal(started.store.getTask("done").status, "complete");
 });
 
+test("startup recovers orphan notifications dropped by the in-memory cap from persisted error rows", async (t) => {
+  const ids = Array.from({ length: 105 }, (_, index) => `orphan-${String(index).padStart(3, "0")}`);
+  const { dir, file } = fixture(t, ids.map((id, index) => task(id, "working", index === 0 ? { updatedAt: "2020-01-01T00:00:00.000Z" } : {})));
+  const scheduled = [];
+  const started = createBackendStartup({
+    dataDir: () => dir,
+    warn: () => {},
+    schedule: (callback) => { scheduled.push(callback); },
+    promptTask: async () => {},
+    loadRuntime: async () => ({ ok: true, runtime: {} }),
+  });
+  started.store.storePath = () => file;
+
+  const snapshots = ids.map((id) => ({ ...started.store.getTask(id) }));
+  assert.equal(started.leases.reconcileOrphanedWorkingTasks().length, 105);
+  assert.equal(started.leases.state.pendingOrphans.length, 100);
+  await started.startup.start();
+
+  assert.equal(scheduled.length, 104);
+  assert.equal(started.resumePending().length, 104);
+  assert.deepEqual(started.resumeSkipped(), [{ id: ids[0], reason: "interrupted too long ago" }]);
+  assert.equal(started.store.getTask(ids[0]).orphanedSourceUpdatedAt, snapshots[0].updatedAt);
+});
+
 test("a working task with a live lease is not reconciled", async (t) => {
   const { dir, file } = fixture(t, [task("live", "working")]);
   const started = createBackendStartup({ dataDir: () => dir, warn: () => {} });
