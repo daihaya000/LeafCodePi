@@ -1,4 +1,4 @@
-import { existsSync, mkdtempSync, readFileSync, rmSync, unlinkSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, unlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -20,7 +20,7 @@ vi.mock("@/lib/codexbar/utils", async (importOriginal) => {
   };
 });
 
-import { fetchText } from "@/lib/codexbar/utils";
+import { fetchText, withRefreshFileLock } from "@/lib/codexbar/utils";
 import { createAnthropicProvider } from "./anthropic";
 
 let dir: string;
@@ -41,6 +41,7 @@ beforeEach(() => {
   vi.stubEnv("CLAUDE_CONFIG_DIR", dir);
   vi.stubEnv("PI_CODING_AGENT_DIR", join(dir, "empty-pi"));
   vi.mocked(fetchText).mockReset();
+  vi.mocked(withRefreshFileLock).mockClear();
   lockRequested.mockReset();
   vi.mocked(fetchText).mockImplementation(async (url, init) => {
     if (url === tokenUrl) {
@@ -99,6 +100,95 @@ describe("Anthropic credentials reread after locking", () => {
       await holder;
       await fetch.catch(() => undefined);
     }
+  });
+
+  it.each(["default", "account"] as const)("serializes Pi refresh and reuses tokens rotated under lock (%s)", async (storeKind) => {
+    const piDir = join(dir, "pi-store");
+    const piPath = join(piDir, "auth.json");
+    mkdirSync(piDir, { recursive: true });
+    vi.stubEnv("PI_CODING_AGENT_DIR", piDir);
+    writeFileSync(piPath, JSON.stringify({
+      anthropic: { type: "oauth", access: "old-pi-access-fixture", refresh: "old-pi-refresh-fixture", expires: Date.now() - 1000 },
+      untouched: "sentinel",
+    }), "utf8");
+    const piScope = storeKind === "account"
+      ? { key: "account:fixture", kind: "account" as const, accountId: "fixture", accountLabel: null, authPath: piPath }
+      : scope;
+
+    let signalEvent!: (event: "lock" | "refresh" | "usage") => void;
+    const event = new Promise<"lock" | "refresh" | "usage">((resolve) => { signalEvent = resolve; });
+    lockRequested.mockImplementationOnce(() => signalEvent("lock"));
+    vi.mocked(fetchText).mockImplementation(async (url, init) => {
+      if (url === tokenUrl) {
+        signalEvent("refresh");
+        return { ok: true, status: 200, body: JSON.stringify({ access_token: "final-pi-access-fixture", refresh_token: "final-pi-refresh-fixture", expires_in: 3600 }) };
+      }
+      signalEvent("usage");
+      expect(url).toBe("https://api.anthropic.com/api/oauth/usage");
+      expect(new Headers(init?.headers).get("Authorization")).toBe("Bearer other-pi-access-fixture");
+      return { ok: true, status: 200, body: JSON.stringify({ five_hour: { utilization: 10 } }) };
+    });
+
+    const actual = await vi.importActual<typeof import("@/lib/codexbar/utils")>("@/lib/codexbar/utils");
+    let releaseHolder!: () => void;
+    const holder = actual.withRefreshFileLock(piPath, () => new Promise<void>((resolve) => { releaseHolder = resolve; }));
+    const provider = createAnthropicProvider(piScope);
+    const fetches = Promise.all([provider.fetch(), provider.fetch()]);
+    try {
+      expect(await event).toBe("lock");
+      expect(withRefreshFileLock).toHaveBeenCalledOnce();
+      expect(withRefreshFileLock).toHaveBeenCalledWith(piPath, expect.any(Function));
+      expect(existsSync(`${piPath}.leafcode-refresh.lock`)).toBe(true);
+      writeFileSync(piPath, JSON.stringify({
+        anthropic: { type: "oauth", access: "other-pi-access-fixture", refresh: "other-pi-refresh-fixture", expires: Date.now() + 3600_000 },
+        untouched: "sentinel",
+      }), "utf8");
+      releaseHolder();
+      await holder;
+
+      expect((await fetches).map((snapshot) => snapshot.windows[0]?.usedPercent)).toEqual([10, 10]);
+      expect(refreshTokensSent()).toEqual([]);
+      expect(JSON.parse(readFileSync(piPath, "utf8"))).toMatchObject({
+        untouched: "sentinel",
+        anthropic: { access: "other-pi-access-fixture", refresh: "other-pi-refresh-fixture" },
+      });
+      expect(existsSync(`${piPath}.leafcode-refresh.lock`)).toBe(false);
+    } finally {
+      releaseHolder();
+      await holder;
+      await fetches.catch(() => undefined);
+    }
+  });
+
+  it("refreshes expired Pi credentials while holding the adjacent refresh lock", async () => {
+    const piDir = join(dir, "pi-store");
+    const piPath = join(piDir, "auth.json");
+    mkdirSync(piDir, { recursive: true });
+    vi.stubEnv("PI_CODING_AGENT_DIR", piDir);
+    writeFileSync(piPath, JSON.stringify({
+      anthropic: { type: "oauth", access: "old-pi-access-fixture", refresh: "old-pi-refresh-fixture", expires: Date.now() - 1000 },
+      untouched: "sentinel",
+    }), "utf8");
+    vi.mocked(fetchText).mockImplementation(async (url, init) => {
+      if (url === tokenUrl) {
+        expect(existsSync(`${piPath}.leafcode-refresh.lock`)).toBe(true);
+        expect(JSON.parse(String(init?.body)).refresh_token).toBe("old-pi-refresh-fixture");
+        return { ok: true, status: 200, body: JSON.stringify({ access_token: "new-pi-access-fixture", refresh_token: "new-pi-refresh-fixture", expires_in: 3600 }) };
+      }
+      expect(url).toBe("https://api.anthropic.com/api/oauth/usage");
+      expect(new Headers(init?.headers).get("Authorization")).toBe("Bearer new-pi-access-fixture");
+      return { ok: true, status: 200, body: JSON.stringify({ five_hour: { utilization: 10 } }) };
+    });
+
+    expect((await createAnthropicProvider(scope).fetch()).windows[0]?.usedPercent).toBe(10);
+    expect(withRefreshFileLock).toHaveBeenCalledOnce();
+    expect(withRefreshFileLock).toHaveBeenCalledWith(piPath, expect.any(Function));
+    expect(refreshTokensSent()).toEqual(["old-pi-refresh-fixture"]);
+    expect(JSON.parse(readFileSync(piPath, "utf8"))).toMatchObject({
+      untouched: "sentinel",
+      anthropic: { access: "new-pi-access-fixture", refresh: "new-pi-refresh-fixture" },
+    });
+    expect(existsSync(`${piPath}.leafcode-refresh.lock`)).toBe(false);
   });
 
   it.each(["expired", "unauthorized"] as const)("still refreshes unchanged %s credentials", async (reason) => {
