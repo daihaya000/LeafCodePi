@@ -1091,8 +1091,29 @@ describe("integrated session routing", () => {
 
     expect(updated.providerID).toBe("anthropic");
     expect(updated.modelID).toBe("claude-sonnet");
-    expect(getTask(task.id)).toMatchObject({ providerID: "anthropic", modelID: "claude-sonnet" });
+    expect(updated.responseModel).toEqual({ providerID: "leafcodecloud", modelID: "LeafModel" });
+    expect(getTask(task.id)).toMatchObject({ providerID: "anthropic", modelID: "claude-sonnet", responseModel: updated.responseModel });
     expect(fakePi.sessions).toHaveLength(0);
+  });
+
+  it("retains the last assistant model when an idle live session changes its selection", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "leafcode-pi-response-model-"));
+    tempDirs.push(dir);
+    process.env.LEAFCODE_PI_DATA_DIR = dir;
+    process.env.PI_CODING_AGENT_DIR = join(dir, "agent");
+    __resetPiAgentDirCacheForTests();
+    installHarness(new Map(), { provider: "anthropic", id: "claude-sonnet" });
+
+    const task = insertTask({ project: null, title: "response model", providerID: "anthropic", modelID: "claude-sonnet" });
+    await promptTask(task.id, "first", undefined, { waitForCompletion: true });
+    expect(getTask(task.id)?.responseModel).toEqual({ providerID: "anthropic", modelID: "claude-sonnet" });
+    const previous = { providerID: "cursor", modelID: "previous-response" };
+    fakePi.SessionManager.open(fakePi.sessions[0]!.file).history.push({ role: "assistant", provider: previous.providerID, model: previous.modelID, content: [] });
+
+    const updated = await setTaskModel(task.id, "anthropic::claude-sonnet");
+    expect(updated.responseModel).toEqual(previous);
+    expect(getTask(task.id)?.responseModel).toEqual(previous);
+    expect(updated.modelID).toBe("claude-sonnet");
   });
 
   it("falls back to Auto for an unavailable Bot/Code model without persisting the choice", async () => {
@@ -1121,6 +1142,7 @@ describe("integrated session routing", () => {
       providerID: "leafcodecloud",
       modelID: "LeafModel",
       status: "idle",
+      responseModel: { providerID: "anthropic", modelID: "claude-sonnet" },
     });
     expect(getBot(bot.id)?.model).toBe("leafcodecloud::LeafModel");
 

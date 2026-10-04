@@ -39,6 +39,8 @@ import { SwipeArchiveRow } from "@/components/shell/SwipeArchiveRow";
 import { HostnameLabel } from "@/components/shell/HostnameContext";
 import { Button, cx, timeAgo } from "@/components/ui";
 import { SessionLabelBadge } from "@/components/SessionLabelBadge";
+import { ProviderIcon } from "@/components/ProviderIcon";
+import { taskResponseModel } from "@/lib/task-response-model";
 import { useSessionLabels } from "@/components/useSessionLabels";
 import { BotAvatar, type BotFace } from "@/components/bot/BotAvatar";
 import { isTaskDrag, setTaskDragData } from "@/lib/task-drag";
@@ -115,6 +117,10 @@ function sameTaskSummary(left: TaskSummary, right: TaskSummary): boolean {
     left.title === right.title &&
     // Background labels keep updatedAt, so the label itself must be compared.
     left.label === right.label &&
+    left.providerID === right.providerID &&
+    left.modelID === right.modelID &&
+    left.responseModel?.providerID === right.responseModel?.providerID &&
+    left.responseModel?.modelID === right.responseModel?.modelID &&
     left.projectId === right.projectId &&
     left.projectName === right.projectName &&
     left.botId === right.botId &&
@@ -942,6 +948,27 @@ export const TaskActivityIcon = memo(function TaskActivityIcon({
   );
 });
 
+export function TaskSessionMetadata({ task, faint = false }: {
+  task: Pick<TaskSummary, "label" | "updatedAt" | "providerID" | "modelID" | "responseModel">;
+  faint?: boolean;
+}) {
+  const model = taskResponseModel(task);
+  return (
+    <span className="flex w-full min-w-0 items-center gap-1 text-[10px] text-muted">
+      <span className="flex w-11 shrink-0 items-center">
+        <SessionLabelBadge labelId={task.label} className="w-full truncate text-center" />
+      </span>
+      {model && (
+        <span className="flex min-w-0 flex-1 items-center gap-1" title={`${model.providerID} / ${model.modelID}`}>
+          <ProviderIcon providerID={model.providerID} size={12} />
+          <span className="truncate">{model.modelID}</span>
+        </span>
+      )}
+      <span className={cx("ml-auto shrink-0 text-right", faint && "text-faint")}>{timeAgo(task.updatedAt)}</span>
+    </span>
+  );
+}
+
 export const SidebarTaskRow = memo(function SidebarTaskRow({
   task,
   active,
@@ -990,12 +1017,7 @@ export const SidebarTaskRow = memo(function SidebarTaskRow({
           <TaskActivityIcon task={task} bot={bot} unread={unread} />
           <span className="relative top-0.5 flex min-w-0 flex-1 flex-col items-start">
             <span className="w-full truncate text-xs font-medium">{task.title}</span>
-            <span className="flex w-full min-w-0 items-center gap-1">
-              <span className="flex w-11 shrink-0 items-center">
-                <SessionLabelBadge labelId={task.label} className="w-full truncate text-center" />
-              </span>
-              <span className="w-16 shrink-0 truncate text-[10px] text-muted">{timeAgo(task.updatedAt)}</span>
-            </span>
+            <TaskSessionMetadata task={task} />
           </span>
         </button>
         <button
@@ -2802,12 +2824,7 @@ const SidebarView = memo(function SidebarView({
                               <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-faint" />
                               <span className="relative top-0.5 flex min-w-0 flex-1 flex-col items-start">
                                 <span className="w-full truncate text-xs font-medium">{task.title}</span>
-                                <span className="flex w-full min-w-0 items-center gap-1">
-                                  <span className="flex w-11 shrink-0 items-center">
-                                    <SessionLabelBadge labelId={task.label} className="w-full truncate text-center" />
-                                  </span>
-                                  <span className="w-16 shrink-0 truncate text-[10px] text-muted">{timeAgo(task.updatedAt)}</span>
-                                </span>
+                                <TaskSessionMetadata task={task} />
                               </span>
                             </button>
                             <button
@@ -3246,12 +3263,7 @@ const SidebarView = memo(function SidebarView({
                     <TaskActivityIcon task={task} bot={(task.botId ?? task.supervisorBotId) ? botsById.get(task.botId ?? task.supervisorBotId!) : undefined} />
                     <span className="relative top-0.5 flex min-w-0 flex-1 flex-col items-start">
                       <span className="w-full truncate font-medium">{task.title}</span>
-                      <span className="flex w-full min-w-0 items-center gap-1">
-                        <span className="flex w-11 shrink-0 items-center">
-                          <SessionLabelBadge labelId={task.label} className="w-full truncate text-center" />
-                        </span>
-                        <span className="w-16 shrink-0 truncate text-[10px] text-faint">{timeAgo(task.updatedAt)}</span>
-                      </span>
+                      <TaskSessionMetadata task={task} faint />
                     </span>
                   </button>
                   <TaskProgressBar task={task} className="mx-3 mb-1" />

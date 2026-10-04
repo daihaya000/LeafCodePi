@@ -344,6 +344,8 @@ export type TaskSummary = {
   sessionFile: string | null;
   providerID?: string;
   modelID?: string;
+  /** 対応中または最後に応答したモデル。次ターン用の選択モデルとは分離する。 */
+  responseModel?: { providerID: string; modelID: string };
   thinkingLevel?: ThinkingLevel;
   /** このタスクで使う認証アカウント（docs/plans/multi-account.md）。未設定 = 既定（~/.pi/agent/auth.json）。 */
   accountId?: string;

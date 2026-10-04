@@ -4,7 +4,7 @@ export type TaskKind = "code" | "bot" | "all";
 export type ProjectPatch = Partial<Pick<ProjectDto, "name" | "rootPath" | "favorite" | "archived" | "lastOpenedAt" | "icon" | "iconColor">>;
 export type TaskPatch = Partial<Pick<TaskSummary,
   | "title" | "titleAutoUpdate" | "label" | "projectId" | "projectName" | "directory"
-  | "status" | "sessionId" | "sessionFile" | "providerID" | "modelID" | "thinkingLevel"
+  | "status" | "sessionId" | "sessionFile" | "providerID" | "modelID" | "responseModel" | "thinkingLevel"
   | "accountId" | "accountIdExplicit" | "supervisorBotId" | "skillPermission" | "permissionMode"
   | "revertLeafId" | "manualAbortedAssistantId" | "hangRetryCount" | "agent" | "error"
 >>;

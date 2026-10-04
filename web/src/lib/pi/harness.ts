@@ -197,6 +197,7 @@ import {
   TOOL_SEARCH_NAME,
 } from "@/lib/pi/deferred-tools";
 import { hasIdentityChanges, sessionIdentityPatch, sessionIdentitySource } from "@/lib/pi/session-identity";
+import { taskResponseModel } from "@/lib/task-response-model";
 import { nestedCallsStoreFor, trackNestedToolEvent } from "@/lib/pi/nested-live-calls";
 import { sessionToolSelection, shouldUseDynamicMcpTools } from "@/lib/pi/session-tool-selection";
 import { attachCodeToolPolicy, codeToolAllowed, preservingPendingToolNames, registerCodeToolPolicy, updateCodeSubagentPolicy, type CodeToolPolicy } from "@/lib/pi/session-tool-policy";
@@ -2779,7 +2780,13 @@ async function attachSession(
             modelID: ids.modelID,
           }),
         );
-        if (hasIdentityChanges(identityPatch)) patchTask(taskId, identityPatch);
+        const summaryTask = task as TaskSummary;
+        const responseModel = taskResponseModel(summaryTask, session.messages, event.type === "agent_start" ? ids : undefined);
+        const responseChanged = responseModel?.providerID !== summaryTask.responseModel?.providerID ||
+          responseModel?.modelID !== summaryTask.responseModel?.modelID;
+        if (hasIdentityChanges(identityPatch) || responseChanged) {
+          patchTask(taskId, { ...identityPatch, ...(responseChanged ? { responseModel } : {}) });
+        }
       },
       scheduleSnapshot: () =>
         scheduleTaskSnapshot(
@@ -3191,6 +3198,7 @@ export async function resetTaskConversation(taskId: string): Promise<TaskSummary
     revertLeafId: null,
     manualAbortedAssistantId: null,
     hangRetryCount: undefined,
+    responseModel: undefined,
     error: null,
   });
   if (!reset) throw Object.assign(new Error("タスクが見つかりません"), { status: 404 });
@@ -4891,6 +4899,7 @@ function toSummary(task: TaskSummary): TaskSummary {
     status: resolveSummaryStatus(task.status, live.session.isStreaming),
     sessionId: live.session.sessionId ?? task.sessionId,
     sessionFile: live.session.sessionFile ?? task.sessionFile,
+    responseModel: taskResponseModel(task, live.session.messages, task.status === "working" ? ids : undefined),
     providerID: live.preserveTaskModel
       ? task.providerID
       : ids.providerID ?? task.providerID,
@@ -10751,6 +10760,7 @@ async function applyLiveModel(
     live.session.setThinkingLevel(thinkingLevel);
   }
   const updatedTask = patchTask(id, {
+    responseModel: taskResponseModel(getTask(id) ?? {}, live.session.messages),
     providerID: ids.providerID ?? fallbackProviderID,
     modelID: ids.modelID ?? fallbackModelID,
     thinkingLevel,
@@ -10814,7 +10824,7 @@ export async function setTaskModel(
     patch: Parameters<typeof patchTask>[1],
     eventType?: string,
   ): TaskSummary => {
-    const updatedTask = patchTask(id, patch);
+    const updatedTask = patchTask(id, { responseModel: taskResponseModel(task), ...patch });
     if (!updatedTask)
       throw Object.assign(new Error("タスクが見つかりません"), { status: 404 });
     const summary = toSummary(updatedTask);

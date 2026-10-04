@@ -82,6 +82,21 @@ describe("sameTaskList", () => {
     expect(stabilizeTaskList(a, b)[0]).toBe(b[0]);
   });
 
+  it("detects provider and model changes even when updatedAt is unchanged", () => {
+    const previous = { ...task("t1", "idle", "Task"), providerID: "openai-codex", modelID: "model-a", responseModel: { providerID: "openai-codex", modelID: "model-a" } };
+    for (const patch of [
+      { providerID: "anthropic" },
+      { modelID: "model-b" },
+      { responseModel: { providerID: "anthropic", modelID: "model-a" } },
+      { responseModel: { providerID: "openai-codex", modelID: "model-b" } },
+    ]) {
+      const next = { ...previous, ...patch };
+      expect(sameTaskList([previous], [next])).toBe(false);
+      expect(stabilizeTaskList([previous], [next])[0]).toBe(next);
+    }
+    expect(stabilizeTaskList([previous], [{ ...previous, responseModel: { ...previous.responseModel } }])[0]).toBe(previous);
+  });
+
   it("detects todo progress changes", () => {
     const a = [task("t1", "idle", "タスクA")];
     const b = [{ ...task("t1", "idle", "タスクA"), todoProgress: { completed: 1, total: 2 } }];
