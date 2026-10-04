@@ -6,6 +6,7 @@ import { withFileLock } from "./file-lock.mjs";
 const STORE_BACKUP_DAYS = 7;
 const STORE_BACKUP_GENERATIONS_PER_DAY = 4;
 const emptyStore = () => ({ version: 1, projects: [], tasks: [] });
+const cloneForCaller = (value) => value === undefined ? undefined : structuredClone(value);
 
 /** Application CRUD and disk format, independent of SDK, Next and path settings. */
 export class AppStore {
@@ -25,7 +26,7 @@ export class AppStore {
     return withFileLock(this.storePath(), () => {
       try {
         this.#readStore(true, true);
-        return update();
+        return cloneForCaller(update());
       } catch (error) {
         this.#cachedStore = null;
         throw error;
@@ -158,10 +159,10 @@ export class AppStore {
 
   listProjects(includeArchived = false) {
     const projects = this.#readStore().projects;
-    return includeArchived ? projects.slice() : projects.filter((project) => !project.archived);
+    return cloneForCaller(includeArchived ? projects : projects.filter((project) => !project.archived));
   }
 
-  getProject(id) { return this.#readStore().projects.find((project) => project.id === id); }
+  getProject(id) { return cloneForCaller(this.#readStore().projects.find((project) => project.id === id)); }
 
   upsertProject(input) { return this.#mutate(() => this.#upsertProject(input)); }
 
@@ -198,7 +199,7 @@ export class AppStore {
 
   listTasks(includeArchived = false, kind = "code") {
     const tasks = this.#readStore().tasks.filter((task) => kind === "all" || (task.kind ?? "code") === kind);
-    return includeArchived ? tasks : tasks.filter((task) => task.status !== "archived");
+    return cloneForCaller(includeArchived ? tasks : tasks.filter((task) => task.status !== "archived"));
   }
 
   insertBotTask(input) { return this.#mutate(() => this.#insertBotTask(input)); }
@@ -222,7 +223,7 @@ export class AppStore {
     return task;
   }
 
-  getTask(id) { return this.#readStore().tasks.find((task) => task.id === id); }
+  getTask(id) { return cloneForCaller(this.#readStore().tasks.find((task) => task.id === id)); }
 
   insertTask(input) { return this.#mutate(() => this.#insertTask(input)); }
 

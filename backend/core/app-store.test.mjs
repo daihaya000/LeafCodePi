@@ -63,16 +63,25 @@ test("project/task CRUD preserves v1 format, Unicode, settings and recreation", 
 test("path policy is injected and reopening preserves the existing project identity/name", (t) => {
   const f = fixture(t);
   const project = f.store.upsertProject({ name: "first", rootPath: "C:/Work", favorite: true });
-  f.store.patchProject(project.id, { archived: true, icon: "folder", iconColor: "blue" });
+  project.name = "caller mutation";
+  assert.equal(f.store.getProject(project.id).name, "first");
+  const patched = f.store.patchProject(project.id, { archived: true, icon: "folder", iconColor: "blue" });
+  assert.notEqual(patched, project);
+  patched.name = "caller mutation";
+  assert.equal(f.store.getProject(project.id).name, "first");
   assert.deepEqual(f.store.listProjects(), []);
   const reopened = f.store.upsertProject({ name: "ignored", rootPath: "c:/work", favorite: false });
-  assert.equal(reopened, project);
+  assert.notEqual(reopened, project);
+  assert.equal(reopened.id, project.id);
+  assert.equal(project.favorite, true);
   assert.equal(reopened.archived, false);
   assert.equal(reopened.name, "first");
   assert.equal(reopened.favorite, false);
   assert.equal(reopened.iconColor, "blue");
   const listed = f.store.listProjects(true);
+  listed[0].name = "list mutation";
   listed.splice(0, listed.length);
+  assert.equal(f.store.getProject(project.id).name, "first");
   assert.equal(f.store.listProjects(true).length, 1);
 });
 
@@ -92,7 +101,9 @@ test("legacy Code filtering, Bot deduplication and archive visibility remain unc
   const code = f.store.insertTask({ project: null, title: "Code" });
   const bot = f.store.insertBotTask({ id: "bot:one", botId: "one", name: "Bot", directory: f.root, model: "p::m", thinkingLevel: "low", permissionMode: "deny" });
   const before = readFileSync(f.file(), "utf8");
-  assert.equal(f.store.insertBotTask({ id: bot.id, botId: "one", name: "ignored", directory: "ignored" }), bot);
+  const duplicate = f.store.insertBotTask({ id: bot.id, botId: "one", name: "ignored", directory: "ignored" });
+  assert.notEqual(duplicate, bot);
+  assert.deepEqual(duplicate, bot);
   assert.equal(readFileSync(f.file(), "utf8"), before);
   assert.deepEqual(f.store.listTasks().map((task) => task.id), [code.id]);
   assert.deepEqual(f.store.listTasks(false, "bot").map((task) => task.id), [bot.id]);
@@ -106,17 +117,22 @@ test("no-op patches skip writes, real patches advance time and metadata can pres
   const task = f.store.insertTask({ project: null, title: "test" });
   const originalTime = task.updatedAt;
   const firstStat = statSync(f.file());
-  assert.equal(f.store.patchTask(task.id, { title: "test" }), task);
+  const unchanged = f.store.patchTask(task.id, { title: "test" });
+  assert.notEqual(unchanged, task);
+  assert.deepEqual(unchanged, task);
+  unchanged.title = "caller mutation";
+  assert.equal(f.store.getTask(task.id).title, "test");
   assert.equal(statSync(f.file()).mtimeMs, firstStat.mtimeMs);
   assert.equal(existsSync(join(f.root, "backups")), false);
-  f.store.setTaskStatus(task.id, "working");
-  assert.equal(task.updatedAt, new Date(Date.parse(originalTime) + 1).toISOString());
-  const changedTime = task.updatedAt;
-  f.store.patchTask(task.id, { label: "classified", accountId: "new", hangRetryCount: 2 }, { preserveUpdatedAt: true });
-  assert.equal(task.updatedAt, changedTime);
-  f.store.patchTask(task.id, { accountId: undefined, permissionMode: "allow", manualAbortedAssistantId: "" });
-  assert.equal(task.accountId, undefined);
-  assert.ok(task.updatedAt > changedTime);
+  const working = f.store.setTaskStatus(task.id, "working");
+  assert.equal(working.updatedAt, new Date(Date.parse(originalTime) + 1).toISOString());
+  assert.equal(task.updatedAt, originalTime);
+  const changedTime = working.updatedAt;
+  const preserved = f.store.patchTask(task.id, { label: "classified", accountId: "new", hangRetryCount: 2 }, { preserveUpdatedAt: true });
+  assert.equal(preserved.updatedAt, changedTime);
+  const updated = f.store.patchTask(task.id, { accountId: undefined, permissionMode: "allow", manualAbortedAssistantId: "" });
+  assert.equal(updated.accountId, undefined);
+  assert.ok(updated.updatedAt > changedTime);
   assert.equal("accountId" in f.read().tasks[0], false);
 });
 
@@ -190,10 +206,16 @@ test("backup failures are reported without blocking a valid store update", (t) =
   assert.match(f.backupErrors[0].message, /application store backup failed/);
 });
 
-test("cache identity is reused, external changes are seen and storage roots remain isolated", (t) => {
+test("cached read DTOs are detached, external changes are seen and storage roots remain isolated", (t) => {
   const f = fixture(t);
   const task = f.store.insertTask({ project: null, title: "before" });
-  assert.equal(f.store.getTask(task.id), task);
+  task.title = "mutated insert result";
+  assert.equal(f.store.getTask(task.id).title, "before");
+  const read = f.store.getTask(task.id);
+  assert.notEqual(read, task);
+  read.title = "mutated read";
+  f.store.listTasks()[0].title = "mutated list";
+  assert.equal(f.store.getTask(task.id).title, "before");
   const disk = f.read();
   disk.tasks[0].title = "from external writer with a different file size";
   writeFileSync(f.file(), `${JSON.stringify(disk, null, 2)}\n`, "utf8");
