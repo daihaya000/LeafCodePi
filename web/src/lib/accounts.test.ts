@@ -271,6 +271,24 @@ describe("accounts store CRUD", () => {
     assert.equal(getAccount("legacy")?.enabled, true);
   });
 
+  it("refuses to overwrite an unreadable accounts.json", () => {
+    const dir = tempDataDir();
+    const file = join(dir, "accounts.json");
+    for (const text of ["{torn", "", JSON.stringify({ version: 2, accounts: [] }), JSON.stringify({ version: 1, accounts: null })]) {
+      writeFileSync(file, text, "utf8");
+      try {
+        createAccount({ label: "new", providers: ["anthropic"] });
+        assert.fail("must refuse");
+      } catch (error) {
+        assert.equal(httpStatus(error), 500);
+      }
+      assert.equal(readFileSync(file, "utf8"), text);
+      assert.deepEqual(listAccounts(), []);
+    }
+    rmSync(file);
+    assert.equal(createAccount({ label: "fresh", providers: ["anthropic"] }).label, "fresh");
+  });
+
   it("rejects invalid input with status 400", () => {
     tempDataDir();
     assert.throws(

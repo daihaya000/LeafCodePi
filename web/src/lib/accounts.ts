@@ -235,6 +235,31 @@ function readAccountsFile(): AccountsFile {
   }
 }
 
+/**
+ * Read for a read-modify-write. An existing accounts.json that cannot be interpreted must not be
+ * treated as an empty list: the next write would replace the real file with that empty list.
+ * A missing file is a legitimate empty list.
+ */
+function readAccountsFileForWrite(): AccountsFile {
+  let text: string;
+  try {
+    text = readFileSync(accountsPath(), "utf8");
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException)?.code === "ENOENT") return emptyAccountsFile();
+    throw Object.assign(new Error("accounts.json を読み取れないため更新を中止しました"), { status: 500, cause: error });
+  }
+  let parsed: AccountsFile | null;
+  try {
+    parsed = JSON.parse(text) as AccountsFile | null;
+  } catch (error) {
+    throw Object.assign(new Error("accounts.json が壊れているため更新を中止しました"), { status: 500, cause: error });
+  }
+  if (!parsed || parsed.version !== 1 || !Array.isArray(parsed.accounts)) {
+    throw Object.assign(new Error("accounts.json の形式が不正なため更新を中止しました"), { status: 500 });
+  }
+  return readAccountsFile();
+}
+
 function writeAccountsFile(file: AccountsFile): void {
   // tmp + rename (unique tmp name via mode) so concurrent writers never leave a torn accounts.json.
   atomicWriteText(accountsPath(), `${JSON.stringify(file, null, 2)}\n`, 0o600);
@@ -338,7 +363,7 @@ function reorderAccountsLocked(input: unknown): AccountRecord[] {
     throw badRequest("accountOrder はアカウントIDの配列で指定してください");
   }
 
-  const file = readAccountsFile();
+  const file = readAccountsFileForWrite();
   const currentIds = new Set(file.accounts.map((account) => account.id));
   const nextIds = new Set(input);
   if (
@@ -370,7 +395,7 @@ export function importAccountRecords(input: unknown): AccountRecord[] {
 
 function importAccountRecordsLocked(input: unknown): AccountRecord[] {
   if (!Array.isArray(input) || input.length > 200) throw badRequest("アカウント一覧が不正です");
-  const file = readAccountsFile();
+  const file = readAccountsFileForWrite();
   const ids = new Set<string>();
   const additions: AccountRecord[] = [];
   for (const value of input) {
@@ -426,7 +451,7 @@ export function createAccount(input: {
     updatedAt: now,
   };
   withAccountsLock(() => {
-    const file = readAccountsFile();
+    const file = readAccountsFileForWrite();
     file.accounts.push(record);
     writeAccountsFile(file);
   });
@@ -479,7 +504,7 @@ function patchAccountLocked(
   id: string,
   patch: { label?: unknown; note?: unknown; enabled?: unknown },
 ): AccountRecord {
-  const file = readAccountsFile();
+  const file = readAccountsFileForWrite();
   const record = file.accounts.find((account) => account.id === id);
   if (!record) throw notFound();
   if (patch.label !== undefined) record.label = validateLabel(patch.label);
@@ -512,7 +537,7 @@ export function deleteAccount(id: string): void {
   // code / bot 双方。Goal Loop は idle でも継続中の場合、削除を拒否する。
   assertAccountIdleForDisable(id, "delete");
   withAccountsLock(() => {
-    const file = readAccountsFile();
+    const file = readAccountsFileForWrite();
     const index = file.accounts.findIndex((account) => account.id === id);
     if (index === -1) throw notFound();
     file.accounts.splice(index, 1);
