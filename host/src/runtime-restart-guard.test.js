@@ -1,8 +1,13 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { createServer } from "node:http";
+import { dirname, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 import { backendRuntimeRestartBlockReason } from "./runtime-restart-guard.js";
-import { BACKEND_PROTOCOL_HEADER } from "../../shared/backend-protocol.mjs";
+import { backendClientEnv, backendLaunchPlan } from "./backend-launch.js";
+import { BACKEND_PROTOCOL_HEADER, DEFAULT_BACKEND_PORT } from "../../shared/backend-protocol.mjs";
+
+const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..");
 
 const options = { baseUrl: "http://owner.invalid", token: "test", expectedGeneration: "generation" };
 function fetchState(body, { status = 200, generation = "generation" } = {}) {
@@ -16,6 +21,36 @@ test("Backend loops block restart independently of WebUI availability", async ()
 });
 test("an authoritative empty owner allows a runtime restart", async () => {
   assert.equal(await backendRuntimeRestartBlockReason({ ...options, fetchImpl: fetchState({ taskIds: [] }) }), null);
+});
+test("a Backend on its default port still gives the restart guard a usable URL", async () => {
+  const plan = backendLaunchPlan({ repoRoot: REPO_ROOT, token: "t", generation: "generation" });
+  const urls = [];
+  const fetchImpl = async (url) => {
+    urls.push(String(url));
+    return fetchState({ taskIds: [] })(url);
+  };
+  const reason = await backendRuntimeRestartBlockReason({
+    baseUrl: backendClientEnv(plan).LEAFCODE_PI_BACKEND_URL,
+    token: "t",
+    expectedGeneration: "generation",
+    fetchImpl,
+  });
+  assert.equal(reason, null);
+  assert.equal(urls.length, 2);
+  assert.ok(urls.every((url) => url.startsWith(`http://127.0.0.1:${DEFAULT_BACKEND_PORT}/`)));
+});
+test("a caller that passes no URL falls back to the default port instead of refusing", async () => {
+  const urls = [];
+  const reason = await backendRuntimeRestartBlockReason({
+    token: "t",
+    expectedGeneration: "generation",
+    fetchImpl: async (url) => {
+      urls.push(String(url));
+      return fetchState({ taskIds: [] })(url);
+    },
+  });
+  assert.equal(reason, null);
+  assert.ok(urls.every((url) => url.startsWith(`http://127.0.0.1:${DEFAULT_BACKEND_PORT}/`)));
 });
 test("a health body that stalls after headers remains bounded and fails closed", { timeout: 5000 }, async (t) => {
   let requests = 0;

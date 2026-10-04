@@ -77,10 +77,13 @@ export function getPostBuildLaunchPlan(mode, hasBuild, buildStale = false) {
   };
 }
 
-/** A restored BUILD_ID is usable even when sources are newer than that build. */
-export function staleRebuildFailureAction({ hasBuild, mode }) {
-  if (hasBuild) return "continue-stale";
-  return mode === "prod" ? "fail" : "fallback-dev";
+/**
+ * After a failed rebuild, serve the restored previous build. Without one, keep the WebUI reachable
+ * through `next dev` instead of leaving the operator with nothing.
+ * @returns {"continue-stale"|"fallback-dev"}
+ */
+export function staleRebuildFailureAction({ hasBuild }) {
+  return hasBuild ? "continue-stale" : "fallback-dev";
 }
 
 /**

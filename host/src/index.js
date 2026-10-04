@@ -516,21 +516,10 @@ async function spawnWeb({ pull = true, forceBuild = false } = {}) {
       await buildWeb(rebuildReason, { pull });
     } catch (err) {
       hasBuild = hasProductionBuild();
-      const stillStaleAfterFailure = hasBuild && isWebBuildStale(WEB_DIR, webDistDir());
-      const failureAction = staleRebuildFailureAction({
-        rebuildReason,
-        hasBuild,
-        stillStale: stillStaleAfterFailure,
-        mode: process.env.LEAFCODE_PI_MODE,
-      });
-      if (failureAction === "fail") {
-        throw new Error(
-          `Production rebuild failed and no previous build is available (${err instanceof Error ? err.message : String(err)})`,
-        );
-      }
+      const failureAction = staleRebuildFailureAction({ hasBuild });
       if (failureAction === "continue-stale") {
         error(
-          `Stale rebuild failed; continuing with the existing production build (${err instanceof Error ? err.message : String(err)})`,
+          `Rebuild failed; continuing with the existing production build (${err instanceof Error ? err.message : String(err)})`,
         );
       } else {
         error(

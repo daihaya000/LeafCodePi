@@ -32,8 +32,8 @@ test("host replacement skips stale rebuild only on the first WebUI launch", () =
 test("host repairs extension dependencies before starting children even with a reused Web build", () => {
   const source = readFileSync(new URL("./index.js", import.meta.url), "utf8");
   const check = source.indexOf('    ensureExtensionDependencies(join(REPO_ROOT, "extensions"));');
-  const backendBuild = source.indexOf("    if (backendService) await buildBackendRuntime({ log });");
-  const webStart = source.indexOf("    await spawnWeb();", check);
+  const backendBuild = source.indexOf("    if (backendService) await buildBackendWithFallback({ force: rebuildServices, log, error });");
+  const webStart = source.indexOf("    await spawnWeb({ forceBuild: rebuildServices, pull: !rebuildServices });", check);
   assert.ok(check > source.indexOf("async function main("));
   assert.ok(check < backendBuild && backendBuild < webStart);
 });
@@ -223,7 +223,7 @@ test("isWebBuildStale is false when sources are older than BUILD_ID", () => {
   assert.equal(isWebBuildStale("web", "web/.next", fsApi), false);
 });
 
-test("staleRebuildFailureAction fails prod when rebuild failed and sources stay stale", () => {
+test("staleRebuildFailureAction serves the previous build even when sources stay stale", () => {
   assert.equal(
     staleRebuildFailureAction({
       rebuildReason: "stale",
@@ -231,7 +231,7 @@ test("staleRebuildFailureAction fails prod when rebuild failed and sources stay 
       stillStale: true,
       mode: "prod",
     }),
-    "fail",
+    "continue-stale",
   );
 });
 

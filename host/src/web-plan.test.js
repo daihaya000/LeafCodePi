@@ -62,7 +62,7 @@ test("staleRebuildFailureAction uses any previous build after a failed rebuild",
   );
   assert.equal(
     staleRebuildFailureAction({ rebuildReason: "stale", hasBuild: false, stillStale: true, mode: "prod" }),
-    "fail",
+    "fallback-dev",
   );
   assert.equal(
     staleRebuildFailureAction({ hasBuild: false, mode: "dev" }),

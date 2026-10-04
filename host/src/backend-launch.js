@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import { existsSync as defaultExistsSync, readFileSync as defaultReadFileSync } from "node:fs";
 import { join } from "node:path";
+import { DEFAULT_BACKEND_PORT } from "../../shared/backend-protocol.mjs";
 
 /**
  * What the Host needs to start the independent Backend, and nothing more.
@@ -89,9 +90,12 @@ export function backendLaunchPlan({
 /** The Backend-facing values the WebUI child needs: how to reach it, and which generation to expect. */
 export function backendClientEnv(plan) {
   if (!plan) throw new Error("plan is required");
+  // Always resolve a URL: consumers that treat a missing value as "cannot verify" (the runtime
+  // restart guard) would otherwise refuse every operation while the Backend runs on its default port.
+  const port = plan.env.LEAFCODE_PI_BACKEND_PORT?.trim() || String(DEFAULT_BACKEND_PORT);
   return {
     LEAFCODE_PI_BACKEND_TOKEN: plan.env.LEAFCODE_PI_BACKEND_TOKEN,
-    ...(plan.env.LEAFCODE_PI_BACKEND_PORT ? { LEAFCODE_PI_BACKEND_URL: `http://127.0.0.1:${plan.env.LEAFCODE_PI_BACKEND_PORT}` } : {}),
+    LEAFCODE_PI_BACKEND_URL: `http://127.0.0.1:${port}`,
     ...(plan.generation ? { LEAFCODE_PI_BACKEND_GENERATION: plan.generation } : {}),
   };
 }

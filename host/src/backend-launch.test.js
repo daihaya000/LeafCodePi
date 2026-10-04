@@ -97,9 +97,13 @@ test("the WebUI gets how to reach the Backend and which generation to expect", (
     LEAFCODE_PI_BACKEND_URL: "http://127.0.0.1:18888",
     LEAFCODE_PI_BACKEND_GENERATION: "gen-a",
   });
-  // Without a pinned generation the WebUI has no expectation to compare.
+  // Without a pinned generation the WebUI has no expectation to compare; the URL still resolves
+  // to the Backend's default port so the Host-side restart guard can verify the runtime.
   const unbuilt = backendLaunchPlan({ repoRoot: REPO_ROOT, token: "t", generation: null });
-  assert.deepEqual(backendClientEnv(unbuilt), { LEAFCODE_PI_BACKEND_TOKEN: "t" });
+  assert.deepEqual(backendClientEnv(unbuilt), {
+    LEAFCODE_PI_BACKEND_TOKEN: "t",
+    LEAFCODE_PI_BACKEND_URL: "http://127.0.0.1:18776",
+  });
 });
 
 test("a plan without a repo root or token is refused", () => {
