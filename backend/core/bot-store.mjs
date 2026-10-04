@@ -30,15 +30,24 @@ export class BotFileStore {
   workspacePath(id) { return join(this.botRoot(id), "workspace"); }
 
   /**
-   * Replace the config atomically. A failed write leaves its temporary file
-   * behind (pre-existing behavior: the name embeds the pid and a random suffix).
+   * Replace a file atomically (temp + rename), so a crash never leaves a half-written
+   * file. A failed write removes its own temporary file: repeated failures must not pile
+   * up `*.tmp` files that sync tools and antivirus then hold open, making the next rename fail.
    */
+  #writeTextAtomic(target, text) {
+    const temporary = `${target}.${process.pid}.${Math.random().toString(16).slice(2)}.tmp`;
+    try {
+      writeFileSync(temporary, text, "utf8");
+      renameSync(temporary, target);
+    } catch (error) {
+      try { rmSync(temporary, { force: true }); } catch { /* best effort */ }
+      throw error;
+    }
+  }
+
   writeConfig(config) {
     mkdirSync(this.botRoot(config.id), { recursive: true });
-    const target = this.configPath(config.id);
-    const temporary = `${target}.${process.pid}.${Math.random().toString(16).slice(2)}.tmp`;
-    writeFileSync(temporary, `${JSON.stringify(config, null, 2)}\n`, "utf8");
-    renameSync(temporary, target);
+    this.#writeTextAtomic(this.configPath(config.id), `${JSON.stringify(config, null, 2)}\n`);
   }
 
   /** Null for a missing, unreadable, malformed or mismatched config. */
@@ -64,11 +73,13 @@ export class BotFileStore {
   }
 
   readSoulText(id) { return readFileSync(this.soulPath(id), "utf8"); }
-  writeSoul(id, text) { writeFileSync(this.soulPath(id), text, "utf8"); }
+  /** SOUL.md goes verbatim into the prompt, so it is never left half-written. */
+  writeSoul(id, text) { this.#writeTextAtomic(this.soulPath(id), text); }
 
   ensureMemoryFile(id) {
-    const file = this.memoryPath(id);
-    if (!existsSync(file)) writeFileSync(file, "# Bot memory\n\n", "utf8");
+    // Exclusive create: a concurrent writer that got there first keeps its memory.
+    try { writeFileSync(this.memoryPath(id), "# Bot memory\n\n", { encoding: "utf8", flag: "wx" }); }
+    catch (error) { if (error?.code !== "EEXIST") throw error; }
   }
 
   /** `mtime:size` of SOUL.md, or null when it cannot be read (deleted or unreadable). */

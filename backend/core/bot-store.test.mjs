@@ -108,6 +108,22 @@ test("SOUL text is read and written verbatim, and its revision tracks mtime and 
   assert.equal(store.soulRevision(ID), null);
 });
 
+test("a failed SOUL or config write leaves the previous file and no temporary file behind", (t) => {
+  const { store } = fixture(t);
+  store.writeConfig(config(ID));
+  store.writeSoul(ID, "before");
+  // Replacing a directory with a file fails the rename; nothing may be half-written or left over.
+  rmSync(store.soulPath(ID));
+  mkdirSync(store.soulPath(ID));
+  assert.throws(() => store.writeSoul(ID, "after"));
+  rmSync(store.configPath(ID));
+  mkdirSync(store.configPath(ID));
+  assert.throws(() => store.writeConfig(config(ID)));
+  assert.deepEqual(readdirSync(store.botRoot(ID)).filter((name) => name.endsWith(".tmp")), []);
+  rmSync(store.soulPath(ID), { recursive: true });
+  store.writeSoul(ID, "after");
+  assert.equal(store.readSoulText(ID), "after");
+});
 test("MEMORY.md is created once and never overwritten", (t) => {
   const { store } = fixture(t);
   mkdirSync(store.botRoot(ID), { recursive: true });
