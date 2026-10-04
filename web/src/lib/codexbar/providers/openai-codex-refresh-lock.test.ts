@@ -4,10 +4,13 @@ import { dirname, isAbsolute, join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const lockRequested = vi.hoisted(() => vi.fn());
+const atomicWrite = vi.hoisted(() => vi.fn());
 vi.mock("@/lib/codexbar/utils", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/lib/codexbar/utils")>();
+  atomicWrite.mockImplementation(actual.atomicWriteText);
   return {
     ...actual,
+    atomicWriteText: atomicWrite,
     fetchText: vi.fn(),
     withRefreshFileLock: vi.fn(async (path: string, run: () => Promise<unknown>) => {
       // Fail immediately on single-flight keys instead of waiting 30s for an
@@ -28,6 +31,7 @@ beforeEach(() => {
   vi.stubEnv("CODEX_HOME", join(dir, "cli"));
   vi.stubEnv("PI_CODING_AGENT_DIR", join(dir, "pi"));
   vi.mocked(fetchText).mockReset();
+  atomicWrite.mockClear();
   vi.mocked(withRefreshFileLock).mockClear();
   lockRequested.mockReset();
 });
@@ -38,6 +42,31 @@ afterEach(() => {
 });
 
 describe("Codex refresh lock paths", () => {
+  it("does not retry stale auth when persisting a rotated token fails", async () => {
+    const path = join(dir, "cli", "auth.json");
+    mkdirSync(dirname(path), { recursive: true });
+    storeCodexAuth(path, "old-access-fixture", "old-refresh-fixture", "cli");
+    atomicWrite.mockImplementationOnce(() => { throw new Error("simulated disk failure"); });
+    let usageCalls = 0;
+    let refreshCalls = 0;
+    vi.mocked(fetchText).mockImplementation(async (url) => {
+      if (url === tokenUrl) {
+        refreshCalls += 1;
+        return { ok: true, status: 200, body: JSON.stringify({ access_token: "new-access-fixture", refresh_token: "new-refresh-fixture" }) };
+      }
+      usageCalls += 1;
+      return { ok: false, status: 401, body: "unauthorized" };
+    });
+
+    await expect(providerFor("cli", path).fetch()).rejects.toThrow("OAuth");
+    expect(refreshCalls).toBe(1);
+    expect(usageCalls).toBe(1);
+    expect(JSON.parse(readFileSync(path, "utf8")).tokens).toMatchObject({
+      access_token: "old-access-fixture",
+      refresh_token: "old-refresh-fixture",
+    });
+  });
+
   it.each(["cli", "pi", "account"] as const)("refreshes %s auth under a real adjacent lock", async (store) => {
     const path = join(dir, store, "auth.json");
     const lockPath = `${path}.leafcode-refresh.lock`;

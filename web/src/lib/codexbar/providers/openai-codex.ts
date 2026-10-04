@@ -128,18 +128,14 @@ function persistTokens(
   refreshToken: string,
   path = authPath(),
 ): void {
-  try {
-    const node = asRecord(JSON.parse(readFileSync(path, "utf8"))) ?? {};
-    const tokens = asRecord(node.tokens) ?? {};
-    tokens.access_token = accessToken;
-    if (idToken) tokens.id_token = idToken;
-    tokens.refresh_token = refreshToken;
-    node.tokens = tokens;
-    node.last_refresh = new Date().toISOString();
-    atomicWriteText(path, JSON.stringify(node, null, 2));
-  } catch {
-    /* best effort */
-  }
+  const node = asRecord(JSON.parse(readFileSync(path, "utf8"))) ?? {};
+  const tokens = asRecord(node.tokens) ?? {};
+  tokens.access_token = accessToken;
+  if (idToken) tokens.id_token = idToken;
+  tokens.refresh_token = refreshToken;
+  node.tokens = tokens;
+  node.last_refresh = new Date().toISOString();
+  atomicWriteText(path, JSON.stringify(node, null, 2));
 }
 
 function tryRefreshTokens(
