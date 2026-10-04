@@ -147,7 +147,15 @@ function readStateLockOwner(lockPath: string): StateLockOwner | undefined {
 	return undefined;
 }
 
-function stateLockIsStale(lockPath: string, now = Date.now()): boolean {
+/** A live owner whose start key cannot be verified keeps its lock this long before it is aged out. */
+const UNVERIFIABLE_OWNER_HARD_CAP_MS = 10 * 60_000;
+
+/** Exported for tests, which inject the start-key probe. */
+export function stateLockIsStale(
+	lockPath: string,
+	now = Date.now(),
+	probeStartKey: (pid: number) => string | undefined = processStartKey,
+): boolean {
 	const owner = readStateLockOwner(lockPath);
 	if (owner) {
 		// A young lock can never be stale, so skip the ownership probe: it costs a
@@ -155,10 +163,11 @@ function stateLockIsStale(lockPath: string, now = Date.now()): boolean {
 		if (now - owner.createdAt < STATE_LOCK_STALE_MS) return false;
 		if (!isProcessAlive(owner.pid)) return true;
 		if (owner.processKey) {
-			const currentProcessKey = owner.pid === process.pid ? currentProcessKeyFor() : processStartKey(owner.pid);
+			const currentProcessKey = owner.pid === process.pid ? currentProcessKeyFor() : probeStartKey(owner.pid);
 			// The owner's pid is alive. A failed/timed-out start-key probe (slow PowerShell under load) says nothing
-			// about reuse, so it must not steal a live owner's lock: fall back to ageing it out instead.
-			if (!currentProcessKey) return true;
+			// about reuse, so it must not steal a live owner's lock: keep it until the hard cap, which only
+			// bounds how long an unverifiable (possibly pid-reused) owner can pin the lock.
+			if (!currentProcessKey) return now - owner.createdAt >= UNVERIFIABLE_OWNER_HARD_CAP_MS;
 			return owner.processKey !== currentProcessKey;
 		}
 		// No start-key: PID liveness alone cannot detect reuse — age the lock out instead.

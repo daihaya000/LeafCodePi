@@ -8,6 +8,7 @@ import {
 	missionStatePath,
 	resetProcessStartKeyCacheForTests,
 	startKeyProbeCountForTests,
+	stateLockIsStale,
 } from "./workflow-state.ts";
 
 let root = "";
@@ -98,3 +99,24 @@ it("does not probe the owner while the lock is young", () => {
 	expect(startKeyProbeCountForTests()).toBe(0);
 	expect(existsSync(lockPath)).toBe(true);
 }, 20_000);
+
+it("keeps an aged lock whose live owner's start key cannot be verified, until the hard cap", () => {
+	root = mkdtempSync(join(tmpdir(), "mission-unverifiable-lock-"));
+	const lockPath = join(root, "state.json.lock");
+	mkdirSync(lockPath, { recursive: true });
+	const writeOwner = (ageMs: number) => writeFileSync(
+		join(lockPath, "owner.json"),
+		JSON.stringify({ pid: process.ppid, token: "owner", createdAt: Date.now() - ageMs, processKey: "recorded-key" }),
+		"utf8",
+	);
+	// Another live process (not this one, whose own key is cached) stands in for the owner.
+	const failedProbe = () => undefined;
+	// The probe failed (slow PowerShell): an aged but live owner is not stolen...
+	writeOwner(120_000);
+	expect(stateLockIsStale(lockPath, Date.now(), failedProbe)).toBe(false);
+	// ...a probe that succeeds with a different key still proves pid reuse...
+	expect(stateLockIsStale(lockPath, Date.now(), () => "other-key")).toBe(true);
+	// ...and an owner unverifiable for the whole hard cap is aged out.
+	writeOwner(11 * 60_000);
+	expect(stateLockIsStale(lockPath, Date.now(), failedProbe)).toBe(true);
+});
