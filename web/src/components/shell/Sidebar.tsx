@@ -18,6 +18,7 @@ import {
   Menu,
   Plus,
   Pin,
+  Power,
   RefreshCw,
   Search,
   ServerCog,
@@ -226,7 +227,7 @@ function ModeSegment({ mode, onChange, workingCounts, unreadModes }: { mode: App
 }
 
 function SidebarFooter({ health, onSettings }: { health: HealthDto | null; onSettings: () => void }) {
-  const [restartBusy, setRestartBusy] = useState<"webui" | "backend" | null>(null);
+  const [restartBusy, setRestartBusy] = useState<"webui" | "backend" | "host" | null>(null);
   const restartBusyRef = useRef(false);
   const mountedRef = useRef(true);
   useEffect(() => {
@@ -257,7 +258,7 @@ function SidebarFooter({ health, onSettings }: { health: HealthDto | null; onSet
     };
   }, []);
 
-  const restartService = async (target: "webui" | "backend") => {
+  const restartService = async (target: "webui" | "backend" | "host") => {
     if (restartBusyRef.current || !window.confirm(restartConfirmation(target))) return;
     restartBusyRef.current = true;
     setRestartBusy(target);
@@ -272,7 +273,9 @@ function SidebarFooter({ health, onSettings }: { health: HealthDto | null; onSet
       }
       const backendRestartCompleted = createBackendRestartCheck(previousBackend);
       await sendJson("/api/host/restart", { target });
-      if (target === "webui") {
+      if (target === "webui" || target === "host") {
+        // ホスト再起動はWebUIも入れ替えるため、再接続オーバーレイに新しいプロセスを
+        // 検知させて自動再読み込みさせる。
         window.dispatchEvent(new Event("leafcode:webui-restart"));
         return;
       }
@@ -377,6 +380,17 @@ function SidebarFooter({ health, onSettings }: { health: HealthDto | null; onSet
             onClick={() => void restartService("backend")}
           >
             {restartBusy !== "backend" && <ServerCog className="h-4 w-4" aria-hidden="true" />}
+          </Button>
+          <Button
+            variant="ghost"
+            size="icon"
+            aria-label="トレイホストを再起動"
+            title="トレイホストを再ビルド・再起動（フロントエンドとバックエンド、ビルド失敗時は前回のビルドで起動）"
+            busy={restartBusy === "host"}
+            disabled={restartBusy !== null}
+            onClick={() => void restartService("host")}
+          >
+            {restartBusy !== "host" && <Power className="h-4 w-4" aria-hidden="true" />}
           </Button>
           <Link
             href="/settings"

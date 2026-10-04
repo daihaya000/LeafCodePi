@@ -148,6 +148,26 @@ describe("Bot mode list", () => {
     }
   });
 
+  it("フッターのトレイホスト再起動は確認後にhostを送り、再接続オーバーレイを起動する", async () => {
+    localStorage.setItem("webui.sidebar.collapsed", "0");
+    const confirm = vi.spyOn(window, "confirm").mockReturnValue(true);
+    const restartEvent = vi.fn();
+    window.addEventListener("leafcode:webui-restart", restartEvent);
+    try {
+      render(<Sidebar mobileOpen={false} onClose={vi.fn()} />);
+      const button = await screen.findByRole("button", { name: "トレイホストを再起動" });
+      expect(button.getAttribute("title")).toContain("フロントエンドとバックエンド");
+      fireEvent.click(button);
+      expect(confirm).toHaveBeenCalledWith(restartConfirmation("host"));
+      await waitFor(() => expect(mocks.sendJson).toHaveBeenCalledWith("/api/host/restart", { target: "host" }));
+      await waitFor(() => expect(restartEvent).toHaveBeenCalledOnce());
+      expect((button as HTMLButtonElement).disabled).toBe(true);
+    } finally {
+      window.removeEventListener("leafcode:webui-restart", restartEvent);
+      confirm.mockRestore();
+    }
+  });
+
   it("フッターのバックエンド再起動はWebUIを維持し、readyを待ってボタンを戻す", async () => {
     localStorage.setItem("webui.sidebar.collapsed", "0");
     const fetchStatus = vi.spyOn(globalThis, "fetch").mockImplementation(async (url) =>
