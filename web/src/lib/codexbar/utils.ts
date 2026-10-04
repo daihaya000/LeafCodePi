@@ -319,7 +319,9 @@ export async function withRefreshFileLock<T>(path: string, run: () => Promise<T>
   const lockPath = `${path}.leafcode-refresh.lock`;
   const reclaimPath = `${lockPath}.reclaim`;
   const processKey = processStartKey(process.pid);
-  const ownerData = JSON.stringify({ pid: process.pid, ...(processKey ? { processKey } : {}) });
+  // The nonce makes this acquisition's file content unique, so release can tell it from a
+  // lock another process created after reclaiming ours.
+  const ownerData = JSON.stringify({ pid: process.pid, ...(processKey ? { processKey } : {}), nonce: randomUUID() });
   const deadline = Date.now() + REFRESH_LOCK_STALE_MS;
   let fd: number | undefined;
   for (;;) {
@@ -358,7 +360,10 @@ export async function withRefreshFileLock<T>(path: string, run: () => Promise<T>
     if (fd !== undefined) {
       try { closeSync(fd); } catch { /* ignore */ }
     }
-    try { unlinkSync(lockPath); } catch { /* already released */ }
+    try {
+      // Only remove the lock while it still carries our own owner record.
+      if (readFileSync(lockPath, "utf8").trim() === ownerData) unlinkSync(lockPath);
+    } catch { /* already released or replaced */ }
   });
 }
 

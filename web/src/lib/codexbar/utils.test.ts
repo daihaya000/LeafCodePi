@@ -21,7 +21,10 @@ vi.mock("node:dns", async (importOriginal) => {
   };
 });
 
-import { fetchText, racingLookup } from "./utils";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { fetchText, racingLookup, withRefreshFileLock } from "./utils";
 
 /** Promise wrapper over the node-style lookup callback. */
 function lookupAll(hostname: string, options: Record<string, unknown> = { all: true }) {
@@ -112,5 +115,26 @@ describe("racingLookup", () => {
     dns.resolve6.mockRejectedValue(new Error("ENOTFOUND"));
 
     await expect(lookupAll("missing.example.test")).rejects.toThrow(/ENOTFOUND|no records/);
+  });
+});
+
+describe("withRefreshFileLock release", () => {
+  it("does not delete a lock that another process created after reclaiming ours", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "leafcode-refresh-lock-"));
+    try {
+      const target = join(dir, "auth.json");
+      const lockPath = `${target}.leafcode-refresh.lock`;
+      const foreign = JSON.stringify({ pid: process.pid, processKey: "foreign", nonce: "other" });
+      await withRefreshFileLock(target, async () => {
+        rmSync(lockPath);
+        writeFileSync(lockPath, foreign);
+      });
+      expect(readFileSync(lockPath, "utf8")).toBe(foreign);
+      rmSync(lockPath);
+      await withRefreshFileLock(target, async () => undefined);
+      expect(() => readFileSync(lockPath, "utf8")).toThrow();
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 });
