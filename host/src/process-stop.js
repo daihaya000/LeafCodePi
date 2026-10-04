@@ -49,6 +49,19 @@ export function hardKillTree(pid, deps = {}) {
   return signalProcessTree(pid, "SIGKILL", deps);
 }
 
+/**
+ * Liveness probe. Only ESRCH means the process is gone: EPERM (and unknown errors) mean it exists
+ * but cannot be signalled, and treating that as "gone" would skip the kill and leave it running.
+ */
+export function isProcessAlive(pid, kill = process.kill.bind(process)) {
+  try {
+    kill(pid, 0);
+    return true;
+  } catch (error) {
+    return error?.code !== "ESRCH";
+  }
+}
+
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
@@ -73,16 +86,7 @@ export async function stopProcessTreeGracefully(input) {
   if (!pid) return "gone";
   const softKill = input.softKill ?? ((id) => softKillTree(id, { platform: input.platform, selfPid: input.selfPid, kill: input.kill }));
   const hardKill = input.hardKill ?? ((id) => hardKillTree(id, { platform: input.platform, selfPid: input.selfPid, kill: input.kill }));
-  const isAlive =
-    input.isAlive ??
-    ((id) => {
-      try {
-        process.kill(id, 0);
-        return true;
-      } catch {
-        return false;
-      }
-    });
+  const isAlive = input.isAlive ?? ((id) => isProcessAlive(id));
   const wait = input.sleep ?? sleep;
   const softWaitMs = input.softWaitMs ?? 2500;
   const pollMs = input.pollMs ?? 200;

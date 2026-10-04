@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { hardKillTree, softKillTree, stopProcessTreeGracefully } from "./process-stop.js";
+import { hardKillTree, isProcessAlive, softKillTree, stopProcessTreeGracefully } from "./process-stop.js";
 
 const EXTERNAL_PID = process.pid + 1;
 
@@ -99,4 +99,13 @@ test("stopProcessTreeGracefully reports alive when hard kill fails", async () =>
     pollMs: 0,
   });
   assert.equal(result, "alive");
+});
+
+test("liveness treats only ESRCH as gone; EPERM and unknown errors mean alive", () => {
+  const failing = (code) => () => { throw Object.assign(new Error(code), { code }); };
+  assert.equal(isProcessAlive(EXTERNAL_PID, () => undefined), true);
+  assert.equal(isProcessAlive(EXTERNAL_PID, failing("ESRCH")), false);
+  assert.equal(isProcessAlive(EXTERNAL_PID, failing("EPERM")), true);
+  assert.equal(isProcessAlive(EXTERNAL_PID, failing("EINVAL")), true);
+  assert.equal(isProcessAlive(process.pid), true);
 });
