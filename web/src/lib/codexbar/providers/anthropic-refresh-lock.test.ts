@@ -1,7 +1,7 @@
 import { existsSync, mkdtempSync, readFileSync, rmSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { __withRefreshLockForTests } from "./anthropic";
 import { withRefreshFileLock } from "../utils";
 
@@ -15,6 +15,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  vi.useRealTimers();
   rmSync(dir, { recursive: true, force: true });
 });
 
@@ -43,6 +44,29 @@ describe("cross-process refresh lock", () => {
     await Promise.all([first, second]);
     // The two refreshes must not overlap: the IdP rotates the refresh token.
     expect(order).toEqual(["first-start", "first-end", "second-start"]);
+  });
+
+  it("fails closed instead of refreshing unlocked when an active lock exceeds the wait bound", async () => {
+    const lockPath = `${credentials}.leafcode-refresh.lock`;
+    let releaseHolder!: () => void;
+    const holder = withRefreshFileLock(credentials, () => new Promise<void>((resolve) => { releaseHolder = resolve; }));
+    const future = new Date(Date.now() + 60_000);
+    utimesSync(lockPath, future, future);
+    vi.useFakeTimers();
+    const run = vi.fn(async () => "refreshed");
+    const pending = withRefreshFileLock(credentials, run);
+    const rejection = expect(pending).rejects.toThrow("Timed out waiting for OAuth refresh lock");
+
+    try {
+      await vi.advanceTimersByTimeAsync(30_000);
+      await rejection;
+      expect(run).not.toHaveBeenCalled();
+      expect(existsSync(lockPath)).toBe(true);
+    } finally {
+      releaseHolder();
+      await holder;
+    }
+    expect(existsSync(lockPath)).toBe(false);
   });
 
   it("takes over a lock left behind by a dead process", async () => {

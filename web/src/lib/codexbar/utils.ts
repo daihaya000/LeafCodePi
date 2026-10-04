@@ -203,8 +203,8 @@ export function singleFlight<T>(key: string, run: () => Promise<T>): Promise<T> 
 /**
  * Cross-process refresh lock. OAuth refresh tokens rotate, so the CLI and the WebUI
  * must not spend the same one concurrently. A pid-stamped lock file serializes them
- * across processes; a stale lock (dead process or old mtime) is taken over, and the
- * wait is bounded so a stuck holder cannot freeze the usage panel.
+ * across processes; a lock with an old mtime is taken over. Wait is bounded, and
+ * timeout rejects rather than refreshing without cross-process exclusion.
  */
 const REFRESH_LOCK_STALE_MS = 30_000;
 
@@ -220,9 +220,8 @@ export async function withRefreshFileLock<T>(path: string, run: () => Promise<T>
       break;
     } catch {
       if (Date.now() >= deadline) {
-        // Still held after the bound: run unlocked rather than hang the panel. The
-        // in-process single-flight already covers the common same-process case.
-        return run();
+        // Never spend a rotating refresh token without cross-process exclusion.
+        throw new Error("Timed out waiting for OAuth refresh lock");
       }
       try {
         if (Date.now() - statSync(lockPath).mtimeMs > REFRESH_LOCK_STALE_MS) unlinkSync(lockPath);
