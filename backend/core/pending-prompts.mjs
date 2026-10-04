@@ -18,6 +18,7 @@ function createPendingPromptService(options, kind) {
     timeoutMs = PENDING_PROMPT_TIMEOUT_MS,
     setTimer = (callback, delayMs) => setTimeout(callback, delayMs),
     clearTimer = (timer) => clearTimeout(timer),
+    warn = (message) => console.warn(message),
   } = options;
   const pendingById = new Map();
   const queueByTask = new Map();
@@ -75,6 +76,9 @@ function createPendingPromptService(options, kind) {
     const existing = pendingById.get(request.id);
     if (existing) {
       if (existing.taskId === taskId && existing.request.sessionId === request.sessionId) return existing.promise;
+      // The refusal value is the safe outcome, but it must not look like the user declined: leave a
+      // record that this request was dropped because its id collided with a pending one.
+      warn(`[pending-prompt] ${kind.field} id collision: request ${request.id} from session ${request.sessionId} was refused because the id is already pending for another session`);
       return Promise.resolve(kind.timeoutValue);
     }
     const row = { taskId, request, resolve: undefined, timer: null, promise: undefined };

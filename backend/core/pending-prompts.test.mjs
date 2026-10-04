@@ -105,6 +105,22 @@ test("questions preserve answers, null rejection/timeouts and per-task queues", 
   assert.equal(t.active.size, 0);
 });
 
+test("an id colliding with a pending request from another session is refused, logged and leaves the original untouched", async () => {
+  const warnings = [];
+  const { service, emitted } = permission({ warn: (message) => warnings.push(message) });
+  const original = service.handleRequest(perm("same", "s1"));
+  // A re-send from the same session joins the pending decision without a warning.
+  assert.equal(service.handleRequest(perm("same", "s1")), original);
+  assert.deepEqual(warnings, []);
+  assert.equal(await service.handleRequest(perm("same", "s2")), false);
+  assert.equal(warnings.length, 1);
+  assert.match(warnings[0], /id collision.*same/);
+  assert.equal(service.pendingForTask("task").sessionId, "s1");
+  assert.equal(emitted.length, 1);
+  assert.equal(service.respond("task", "same", true), true);
+  assert.equal(await original, true);
+});
+
 test("abort/dispose refuse every queued item, clear every timer and allow later prompts", async () => {
   const { service, t, emitted } = permission();
   const results = [service.handleRequest(perm("one")), service.handleRequest(perm("two"))];

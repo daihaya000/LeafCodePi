@@ -19,6 +19,8 @@ type CommonOptions = {
   timeoutMs?: number;
   setTimer?: (callback: () => void, delayMs: number) => TimerHandle;
   clearTimer?: (timer: TimerHandle) => void;
+  /** Receives the notice when a request id collides with a pending one from another session. */
+  warn?: (message: string) => void;
 };
 
 type ServiceShape<Request, Value> = {
