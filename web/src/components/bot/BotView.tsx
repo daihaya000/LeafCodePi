@@ -668,7 +668,7 @@ export const BotView = memo(function BotView({ id, active = true }: { id: string
           };
           if ("contextUsage" in payload) setContextUsage(payload.contextUsage);
           if (payload.eventType === BOT_CODE_SESSION_CHANGED_EVENT) notifyBotSidebarChanged(payload.codeRequestId);
-          if (payload.eventType === "ready") setTimelineLoading(false);
+          if (payload.eventType === "ready" || payload.eventType === "cache_ready") setTimelineLoading(false);
           if (payload.task) cacheTaskRef.current = payload.task;
           if (payload.eventType === "cache_ready" && payload.messagesReused && cachedSession?.messages.length) {
             historyLoadedRef.current = Boolean(cachedSession.messageHistory?.hasMore);
@@ -964,6 +964,17 @@ export const BotView = memo(function BotView({ id, active = true }: { id: string
       await sendJson(`/api/bots/${encodeURIComponent(id)}/abort`, {});
       if (botRequestContextRef.current !== requestContext) return;
       setSending(false);
+      // Same as TaskView: abort clears attention server-side; drop local cards
+      // immediately so a dead SSE cannot leave 許可/質問 stuck on Stop. Latch
+      // ids so a stale reconnect snapshot cannot revive the same cards.
+      setPermission((current) => {
+        if (current) clearedPermissionIdsRef.current.add(current.id);
+        return null;
+      });
+      setQuestion((current) => {
+        if (current) clearedQuestionIdsRef.current.add(current.id);
+        return null;
+      });
       notifyBotSidebarChanged();
     } catch (reason) {
       if (botRequestContextRef.current === requestContext) {

@@ -1089,6 +1089,14 @@ it("shows a loading state until the initial Bot timeline is ready", async () => 
   expect(screen.getByText("下の入力欄からメッセージを送って会話を始めましょう。")).toBeTruthy();
 });
 
+it("clears the loading state on cache_ready before the final ready snapshot", async () => {
+  render(<ShellProvider><BotView id="one" /></ShellProvider>);
+  expect(await screen.findByText("会話を読み込み中…")).toBeTruthy();
+  snapshot({ eventType: "cache_ready", messages: [], messageHistory: { hasMore: false, nextCursor: null }, isStreaming: false });
+  expect(screen.queryByText("会話を読み込み中…")).toBeNull();
+  expect(screen.getByText("下の入力欄からメッセージを送って会話を始めましょう。")).toBeTruthy();
+});
+
 it("sends with Ctrl+Enter and leaves Enter available for newlines", async () => {
   render(<ShellProvider><BotView id="one" /></ShellProvider>);
   const input = await screen.findByRole("textbox", { name: /Ctrl\+Enterで送信/ }) as HTMLTextAreaElement;
@@ -1557,6 +1565,21 @@ it("does not revive an answered permission from a stale SSE snapshot", async () 
   await waitFor(() => expect(mocks.sendJson).toHaveBeenCalledWith("/api/tasks/bot%3Aone/permission", { requestId: "permission-1", approved: true }));
   await waitFor(() => expect(screen.queryByRole("button", { name: "許可" })).toBeNull());
   snapshot({ permissionRequest: permission });
+  expect(screen.queryByRole("button", { name: "許可" })).toBeNull();
+});
+
+it("clears permission UI on Stop and does not revive it from a stale SSE snapshot", async () => {
+  render(<ShellProvider><BotView id="one" active /></ShellProvider>);
+  await screen.findByRole("button", { name: "設定" });
+  const permission = { id: "permission-stop-1", sessionId: "code-session", command: "code_session", labels: [], message: "Codeへ依頼します" };
+  snapshot({ isStreaming: true, permissionRequest: permission });
+  expect(screen.getByRole("button", { name: "許可" })).toBeTruthy();
+  expect(screen.getByRole("button", { name: "応答を停止" })).toBeTruthy();
+  mocks.sendJson.mockResolvedValueOnce({});
+  fireEvent.click(screen.getByRole("button", { name: "応答を停止" }));
+  await waitFor(() => expect(mocks.sendJson).toHaveBeenCalledWith("/api/bots/one/abort", {}));
+  await waitFor(() => expect(screen.queryByRole("button", { name: "許可" })).toBeNull());
+  snapshot({ isStreaming: false, permissionRequest: permission });
   expect(screen.queryByRole("button", { name: "許可" })).toBeNull();
 });
 
