@@ -265,7 +265,7 @@ import { roomBotIdFromTaskId } from "@backend-core/abort-control.mjs";
 import { detachReplacedLive as coreDetachReplacedLive, disposeUnattachedSession, hasOtherBusyRoomLive, isRegisteredLive, isStaleEnsureEpoch, promoteMailboxOnAttach, resolveAttachAccount, resolveAttachedSessionAction, resolveCreatedSessionAction, runCoalescedLiveShutdown, runTrackedEnsure, shouldShutdownOnDispose as coreShouldShutdownOnDispose } from "@backend-core/live-lifecycle.mjs";
 import { restoredPromptState, restoredTaskMetadata, restoredThroughputState as coreRestoredThroughputState } from "@backend-core/live-attach-state.mjs";
 import { compactionFailureMessage, isHarnessAutoCompactionError as coreIsHarnessAutoCompactionError, runAgentStartTaskSync, shouldApplySettledStatus, shouldSkipEventForMissingTask, shouldSyncTaskFromSessionEvent as coreShouldSyncTaskFromSessionEvent, type SessionSyncEvent } from "@backend-core/session-event-decisions.mjs";
-import { classifySnapshotEvent, flushPendingSnapshotOnUnsubscribe, pendingSnapshotFlush, SNAPSHOT_THROTTLE_MS } from "@backend-core/snapshot-schedule.mjs";
+import { classifySnapshotEvent, flushPendingSnapshotOnUnsubscribe, pendingSnapshotFlush, SNAPSHOT_THROTTLE_MS, snapshotOmitsMessages } from "@backend-core/snapshot-schedule.mjs";
 import {
   detailIncludesGoalLoop,
   detailIncludesMessages,
@@ -1772,10 +1772,13 @@ function emitTaskSnapshot(
   if (state().events.listenerCount(live.taskId) === 0) return;
   const task = getTask(live.taskId);
   if (!task) return;
+  const omitMessages = snapshotOmitsMessages(eventType, extra);
+  const fields = liveSnapshotFields(live, !omitMessages);
+  if (omitMessages) delete (fields as { messages?: unknown }).messages;
   emit(live.taskId, {
     type: "snapshot",
     task: toSummary(task),
-    ...liveSnapshotFields(live),
+    ...fields,
     manualAbortedAssistantId: live.manualAbortedAssistantId,
     hangRetryCount: live.hangRetryCount,
     revertLeafId: live.revertLeafId,

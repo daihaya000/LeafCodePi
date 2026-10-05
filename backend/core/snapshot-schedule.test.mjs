@@ -2,8 +2,19 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
   classifySnapshotEvent, flushPendingSnapshotOnUnsubscribe, NON_RENDERING_SESSION_EVENTS, pendingSnapshotFlush,
-  SNAPSHOT_THROTTLE_MS, THROTTLED_SNAPSHOT_EVENTS,
+  SNAPSHOT_THROTTLE_MS, snapshotOmitsMessages, THROTTLED_SNAPSHOT_EVENTS,
 } from "./snapshot-schedule.mjs";
+
+test("metadata-only lifecycle snapshots omit messages; transcript-changing ones keep them", () => {
+  for (const type of ["settings_pending", "thinking_level_changed", "project_promoted", "agent_routed", "task_changed", "label_changed"]) {
+    assert.equal(snapshotOmitsMessages(type), true, type);
+  }
+  for (const type of ["prompt_accepted", "abort", "revert", "unrevert", "conversation_reset", "agent_settled", "provider_fallback", "hang_idle"]) {
+    assert.equal(snapshotOmitsMessages(type), false, type);
+  }
+  assert.equal(snapshotOmitsMessages("task_changed", { messages: [] }), false);
+  assert.equal(snapshotOmitsMessages("thinking_level_changed", { thinkingLevel: "low" }), true);
+});
 
 test("the vocabulary and window are the documented ones", () => {
   assert.deepEqual([...THROTTLED_SNAPSHOT_EVENTS].sort(), ["message_update", "tool_execution_update"]);
