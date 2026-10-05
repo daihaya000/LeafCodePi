@@ -146,11 +146,13 @@ const FileDiffBlock = memo(function FileDiffBlock({
             )}
           </button>
           <div className="mt-1 flex min-w-0 items-center gap-2 pl-5">
-            <DiffStat
-              additions={file.additions}
-              deletions={file.deletions}
-              className="shrink-0"
-            />
+            {!(file.hunksPending && file.untracked) && (
+              <DiffStat
+                additions={file.additions}
+                deletions={file.deletions}
+                className="shrink-0"
+              />
+            )}
             {file.modifiedAt && (
               <span
                 className="min-w-0 truncate text-[10px] whitespace-nowrap text-faint"
@@ -175,6 +177,11 @@ const FileDiffBlock = memo(function FileDiffBlock({
           </Button>
         </div>
       </div>
+      {expanded && file.hunksPending && !file.binary && (
+        <p className="border-t border-border px-3 py-2 text-xs text-faint" role="status">
+          差分を読み込み中…
+        </p>
+      )}
       {hasDiffRegion && (
         <div
           id={`diff-region-${uid}`}
@@ -283,6 +290,10 @@ export function DiffPane({
   onMutated?: () => void;
 }) {
   const [payload, setPayload] = useState<DiffFilesPayload | null>(null);
+  // Hunks are fetched per file on expand; the list itself only carries numstat.
+  const [details, setDetails] = useState<Record<string, DiffFile>>({});
+  const detailGenRef = useRef(0);
+  const detailInFlightRef = useRef(new Set<string>());
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
@@ -324,8 +335,11 @@ export function DiffPane({
     setLoading(true);
     setError(null);
     try {
-      const data = await getJson<DiffFilesPayload>("/api/diff/files", { directory });
+      const data = await getJson<DiffFilesPayload>("/api/diff/files", { directory, summary: "1" });
       if (!mountedRef.current || id !== reqIdRef.current) return;
+      detailGenRef.current += 1;
+      detailInFlightRef.current.clear();
+      setDetails({});
       setPayload(data);
       setExpanded((prev) => {
         const next: Record<string, boolean> = {};
@@ -345,6 +359,9 @@ export function DiffPane({
   useEffect(() => {
     reqIdRef.current += 1;
     actionGenerationRef.current += 1;
+    detailGenRef.current += 1;
+    detailInFlightRef.current.clear();
+    setDetails({});
     setPayload(null);
     setError(null);
     setExpanded({});
@@ -360,6 +377,34 @@ export function DiffPane({
   useEffect(() => {
     void load();
   }, [load, refreshKey]);
+
+  // Fetch the hunks of every expanded file that only has its numstat so far.
+  useEffect(() => {
+    if (!payload) return;
+    const generation = detailGenRef.current;
+    for (const file of payload.files) {
+      if (!file.hunksPending || !expanded[file.path] || details[file.path]) continue;
+      if (detailInFlightRef.current.has(file.path)) continue;
+      detailInFlightRef.current.add(file.path);
+      const settle = (next: DiffFile) => {
+        if (!mountedRef.current || generation !== detailGenRef.current) return;
+        setDetails((prev) => ({ ...prev, [file.path]: next }));
+      };
+      getJson<DiffFilesPayload>("/api/diff/files", {
+        directory,
+        path: file.path,
+        ...(file.oldPath ? { oldPath: file.oldPath } : {}),
+      })
+        .then((data) => {
+          const full = data.files[0];
+          settle(full ? { ...full, modifiedAt: file.modifiedAt ?? full.modifiedAt } : { ...file, hunksPending: false });
+        })
+        .catch(() => settle({ ...file, hunksPending: false }))
+        .finally(() => {
+          if (generation === detailGenRef.current) detailInFlightRef.current.delete(file.path);
+        });
+    }
+  }, [payload, expanded, details, directory]);
 
   const loadMergeMeta = useCallback(async () => {
     const id = ++metaReqIdRef.current;
@@ -392,13 +437,13 @@ export function DiffPane({
   }, [loadMergeMeta]);
 
   const files = useMemo(() => {
-    const all = payload?.files ?? [];
+    const all = (payload?.files ?? []).map((file) => details[file.path] ?? file);
     return filter === "untracked"
       ? all.filter((f) => f.untracked)
       : filter === "tracked"
         ? all.filter((f) => !f.untracked)
         : all;
-  }, [payload, filter]);
+  }, [payload, details, filter]);
 
   const hasChanges = files.length > 0;
   const hiddenByFilter = (payload?.files.length ?? 0) - files.length;

@@ -739,6 +739,8 @@ export type DiffFile = {
   hunks: DiffHunk[];
   /** Last on-disk modification time (ISO), when the file still exists. */
   modifiedAt?: string;
+  /** summary=1 モード: hunks は未取得。展開時に `path` 指定で取得する。 */
+  hunksPending?: boolean;
 };
 
 /** プロジェクト／タスク作業フォルダーの一覧 API（files route）が返す1エントリ。 */

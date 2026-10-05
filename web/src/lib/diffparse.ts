@@ -87,3 +87,37 @@ export function untrackedHunk(content: string, maxLines = 400): DiffHunk {
   }
   return { header: `@@ -0,0 +1,${all.length} @@`, lines };
 }
+
+/**
+ * Parse `git diff --numstat -z` output into hunk-less file rows (`hunksPending`).
+ * Records are `adds\tdels\tpath\0`; a rename is `adds\tdels\t\0old\0new\0`; a binary file reports `-`.
+ */
+export function parseNumstatZ(text: string): DiffFile[] {
+  const files: DiffFile[] = [];
+  const tokens = text.split("\0");
+  for (let index = 0; index < tokens.length; index += 1) {
+    const token = tokens[index];
+    if (!token) continue;
+    const match = /^(\d+|-)\t(\d+|-)\t(.*)$/s.exec(token);
+    if (!match) continue;
+    const binary = match[1] === "-" || match[2] === "-";
+    let filePath = match[3];
+    let oldPath: string | undefined;
+    if (filePath === "") {
+      oldPath = tokens[++index];
+      filePath = tokens[++index] ?? "";
+    }
+    if (!filePath) continue;
+    files.push({
+      path: filePath,
+      ...(oldPath && oldPath !== filePath ? { oldPath } : {}),
+      additions: binary ? 0 : Number(match[1]),
+      deletions: binary ? 0 : Number(match[2]),
+      binary,
+      untracked: false,
+      hunks: [],
+      hunksPending: true,
+    });
+  }
+  return files;
+}

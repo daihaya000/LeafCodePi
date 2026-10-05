@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { parseUnifiedDiff, untrackedHunk } from "./diffparse";
+import { parseNumstatZ, parseUnifiedDiff, untrackedHunk } from "./diffparse";
 
 const SAMPLE_DIFF = `diff --git a/src/a.ts b/src/a.ts
 index 111..222 100644
@@ -125,5 +125,19 @@ describe("untrackedHunk", () => {
     const hunk = untrackedHunk("a\r\nb\r\n");
     expect(hunk.header).toBe("@@ -0,0 +1,2 @@");
     expect(hunk.lines.map((line) => line.text)).toEqual(["a", "b"]);
+  });
+});
+describe("parseNumstatZ", () => {
+  it("reads plain, binary and renamed records without hunks", () => {
+    const text = "3\t1\tsrc/a.ts\0-\t-\timg/logo.png\0" + "2\t0\t\0old name.ts\0new name.ts\0";
+    expect(parseNumstatZ(text)).toEqual([
+      { path: "src/a.ts", additions: 3, deletions: 1, binary: false, untracked: false, hunks: [], hunksPending: true },
+      { path: "img/logo.png", additions: 0, deletions: 0, binary: true, untracked: false, hunks: [], hunksPending: true },
+      { path: "new name.ts", oldPath: "old name.ts", additions: 2, deletions: 0, binary: false, untracked: false, hunks: [], hunksPending: true },
+    ]);
+  });
+
+  it("returns nothing for empty output", () => {
+    expect(parseNumstatZ("")).toEqual([]);
   });
 });

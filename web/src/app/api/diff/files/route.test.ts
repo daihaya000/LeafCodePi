@@ -49,6 +49,67 @@ function callsWith(args: string[]) {
   });
 }
 
+async function getWith(directory: string, query: string) {
+  const req = { nextUrl: new URL(`http://localhost/api/diff/files?directory=${encodeURIComponent(directory)}&${query}`) };
+  const res = await GET(req as never);
+  return { status: res.status, body: (await res.json()) as { files?: Array<Record<string, unknown>>; additions?: number; error?: string } };
+}
+
+describe("GET /api/diff/files summary and single-file modes", () => {
+  beforeEach(() => {
+    mocks.runGit.mockResolvedValue({ code: 0, stdout: "", stderr: "" });
+  });
+
+  it("lists tracked files from numstat and untracked paths without reading either", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "leafcode-diff-summary-"));
+    tempDirs.push(dir);
+    writeFileSync(join(dir, "new.txt"), "hello\n");
+    mocks.runGit.mockImplementation(async (_cwd: string, args: string[]) => {
+      if (args[0] === "status") return { code: 0, stdout: " M a.ts\n?? new.txt\n", stderr: "" };
+      if (args[0] === "diff") return { code: 0, stdout: "4\t1\ta.ts\0", stderr: "" };
+      return { code: 0, stdout: "", stderr: "" };
+    });
+    const { body } = await getWith(dir, "summary=1");
+    expect(body.files).toMatchObject([
+      { path: "a.ts", additions: 4, deletions: 1, hunks: [], hunksPending: true },
+      { path: "new.txt", untracked: true, hunks: [], hunksPending: true },
+    ]);
+    expect(body.additions).toBe(4);
+    const diffCall = callsWith(["diff"])[0] as [string, string[]];
+    expect(diffCall[1]).toEqual(expect.arrayContaining(["--numstat", "-z"]));
+  });
+
+  it("returns the full hunks of one requested untracked file only", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "leafcode-diff-path-"));
+    tempDirs.push(dir);
+    writeFileSync(join(dir, "new.txt"), "hello\nworld\n");
+    writeFileSync(join(dir, "other.txt"), "x\n");
+    mocks.runGit.mockImplementation(async (_cwd: string, args: string[]) => {
+      if (args[0] === "status") return { code: 0, stdout: "?? new.txt\n?? other.txt\n", stderr: "" };
+      return { code: 0, stdout: "", stderr: "" };
+    });
+    const { body } = await getWith(dir, "path=new.txt");
+    expect(body.files).toHaveLength(1);
+    expect(body.files?.[0]).toMatchObject({ path: "new.txt", additions: 2 });
+    expect((body.files?.[0] as { hunks: unknown[] }).hunks).toHaveLength(1);
+  });
+
+  it("scopes the tracked diff of one file with a literal pathspec and rejects escapes", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "leafcode-diff-spec-"));
+    tempDirs.push(dir);
+    mocks.runGit.mockImplementation(async (_cwd: string, args: string[]) => {
+      if (args[0] === "status") return { code: 0, stdout: "R  old.ts -> new.ts\n", stderr: "" };
+      return { code: 0, stdout: "", stderr: "" };
+    });
+    await getWith(dir, "path=new.ts&oldPath=old.ts");
+    const diffCall = callsWith(["diff"])[0] as [string, string[]];
+    expect(diffCall[1].slice(-3)).toEqual(["--", ":(literal)new.ts", ":(literal)old.ts"]);
+
+    const escape = await getWith(dir, "path=..%2Foutside.txt");
+    expect(escape.status).toBe(400);
+  });
+});
+
 describe("GET /api/diff/files", () => {
   beforeEach(() => {
     mocks.runGit.mockResolvedValue({ code: 0, stdout: "", stderr: "" });
