@@ -4,7 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { getJson } from "@/lib/client";
 import type { SubagentRunDto } from "@/lib/types";
 
-const POLL_MS = 2000;
+const POLL_MS = 5000;
 
 /** ツール入力から子エージェント名を集める（single / parallel / chain）。 */
 export function subagentAgentNames(input: Record<string, unknown> | undefined): string[] {
@@ -75,8 +75,7 @@ export function sameSubagentRuns(a: readonly SubagentRunDto[], b: readonly Subag
 
 /**
  * サブエージェント子実行を BFF からポーリングする。
- * 実行中は 2 秒間隔、終了後は 1 回だけ取得する（本家 LeafCode の
- * NestedAgentPanel と同じ間隔）。
+ * 実行中は 5 秒間隔、終了後は 1 回だけ取得する。
  */
 export function useSubagentRuns(input: {
   taskId?: string;
