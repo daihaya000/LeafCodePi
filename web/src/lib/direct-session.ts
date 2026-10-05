@@ -13,8 +13,8 @@ import { stripPromptMarkers } from "@/lib/pi/messages";
 import { toolLabel, toolSummary } from "@/lib/tool-labels";
 
 const MAX_SESSION_FILE_BYTES = 4_000_000;
-/** 会話キャッシュの上限。超過時は最も古いエントリから追い出す（Map は挿入順）。 */
-const CONVERSATION_CACHE_MAX_ENTRIES = 128;
+/** 会話キャッシュの上限。超過時は最近使われていないエントリから追い出す（Map は挿入順、ヒット時に再挿入）。 */
+const CONVERSATION_CACHE_MAX_ENTRIES = 64;
 
 type SessionConversationCacheEntry = {
   mtimeMs: number;
@@ -116,6 +116,8 @@ export function readSessionConversation(sessionFile: string | null | undefined):
     if (!stats.isFile()) return [];
     const cached = conversationCache.get(sessionFile);
     if (cached && cached.mtimeMs === stats.mtimeMs && cached.size === stats.size) {
+      conversationCache.delete(sessionFile);
+      conversationCache.set(sessionFile, cached);
       return cached.conversation;
     }
     // 長いセッションは4MBを容易に超える。タイトルに必要なのは最新の文脈だけなので末尾だけ読む。
