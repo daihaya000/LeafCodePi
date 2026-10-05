@@ -4,7 +4,7 @@
 - 実施日: 2026-10-03（Asia/Tokyo）
 - 方針: 読み取り専用スキャンを起点に、各巡で 1 項目ずつ修正・回帰テスト・コミット。
 - 整理: 第1〜7巡を **ジャンル優先度順** に再編（ジャンル間は下表、各表内は重大度順）。第8〜10巡追記。
-- 件数: 合計78（本表の統合項目数）。**Phase0再照合（2026-10-05）**: 既報11番号（57/58/60/105/106/109/118/127/128/160/162）は本資料の物理行番号。現況は未解消5行（57/60/105/109/127）、残存なし・修正済6行（58/106/118/128/160/162）。106行はTTS関連42テスト（Web15・拡張27）が成功。全体の状態表示は修正済38・見送り9・確認済1・一部修正28・一部緩和2。部分状態30行のうち、5行は本文上未解消（うち4行に「残存:あり」の記載）、3行は「残存:なし」、22行は最終判定なし。したがって78項目全体の正確な残件数は未確定。
+- 件数: 合計78（本表の統合項目数）。**Phase0再照合（2026-10-05）**: 既報11番号（57/58/60/105/106/109/118/127/128/160/162）は本資料の物理行番号。現況は未解消5行（57/60/105/109/127）、残存なし・修正済6行（58/106/118/128/160/162）。106行はTTS関連42テスト（Web15・拡張27）が成功。全体の状態表示は修正済39・見送り9・確認済1・一部修正27・一部緩和2。部分状態29行のうち、6行は本文上未解消（57/60/65/105/109/127、うち5行に残存明示）、3行は残存なし、1行は受入テスト待ち（63）、19行は最終判定なし。したがって78項目全体の正確な残件数は未確定。
 
 ## ジャンル優先度
 
@@ -61,8 +61,8 @@
 | 中 **[見送り 2026-10-03: 比較はキャッシュ値の in-place 変異を検知して fresh を返す防御も兼ねる。ハッシュ比較に替えると変異済み値を返しうる]** | `backend/core/app-store.mjs`（`#readStore` ~51） | キャッシュミス時にストア全体を `JSON.stringify` 同士で比較。大きな projects/tasks だと毎回 O(n) の二重シリアライズ。 |
 | 中 **[修正済 2026-10-03: archiveOverflow が history 末尾 256KB の既存 id をスキップ（再アーカイブで二重化しない）]** | `backend/core/room-store.mjs` (~104–110)、`web/src/lib/rooms.ts` (~169–171) | `history.jsonl` 追記後に room JSON。後段失敗で次回同じメッセージ再アーカイブ→履歴二重。 |
 | 中 **[一部修正 2026-10-04: 他プロセスの incarnation probe を 30秒 TTL でメモ化し、同期 powershell の反復起動を回避。テストは Windows の EPERM で 12/13 失敗し変更前後で同一]** | `extensions/leafcode-memory/src/store/atomic-lock-coordinator.ts`（~91–97, 161） | 競合中 `tryAcquire` が Windows で毎回同期 powershell（timeout 500ms）。 |
-| 中 **[一部修正 2026-10-04: atomic 書き込みに加え、accounts.json の RMW（作成・更新・削除・並び替え・インポート）を withDirectoryLock でプロセス間排他化]** | `web/src/lib/accounts.ts` (~227–230) | `accounts.json` が素の `writeFileSync`。並行作成／並び替えでロストアップデートしうる。 |
-| 中 **[一部修正 2026-10-04: withDirectoryLock で Web 側 RMW を排他し、override 書き込みが packages 等の他キーを落とさない回帰テストを追加。Pi 本体など外部書き込みはロックしない]** | `web/src/lib/agents.ts`（`updateAgentOverride` ~347–376） | `~/.pi/agent/settings.json` を read→改変→atomic rename するがプロセス間ロック無し。同時の agent override／他書き込みとロストアップデートし、`packages` 等の他キーを戻しうる。 |
+| 中 **[修正済 2026-10-05: accounts.json の全RMW（作成・更新・削除・並び替え・インポート）を withDirectoryLock 内に統一。accounts.test 29件と directory-lock 11件（別Node process間のRMWを含む）が成功]** | `web/src/lib/accounts.ts` (~227-230) | `accounts.json` が素の `writeFileSync`。並行作成/並び替えでロストアップデートしうる。 |
+| 中 **[一部修正 2026-10-04: withDirectoryLock で Web 側 RMW を排他し、override 書き込みが packages 等の他キーを落とさない回帰テストを追加。Pi 本体など外部書き込みはロックしない。残存: あり（外部writerは同じlockを取得しない）]** | `web/src/lib/agents.ts`(`updateAgentOverride` ~347-376) | `~/.pi/agent/settings.json` を read→改変→atomic rename するがプロセス間ロック無し。同時の agent override/他書き込みとロストアップデートし、`packages` 等の他キーを戻しうる。 |
 | 中 **[修正済 2026-10-03: 取得から 2 時間超は PID が生きていても放棄扱い（hardStaleMs）]** | `web/src/lib/bot-code-session-lock.ts` (~49–51) | PID 生存中は古くても奪えない。固まった所有者／PID 再利用でロック残留。 |
 | 中 **[修正済 2026-10-03: ロック内の updateRoomHandoffs で重複を再判定し同一レシートを返す]** | `web/src/lib/room-runtime.ts` (~616–669) | handoff 重複判定がロック外。同時 tool call で二重登録→二重起動しうる。 |
 | 中 **[修正済 2026-10-03: withDirectoryLock で RMW を排他]** | `web/src/lib/skills.ts`（`setSkillsEnabled` ~285–291） | `skills-state.json` も RMW＋atomic のみでロック無し。並行トグルで片方の無効化が消える。 |
@@ -180,15 +180,20 @@
 
 **既報11行の内訳:** 未解消5・解消6。これは78項目全体の確定残件数ではない。
 
-## Phase0未判定項目（22物理行）
+## 追加判定（物理行63–65）
+
+| 物理行 | 状態 | 担当（暫定） | 根拠・受入条件 |
+| --- | --- | --- | --- |
+| 63 | 一部緩和・検証待ち | leafcode-memory lock担当 | 30秒TTL cacheは実装済みだが、probe回数を検証するテストなし。AtomicLockCoordinator 13件中12件はassertionではなくfinallyの`rmSync`がWindows EPERMで失敗。受入: TTL内のcache hitと期限後の再probeを直接計測するテストを追加・成功させる。 |
+| 64 | 解消 | accounts担当 | 全RMW呼出しをlock内に統一。accounts 29件、directory-lock 11件が成功し、後者は別Node process間のRMWも検証。 |
+| 65 | 未解消 | Web/Pi settings担当 | Web側はlockするがPi本体等の外部writerはlockしない。受入: すべてのwriterを同じlockに統一するか、単一writer制約を明記し、外部更新との競合テストで他キー保持を確認する。 |
+
+## Phase0未判定項目（19物理行）
 
 以下は「一部修正／一部緩和」だが、項目ごとの最終状態が本文に明記されていない行。これらは未解消bugと断定せず、担当領域が原症状と現実装・テストを照合して状態を更新する。受入条件は、各行を「修正済（テスト根拠あり）」「見送り（判断者・理由あり）」「未解消（再現条件・担当・次の一手あり）」のいずれかに確定すること。担当領域は暫定。
 
 | 物理行 | 担当領域（暫定） |
 | --- | --- |
-| 63 | leafcode-memory / lock |
-| 64 | Web accounts / storage |
-| 65 | Pi agent settings |
 | 79 | Bot auto-agent / Room runtime |
 | 82 | Pi provider login |
 | 94 | Host log |
