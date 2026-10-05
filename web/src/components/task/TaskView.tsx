@@ -186,6 +186,7 @@ import {
   closeSseSource,
   sseReconnectDelayMs,
 } from "@/lib/sse-reconnect";
+import { applyGoalLoopSummaryToDetail } from "@/lib/goal-loop-detail-sync";
 
 const MODEL_KEY = "leafcodepi.defaultModel";
 const USER_OWNERSHIP_OPTION = "__user_ownership__";
@@ -2665,9 +2666,29 @@ export const TaskView = memo(function TaskView({
       setQueuedAutoSend(false);
       // TaskSummary does not include the live-session flag. Clear it here so
       // one successful stop cannot leave the local `working` state stale.
-      setTask((current) =>
-        current ? { ...current, ...result.task, isStreaming: false } : current,
-      );
+      // Also merge goalLoopSummary into the full GoalLoopDto so the panel cannot
+      // stay on running until the next SSE snapshot.
+      setTask((current) => {
+        if (!current) return current;
+        // Abort stops the Goal Loop. Prefer the summary from the response; if it is
+        // missing, still drop a live panel state to stopped so Stop cannot stick.
+        const summary = result.task.goalLoopSummary ?? (
+          current.goalLoop
+            ? {
+                status: "stopped" as const,
+                maxTurns: current.goalLoop.maxTurns,
+                turnCount: current.goalLoop.turnCount,
+              }
+            : undefined
+        );
+        const goalLoop = applyGoalLoopSummaryToDetail(current.goalLoop, summary);
+        return {
+          ...current,
+          ...result.task,
+          isStreaming: false,
+          ...(goalLoop !== current.goalLoop ? { goalLoop } : {}),
+        };
+      });
       notifyTasksChanged();
     } catch (err) {
       stopRequestedRef.current = false;
