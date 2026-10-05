@@ -7880,6 +7880,9 @@ export function readTodoProgress(
       cached.mtimeMs === stat.mtimeMs &&
       cached.size === stat.size
     ) {
+      // Touch the entry so eviction reflects least-recent use, not insertion order.
+      todoProgressCache.delete(sessionFile);
+      todoProgressCache.set(sessionFile, cached);
       return cached.value;
     }
     const readProgress = () => {

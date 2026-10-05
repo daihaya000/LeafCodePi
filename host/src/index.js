@@ -21,6 +21,7 @@ import { buildHostRestartScript, buildHostRestartWaitProgram, consumeHostRestart
 import { DEFAULT_BACKEND_PORT } from "../../shared/backend-protocol.mjs";
 import { createBackendService, shouldRunBackend } from "./backend-service.js";
 import { readBackendHealth, waitForBackendReady } from "./backend-health.js";
+import { BACKEND_HANG_STRIKE_LIMIT, backendHangShouldRestart, nextBackendHangStrikes } from "./backend-hang-watch.js";
 import { consumePiUpdateRequest, installedPiVersion, readPiUpdateRequest, readPiUpdateState, requestPiUpdate, updatePiBeforeStartup, writePiUpdateState, PI_UPDATE_MODES } from "./pi-update.js";
 import { assertInstalledPiVersions, assertPiDependencyVersions, DEFAULT_PI_VERSION, PI_DEPS_LOCK_NAME, piDepsLockHeld } from "../../shared/pi-dependencies.mjs";
 import { buildBackendWithFallback } from "./backend-build.js";
@@ -1341,12 +1342,30 @@ async function main() {
   // The binding check stays on the 5s tick; the tray text (an HTTP health probe) refreshes every 15s,
   // or every tick while a build is running so progress still reads live.
   let maintenanceTick = 0;
+  let backendHangStrikes = 0;
   setInterval(() => {
     maintenanceTick += 1;
     reconcileWebUiBinding().then(
       () => maintenanceFailures.success("WebUI binding reconcile"),
       (err) => maintenanceFailures.failure("WebUI binding reconcile", err),
     );
+    // Every 15s: if the Backend listens but stops answering health, kill and relaunch it.
+    // A hung Backend left CLOSE_WAIT sockets and a live PID that served nothing; exit-only
+    // restart never fired. Three timed-out probes (~45s) is enough to call it hung.
+    if (maintenanceTick % 3 === 0 && backendService?.status().state === "running" && !restarting && !quitting) {
+      const clientEnv = backendService.clientEnv();
+      void readBackendHealth({
+        baseUrl: clientEnv.LEAFCODE_PI_BACKEND_URL ?? `http://127.0.0.1:${DEFAULT_BACKEND_PORT}`,
+        token: clientEnv.LEAFCODE_PI_BACKEND_TOKEN,
+        expectedGeneration: backendService.status().generation ?? "",
+      }).then((health) => {
+        backendHangStrikes = nextBackendHangStrikes(backendHangStrikes, health);
+        if (!backendHangShouldRestart(backendHangStrikes, BACKEND_HANG_STRIKE_LIMIT)) return;
+        backendHangStrikes = 0;
+        log("Backend health timed out repeatedly; restarting hung Backend...");
+        void restartBackend();
+      }).catch((err) => maintenanceFailures.failure("Backend hang probe", err));
+    }
     if (maintenanceTick % 3 !== 0 && !procRunning(webBuildProc)) return;
     refreshStatusMenu().then(
       () => {

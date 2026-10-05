@@ -65,16 +65,6 @@ test("a full socket buffer alone does not drop a draining consumer", () => {
   assert.equal(owner.listenerCount("event"), 0);
 });
 
-test("an over-cap backlog drops the transport and releases the subscription", () => {
-  const owner = new EventEmitter();
-  const response = fakeResponse();
-  streamRuntimeEvents(response, (listener) => { owner.on("event", listener); return () => owner.off("event", listener); },
-    { heartbeatMs: 60_000, maxBufferedBytes: 4096 });
-  for (let i = 0; i < 100 && !response.destroyed; i++) owner.emit("event", { event: "routine", payload: { text: "x".repeat(100) } });
-  assert.equal(response.destroyed, true);
-  assert.equal(owner.listenerCount("event"), 0);
-});
-
 test("a consumer that never drains is dropped on the next heartbeat after the stall window", async () => {
   const owner = new EventEmitter();
   const response = fakeResponse();
@@ -85,6 +75,56 @@ test("a consumer that never drains is dropped on the next heartbeat after the st
   assert.equal(response.destroyed, false);
   clock = 1000;
   for (let i = 0; i < 50 && !response.destroyed; i++) await delay(5);
+  assert.equal(response.destroyed, true);
+  assert.equal(owner.listenerCount("event"), 0);
+});
+
+test("undrained sockets skip further event payloads until drain", () => {
+  const owner = new EventEmitter();
+  const response = fakeResponse();
+  streamRuntimeEvents(response, (listener) => { owner.on("event", listener); return () => owner.off("event", listener); },
+    { heartbeatMs: 60_000, maxBufferedBytes: 1024 * 1024, stallMs: 60_000 });
+  // connected write already returned false, so the socket is undrained before any event.
+  const afterConnect = response.chunks.length;
+  assert.ok(afterConnect >= 1);
+  owner.emit("event", { event: "task_dirty", payload: { taskId: "a" } });
+  owner.emit("event", { event: "routine", payload: { ok: true } });
+  assert.equal(response.chunks.length, afterConnect, "backpressure skips while undrained");
+  response.writableLength = 0;
+  response.emit("drain");
+  owner.emit("event", { event: "task_dirty", payload: { taskId: "c" } });
+  assert.equal(response.chunks.length, afterConnect + 1);
+  assert.match(response.chunks.at(-1), /"taskId":"c"/);
+  response.destroy();
+  assert.equal(owner.listenerCount("event"), 0);
+});
+
+test("request close destroys the transport and releases the subscription", () => {
+  const owner = new EventEmitter();
+  const response = fakeResponse();
+  const request = new EventEmitter();
+  streamRuntimeEvents(response, (listener) => { owner.on("event", listener); return () => owner.off("event", listener); },
+    { heartbeatMs: 60_000, request });
+  assert.equal(owner.listenerCount("event"), 1);
+  request.emit("close");
+  assert.equal(response.destroyed, true);
+  assert.equal(owner.listenerCount("event"), 0);
+});
+
+test("byte-cap drop still works when writes keep succeeding past the high-water mark", () => {
+  const owner = new EventEmitter();
+  const response = new EventEmitter();
+  Object.assign(response, {
+    writableLength: 0, destroyed: false, chunks: [],
+    writeHead() {}, flushHeaders() {},
+    write(chunk) { response.chunks.push(chunk); response.writableLength += chunk.length; return true; },
+    destroy() { response.destroyed = true; response.emit("close"); },
+  });
+  streamRuntimeEvents(response, (listener) => { owner.on("event", listener); return () => owner.off("event", listener); },
+    { heartbeatMs: 60_000, maxBufferedBytes: 4096 });
+  for (let i = 0; i < 100 && !response.destroyed; i++) {
+    owner.emit("event", { event: "routine", payload: { text: "x".repeat(100) } });
+  }
   assert.equal(response.destroyed, true);
   assert.equal(owner.listenerCount("event"), 0);
 });

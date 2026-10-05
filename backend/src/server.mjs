@@ -628,7 +628,7 @@ export function createBackendServer({
         sendJson(response, 503, { error: "Backend runtime unavailable", code: BACKEND_ERROR_CODES.runtimeUnavailable });
         return;
       }
-      streamRuntimeEvents(response, subscribeRuntimeEvents);
+      streamRuntimeEvents(response, subscribeRuntimeEvents, { request });
       return;
     }
     if (target.pathname === BACKEND_RUNTIME_CONTROL_PATH && request.method === "POST") {
