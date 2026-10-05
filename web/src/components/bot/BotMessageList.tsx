@@ -171,7 +171,9 @@ export function BotMessageList({ conversationId, contentKey, followKey, children
       const element = event.currentTarget;
       const previousTop = lastTop.current;
       lastTop.current = element.scrollTop;
-      const layoutChanged = element.scrollHeight !== lastHeight.current;
+      const previousHeight = lastHeight.current;
+      const layoutChanged = element.scrollHeight !== previousHeight;
+      const heightDecreased = element.scrollHeight < previousHeight;
       lastHeight.current = element.scrollHeight;
       following.current = nextStickState(
         following.current,
@@ -180,6 +182,7 @@ export function BotMessageList({ conversationId, contentKey, followKey, children
         isNearBottom(element.scrollTop, element.clientHeight, element.scrollHeight, 48),
         undefined,
         layoutChanged,
+        heightDecreased,
       );
     }} className={conversationViewportClass}>
       <div ref={contentRef}>{children}</div>

@@ -34,9 +34,16 @@ export function nextStickState(
   atBottom: boolean,
   upwardThreshold = 4,
   layoutChanged = false,
+  /** True when scrollHeight shrank (card collapse). Stream growth must not use this. */
+  heightDecreased = false,
 ): boolean {
   if (atBottom) return true;
+  // A clear upward scroll unsticks even while streaming grows the content.
+  // Only a height *shrink* (collapse + browser clamp) must keep stick mode.
+  if (scrollTop < prevScrollTop - upwardThreshold) {
+    if (layoutChanged && heightDecreased) return currentlyStuck;
+    return false;
+  }
   if (layoutChanged) return currentlyStuck;
-  if (scrollTop < prevScrollTop - upwardThreshold) return false;
   return currentlyStuck;
 }

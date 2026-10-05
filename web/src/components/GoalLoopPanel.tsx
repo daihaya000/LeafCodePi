@@ -4,7 +4,7 @@ import { useEffect, useId, useState } from "react";
 import { Check, ChevronDown, CircleAlert, Pause, Play, Square } from "lucide-react";
 import { Button, cx } from "@/components/ui";
 import type { GoalLoopDto } from "@/lib/types";
-import { formatGoalLoopCooldownSeconds, isGoalLoopLiveStatus, nextGoalLoopTurn } from "@/lib/goal-loop-settings";
+import { formatGoalLoopCooldownSeconds, isGoalLoopLiveStatus, isGoalLoopSessionOwnedStatus, nextGoalLoopTurn } from "@/lib/goal-loop-settings";
 
 const labels: Record<GoalLoopDto["status"], string> = {
   queued: "送信待ち",
@@ -82,6 +82,8 @@ export function GoalLoopPanel({
   if (!loop) return null;
   const live = isGoalLoopLiveStatus(loop.status);
   const canPause = live;
+  // Paused/blocked still own the session: allow Stop to abandon without Resume first.
+  const canStop = isGoalLoopSessionOwnedStatus(loop.status);
   const canResume = loop.status === "paused" || loop.status === "blocked";
   const turn = nextGoalLoopTurn(loop);
   const progress = loop.progress.at(-1);
@@ -126,8 +128,9 @@ export function GoalLoopPanel({
   const pauseHint = loop.retryInterruptedTurn === true
     ? `中断したターン（${turn}）を再送します。ターン枠は消費しません。`
     : basePauseHint;
+  // Stale nextTurnAt after pause/stop/interrupt must not keep a countdown ticking.
   const cooldownActive = Boolean(
-    Number.isFinite(cooldownUntilMs) && cooldownUntilMs > nowMs,
+    live && Number.isFinite(cooldownUntilMs) && cooldownUntilMs > nowMs,
   );
 
   return (
@@ -193,8 +196,8 @@ export function GoalLoopPanel({
               </Button>
             </>
           )}
-          {canPause && (
-            <Button variant="danger" size="sm" className="min-h-11 min-w-11 @lg/goal:!h-6 @lg/goal:!min-h-6" aria-label="停止" title="停止" disabled={busy} onClick={() => onAction("stop")}>
+          {canStop && (
+            <Button variant="danger" size="sm" className="min-h-11 min-w-11 @lg/goal:!h-6 @lg/goal:!min-h-6" aria-label="停止" title="停止してループを終了" disabled={busy} onClick={() => onAction("stop")}>
               <Square className="h-3.5 w-3.5" aria-hidden="true" />
               <span className="hidden @lg/goal:inline">停止</span>
             </Button>

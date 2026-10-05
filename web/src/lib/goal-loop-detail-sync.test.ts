@@ -62,4 +62,19 @@ describe("applyGoalLoopSummaryToDetail", () => {
     const detail = loop({ status: "queued", turnCount: 4 });
     expect(applyGoalLoopSummaryToDetail(detail, { status: "queued", maxTurns: 10, turnCount: 4 })).toBe(detail);
   });
+
+  it("clears a stale cooldown countdown when the summary is paused", () => {
+    const detail = loop({
+      status: "running",
+      nextTurnAt: "2026-10-06T12:00:00.000Z",
+      pendingTurnRecovery: true,
+    });
+    const next = applyGoalLoopSummaryToDetail(detail, { status: "paused", maxTurns: 10, turnCount: 3 });
+    expect(next).toMatchObject({
+      status: "paused",
+      nextTurnAt: null,
+      pendingTurnRecovery: false,
+      goal: "finish tests",
+    });
+  });
 });

@@ -311,4 +311,31 @@ describe("GoalLoopPanel progress", () => {
     expect(formatCooldownRemaining(125_000)).toBe("2:05");
     expect(formatCooldownRemaining(400)).toBe("1秒");
   });
+
+  it("hides the countdown after pause even when nextTurnAt is still in the future", () => {
+    const nextTurnAt = new Date(Date.now() + 30_000).toISOString();
+    render(
+      <GoalLoopPanel
+        loop={loopFixture({ status: "paused", pauseReason: "user", nextTurnAt, cooldownSeconds: 30, turnCount: 2 })}
+        busy={false}
+        onAction={() => {}}
+        onResume={() => {}}
+      />,
+    );
+    expect(screen.queryByText(/次のターンまで/)).toBeNull();
+  });
+
+  it("offers Stop while paused so the operator can abandon without Resume", () => {
+    const onAction = vi.fn();
+    render(
+      <GoalLoopPanel
+        loop={loopFixture({ status: "paused", pauseReason: "user", turnCount: 2 })}
+        busy={false}
+        onAction={onAction}
+        onResume={() => {}}
+      />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: "停止" }));
+    expect(onAction).toHaveBeenCalledWith("stop");
+  });
 });

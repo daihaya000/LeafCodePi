@@ -797,6 +797,10 @@ export const TaskView = memo(function TaskView({
   } | null>(null);
   /** Synchronous double-submit latch (render state lags a same-frame second Enter / click). */
   const submitInFlightRef = useRef(false);
+  /** Cancels an in-flight Goal Loop start when the user aborts or switches tasks. */
+  const goalLoopStartAbortRef = useRef<AbortController | null>(null);
+  /** Bumped on task switch so in-flight Goal Loop control responses cannot land on the next task. */
+  const goalLoopActionEpochRef = useRef(0);
   /**
    * A steer ("今すぐ送信" while working) leaves the queue at once but only reaches the transcript at
    * the next tool boundary; without this notice the instruction seems to vanish in between.
@@ -1759,9 +1763,11 @@ export const TaskView = memo(function TaskView({
     const atBottom = isNearBottom(el.scrollTop, el.clientHeight, el.scrollHeight);
     const prevTop = lastScrollTopRef.current;
     lastScrollTopRef.current = el.scrollTop;
-    const layoutChanged = el.scrollHeight !== lastScrollHeightRef.current;
+    const previousHeight = lastScrollHeightRef.current;
+    const layoutChanged = el.scrollHeight !== previousHeight;
+    const heightDecreased = el.scrollHeight < previousHeight;
     lastScrollHeightRef.current = el.scrollHeight;
-    stickRef.current = nextStickState(stickRef.current, el.scrollTop, prevTop, atBottom, undefined, layoutChanged);
+    stickRef.current = nextStickState(stickRef.current, el.scrollTop, prevTop, atBottom, undefined, layoutChanged, heightDecreased);
   }, []);
 
   // 現在のスクロール上端から見た前後方向のジャンプ先を求める。
@@ -1854,6 +1860,9 @@ export const TaskView = memo(function TaskView({
     setQueuedAutoSend(false);
     setFailedQueuedId(null);
     setSubmitting(false);
+    goalLoopStartAbortRef.current?.abort();
+    goalLoopStartAbortRef.current = null;
+    goalLoopActionEpochRef.current += 1;
     setGoalLoopSubmitting(false);
     setResumingTurn(false);
     setResumeTurnError(null);
@@ -2358,6 +2367,11 @@ export const TaskView = memo(function TaskView({
       setError("実行中は Goal loop を開始できません");
       return;
     }
+    // Images alone are not a goal: the start API requires non-empty goal text.
+    if (goalLoopEnabled && !submittedPrompt.trim()) {
+      setError("Goal Loop の開始には目標テキストが必要です");
+      return;
+    }
     // Idle submit after Stop may clear the latch (intentional new run). Do not
     // clear while working — that path is blocked above.
     stopRequestedRef.current = false;
@@ -2377,33 +2391,47 @@ export const TaskView = memo(function TaskView({
         setPrompt("");
         setAttachments([]);
         draftCleared = true;
-        const result = await sendJson<{
-          loop: GoalLoopDto | null;
-          agent?: string | null;
-          autoDecision?: AutoDecision;
-        }>(
-          `/api/tasks/${taskId}/goal-loop`,
-          {
-            action: "start",
-            goal: prompt,
-            acceptance: goalLoopAcceptance,
-            maxTurns: goalLoopMaxTurns,
-            cooldownSeconds: goalLoopCooldownSeconds,
-            forceFullRun: goalLoopForceFullRun,
-            images,
-            ...(agentSelection ? { agent: agentSelection } : {}),
-            ...(isAuto
-              ? {
-                  auto: true,
-                  autoOptimize: autoOptimizeMode,
-                  autoRouteOverrides: autoRouteConfig,
-                }
-              : {}),
-          },
-        );
-        resolvedAgent = result.agent;
-        resolvedAutoDecision = result.autoDecision;
-        setGoalLoopEnabled(false);
+        setGoalLoopSubmitting(true);
+        const startAbort = new AbortController();
+        goalLoopStartAbortRef.current = startAbort;
+        const startTaskId = taskId;
+        const startEpoch = goalLoopActionEpochRef.current;
+        try {
+          const result = await sendJson<{
+            loop: GoalLoopDto | null;
+            agent?: string | null;
+            autoDecision?: AutoDecision;
+          }>(
+            `/api/tasks/${taskId}/goal-loop`,
+            {
+              action: "start",
+              goal: submittedPrompt,
+              acceptance: goalLoopAcceptance,
+              maxTurns: goalLoopMaxTurns,
+              cooldownSeconds: goalLoopCooldownSeconds,
+              forceFullRun: goalLoopForceFullRun,
+              images,
+              ...(agentSelection ? { agent: agentSelection } : {}),
+              ...(isAuto
+                ? {
+                    auto: true,
+                    autoOptimize: autoOptimizeMode,
+                    autoRouteOverrides: autoRouteConfig,
+                  }
+                : {}),
+            },
+            "POST",
+            { signal: startAbort.signal },
+          );
+          if (startTaskId !== taskId || startEpoch !== goalLoopActionEpochRef.current) return;
+          resolvedAgent = result.agent;
+          resolvedAutoDecision = result.autoDecision;
+          setTask((current) => (current ? { ...current, goalLoop: result.loop } : current));
+          setGoalLoopEnabled(false);
+        } finally {
+          if (goalLoopStartAbortRef.current === startAbort) goalLoopStartAbortRef.current = null;
+          setGoalLoopSubmitting(false);
+        }
       } else {
         // Only the explicit action on an already queued pill injects into the
         // current turn. working covers the prompt_accepted→stream gap.
@@ -2549,9 +2577,19 @@ export const TaskView = memo(function TaskView({
           current.length > 0 ? current : submittedAttachments,
         );
       }
-      setError(unconfirmedDelivery
-        ? `送信結果を確認できません。再送前に履歴を確認してください（${deliveryReason}）`
-        : err instanceof Error ? err.message : "送信に失敗しました");
+      // User cancelled Goal Loop start (or task switch aborted it): restore draft without an error banner.
+      const cancelledStart = goalLoopEnabled && (
+        (err instanceof Error && err.name === "AbortError")
+        || (err instanceof Error && /キャンセル|タイムアウト/.test(err.message))
+      );
+      if (cancelledStart) {
+        setGoalLoopEnabled(true);
+        setError(null);
+      } else {
+        setError(unconfirmedDelivery
+          ? `送信結果を確認できません。再送前に履歴を確認してください（${deliveryReason}）`
+          : err instanceof Error ? err.message : "送信に失敗しました");
+      }
     } finally {
       submitInFlightRef.current = false;
       setSubmitting(false);
@@ -2722,6 +2760,8 @@ export const TaskView = memo(function TaskView({
 
   async function goalLoopAction(action: "pause" | "resume" | "stop" | "complete", maxTurns?: number) {
     if (archived || goalLoopSubmitting) return;
+    const actionTaskId = taskId;
+    const actionEpoch = goalLoopActionEpochRef.current;
     setGoalLoopSubmitting(true);
     setError(null);
     try {
@@ -2730,6 +2770,7 @@ export const TaskView = memo(function TaskView({
         { action, ...(maxTurns !== undefined ? { maxTurns } : {}) },
         "PATCH",
       );
+      if (actionTaskId !== taskId || actionEpoch !== goalLoopActionEpochRef.current) return;
       if (action === "resume") {
         // Prior Stop left stopRequested latched; resume starts a new run.
         stopRequestedRef.current = false;
@@ -2745,9 +2786,10 @@ export const TaskView = memo(function TaskView({
       setTask((current) => (current ? { ...current, goalLoop: result.loop } : current));
       notifyTasksChanged();
     } catch (err) {
+      if (actionTaskId !== taskId || actionEpoch !== goalLoopActionEpochRef.current) return;
       setError(err instanceof Error ? err.message : "Goal loop の操作に失敗しました");
     } finally {
-      setGoalLoopSubmitting(false);
+      if (actionEpoch === goalLoopActionEpochRef.current) setGoalLoopSubmitting(false);
     }
   }
 
@@ -4129,8 +4171,28 @@ export const TaskView = memo(function TaskView({
           </div>
         )}
         {goalLoopSubmitting && !working && (
+          <div role="status" className="mx-auto mb-2 flex max-w-5xl items-center gap-3 rounded-card border border-border bg-surface-2 px-3 py-2 text-sm text-muted">
+            <span className="min-w-0 flex-1">
+              {goalLoopEnabled
+                ? "Goal Loop を開始しています…"
+                : "Goal Loop を操作しています…"}
+            </span>
+            {goalLoopEnabled && (
+              <Button
+                variant="secondary"
+                size="sm"
+                onClick={() => {
+                  goalLoopStartAbortRef.current?.abort();
+                }}
+              >
+                キャンセル
+              </Button>
+            )}
+          </div>
+        )}
+        {task?.goalLoop?.status === "queued" && !working && !goalLoopSubmitting && (
           <p role="status" className="mx-auto mb-2 max-w-5xl rounded-card border border-border bg-surface-2 px-3 py-2 text-sm text-muted">
-            Goal Loop を開始しています…
+            クールタイム中です。送信すると Goal Loop が一時停止します。
           </p>
         )}
         {sseReconnectBannerVisible && !error && (
@@ -4408,7 +4470,7 @@ export const TaskView = memo(function TaskView({
                 <>
               <GoalLoopToggle
                 enabled={goalLoopEnabled}
-                disabled={archived || submitting || working || agentChanging || Boolean(task?.goalLoop && !["completed", "blocked", "stopped"].includes(task.goalLoop.status))}
+                disabled={archived || submitting || working || agentChanging || isGoalLoopSessionOwnedStatus(task?.goalLoop?.status)}
                 onToggle={() => setGoalLoopEnabled((value) => !value)}
               />
                 </>
