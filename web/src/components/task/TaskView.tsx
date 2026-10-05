@@ -189,6 +189,8 @@ import {
 
 const MODEL_KEY = "leafcodepi.defaultModel";
 const USER_OWNERSHIP_OPTION = "__user_ownership__";
+/** Safety-net poll for the worktree change count; task mutations also refresh it immediately. */
+const WORKTREE_STATUS_POLL_MS = 10_000;
 // 自動更新の実装は復帰用に保持し、現在の仕様では手動生成だけを有効にする。
 const TITLE_AUTO_UPDATE_ENABLED = false;
 const PROMPT_DELIVERY_RECONCILE_TIMEOUT_MS = 10_000;
@@ -1995,7 +1997,7 @@ export const TaskView = memo(function TaskView({
     window.addEventListener("webui:tasks-changed", onTasksChanged);
     const timer = window.setInterval(() => {
       if (document.visibilityState === "visible") void refreshWorktreeStatus();
-    }, 4_000);
+    }, WORKTREE_STATUS_POLL_MS);
     return () => {
       closed = true;
       window.removeEventListener("webui:tasks-changed", onTasksChanged);
