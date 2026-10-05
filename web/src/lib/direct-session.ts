@@ -49,7 +49,7 @@ const LAST_MESSAGE_TAIL_BYTES = 1_000_000;
 /** サイドバープレビュー用の全読み上限。これを超えるファイルは末尾窓だけで探す。 */
 const LAST_MESSAGE_FULL_READ_BYTES = 512_000;
 /** ToDo 救済の前方スキャン上限。これを超えるファイルは末尾ウィンドウだけで探す。 */
-const LARGE_FILE_SCAN_MAX_BYTES = 64_000_000;
+const LARGE_FILE_SCAN_MAX_BYTES = 16_000_000;
 /** 末尾窓に会話が無い時（巨大な1行で窓が埋まる等）の再試行サイズ。 */
 const LARGE_TAIL_RETRY_BYTES = 16_000_000;
 
