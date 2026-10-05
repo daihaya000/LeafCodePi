@@ -5,7 +5,7 @@ import { sameCwd } from "./cwd.ts";
 import type { SessionInfo } from "./types.ts";
 
 const DEFAULT_PROJECT_AGENT_TIMEOUT_MS = 20_000;
-const DEFAULT_PROJECT_AGENT_POLL_MS = 250;
+const DEFAULT_PROJECT_AGENT_POLL_MS = 750;
 
 export type HerdrErrorCode =
   | "HERDR_UNAVAILABLE"
