@@ -65,6 +65,7 @@ import {
   serializePinnedTaskIds,
   serializeProjectOrder,
 } from "@/lib/sidebar-settings";
+import { compareIsoUpdatedAtDescending, orderPaneTabIdsForSidebar, projectsForSidebar, sidebarTaskComparator } from "@/lib/sidebar-order";
 import { isGoalLoopLiveStatus } from "@/lib/goal-loop-settings";
 import { restartConfirmation } from "@/lib/host-restart-copy";
 import { createBackendRestartCheck, type BackendRestartStatus } from "@/lib/host-restart-state";
@@ -763,18 +764,6 @@ export function countRunningTasks(tasks: TaskSummary[]): number {
 function hasUnreadTask(task: TaskSummary, activeTaskId: string | null): boolean {
   return task.status !== "working" && task.id !== activeTaskId
     && hasUnread(task.updatedAt, getLastReadAt("task", task.id));
-}
-
-function compareIsoUpdatedAtDescending(a: string, b: string): number {
-  // Store timestamps use toISOString(), so codepoint order matches chronological order.
-  return a === b ? 0 : a > b ? -1 : 1;
-}
-
-function sidebarTaskComparator(pinnedTaskIds?: ReadonlySet<string>) {
-  return (a: TaskSummary, b: TaskSummary) =>
-    Number(pinnedTaskIds?.has(b.id)) - Number(pinnedTaskIds?.has(a.id)) ||
-    Number(b.status === "working") - Number(a.status === "working") ||
-    compareIsoUpdatedAtDescending(a.updatedAt, b.updatedAt);
 }
 
 function sortTasksForSidebarInPlace(
@@ -1843,13 +1832,19 @@ const SidebarView = memo(function SidebarView({
   const unreadCodeCount = tasks.filter((task) => task.status !== "archived" && task.kind !== "bot" && !archivedProjectIds.has(task.projectId ?? "") && hasUnreadTask(task, unreadActiveTaskId)).length;
   const unreadBotCount = botSidebar.bots.filter((bot) => unreadActiveTaskId !== `/bots/${encodeURIComponent(bot.id)}` && hasUnread(bot.lastMessageAt, getLastReadAt("bot", bot.id))).length
     + botSidebar.rooms.filter((room) => unreadActiveTaskId !== `/bots/rooms/${encodeURIComponent(room.id)}` && hasUnread(room.lastMessageAt, getLastReadAt("room", room.id))).length;
-  const splitTaskIds = paneTabIdsForWorkingTasks([], [], [...workingTaskIds, ...unreadSessionTabIds({
+  const splitTaskIds = orderPaneTabIdsForSidebar(
+    paneTabIdsForWorkingTasks([], [], [...workingTaskIds, ...unreadSessionTabIds({
+      tasks,
+      bots: botSidebar.bots,
+      rooms: botSidebar.rooms,
+      archivedProjectIds,
+      activeTabId: unreadActiveTaskId,
+    })]),
     tasks,
-    bots: botSidebar.bots,
-    rooms: botSidebar.rooms,
-    archivedProjectIds,
-    activeTabId: unreadActiveTaskId,
-  })]);
+    [...projects, ...archivedProjects],
+    projectOrder,
+    pinnedTaskIds,
+  );
   const hasSplitTargets = splitTaskIds.length > 0;
   const unreadModes: UnreadModes = {
     code: unreadCodeCount > 0,
@@ -2012,23 +2007,7 @@ const SidebarView = memo(function SidebarView({
     };
   }, [archivedTasks]);
 
-  const orderedProjects = useMemo(() => {
-    const projectsById = new Map(projects.map((project) => [project.id, project]));
-    const seen = new Set<string>();
-    const ordered: ProjectDto[] = [];
-    for (const id of projectOrder) {
-      const project = projectsById.get(id);
-      if (!project || seen.has(id)) continue;
-      seen.add(id);
-      ordered.push(project);
-    }
-    for (const project of projects) {
-      if (seen.has(project.id)) continue;
-      seen.add(project.id);
-      ordered.push(project);
-    }
-    return ordered;
-  }, [projects, projectOrder]);
+  const orderedProjects = useMemo(() => projectsForSidebar(projects, projectOrder), [projects, projectOrder]);
 
   const sessionLabels = useSessionLabels();
   const labelNamesById = useMemo(() => new Map(sessionLabels.map((label) => [label.id, label.name])), [sessionLabels]);

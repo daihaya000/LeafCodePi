@@ -9,6 +9,8 @@ import { WorkingTasksButton } from "@/components/WorkingTasksButton";
 import { cx } from "@/components/ui";
 import { hydrateLastReadState, unreadSessionTabIds } from "@/lib/bot-unread";
 import { getJson } from "@/lib/client";
+import { orderPaneTabIdsForSidebar } from "@/lib/sidebar-order";
+import { PINNED_TASKS_API_PATH, PROJECT_ORDER_API_PATH, parsePinnedTaskIds, parseProjectOrder } from "@/lib/sidebar-settings";
 import type { TaskStatus, TaskSummary } from "@/lib/types";
 import { isTaskDrag, taskDragIdFrom } from "@/lib/task-drag";
 import {
@@ -535,7 +537,7 @@ export function TaskPanesHost() {
     if (workingTasksBusy) return;
     setWorkingTasksBusy(true);
     try {
-      const [taskResult, botResult, projectResult] = await Promise.all([
+      const [taskResult, botResult, projectResult, pinnedResult, orderResult] = await Promise.all([
         getJson<{ tasks?: TaskSummary[] }>("/api/tasks?paneCandidates=1"),
         getJson<{
           bots?: { id: string; codeInProgress?: boolean; lastMessageAt: string | null }[];
@@ -544,6 +546,8 @@ export function TaskPanesHost() {
           .catch(() => ({ bots: [], rooms: [] })),
         getJson<{ projects?: { id: string; archived?: boolean }[] }>("/api/projects?archived=1")
           .catch(() => ({ projects: [] })),
+        getJson<{ value?: string | null }>(PINNED_TASKS_API_PATH).catch(() => ({ value: null })),
+        getJson<{ value?: string | null }>(PROJECT_ORDER_API_PATH).catch(() => ({ value: null })),
         hydrateLastReadState(),
       ]);
       const tasks = Array.isArray(taskResult.tasks) ? taskResult.tasks : [];
@@ -556,17 +560,23 @@ export function TaskPanesHost() {
           .filter((project) => project.archived)
           .map((project) => project.id),
       );
-      const taskIds = paneTabIdsForWorkingTasks(
-        tasks
-          .filter((task) => task.status === "working")
-          .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt)),
-        activeCodeBotIds,
-        unreadSessionTabIds({
-          tasks,
-          bots,
-          rooms: Array.isArray(botResult.rooms) ? botResult.rooms : [],
-          archivedProjectIds,
-        }),
+      const taskIds = orderPaneTabIdsForSidebar(
+        paneTabIdsForWorkingTasks(
+          tasks
+            .filter((task) => task.status === "working")
+            .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt)),
+          activeCodeBotIds,
+          unreadSessionTabIds({
+            tasks,
+            bots,
+            rooms: Array.isArray(botResult.rooms) ? botResult.rooms : [],
+            archivedProjectIds,
+          }),
+        ),
+        tasks,
+        Array.isArray(projectResult.projects) ? projectResult.projects : [],
+        parseProjectOrder(orderResult.value) ?? [],
+        new Set(parsePinnedTaskIds(pinnedResult.value) ?? []),
       );
       dispatch(
         taskIds.length > 0

@@ -480,7 +480,7 @@ describe("Bot mode list", () => {
     fireEvent.click(await screen.findByRole("button", { name: "進行中タスクを分割表示" }));
     await waitFor(() => expect(mocks.dispatch).toHaveBeenCalledWith({
       type: "showWorkingTasks",
-      taskIds: ["/bots/bot-a", "code-a"],
+      taskIds: ["code-a", "/bots/bot-a"],
     }));
     expect(document.title).toBe("(2) LCP X870");
   });
