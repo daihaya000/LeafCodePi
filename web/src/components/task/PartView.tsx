@@ -160,8 +160,36 @@ function DiagnosticDetails({ diagnostics }: { diagnostics: UiDiagnostic[] }) {
   );
 }
 
+/** Longest gap between GFM re-parses while text streams in. */
+export const MARKDOWN_STREAM_THROTTLE_MS = 120;
+
+/**
+ * Trailing throttle: a changed text is shown at once when the last update is old enough, otherwise
+ * after the remaining window, so a token stream re-parses at most once per window and the final
+ * text always lands.
+ */
+export function useThrottledText(text: string, windowMs: number): string {
+  const [shown, setShown] = useState(text);
+  const lastAtRef = useRef(0);
+  useEffect(() => {
+    if (text === shown) return;
+    const wait = Math.max(0, lastAtRef.current + windowMs - Date.now());
+    const apply = () => {
+      lastAtRef.current = Date.now();
+      setShown(text);
+    };
+    if (wait === 0) {
+      apply();
+      return;
+    }
+    const timer = setTimeout(apply, wait);
+    return () => clearTimeout(timer);
+  }, [shown, text, windowMs]);
+  return shown;
+}
+
 const MarkdownBody = memo(function MarkdownBody({
-  text,
+  text: liveText,
   className,
   allowStructuredResult,
   taskId,
@@ -171,6 +199,7 @@ const MarkdownBody = memo(function MarkdownBody({
   allowStructuredResult: boolean;
   taskId?: string;
 }) {
+  const text = useThrottledText(liveText, MARKDOWN_STREAM_THROTTLE_MS);
   const structuredResult = allowStructuredResult ? parseStructuredResult(text) : null;
   if (structuredResult) return <StructuredResultCard result={structuredResult} />;
   return (
