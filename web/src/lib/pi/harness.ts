@@ -7774,7 +7774,7 @@ type OfflineSessionSnapshot = {
   messages: UiMessage[];
   todos: TodoDto[];
 };
-// ponytail: retain at most eight transcripts up to 2 MiB each; larger histories stay uncached.
+// ponytail: retain at most eight transcripts (LRU) up to 2 MiB each; larger histories stay uncached.
 const offlineSessionSnapshots = new Map<string, {
   pi: PiModule;
   version: string;
@@ -7795,7 +7795,12 @@ function readOfflineSessionSnapshot(sessionFile: string): OfflineSessionSnapshot
   }
   const before = offlineSessionFileVersion(sessionFile);
   const cached = offlineSessionSnapshots.get(sessionFile);
-  if (cached?.pi === pi && cached.version === before.version) return cached.snapshot;
+  if (cached?.pi === pi && cached.version === before.version) {
+    // LRU: a hit moves the entry to the newest slot so hot transcripts are not evicted first.
+    offlineSessionSnapshots.delete(sessionFile);
+    offlineSessionSnapshots.set(sessionFile, cached);
+    return cached.snapshot;
+  }
   offlineSessionSnapshots.delete(sessionFile);
   const sessionManager = pi.SessionManager.open(sessionFile);
   const context = sessionManager.buildSessionContext?.() ?? { messages: [] };
