@@ -4,6 +4,7 @@ import { memo, type ReactNode, useCallback, useEffect, useRef, useState } from "
 import { ChevronDown, ChevronUp, GripVertical } from "lucide-react";
 import { Badge, Button, Switch, cx } from "@/components/ui";
 import { ProviderIcon } from "@/components/ProviderIcon";
+import { ProviderUsage } from "./ProviderUsage";
 import { ApiError, apiUrl, getJson, sendJson } from "@/lib/client";
 import type {
   AccountCredentialKind,
@@ -18,15 +19,12 @@ import type {
 import type { ProviderAuthDto } from "@/lib/types";
 import type { AccountRoutingMode } from "@/lib/provider-routing";
 import {
-  clampPercent,
   creditUsageParts,
   formatCreditAmount,
   formatResetsIn,
-  percentTone,
   type CodexBarCredits,
   type CodexBarProvider,
   type CodexBarUsage,
-  type UsageTone,
 } from "@/lib/codexbar";
 import { REMOTE_OAUTH_HINT, REMOTE_OAUTH_MANUAL_LABEL } from "@/lib/oauth-loopback";
 
@@ -227,44 +225,6 @@ function sourceHint(provider: ProviderAuthDto): string | null {
   if (provider.authSource === "stored") return "~/.pi/agent/auth.json";
   if (provider.authSource === "runtime") return "実行時キー";
   return provider.authSource ?? null;
-}
-
-const usageBarClass: Record<UsageTone, string> = {
-  ok: "bg-success",
-  warn: "bg-warning",
-  danger: "bg-danger",
-};
-
-const usageTextClass: Record<UsageTone, string> = {
-  ok: "text-muted",
-  warn: "text-warning",
-  danger: "text-danger",
-};
-
-function UsageBar({ percent }: { percent: number | null | undefined }) {
-  const normalizedPercent = percent ?? null;
-  const tone = percentTone(normalizedPercent);
-  return (
-    <div className="mt-1">
-      <div className="mb-1 flex items-center justify-between gap-2 text-xs">
-        <span className="text-muted">使用量</span>
-        <span className={cx("tabular-nums", usageTextClass[tone])}>
-          {normalizedPercent === null
-            ? "—"
-            : `${Math.round(normalizedPercent)}%`}
-        </span>
-      </div>
-      <div className="h-1.5 w-full overflow-hidden rounded-full bg-surface-2">
-        <div
-          className={cx(
-            "h-full rounded-full transition-all",
-            usageBarClass[tone],
-          )}
-          style={{ width: `${clampPercent(normalizedPercent)}%` }}
-        />
-      </div>
-    </div>
-  );
 }
 
 /** 使用量%が無い口座（API キーの従量課金など）でも残高/利用額は行に出す。 */
@@ -1866,9 +1826,7 @@ export const ProviderAuthPanel = memo(function ProviderAuthPanel({
                           </>
                         )}
                       </div>
-                      {usage && (usage.usedPercent !== null || !usage.credits) && (
-                        <UsageBar percent={usage.usedPercent} />
-                      )}
+                      {usage && <ProviderUsage usage={usage} />}
                       {usage?.credits && <CreditsLine credits={usage.credits} />}
                       {(usage || providerId === "openai-codex" || providerId === "anthropic") && (
                         <ResetCreditsControl
@@ -2408,7 +2366,7 @@ function ProviderRow({
           )}
         </div>
       </div>
-      {usage && <UsageBar percent={usage.usedPercent} />}
+      {usage && <ProviderUsage usage={usage} />}
       {usage && onRedeemReset && (
         <ResetCreditsControl
           provider={usage}
