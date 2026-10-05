@@ -49,6 +49,17 @@ describe("GET /api/tasks/[id]/image", () => {
     expect(Buffer.from(await response.arrayBuffer())).toEqual(png);
   });
 
+  it("serves verified agent images from the shared temp directory", async () => {
+    const tempOutput = mkdtempSync(join(tmpdir(), "leafcode-agent-image-"));
+    tempDirs.push(tempOutput);
+    writeFileSync(join(tempOutput, "render.png"), png);
+    const response = await GET(request(join(tempOutput, "render.png")), params());
+
+    expect(response.status).toBe(200);
+    expect(response.headers.get("content-type")).toBe("image/png");
+    expect(Buffer.from(await response.arrayBuffer())).toEqual(png);
+  });
+
   it("rejects unknown tasks, unsupported formats, and mismatched file content", async () => {
     mocks.getTask.mockReturnValueOnce(undefined);
     expect((await GET(request("render.png"), params())).status).toBe(404);

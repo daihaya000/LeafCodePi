@@ -24,6 +24,8 @@
 
 ## P1 — セキュリティ / 認証 / ACL（21）
 
+**実施確認（2026-10-05）:** P1 21件は全件対応済み（16件修正、5件はユーザー確認により既存仕様受入を維持）。未解消P1なし。受入5件も回帰確認済み: `/mnt` browse 3件＋dirs route 1件、WebUI token 6＋shared 7＋proxy 7件、App-Bound cookie 14件、tmpdir画像を含むimage route 5件、ACL owner 9件。その他のP1関連テストも成功（WindowsでPOSIX専用1件はskip）。
+
 | 重大度 | 箇所 | 内容 |
 | --- | --- | --- |
 | 高 **[修正済 2026-10-03]** | `extensions/leafcode-subagents/src/runs/shared/acceptance.ts`（~1087, 1189–1201） | acceptance verify の `command.cwd` が `path.resolve(defaultCwd, cwd)` のみで、ワークツリー外への `../` 脱出を止めない。`shell: true` で起動するため、検証コマンドがリポジトリ外で任意シェルを実行しうる。 |
