@@ -298,7 +298,7 @@ describe("openInNewPane with direction", () => {
     expect(bottom.panes.map((p) => p.tabs)).toEqual([["a"], ["c"]]);
   });
 
-  it("direction 指定時は単独タブの既存タスクも元ペインから外して分割移動する", () => {
+  it("単独タブを自身の端へドロップしても空ペインを作らない", () => {
     const base = state(pane(P1, ["only"], "only"));
     const next = reducer(base, {
       type: "openInNewPane",
@@ -306,10 +306,84 @@ describe("openInNewPane with direction", () => {
       anchorPaneId: P1,
       direction: "right",
     });
-    expect(next.panes).toHaveLength(2);
-    expect(next.panes[0].tabs).toEqual([]);
-    expect(next.panes[1].tabs).toEqual(["only"]);
+    expect(next.panes).toEqual(base.panes);
+    expect(next.activePaneId).toBe(P1);
+  });
+
+  it.each(["left", "right", "top", "bottom"] as const)(
+    "単独タブを他ペインの%s端へ移したら元ペインを縮退する",
+    (direction) => {
+      const base = state(pane(P1, ["moving"]), pane(P2, ["anchor"]));
+      const next = reducer(base, {
+        type: "openInNewPane", taskId: "moving", anchorPaneId: P2, direction,
+      });
+      expect(next.panes).toHaveLength(2);
+      expect(next.panes.some((pane) => pane.id === P1)).toBe(false);
+      const moved = next.panes.find((pane) => pane.tabs.includes("moving"))!;
+      const before = direction === "left" || direction === "top";
+      expect(next.panes.map((pane) => pane.id)).toEqual(before ? [moved.id, P2] : [P2, moved.id]);
+      expect(layoutPaneIds(next.layout!)).toEqual(next.panes.map((pane) => pane.id));
+      expect(next.layout).toMatchObject({
+        type: "split", orientation: direction === "top" || direction === "bottom" ? "column" : "row",
+      });
+      expect(next.activePaneId).toBe(moved.id);
+    },
+  );
+
+  it("後方の移動元を除去しても他の分割方向を保つ", () => {
+    const base: TaskPanesState = {
+      ...state(pane(P1, ["anchor"]), pane(P2, ["other"]), pane(P3, ["moving"])),
+      layout: {
+        type: "split", id: "root", orientation: "row",
+        children: [
+          { type: "split", id: "kept", orientation: "column", children: [
+            { type: "pane", paneId: P1 }, { type: "pane", paneId: P2 },
+          ] },
+          { type: "pane", paneId: P3 },
+        ],
+      },
+    };
+    const next = reducer(base, {
+      type: "openInNewPane", taskId: "moving", anchorPaneId: P1, direction: "right",
+    });
+    expect(next.panes.map((pane) => pane.tabs)).toEqual([["anchor"], ["moving"], ["other"]]);
+    expect(next.layout).toMatchObject({
+      type: "split", id: "kept", orientation: "column", children: [
+        { type: "split", orientation: "row", children: [
+          { paneId: P1 }, { paneId: next.panes[1].id },
+        ] },
+        { paneId: P2 },
+      ],
+    });
     expect(next.activePaneId).toBe(next.panes[1].id);
+  });
+
+  it("ペイン上限でも単独タブの移動元を除去して指定方向に分割する", () => {
+    const base = state(
+      pane(P1, ["moving"]), pane(P2, ["anchor"]), pane(P3, ["other"]),
+      pane("p4", ["fourth"]), pane("p5", ["fifth"]),
+    );
+    const next = reducer(base, {
+      type: "openInNewPane", taskId: "moving", anchorPaneId: P2, direction: "bottom",
+    });
+    expect(next.panes).toHaveLength(MAX_PANES);
+    expect(next.panes.some((pane) => pane.id === P1)).toBe(false);
+    const moved = next.panes[1];
+    expect(moved.tabs).toEqual(["moving"]);
+    expect(next.panes[4].tabs).toEqual(["fifth"]);
+    expect(layoutPaneIds(next.layout!)).toEqual(next.panes.map((pane) => pane.id));
+    expect(next.layout).toMatchObject({
+      children: [
+        { children: [
+          { children: [
+            { type: "split", orientation: "column", children: [{ paneId: P2 }, { paneId: moved.id }] },
+            { paneId: P3 },
+          ] },
+          { paneId: "p4" },
+        ] },
+        { paneId: "p5" },
+      ],
+    });
   });
 
   it("direction 未指定なら末尾追加で既存 orientation を引き継ぐ", () => {
@@ -392,7 +466,15 @@ describe("clearPane", () => {
     expect(next.panes).toEqual([pane(P1, [], null)]);
   });
 
-  it("空ペインまたは不明ペインは no-op", () => {
+  it("複数ペイン時は既存の空ペインも閉じてレイアウトを縮退する", () => {
+    const base = state(pane(P1, [], null), pane(P2, ["other"]));
+    const next = reducer(base, { type: "clearPane", paneId: P1 });
+    expect(next.panes).toEqual([pane(P2, ["other"])]);
+    expect(next.activePaneId).toBe(P2);
+    expect(next.layout).toEqual({ type: "pane", paneId: P2 });
+  });
+
+  it("最後の空ペインまたは不明ペインは no-op", () => {
     const base = state(pane(P1, [], null));
 
     expect(reducer(base, { type: "clearPane", paneId: P1 })).toBe(base);
@@ -487,6 +569,28 @@ describe("moveTab", () => {
     expect(next.panes[1].tabs).toEqual(["a", "z"]);
     expect(next.panes[1].activeTabId).toBe("a");
     expect(next.activePaneId).toBe(P2);
+  });
+
+  it("最後のタブを移動したら移動元とその分割を除去する", () => {
+    const base = state(pane(P1, ["moving"]), pane(P2, ["anchor"]));
+    const split = reducer(base, {
+      type: "openInNewPane", taskId: "other", anchorPaneId: P2, direction: "bottom",
+    });
+    const next = reducer(split, { type: "moveTab", fromPaneId: P1, toPaneId: P2, taskId: "moving" });
+    expect(next.panes.map((pane) => pane.id)).toEqual([P2, split.panes[2].id]);
+    expect(next.panes[0].tabs).toEqual(["anchor", "moving"]);
+    expect(next.panes[0].activeTabId).toBe("moving");
+    expect(next.activePaneId).toBe(P2);
+    expect(next.layout).toEqual((split.layout as Extract<PaneLayout, { type: "split" }>).children[1]);
+    expect(next.layout).toMatchObject({ type: "split", orientation: "column" });
+  });
+
+  it("最後のタブを空ペインへ移動しても空の移動元を残さない", () => {
+    const base = state(pane(P1, ["moving"]), pane(P2, [], null));
+    const next = reducer(base, { type: "moveTab", fromPaneId: P1, toPaneId: P2, taskId: "moving" });
+    expect(next.panes).toEqual([pane(P2, ["moving"])]);
+    expect(next.activePaneId).toBe(P2);
+    expect(next.layout).toEqual({ type: "pane", paneId: P2 });
   });
 
   it("from の activeTabId は繰り上げられる", () => {

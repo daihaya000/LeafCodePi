@@ -39,7 +39,12 @@ vi.mock("next/dynamic", () => ({
 }));
 vi.mock("./TaskTabs", () => ({
   paneLayoutClass: () => "layout",
-  TaskTabs: ({ pane, onOpenHome }: { pane: TaskPanesState["panes"][number]; onOpenHome: () => void }) => (
+  TaskTabs: ({ pane, onOpenHome, canClosePane, onClearPane }: {
+    pane: TaskPanesState["panes"][number];
+    onOpenHome: () => void;
+    canClosePane: boolean;
+    onClearPane: () => void;
+  }) => (
     <div
       role="tablist"
       aria-label="タスクと設定のタブ"
@@ -47,6 +52,9 @@ vi.mock("./TaskTabs", () => ({
       data-tabs={pane.tabs.join(",")}
     >
       <button type="button" aria-label="新規作成タブを開く" onClick={onOpenHome} />
+      {pane.tabs.length === 0 && (
+        <button type="button" aria-label="空のペインを閉じる" disabled={!canClosePane} onClick={onClearPane} />
+      )}
     </div>
   ),
 }));
@@ -218,6 +226,36 @@ describe("TaskPanesHost lazy tab mounting", () => {
       expect(screen.getByTestId("task-tabs").getAttribute("data-tabs")).toBe(tabId);
       view.unmount();
     }
+  });
+
+  it("複数ペインの空ペインはクリア操作で閉じられる", () => {
+    const dispatch = vi.fn();
+    const state: TaskPanesState = {
+      panes: [
+        { id: "pane-1", tabs: ["active"], activeTabId: "active" },
+        { id: "pane-2", tabs: [], activeTabId: null },
+      ],
+      activePaneId: "pane-1",
+    };
+    mocks.useTaskPanes.mockReturnValue({ ...mocks.useTaskPanes(), state, dispatch });
+    render(<TaskPanesHost />);
+
+    const button = screen.getByRole("button", { name: "空のペインを閉じる" }) as HTMLButtonElement;
+    expect(button.disabled).toBe(false);
+    fireEvent.click(button);
+    expect(dispatch).toHaveBeenCalledWith({ type: "clearPane", paneId: "pane-2", keepTabIds: [] });
+  });
+
+  it("最後の空ペインはクリア操作で閉じられない", () => {
+    const state: TaskPanesState = {
+      panes: [{ id: "pane-1", tabs: [], activeTabId: null }],
+      activePaneId: "pane-1",
+    };
+    mocks.useTaskPanes.mockReturnValue({ ...mocks.useTaskPanes(), state, activeTaskId: null });
+    render(<TaskPanesHost />);
+
+    const button = screen.getByRole("button", { name: "空のペインを閉じる" }) as HTMLButtonElement;
+    expect(button.disabled).toBe(true);
   });
 
   it("Bot tabs retain hidden mounts and receive visibility", async () => {

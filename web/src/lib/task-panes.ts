@@ -512,8 +512,11 @@ export function taskPanesReducer(
       if (!existing && tabCount(state.panes) >= MAX_OPEN_TABS) return state;
       let panes = state.panes;
       if (existing) {
-        // 単独タブのペインなら移動しても見た目が同じため活性化のみ
-        if (existing.tabs.length === 1 && !action.direction) {
+        // 単独タブを自身の端へ移しても分割内容は増えないため活性化のみ。
+        if (
+          existing.tabs.length === 1 &&
+          (!action.direction || action.anchorPaneId === existing.id)
+        ) {
           return activate(state, existing.id, action.taskId);
         }
         const fromIndex = existing.tabs.indexOf(action.taskId);
@@ -522,16 +525,18 @@ export function taskPanesReducer(
           existing.activeTabId !== action.taskId
             ? existing.activeTabId
             : (fromTabs[Math.min(fromIndex, fromTabs.length - 1)] ?? null);
-        panes = panes.map((pane) =>
-          pane.id === existing.id ? { ...pane, tabs: fromTabs, activeTabId: nextActive } : pane,
-        );
+        panes = fromTabs.length === 0
+          ? panes.filter((pane) => pane.id !== existing.id)
+          : panes.map((pane) =>
+              pane.id === existing.id ? { ...pane, tabs: fromTabs, activeTabId: nextActive } : pane,
+            );
       }
       if (panes.length >= MAX_PANES) {
         const last = panes[panes.length - 1]!;
         // 移動元を先に外しているため、フォールバック先が満杯なら元状態へ戻す。
         if (last.tabs.length >= MAX_TABS_PER_PANE) return state;
         return taskPanesReducer(
-          { ...state, panes },
+          { ...state, panes, layout: layoutAfterPaneRemoval(state, panes) ?? undefined },
           { type: "openTab", paneId: last.id, taskId: action.taskId },
         );
       }
@@ -548,7 +553,7 @@ export function taskPanesReducer(
         ? splitOrientation(action.direction)
         : (state.orientation ?? "row");
       const pane = createPane();
-      const nextLayoutBase = paneLayoutForState(state);
+      const nextLayoutBase = layoutAfterPaneRemoval(state, panes);
       const nextLayout =
         action.direction && action.anchorPaneId && anchorIndex >= 0 && nextLayoutBase
           ? (() => {
@@ -648,7 +653,8 @@ export function taskPanesReducer(
 
     case "clearPane": {
       const target = state.panes.find((pane) => pane.id === action.paneId);
-      if (!target || target.tabs.length === 0) return state;
+      if (!target) return state;
+      if (target.tabs.length === 0) return removePane(state, target.id);
       const keep = new Set(action.keepTabIds ?? []);
       const tabs = target.tabs.filter((tabId) => keep.has(tabId));
       if (tabs.length === target.tabs.length) return state;
@@ -702,7 +708,7 @@ export function taskPanesReducer(
         from.activeTabId !== action.taskId
           ? from.activeTabId
           : (fromTabs[Math.min(fromIndex, fromTabs.length - 1)] ?? null);
-      return {
+      const next = {
         ...state,
         activePaneId: to.id, // 移動したタブを見せる（本家 openSplit と同じ）
         panes: state.panes.map((pane) => {
@@ -719,6 +725,7 @@ export function taskPanesReducer(
           return pane;
         }),
       };
+      return fromTabs.length === 0 ? removePane(next, from.id) : next;
     }
 
     case "addPane": {

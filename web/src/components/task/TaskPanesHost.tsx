@@ -361,6 +361,7 @@ function PaneSection({
             pane={pane}
             isActivePane={isActivePane}
             canAddPane={canAddPane}
+            canClosePane={firstPaneId !== lastPaneId}
             showAddButton={pane.id === lastPaneId}
             onActivateTab={(taskId) => onActivateTab(pane.id, taskId)}
             onCloseTab={(taskId) => onCloseTab(pane.id, taskId)}
