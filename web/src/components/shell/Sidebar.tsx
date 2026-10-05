@@ -97,7 +97,7 @@ const MAX_WIDTH = 480;
 const POLL_IDLE_MS = 12_000;
 /** When Backend task_dirty is attached, idle sidebar polls can stretch. */
 const DIRTY_IDLE_POLL_MS = 20_000;
-const POLL_WORKING_MS = 4_000;
+const POLL_WORKING_MS = 2_000;
 const PROJECT_DRAG_MIME = "application/x-leafcode-project";
 const HOVER_QUERY = "(hover: hover)";
 const NO_PROJECT_GROUP_ID = "__leafcode_no_project__";

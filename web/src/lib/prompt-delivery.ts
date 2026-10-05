@@ -1,4 +1,4 @@
-import type { UiMessage } from "@/lib/types";
+﻿import type { UiMessage } from "@/lib/types";
 
 /** Only transport/response failures can be reconciled; explicit owner rejections stay errors. */
 export function isUnconfirmedPromptDelivery(error: unknown): boolean {
@@ -66,4 +66,43 @@ export function hasNewUserMessageSince(
     && Number.isFinite(message.createdAt)
     && message.createdAt > lastUserTime
   ));
+}
+
+/**
+ * Room transcripts are flat `role`/`id` rows (no hangRetry). True once a user id appears that was
+ * not in the pre-send set — the optimistic Room bubble must yield as soon as POST/SSE lands it.
+ */
+export function hasNewRoomUserMessageSince(
+  beforeUserIds: ReadonlySet<string>,
+  after: readonly { id: string; role: string }[],
+): boolean {
+  return after.some((message) => message.role === "user" && !beforeUserIds.has(message.id));
+}
+
+/**
+ * Whether the sticky WorkingRow should paint under the transcript.
+ * Hide it when the last assistant bubble is already growing text and no tool is running — a
+ * streaming caret covers that state; a second "作業中…" spinner feels like lag.
+ */
+export function shouldShowWorkingRow(
+  working: boolean,
+  messages: readonly UiMessage[],
+): boolean {
+  if (!working) return false;
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    const message = messages[index];
+    if (!message || message.role !== "assistant") continue;
+    let hasText = false;
+    let hasRunningTool = false;
+    for (const part of message.parts) {
+      if (part.type === "text" && part.text.length > 0) hasText = true;
+      if (part.type === "tool" && (part.state.status === "running" || part.state.status === "pending")) {
+        hasRunningTool = true;
+      }
+    }
+    if (hasRunningTool) return true;
+    if (hasText) return false;
+    return true;
+  }
+  return true;
 }

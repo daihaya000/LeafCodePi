@@ -23,6 +23,7 @@ import { composerPromptAttachments, readComposerFiles, useComposerPromptPresetRe
 import { canAttachComposerImages, pasteImage } from "@/lib/clipboard-image";
 import { stabilizeIdentifiedList } from "@/lib/stabilize-messages";
 import { cancelPendingSseReconnect, closeSseSource, sseReconnectDelayMs } from "@/lib/sse-reconnect";
+import { hasNewRoomUserMessageSince } from "@/lib/prompt-delivery";
 
 import { CodeRequestCard } from "@/components/bot/CodeRequestCard";
 
@@ -155,6 +156,11 @@ export function RoomView({ id, active = true }: { id: string; active?: boolean }
   const [broadcast, setBroadcast] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [optimisticPrompt, setOptimisticPrompt] = useState<{
+    text: string;
+    createdAt: number;
+    beforeUserIds: Set<string>;
+  } | null>(null);
   const [deleting, setDeleting] = useState(false);
   const [resetting, setResetting] = useState(false);
   const [memberSaving, setMemberSaving] = useState(false);
@@ -487,6 +493,12 @@ export function RoomView({ id, active = true }: { id: string; active?: boolean }
     setMentionContext(null);
     setError(null);
     setBusy(true);
+    const beforeUserIds = new Set((room?.messages ?? []).filter((message) => message.role === "user").map((message) => message.id));
+    if (submittedAttachments.length === 0 && value.trim()) {
+      setOptimisticPrompt({ text: value, createdAt: Date.now(), beforeUserIds });
+    } else {
+      setOptimisticPrompt(null);
+    }
     try {
       const result = await sendJson<{ room: RoomDto; routedBotIds?: string[]; steeredBotIds?: string[]; stopped?: boolean }>(
         `/api/bots/rooms/${encodeURIComponent(id)}/prompt`,
@@ -507,6 +519,7 @@ export function RoomView({ id, active = true }: { id: string; active?: boolean }
       }
     } catch (reason) {
       if (roomRequestContextRef.current !== requestContext) return;
+      setOptimisticPrompt(null);
       setPrompt((current) => current || value);
       setAttachments((current) => current.length > 0 ? current : submittedAttachments);
       setError(reason instanceof Error ? reason.message : "リクエストに失敗しました");
@@ -607,6 +620,7 @@ export function RoomView({ id, active = true }: { id: string; active?: boolean }
             imageTaskId={message.botId ? `bot:${message.botId}:room:${id}` : undefined}
             images={<BotMessageImages images={(message.images ?? []).map((image) => ({ key: image.file, src: `/api/bots/rooms/${encodeURIComponent(id)}/images/${encodeURIComponent(image.file)}` }))} />}
             files={<BotMessageFiles files={(message.files ?? []).map((file) => ({ key: file.file, name: file.name, mime: file.mimeType, size: file.size, href: `/api/bots/rooms/${encodeURIComponent(id)}/files/${encodeURIComponent(file.file)}` }))} />}
+            streaming={!user && message.status === "working" && Boolean(message.text)}
             footer={user ? <BotRevertButton title="この発言以降を入力欄に戻して巻き戻す" disabled={reverting} onClick={() => void revertMessage(message.id)} /> : undefined}>
             {message.openerReason ? (
               <span data-opener-reason={message.openerReason} className="inline-flex items-center gap-1 rounded-full border border-border bg-surface-2 px-2 py-0.5 text-[11px] text-muted" title="このBotが開いた理由">
@@ -630,6 +644,26 @@ export function RoomView({ id, active = true }: { id: string; active?: boolean }
   }), [botById, bots, id, room?.messages, revertMessage, reverting, stopCode, stoppingCode]);
 
   const working = isRoomBusy(room);
+  const optimisticVisible = Boolean(
+    optimisticPrompt &&
+      room &&
+      !hasNewRoomUserMessageSince(optimisticPrompt.beforeUserIds, room.messages),
+  );
+  useEffect(() => {
+    if (!optimisticPrompt) return;
+    if (!optimisticVisible) {
+      setOptimisticPrompt(null);
+      return;
+    }
+    const timer = window.setTimeout(() => {
+      setOptimisticPrompt((current) => (current === optimisticPrompt ? null : current));
+    }, 60_000);
+    return () => window.clearTimeout(timer);
+  }, [optimisticPrompt, optimisticVisible]);
+  // Clear echo when switching rooms.
+  useEffect(() => {
+    setOptimisticPrompt(null);
+  }, [id]);
   const latestRequestId = room?.messages.findLast((message) => message.role === "user")?.id;
   // Persisted rooms may still carry a wait outcome from before result delivery.
   const delivered = Boolean(room?.messages.some((message) => message.codeState === "delivered" && message.conversation?.requestId === latestRequestId));
@@ -644,8 +678,10 @@ export function RoomView({ id, active = true }: { id: string; active?: boolean }
     messages: room?.messages,
     attention: attentionScrollKey,
     working,
+    busy,
+    optimistic: optimisticVisible ? optimisticPrompt?.createdAt ?? null : null,
     outcome: outcome ?? "",
-  }), [room?.messages, attentionScrollKey, working, outcome]);
+  }), [room?.messages, attentionScrollKey, working, busy, optimisticVisible, optimisticPrompt?.createdAt, outcome]);
 
   if (!room) return <div className="p-5 text-sm text-muted">{displayError ?? "読み込み中…"}</div>;
 
@@ -668,7 +704,7 @@ export function RoomView({ id, active = true }: { id: string; active?: boolean }
 
       <BotMessageList conversationId={id} contentKey={chatScrollKey}>
         <div className={conversationContentClass}>
-          {room.messages.length === 0 && <BotEmptyState icon={<Users className="h-5 w-5" />} title={room.name + " \u3067\u8a71\u3059"} description="そのまま送るとメンバーが会話します。@ボット名で相手を指定、@hereで全員に個別回答を依頼できます。実作業は承認後にCodeで実行し、このRoomへ結果を返します。">{members.length > 0 && <div className="mt-3 flex flex-wrap justify-center gap-2">{members.map((bot) => <span key={bot.id} className="inline-flex items-center gap-1.5 rounded-full border border-border bg-surface px-2 py-1 text-xs"><BotAvatar size={18} {...bot} />{bot.name}</span>)}</div>}</BotEmptyState>}
+          {room.messages.length === 0 && !optimisticVisible && <BotEmptyState icon={<Users className="h-5 w-5" />} title={room.name + " \u3067\u8a71\u3059"} description="そのまま送るとメンバーが会話します。@ボット名で相手を指定、@hereで全員に個別回答を依頼できます。実作業は承認後にCodeで実行し、このRoomへ結果を返します。">{members.length > 0 && <div className="mt-3 flex flex-wrap justify-center gap-2">{members.map((bot) => <span key={bot.id} className="inline-flex items-center gap-1.5 rounded-full border border-border bg-surface px-2 py-1 text-xs"><BotAvatar size={18} {...bot} />{bot.name}</span>)}</div>}</BotEmptyState>}
           {rendered}
           {attention.map((item) => <div key={item.taskId} className="space-y-3">
             {item.permission && <BotPermissionCard
@@ -682,7 +718,12 @@ export function RoomView({ id, active = true }: { id: string; active?: boolean }
             />}
             {item.question && <div><p className="mb-1 text-xs text-muted">{botById.get(item.botId)?.name ?? "Bot"}からの質問</p><QuestionCard request={item.question} onReply={(request, answers) => answerQuestion(item.taskId, request, answers)} onReject={(request) => answerQuestion(item.taskId, request)} /></div>}
           </div>)}
-          {working && <div role="status" aria-live="polite" className="flex items-center gap-2 text-xs text-muted"><span className="h-2 w-2 animate-pulse rounded-full bg-accent" />応答中…</div>}
+          {optimisticVisible && optimisticPrompt && (
+            <div className="opacity-70" aria-busy="true" data-optimistic-prompt>
+              <BotChatMessage user createdAt={optimisticPrompt.createdAt} sender={{ name: "あなた" }} text={optimisticPrompt.text} mentions={bots} />
+            </div>
+          )}
+          {(busy || working) && <div role="status" aria-live="polite" className="flex items-center gap-2 text-xs text-muted"><span className="h-2 w-2 animate-pulse rounded-full bg-accent" />{busy && !working ? "送信中…" : "応答中…"}</div>}
           {outcome && <p className="text-xs text-muted">{outcome}</p>}
         </div>
       </BotMessageList>
@@ -692,6 +733,7 @@ export function RoomView({ id, active = true }: { id: string; active?: boolean }
         value={prompt}
         onChange={(event) => {
           setPrompt(event.target.value);
+          if (error) setError(null);
           setMentionContext(mentionContextFor(event.target.value, event.target.selectionStart ?? event.target.value.length));
         }}
         onCompositionStart={() => { composingRef.current = true; }}

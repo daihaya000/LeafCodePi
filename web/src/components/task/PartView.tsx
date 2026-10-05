@@ -161,7 +161,7 @@ function DiagnosticDetails({ diagnostics }: { diagnostics: UiDiagnostic[] }) {
 }
 
 /** Longest gap between GFM re-parses while text streams in. */
-export const MARKDOWN_STREAM_THROTTLE_MS = 120;
+export const MARKDOWN_STREAM_THROTTLE_MS = 48;
 
 /**
  * Trailing throttle: a changed text is shown at once when the last update is old enough, otherwise
@@ -221,10 +221,13 @@ function AssistantTextPart({
   text,
   goalLoopTurn,
   taskId,
+  streaming = false,
 }: {
   text: string;
   goalLoopTurn?: UiMessage["goalLoopTurn"];
   taskId?: string;
+  /** Blinking caret while this part is the live stream tip. */
+  streaming?: boolean;
 }) {
   return (
     <MessageBubble>
@@ -234,6 +237,13 @@ function AssistantTextPart({
         allowStructuredResult={Boolean(goalLoopTurn)}
         taskId={taskId}
       />
+      {streaming ? (
+        <span
+          aria-hidden="true"
+          data-streaming-caret
+          className="mt-1 inline-block h-4 w-0.5 animate-pulse bg-accent align-text-bottom"
+        />
+      ) : null}
     </MessageBubble>
   );
 }
@@ -1182,6 +1192,7 @@ export const PartView = memo(
     taskId,
     active = true,
     reasoningActive = false,
+    streaming = false,
     nested = false,
     hideMeta = false,
     onRevert,
@@ -1201,6 +1212,8 @@ export const PartView = memo(
     active?: boolean;
     /** このメッセージが現在生成中か（最後の思考パーツのみ自動展開）。 */
     reasoningActive?: boolean;
+    /** このメッセージがライブストリームの先端（最終テキストにキャレット）。 */
+    streaming?: boolean;
     /** 入れ子タイムライン内での描画（さらに入れ子にはしない）。 */
     nested?: boolean;
     /** メタデータ行を親が表示済みの場合に隠す。 */
@@ -1266,12 +1279,14 @@ export const PartView = memo(
         ) : (
           message.parts.map((part) => {
             if (part.type === "text") {
+              const lastText = [...message.parts].reverse().find((entry) => entry.type === "text");
               return (
                 <AssistantTextPart
                   key={part.id}
                   text={part.text}
                   goalLoopTurn={message.goalLoopTurn}
                   taskId={taskId}
+                  streaming={streaming && lastText?.id === part.id}
                 />
               );
             }

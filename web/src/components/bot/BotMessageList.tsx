@@ -263,7 +263,7 @@ export function BotMessageRow({ user, createdAt, children, footer, header, after
 }
 
 /** Shared conversation presentation; callers supply only conversation-specific content/actions. */
-export function BotChatMessage({ user, createdAt, sender, text, mentions = [], providerID, modelLabel, responseDurationMs, imageTaskId, children, images, files, footer, after, bubble = true }: {
+export function BotChatMessage({ user, createdAt, sender, text, mentions = [], providerID, modelLabel, responseDurationMs, imageTaskId, children, images, files, footer, after, bubble = true, streaming = false }: {
   user: boolean;
   createdAt: number;
   sender: BotFace & { name: string; active?: boolean };
@@ -281,12 +281,17 @@ export function BotChatMessage({ user, createdAt, sender, text, mentions = [], p
   footer?: ReactNode;
   after?: ReactNode;
   bubble?: boolean;
+  /** Live stream tip caret under assistant markdown. */
+  streaming?: boolean;
 }) {
   return <BotMessageRow user={user} createdAt={createdAt} timeInHeader={!user}
     header={user ? undefined : <BotMessageSender {...sender} createdAt={createdAt} providerID={providerID} modelLabel={modelLabel} responseDurationMs={responseDurationMs} />} footer={footer} after={after} bubble={bubble}>
     {text && (user
       ? <div className="whitespace-pre-wrap break-words">{renderMentions(text, mentions, "user", "user")}</div>
       : <BotMessageMarkdown text={text} mentions={mentions} imageTaskId={imageTaskId} />)}
+    {!user && streaming ? (
+      <span aria-hidden="true" data-streaming-caret className="mt-1 inline-block h-4 w-0.5 animate-pulse bg-accent" />
+    ) : null}
     {images}
     {files}
     {children}

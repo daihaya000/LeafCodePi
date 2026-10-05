@@ -129,6 +129,7 @@ import {
   hasReceivedSubmittedPrompt,
   isUnconfirmedPromptDelivery,
   optimisticUserMessage,
+  shouldShowWorkingRow,
 } from "@/lib/prompt-delivery";
 import { readCachedModels, writeCachedModels } from "@/lib/models-cache";
 import {
@@ -3015,6 +3016,10 @@ export const TaskView = memo(function TaskView({
     };
   }, [messages]);
   const renderedMessages = visibleMessages;
+  // Pending send chrome (echo / POST in flight) without touching `working` sound/TTS gates.
+  const pendingTurn = Boolean(promptSubmitting || optimisticVisible);
+  const showWorkingChrome = working || pendingTurn;
+  const showWorkingRow = shouldShowWorkingRow(showWorkingChrome, renderedMessages);
   const resumeTarget = useMemo(
     () =>
       working
@@ -3668,6 +3673,7 @@ export const TaskView = memo(function TaskView({
                       taskId={taskId}
                       active={active}
                       reasoningActive={working && renderedMessages.at(-1)?.id === block.message.id && block.message.parts.at(-1)?.type === "thinking"}
+                      streaming={working && renderedMessages.at(-1)?.id === block.message.id && block.message.role === "assistant"}
                       onRevert={block.message.role === "user" ? requestRevert : undefined}
                     />
                   )}
@@ -3692,7 +3698,7 @@ export const TaskView = memo(function TaskView({
                 tone={resumeTarget.reason === "silent" ? "neutral" : "danger"}
               />
             )}
-            {working && <WorkingRow messages={renderedMessages} active={active} />}
+            {showWorkingRow && <WorkingRow messages={renderedMessages} active={active} />}
             {task?.todos && <TodoProgressPanel todos={task.todos} />}
             {goalLoopVisible && !archived && (
               <GoalLoopPanel
@@ -4036,6 +4042,11 @@ export const TaskView = memo(function TaskView({
             </Button>
           </div>
         )}
+        {goalLoopSubmitting && !working && (
+          <p role="status" className="mx-auto mb-2 max-w-5xl rounded-card border border-border bg-surface-2 px-3 py-2 text-sm text-muted">
+            Goal Loop を開始しています…
+          </p>
+        )}
         {sseReconnecting && !error && (
           <p role="status" className="mx-auto mb-2 max-w-5xl rounded-card border border-border bg-surface-2 px-3 py-2 text-sm text-muted">
             イベント接続を再試行しています…
@@ -4102,8 +4113,8 @@ export const TaskView = memo(function TaskView({
             value: prompt,
             rows: 1,
             ariaLabel: "フォローアップ",
-            onChange: (event) => setPrompt(event.target.value),
-            onValueChange: setPrompt,
+            onChange: (event) => { setPrompt(event.target.value); if (error) setError(null); },
+            onValueChange: (value) => { setPrompt(value); if (error) setError(null); },
             onPaste: (event) => {
               // 添付不可でも画像ペーストは検出して preventDefault する。
               // 早期 return すると textarea へ画像が落ちる。
@@ -4135,9 +4146,11 @@ export const TaskView = memo(function TaskView({
               ? "アーカイブ済み（読み取り専用）"
               : compacting
                 ? "圧縮中です…"
-                : working
-                  ? "実行中です。送信するとキューに追加します…"
-                  : "続きを指示…（Ctrl+Enter）",
+                : pendingTurn && !working
+                  ? "送信しています…"
+                  : working
+                    ? "実行中です。送信するとキューに追加します…"
+                    : "続きを指示…（Ctrl+Enter）",
             className: "w-full min-h-11 resize-none bg-transparent py-2.5 text-base leading-6 outline-none placeholder:text-faint",
             disabled: compacting || archived,
           }}

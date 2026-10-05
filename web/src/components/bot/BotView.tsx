@@ -6,7 +6,13 @@ import { Volume2, VolumeX, X } from "lucide-react";
 import Markdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { getJson, sendJson } from "@/lib/client";
-import { hasReceivedSubmittedPrompt, isUnconfirmedPromptDelivery } from "@/lib/prompt-delivery";
+import {
+  hasNewUserMessageSince,
+  hasReceivedSubmittedPrompt,
+  isUnconfirmedPromptDelivery,
+  optimisticUserMessage,
+  shouldShowWorkingRow,
+} from "@/lib/prompt-delivery";
 import { notifyBotSidebarChanged } from "@/lib/events";
 import { ModelSelect, modelOptionForValue } from "@/components/ModelSelect";
 import { ThinkingSelect } from "@/components/ThinkingSelect";
@@ -236,6 +242,10 @@ export const BotView = memo(function BotView({ id, active = true }: { id: string
   const [codePanelOpen, setCodePanelOpen] = useState(false);
   const settingsOpenRef = useRef(false);
   const [sending, setSending] = useState(() => cachedSession?.isStreaming ?? false);
+  const [optimisticPrompt, setOptimisticPrompt] = useState<{
+    message: import("@/lib/types").UiMessage;
+    before: import("@/lib/types").UiMessage[];
+  } | null>(null);
   const cacheTaskRef = useRef<TaskSummary | null>(cachedSession);
   const cacheSnapshotsRef = useRef(new Map<string, TaskSessionCacheSnapshot>());
   const cacheTimersRef = useRef(new Map<string, ReturnType<typeof setTimeout>>());
@@ -476,6 +486,7 @@ export const BotView = memo(function BotView({ id, active = true }: { id: string
     setHistoryError(null);
     setTimelineLoading(!cached);
     setSending(cached?.isStreaming ?? false);
+    setOptimisticPrompt(null);
     setPermission(null);
     setQuestion(null);
     setAttentionBusy(null);
@@ -866,6 +877,14 @@ export const BotView = memo(function BotView({ id, active = true }: { id: string
     setAttachments([]);
     setError(null);
     setSending(true);
+    if (submittedAttachments.length === 0 && submittedPrompt.trim()) {
+      setOptimisticPrompt({
+        message: optimisticUserMessage(submittedPrompt, Date.now()),
+        before: beforeSubmitMessages,
+      });
+    } else {
+      setOptimisticPrompt(null);
+    }
     try {
       await sendJson(`/api/bots/${encodeURIComponent(id)}/prompt`, {
         prompt: value,
@@ -903,6 +922,7 @@ export const BotView = memo(function BotView({ id, active = true }: { id: string
           return;
         }
       }
+      setOptimisticPrompt(null);
       setSending(false);
       setPrompt((current) => current || value);
       setAttachments((current) => current.length > 0 ? current : submittedAttachments);
@@ -1364,6 +1384,7 @@ export const BotView = memo(function BotView({ id, active = true }: { id: string
           images={<BotMessageImages images={images.flatMap((part) => part.type === "image" ? [{ key: part.id, src: part.url, alt: part.filename ?? undefined }] : [])} />}
           files={<BotMessageFiles files={files.map((part) => ({ key: part.id, name: part.name, mime: part.mime, size: part.size }))} />}
           bubble={hasBubble}
+          streaming={!user && sending && messageIndex === messages.length - 1 && Boolean(text)}
           footer={user ? <BotRevertButton title="このコメントを入力欄に戻して巻き戻す" disabled={reverting || sending} onClick={() => void revertMessage(message)} /> : undefined}>
           {message.error && <BotMessageError text={message.error} />}
           {requestIds.length > 0 && <BotCodeRequests botId={id} requestIds={requestIds} active={active} />}
@@ -1379,15 +1400,31 @@ export const BotView = memo(function BotView({ id, active = true }: { id: string
     .filter((routine) => routine.failureCount > 0)
     .map((routine) => `${routine.id}:${routine.failureCount}:${routine.enabled ? 1 : 0}`)
     .join(",");
+  const optimisticVisible = Boolean(
+    optimisticPrompt && !hasNewUserMessageSince(optimisticPrompt.before, messages),
+  );
+  useEffect(() => {
+    if (!optimisticPrompt) return;
+    if (!optimisticVisible) {
+      setOptimisticPrompt(null);
+      return;
+    }
+    const timer = window.setTimeout(() => {
+      setOptimisticPrompt((current) => (current === optimisticPrompt ? null : current));
+    }, 60_000);
+    return () => window.clearTimeout(timer);
+  }, [optimisticPrompt, optimisticVisible]);
+
   const chatScrollKey = useMemo(() => ({
     messages,
     permissionId: permission?.id ?? null,
     questionId: question?.id ?? null,
     sending,
+    optimistic: optimisticVisible ? optimisticPrompt?.message.id ?? null : null,
     routineCardOpen,
     codePanelOpen,
     routineFailures: routineFailuresKey,
-  }), [messages, permission?.id, question?.id, sending, routineCardOpen, codePanelOpen, routineFailuresKey]);
+  }), [messages, permission?.id, question?.id, sending, optimisticVisible, optimisticPrompt?.message.id, routineCardOpen, codePanelOpen, routineFailuresKey]);
 
   if (!bot) return <div role="status" className="p-5 text-sm text-muted">{error ?? "読み込み中…"}</div>;
 
@@ -1444,7 +1481,7 @@ export const BotView = memo(function BotView({ id, active = true }: { id: string
               {historyError && <span className="text-xs text-danger">{historyError}</span>}
             </div>
           )}
-          {messages.length === 0 && !sending && (timelineLoading
+          {messages.length === 0 && !sending && !optimisticVisible && (timelineLoading
             ? <div aria-live="polite" className="p-5 text-sm text-muted">会話を読み込み中…</div>
             : <BotEmptyState avatar={bot} title={bot.name + " \u3068\u8a71\u3059"} description={"\u4e0b\u306e\u5165\u529b\u6b04\u304b\u3089\u30e1\u30c3\u30bb\u30fc\u30b8\u3092\u9001\u3063\u3066\u4f1a\u8a71\u3092\u59cb\u3081\u307e\u3057\u3087\u3046\u3002"} />)}
           {routines.some((routine) => routine.failureCount > 0) && (
@@ -1478,7 +1515,17 @@ export const BotView = memo(function BotView({ id, active = true }: { id: string
           {rendered}
           {permission && <BotPermissionCard label="権限の確認" title="権限の確認が必要です" message={permission.message} command={permission.command} disabled={Boolean(attentionBusy)} onAllow={() => void respond(true)} onDeny={() => void respond(false)} />}
           {question && <QuestionCard request={question} onReply={answerQuestion} onReject={(request) => answerQuestion(request)} />}
-          {sending && <BotResponseStatus messages={messages} avatar={bot} />}
+          {optimisticVisible && optimisticPrompt && (
+            <div className="opacity-70" aria-busy="true" data-optimistic-prompt>
+              <BotChatMessage
+                user
+                createdAt={optimisticPrompt.message.createdAt}
+                sender={{ name: "あなた" }}
+                text={optimisticPrompt.message.parts.filter((part) => part.type === "text").map((part) => part.text).join("\n\n")}
+              />
+            </div>
+          )}
+          {sending && shouldShowWorkingRow(true, messages) && <BotResponseStatus messages={messages} avatar={bot} />}
           {codePanelOpen && (
             <BotCodeSessionPanel botId={id} active={active} onClose={() => setCodePanelOpen(false)} />
           )}
@@ -1493,7 +1540,7 @@ export const BotView = memo(function BotView({ id, active = true }: { id: string
         onFilesSelected={addFiles}
         attachmentDisabled={!canAttachComposerImages({ submitting: sending })}
         onPaste={(event) => { if (pasteImage(addFiles, event)) event.preventDefault(); }}
-        onChange={(event) => setPrompt(event.target.value)}
+        onChange={(event) => { setPrompt(event.target.value); if (error) setError(null); }}
         onValueChange={setPrompt}
         references={{ prompts: promptPresetReferences }}
         onCompositionStart={() => { composingRef.current = true; }}
