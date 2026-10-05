@@ -8,6 +8,7 @@ import {
   parseGitCommitAuthorSettings,
   resolveGitCommitAuthor,
 } from "@/lib/git-commit-author";
+import { getMachineName } from "@/lib/machine-name";
 import { getSetting } from "@/lib/pi/web-settings";
 
 export const runtime = "nodejs";
@@ -118,7 +119,7 @@ export async function POST(req: NextRequest) {
   let gitEnv: Record<string, string> | undefined;
   if (SAFE_AGENT.test(agentName)) {
     const settings = parseGitCommitAuthorSettings(getSetting(GIT_COMMIT_AUTHOR_SETTING_KEY));
-    const author = resolveGitCommitAuthor(agentName, settings);
+    const author = resolveGitCommitAuthor(agentName, settings, getMachineName());
     gitEnv = {
       GIT_AUTHOR_NAME: author.name,
       GIT_AUTHOR_EMAIL: author.email,

@@ -10,10 +10,12 @@ export type GitCommitAuthorSettings = {
 
 export const DEFAULT_GIT_COMMIT_AUTHOR_SETTINGS: GitCommitAuthorSettings = {
   nameTemplate: "{agent}",
-  emailTemplate: "{agent}@leafcodepi.local",
+  emailTemplate: "{agent}@leafcodepi.{machine}",
 };
 
 const AGENT_TOKEN = "{agent}";
+const MACHINE_TOKEN = "{machine}";
+const LEGACY_DEFAULT_EMAIL_TEMPLATE = "{agent}@leafcodepi.local";
 const MAX_NAME_TEMPLATE_LENGTH = 255;
 const MAX_EMAIL_TEMPLATE_LENGTH = 320;
 
@@ -59,9 +61,11 @@ export function validateGitCommitAuthorSetting(value: string): string | null {
 export function parseGitCommitAuthorSettings(value: string | null): GitCommitAuthorSettings {
   if (!value) return { ...DEFAULT_GIT_COMMIT_AUTHOR_SETTINGS };
   try {
-    return normalizeGitCommitAuthorSettings(JSON.parse(value)) ?? {
-      ...DEFAULT_GIT_COMMIT_AUTHOR_SETTINGS,
-    };
+    const normalized = normalizeGitCommitAuthorSettings(JSON.parse(value));
+    if (!normalized) return { ...DEFAULT_GIT_COMMIT_AUTHOR_SETTINGS };
+    return normalized.emailTemplate === LEGACY_DEFAULT_EMAIL_TEMPLATE
+      ? { ...normalized, emailTemplate: DEFAULT_GIT_COMMIT_AUTHOR_SETTINGS.emailTemplate }
+      : normalized;
   } catch {
     return { ...DEFAULT_GIT_COMMIT_AUTHOR_SETTINGS };
   }
@@ -70,9 +74,14 @@ export function parseGitCommitAuthorSettings(value: string | null): GitCommitAut
 export function resolveGitCommitAuthor(
   agentName: string,
   settings: GitCommitAuthorSettings,
+  machineName: string,
 ): { name: string; email: string } {
   return {
-    name: settings.nameTemplate.split(AGENT_TOKEN).join(agentName),
-    email: settings.emailTemplate.split(AGENT_TOKEN).join(agentName),
+    name: settings.nameTemplate
+      .split(AGENT_TOKEN).join(agentName)
+      .split(MACHINE_TOKEN).join(machineName),
+    email: settings.emailTemplate
+      .split(AGENT_TOKEN).join(agentName)
+      .split(MACHINE_TOKEN).join(machineName),
   };
 }

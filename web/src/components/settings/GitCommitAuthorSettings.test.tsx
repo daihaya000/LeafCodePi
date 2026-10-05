@@ -9,7 +9,7 @@ vi.mock("@/lib/client", () => ({ getJson, sendJson }));
 
 describe("GitCommitAuthorSettings", () => {
   beforeEach(() => {
-    getJson.mockResolvedValue({ value: null });
+    getJson.mockResolvedValue({ value: null, machineName: "x870" });
     sendJson.mockResolvedValue({ value: null });
   });
 
@@ -24,9 +24,9 @@ describe("GitCommitAuthorSettings", () => {
     const name = await screen.findByLabelText("作者名テンプレート") as HTMLInputElement;
     const email = screen.getByLabelText("メールテンプレート") as HTMLInputElement;
     expect(name.value).toBe("{agent}");
-    expect(email.value).toBe("{agent}@leafcodepi.local");
+    expect(email.value).toBe("{agent}@leafcodepi.{machine}");
     expect(screen.getByLabelText("コミット作者プレビュー").textContent)
-      .toBe("default <default@leafcodepi.local>");
+      .toBe("default <default@leafcodepi.x870>");
 
     fireEvent.change(name, { target: { value: "Agent ({agent})" } });
     fireEvent.change(email, { target: { value: "{agent}@example.test" } });

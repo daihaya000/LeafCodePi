@@ -9,9 +9,11 @@ const mocks = vi.hoisted(() => ({
   gitDirectoryError: vi.fn(() => null),
   runGit: vi.fn(),
   getSetting: vi.fn((): string | null => null),
+  getMachineName: vi.fn(() => "x870"),
 }));
 
 vi.mock("@/lib/git", () => mocks);
+vi.mock("@/lib/machine-name", () => ({ getMachineName: mocks.getMachineName }));
 vi.mock("@/lib/pi/web-settings", () => ({ getSetting: mocks.getSetting }));
 
 import { POST } from "./route";
@@ -30,6 +32,7 @@ describe("POST /api/git/commit", () => {
     mocks.gitDirectoryError.mockReturnValue(null);
     mocks.commitPathError.mockReturnValue(null);
     mocks.getSetting.mockReturnValue(null);
+    mocks.getMachineName.mockReturnValue("x870");
     mocks.runGit.mockResolvedValue({ code: 0, stdout: "", stderr: "" });
   });
 
@@ -132,7 +135,7 @@ describe("POST /api/git/commit", () => {
     expect(mocks.runGit).not.toHaveBeenCalled();
   });
 
-  it("uses the agent name and leafcodepi.local address by default", async () => {
+  it("uses the agent name and machine-specific address by default", async () => {
     const response = await POST(
       request({ directory: "C:\\work", message: "commit", paths: ["src/app.ts"], agent: "default" }),
     );
@@ -141,16 +144,16 @@ describe("POST /api/git/commit", () => {
     const commitCall = mocks.runGit.mock.calls.find(([, args]) => args.includes("commit"));
     expect(commitCall?.[3]).toEqual({
       GIT_AUTHOR_NAME: "default",
-      GIT_AUTHOR_EMAIL: "default@leafcodepi.local",
+      GIT_AUTHOR_EMAIL: "default@leafcodepi.x870",
       GIT_COMMITTER_NAME: "default",
-      GIT_COMMITTER_EMAIL: "default@leafcodepi.local",
+      GIT_COMMITTER_EMAIL: "default@leafcodepi.x870",
     });
   });
 
   it("uses the configured author templates", async () => {
     mocks.getSetting.mockReturnValue(JSON.stringify({
       nameTemplate: "LeafCodePi ({agent})",
-      emailTemplate: "{agent}+bot@example.test",
+      emailTemplate: "{agent}@leafcodepi.{machine}",
     }));
 
     const response = await POST(
@@ -161,9 +164,9 @@ describe("POST /api/git/commit", () => {
     const commitCall = mocks.runGit.mock.calls.find(([, args]) => args.includes("commit"));
     expect(commitCall?.[3]).toEqual({
       GIT_AUTHOR_NAME: "LeafCodePi (reviewer)",
-      GIT_AUTHOR_EMAIL: "reviewer+bot@example.test",
+      GIT_AUTHOR_EMAIL: "reviewer@leafcodepi.x870",
       GIT_COMMITTER_NAME: "LeafCodePi (reviewer)",
-      GIT_COMMITTER_EMAIL: "reviewer+bot@example.test",
+      GIT_COMMITTER_EMAIL: "reviewer@leafcodepi.x870",
     });
   });
 
@@ -173,7 +176,7 @@ describe("POST /api/git/commit", () => {
     const commitCall = mocks.runGit.mock.calls.find(([, args]) => args.includes("commit"));
     expect(commitCall?.[3]).toMatchObject({
       GIT_AUTHOR_NAME: "default",
-      GIT_AUTHOR_EMAIL: "default@leafcodepi.local",
+      GIT_AUTHOR_EMAIL: "default@leafcodepi.x870",
     });
   });
 });

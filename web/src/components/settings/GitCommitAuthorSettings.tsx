@@ -17,6 +17,7 @@ const SETTING_PATH = `/api/settings/${GIT_COMMIT_AUTHOR_SETTING_KEY}`;
 
 export function GitCommitAuthorSettings() {
   const [settings, setSettings] = useState<AuthorSettings>({ ...DEFAULT_GIT_COMMIT_AUTHOR_SETTINGS });
+  const [machineName, setMachineName] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -24,10 +25,11 @@ export function GitCommitAuthorSettings() {
 
   useEffect(() => {
     let active = true;
-    void getJson<{ value: string | null }>(SETTING_PATH)
-      .then(({ value }) => {
+    void getJson<{ value: string | null; machineName?: string }>(SETTING_PATH)
+      .then(({ value, machineName: host }) => {
         if (!active) return;
         setSettings(parseGitCommitAuthorSettings(value));
+        setMachineName(typeof host === "string" ? host : null);
         setError(null);
       })
       .catch(() => {
@@ -83,13 +85,17 @@ export function GitCommitAuthorSettings() {
     }
   }
 
-  const preview = resolveGitCommitAuthor(DEFAULT_GIT_COMMIT_AGENT_NAME, settings);
+  const preview = resolveGitCommitAuthor(
+    DEFAULT_GIT_COMMIT_AGENT_NAME,
+    settings,
+    machineName ?? "{machine}",
+  );
 
   return (
     <div className="rounded-2xl border border-border bg-surface p-4">
       <h3 className="text-sm font-semibold">Gitコミット作者</h3>
       <p className="mt-1 text-xs text-muted">
-        Gitの作者名・メールを設定します。テンプレート内の <code>{"{agent}"}</code> は実際のエージェント名（default など）に置き換わります。
+        Gitの作者名・メールを設定します。<code>{"{agent}"}</code> はエージェント名、<code>{"{machine}"}</code> はこのPCのホスト名（{machineName ?? "取得中"}）に置き換わります。
       </p>
       <label className="mt-3 flex flex-col gap-1.5">
         <span className="text-sm text-muted">作者名テンプレート</span>

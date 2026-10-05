@@ -7,28 +7,37 @@ import {
 } from "./git-commit-author";
 
 describe("git commit author settings", () => {
-  it("defaults to the agent name and leafcodepi.local email", () => {
+  it("defaults to the agent name and machine-specific email", () => {
     expect(parseGitCommitAuthorSettings(null)).toEqual({
       nameTemplate: "{agent}",
-      emailTemplate: "{agent}@leafcodepi.local",
+      emailTemplate: "{agent}@leafcodepi.{machine}",
     });
-    expect(resolveGitCommitAuthor("default", DEFAULT_GIT_COMMIT_AUTHOR_SETTINGS)).toEqual({
+    expect(resolveGitCommitAuthor("default", DEFAULT_GIT_COMMIT_AUTHOR_SETTINGS, "x870")).toEqual({
       name: "default",
-      email: "default@leafcodepi.local",
+      email: "default@leafcodepi.x870",
     });
   });
 
   it("renders custom templates for each agent", () => {
     const raw = JSON.stringify({
       nameTemplate: "Code Agent ({agent})",
-      emailTemplate: "{agent}+bot@example.test",
+      emailTemplate: "{agent}@leafcodepi.{machine}",
     });
     const normalized = validateGitCommitAuthorSetting(raw);
     expect(normalized).not.toBeNull();
-    expect(resolveGitCommitAuthor("reviewer", parseGitCommitAuthorSettings(normalized))).toEqual({
+    expect(resolveGitCommitAuthor("reviewer", parseGitCommitAuthorSettings(normalized), "x870")).toEqual({
       name: "Code Agent (reviewer)",
-      email: "reviewer+bot@example.test",
+      email: "reviewer@leafcodepi.x870",
     });
+  });
+
+  it("migrates the previous fixed local suffix to the machine placeholder", () => {
+    const stored = JSON.stringify({
+      nameTemplate: "{agent}",
+      emailTemplate: "{agent}@leafcodepi.local",
+    });
+    expect(parseGitCommitAuthorSettings(stored).emailTemplate)
+      .toBe("{agent}@leafcodepi.{machine}");
   });
 
   it.each([

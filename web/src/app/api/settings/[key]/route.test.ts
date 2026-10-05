@@ -18,6 +18,7 @@ vi.mock("@/lib/pi/web-settings", () => ({
   setSetting: settings.setSetting,
 }));
 vi.mock("@/lib/accounts", () => ({ listAccounts: accounts.listAccounts }));
+vi.mock("@/lib/machine-name", () => ({ getMachineName: () => "x870" }));
 
 import { GET, PUT } from "./route";
 
@@ -161,6 +162,21 @@ describe("/api/settings/[key]", () => {
     expect(settings.setSetting).toHaveBeenCalledWith("compaction-model", null);
   });
 
+  it("includes the current machine name with the commit author setting", async () => {
+    const key = "git-commit-author";
+    const value = JSON.stringify({
+      nameTemplate: "{agent}",
+      emailTemplate: "{agent}@leafcodepi.{machine}",
+    });
+    settings.getSetting.mockReturnValue(value);
+
+    const response = await GET(new NextRequest(`http://127.0.0.1:3010/api/settings/${key}`), {
+      params: Promise.resolve({ key }),
+    });
+
+    expect(await response.json()).toEqual({ value, machineName: "x870" });
+  });
+
   it("reads and writes the generation model", async () => {
     const getResponse = await GET(new NextRequest("http://127.0.0.1:3010/api/settings/generation-model"), {
       params: Promise.resolve({ key: "generation-model" }),
@@ -179,7 +195,7 @@ describe("/api/settings/[key]", () => {
     const key = "git-commit-author";
     const payload = JSON.stringify({
       nameTemplate: "Agent ({agent})",
-      emailTemplate: "{agent}@leafcodepi.local",
+      emailTemplate: "{agent}@leafcodepi.{machine}",
     });
     const accepted = await PUT(request(key, { value: payload }), {
       params: Promise.resolve({ key }),
@@ -191,7 +207,7 @@ describe("/api/settings/[key]", () => {
     expect(accepted.status).toBe(200);
     expect(settings.setSetting).toHaveBeenCalledWith(key, JSON.stringify({
       nameTemplate: "Agent ({agent})",
-      emailTemplate: "{agent}@leafcodepi.local",
+      emailTemplate: "{agent}@leafcodepi.{machine}",
     }));
     expect(rejected.status).toBe(400);
   });
