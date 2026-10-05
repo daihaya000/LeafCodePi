@@ -9,8 +9,10 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 type Preview = { lastMessageSummary: string | null; lastMessageAt: string | null };
+/** 80文字の要約に必要な範囲より十分長い先頭だけを正規化する（巨大な返信全体を毎回走査しない）。 */
+const SUMMARY_SOURCE_CHARS = 4_000;
 function summarize(text: string): string {
-  const compact = text.replace(/\s+/g, " ").trim();
+  const compact = text.slice(0, SUMMARY_SOURCE_CHARS).replace(/\s+/g, " ").trim();
   // コードポイント単位で切る（絵文字などのサロゲートペアを壊さない）。
   const chars = Array.from(compact);
   return chars.length > 80 ? `${chars.slice(0, 79).join("")}…` : compact;
