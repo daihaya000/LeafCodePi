@@ -742,6 +742,9 @@ async function restartBackend() {
   restarting = true;
   log("Restarting the Backend (Pi runtime)...");
   try {
+    // Same as WebUI / Host restart: pull first so the rebuild uses the latest sources.
+    // pullLatestSources never fails the restart; network errors keep local sources.
+    pullLatestSources({ repoRoot: REPO_ROOT, log, error });
     await backendService.stopForRestart();
     await buildBackendWithFallback({ force: true, log, error });
     backendService.start({ attachRuntime: true });

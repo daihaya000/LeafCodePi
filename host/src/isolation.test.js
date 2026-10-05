@@ -295,15 +295,33 @@ test("the WebUI is always the Backend's client", () => {
   assert.match(restart, /Refusing to restart the WebUI as a Backend client/);
 });
 
+test("every service restart pulls latest sources first", () => {
+  const index = readFileSync(join(repoRoot, "host", "src", "index.js"), "utf8");
+  const backend = index.slice(index.indexOf("async function restartBackend("), index.indexOf("async function restartWeb("));
+  const web = index.slice(index.indexOf("async function restartWeb("), index.indexOf("async function restartHost("));
+  const host = index.slice(index.indexOf("async function restartHost("), index.indexOf("async function refreshStatusMenu("));
+  assert.match(backend, /pullLatestSources\(/);
+  assert.match(web, /pullLatestSources\(/);
+  assert.match(host, /pullLatestSources\(/);
+  // Pull precedes stop/rebuild for Backend, and spawnWeb keeps pull:false after WebUI's explicit pull.
+  assert.ok(backend.indexOf("pullLatestSources(") < backend.indexOf("stopForRestart()"));
+  assert.match(web, /await spawnWeb\(\{ pull: false, forceBuild: true \}\)/);
+  // Tray handlers route through the same restart functions (no separate pull-less path).
+  assert.match(index, /if \(target === "webui"\) await restartWeb\(\)/);
+  assert.match(index, /else if \(target === "backend"\) await restartBackend\(\)/);
+  assert.match(index, /else await restartHost\(\)/);
+});
 test("the Host can restart the Backend on request, and refuses while a Goal Loop is live", () => {
   const index = readFileSync(join(repoRoot, "host", "src", "index.js"), "utf8");
   assert.match(index, /onRestartBackend: \(\) => restartBackend\(\)/);
   assert.match(index, /onRestartBackendBlocked: \(\) => backendRestartBlockReason\(\)/);
   const restart = index.slice(index.indexOf("async function restartBackend("), index.indexOf("async function restartWeb("));
-  // The runtime owner is stopped with confirmation, started attached again, then awaited.
+  // Pull first (same as WebUI / Host), then stop, rebuild, start attached.
+  assert.match(restart, /pullLatestSources\(/);
   assert.match(restart, /await backendService\.stopForRestart\(\)/);
   assert.match(restart, /backendService\.start\(\{ attachRuntime: true \}\)/);
   assert.match(restart, /await buildBackendWithFallback\(\{ force: true, log, error \}\)/);
+  assert.ok(restart.indexOf("pullLatestSources(") < restart.indexOf("stopForRestart()"));
   assert.ok(restart.indexOf("stopForRestart()") < restart.indexOf("buildBackendWithFallback("));
   assert.ok(restart.indexOf("buildBackendWithFallback(") < restart.indexOf("backendService.start("));
   assert.match(restart, /publishBackendGeneration\(\)/);
