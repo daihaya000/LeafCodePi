@@ -115,16 +115,24 @@ function currentProcessIncarnationFor(): string | null {
  * 同期 powershell（Windows で約0.5〜1.5秒）の反復起動を避ける。
  */
 const INCARNATION_PROBE_TTL_MS = 30_000;
-const incarnationProbeCache = new Map<number, { at: number; value: string | null }>();
 
-function cachedProcessIncarnation(pid: number): string | null {
-  const now = Date.now();
-  const cached = incarnationProbeCache.get(pid);
-  if (cached && now - cached.at < INCARNATION_PROBE_TTL_MS) return cached.value;
-  const value = probeProcessIncarnation(pid);
-  incarnationProbeCache.set(pid, { at: now, value });
-  return value;
+export function createIncarnationProbeCache(
+  probe: (pid: number) => string | null,
+  now: () => number = Date.now,
+  ttlMs = INCARNATION_PROBE_TTL_MS,
+): (pid: number) => string | null {
+  const cache = new Map<number, { at: number; value: string | null }>();
+  return (pid) => {
+    const at = now();
+    const cached = cache.get(pid);
+    if (cached && at - cached.at < ttlMs) return cached.value;
+    const value = probe(pid);
+    cache.set(pid, { at, value });
+    return value;
+  };
 }
+
+const cachedProcessIncarnation = createIncarnationProbeCache(probeProcessIncarnation);
 
 const RELEASE_ATTEMPTS = 3;
 // Opportunistic dead-row GC: a row must be older than the grace period before

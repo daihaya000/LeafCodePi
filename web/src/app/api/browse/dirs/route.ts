@@ -25,6 +25,15 @@ function isDirectory(path: string): boolean {
   }
 }
 
+/** Non-blocking variant for large directories: symlinks are resolved concurrently. */
+async function isDirectoryAsync(path: string): Promise<boolean> {
+  try {
+    return (await stat(path)).isDirectory();
+  } catch {
+    return false;
+  }
+}
+
 function quickAccessEntries(windowsEntries: readonly QuickAccessItem[] = []): DirEntry[] {
   return buildQuickAccessEntries({
     home: homedir(),
@@ -37,7 +46,7 @@ function quickAccessEntries(windowsEntries: readonly QuickAccessItem[] = []): Di
 }
 
 const execFileAsync = promisify(execFile);
-const QUICK_ACCESS_CACHE_MS = 10_000;
+const QUICK_ACCESS_CACHE_MS = 30_000;
 const WINDOWS_QUICK_ACCESS_SCRIPT = String.raw`
 $ErrorActionPreference = 'Stop'
 $utf8 = New-Object System.Text.UTF8Encoding($false)
@@ -104,16 +113,14 @@ export async function GET(req: NextRequest) {
   const parent = parentPath !== target && isAllowedBrowsePath(parentPath, { roots }) ? parentPath : null;
   try {
     const entries = await readdir(target, { withFileTypes: true });
-    const dirs: DirEntry[] = [];
-    for (const entry of entries) {
-      if (entry.name.startsWith(".") && entry.name !== ".git") continue;
-      // Dirent.isDirectory() は symlink/junction で false になるため、リンクを辿って
-      // ディレクトリか判定する。判定できない要素は従来どおり落とす。
-      const isDirectoryEntry = entry.isDirectory()
-        || (entry.isSymbolicLink() && isDirectory(join(target, entry.name)));
-      if (!isDirectoryEntry) continue;
-      dirs.push({ name: entry.name, path: join(target, entry.name) });
-    }
+    const visible = entries.filter((entry) => !(entry.name.startsWith(".") && entry.name !== ".git"));
+    // Dirent.isDirectory() は symlink/junction で false になるため、リンクを辿って
+    // ディレクトリか判定する。判定できない要素は従来どおり落とす。
+    const isDirectoryEntry = await Promise.all(visible.map(async (entry) => entry.isDirectory()
+      || (entry.isSymbolicLink() && await isDirectoryAsync(join(target, entry.name)))));
+    const dirs: DirEntry[] = visible
+      .filter((_, index) => isDirectoryEntry[index])
+      .map((entry) => ({ name: entry.name, path: join(target, entry.name) }));
     dirs.sort((a, b) => a.name.localeCompare(b.name, "ja"));
     return NextResponse.json({
       path: target,

@@ -1,11 +1,11 @@
 import assert from "node:assert/strict";
-import { spawn } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import { once } from "node:events";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, renameSync, rmSync, statSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { test } from "node:test";
-import { createTaskLeaseState, TaskLeaseService, HEARTBEAT_MS, TASK_LEASE_STALE_MS, ORPHANED_WORKING_TASK_ERROR } from "./task-runtime-lease.mjs";
+import { createTaskLeaseState, TaskLeaseService, HEARTBEAT_MS, RECLAIM_LOCK_STALE_MS, TASK_LEASE_STALE_MS, ORPHANED_WORKING_TASK_ERROR } from "./task-runtime-lease.mjs";
 
 function fixture(t, options = {}) {
   const root = mkdtempSync(join(tmpdir(), "leafcode-backend-task-lease-"));
@@ -303,6 +303,116 @@ async function startOwner(t, root) {
     return { child, pid: message.pid };
   } catch (error) { throw new Error(`lease owner failed: ${stderr}`, { cause: error }); }
 }
+
+test("a real process cannot reclaim a stale lease during a guarded session write", { timeout: 12_000 }, (t) => {
+  const f = fixture(t, {
+    getProcessStartKey: () => { throw new Error("session-write lock must not probe process identity"); },
+  });
+  assert.equal(f.service.acquireTaskLease("shared"), true);
+  const leasePath = f.service.taskRuntimeLeasePath("shared");
+  const staleAt = Date.now() - TASK_LEASE_STALE_MS - 100;
+  seed(f.service, "shared", { ...record(f.service, "shared"), heartbeatAt: staleAt });
+  utimesSync(leasePath, new Date(staleAt), new Date(staleAt));
+
+  const moduleUrl = new URL("./task-runtime-lease.mjs", import.meta.url).href;
+  const code = `
+    import { TaskLeaseService } from ${JSON.stringify(moduleUrl)};
+    const service = new TaskLeaseService({
+      dataDir: () => ${JSON.stringify(f.root)}, listTasks: () => [], patchTask: () => undefined,
+      getProcessStartKey: (pid) => "test:" + pid,
+    });
+    process.stdout.write(JSON.stringify({ acquired: service.acquireTaskLease("shared") }));
+  `;
+  const attemptAcquire = () => {
+    const child = spawnSync(process.execPath, ["--input-type=module", "-e", code], {
+      encoding: "utf8",
+      timeout: 5_000,
+    });
+    assert.ifError(child.error);
+    assert.equal(child.status, 0, child.stderr);
+    return JSON.parse(child.stdout);
+  };
+
+  const duringWrite = f.service.runWithTaskLeaseOwnership("shared", () => attemptAcquire().acquired);
+  assert.deepEqual(duringWrite, { acquired: true, value: false });
+  assert.equal(attemptAcquire().acquired, true);
+  assert.equal(f.service.ownsTaskLease("shared"), false);
+  assert.deepEqual(f.service.runWithTaskLeaseOwnership("shared", () => true), { acquired: false });
+});
+
+test("only one process can replace a dead stale reclaim lock", { timeout: 10_000 }, async (t) => {
+  const f = fixture(t);
+  const leasePath = f.service.taskRuntimeLeasePath("shared");
+  const lockPath = `${leasePath}.reclaim`;
+  mkdirSync(lockPath, { recursive: true });
+  writeFileSync(join(lockPath, "owner"), JSON.stringify({
+    pid: 2_147_483_647,
+    processStartKey: "dead-owner",
+    token: "dead-token",
+  }), "utf8");
+  const staleAt = Date.now() - RECLAIM_LOCK_STALE_MS - 100;
+  utimesSync(lockPath, new Date(staleAt), new Date(staleAt));
+
+  const moduleUrl = new URL("./task-runtime-lease.mjs", import.meta.url).href;
+  const gatePath = join(f.root, "continue");
+  const children = ["one", "two"].map((id) => {
+    const code = `
+      import { existsSync, renameSync, writeFileSync } from "node:fs";
+      import { join } from "node:path";
+      import { TaskLeaseService } from ${JSON.stringify(moduleUrl)};
+      const [root, id, gatePath] = process.argv.slice(1);
+      const lockPath = join(root, "task-leases", "shared.json.reclaim");
+      const readyPath = join(root, "ready-" + id);
+      const waitCell = new Int32Array(new SharedArrayBuffer(4));
+      const service = new TaskLeaseService({
+        dataDir: () => root,
+        listTasks: () => [],
+        patchTask: () => undefined,
+        isProcessAlive: () => false,
+        getProcessStartKey: () => "test:" + id,
+        renameDirectory: (from, to) => {
+          if (from === lockPath) {
+            writeFileSync(readyPath, "ready");
+            while (!existsSync(gatePath)) Atomics.wait(waitCell, 0, 0, 5);
+          }
+          renameSync(from, to);
+        },
+      });
+      service.ownsTaskLease = () => true;
+      const result = service.runWithTaskLeaseOwnership("shared", () => "entered");
+      process.stdout.write(JSON.stringify({ id, result }));
+    `;
+    const child = spawn(process.execPath, ["--input-type=module", "-e", code, f.root, id, gatePath], {
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+    let stdout = "";
+    let stderr = "";
+    child.stdout.on("data", (chunk) => { stdout += chunk.toString(); });
+    child.stderr.on("data", (chunk) => { stderr += chunk.toString(); });
+    const exited = once(child, "exit");
+    t.after(async () => {
+      if (child.exitCode === null && child.signalCode === null) {
+        const stopped = once(child, "exit");
+        child.kill();
+        await stopped;
+      }
+    });
+    return { child, stdout: () => stdout, stderr: () => stderr, exited };
+  });
+
+  const deadline = Date.now() + 3_000;
+  while (!existsSync(join(f.root, "ready-one")) || !existsSync(join(f.root, "ready-two"))) {
+    if (Date.now() >= deadline) throw new Error("stale lock contenders did not reach the rename barrier");
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
+  writeFileSync(gatePath, "go", "utf8");
+  const exits = await Promise.all(children.map(({ exited }) => exited));
+  assert.deepEqual(exits.map(([code]) => code), [0, 0], children.map(({ stderr }) => stderr()).join("\n"));
+  const results = children.map(({ stdout }) => JSON.parse(stdout()));
+  assert.equal(results.filter(({ result }) => result.acquired).length, 1);
+  assert.equal(results.filter(({ result }) => result.acquired === false).length, 1);
+  assert.equal(readdirSync(dirname(lockPath)).filter((name) => name.startsWith("shared.json.reclaim.retired.")).length, 1);
+});
 
 test("a real second Node process cannot take or remove the live owner's lease", { timeout: 7_000 }, async (t) => {
   const f = fixture(t);

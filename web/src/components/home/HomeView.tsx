@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { ArrowUp, FolderGit2, GitGraph, PanelRight } from "lucide-react";
 import { AddProjectButton } from "@/components/AddProjectButton";
 import { ProjectFilePicker } from "@/components/ProjectFilePicker";
+import { ProjectIcon } from "@/components/ProjectIcon";
 import { DiffPane } from "@/components/task/DiffPane";
 import { GraphPanel } from "@/components/task/GraphPanel";
 import { SidePanel } from "@/components/task/SidePanel";
@@ -65,6 +66,7 @@ import type { AutoOptimizeMode } from "@/lib/auto-model";
 import { readCachedModels, writeCachedModels } from "@/lib/models-cache";
 
 const MODEL_KEY = "leafcodepi.defaultModel";
+const PROJECT_SELECT_ICON_CLASS = "flex h-4 w-4 shrink-0 items-center justify-center rounded-md text-xs font-semibold";
 
 /** プライベートモード等のストレージ例外でもモデル選択を壊さない。 */
 function readStoredModel(): string {
@@ -265,7 +267,10 @@ export const HomeView = memo(function HomeView({
       setProjects((current) =>
         current.length === nextProjects.length &&
         current.every((project, index) =>
-          project.id === nextProjects[index]?.id && project.name === nextProjects[index]?.name,
+          project.id === nextProjects[index]?.id &&
+          project.name === nextProjects[index]?.name &&
+          project.icon === nextProjects[index]?.icon &&
+          project.iconColor === nextProjects[index]?.iconColor,
         )
           ? current
           : nextProjects,
@@ -524,7 +529,11 @@ export const HomeView = memo(function HomeView({
                 value={projectId ?? ""}
                 disabled={submitting}
                 aria-label="プロジェクト"
-                icon={<FolderGit2 className="h-3.5 w-3.5" />}
+                icon={selectedProject ? (
+                  <ProjectIcon project={selectedProject} className={PROJECT_SELECT_ICON_CLASS} />
+                ) : (
+                  <FolderGit2 className="h-4 w-4" />
+                )}
                 valueLabel={selectedProject ? selectedProject.name : NO_PROJECT_NAME}
                 onChange={(value) => setProjectId(value || null)}
                 className="min-w-0 max-w-[11rem] shrink sm:max-w-56"
@@ -541,10 +550,20 @@ export const HomeView = memo(function HomeView({
                   />
                 }
               >
-                <option value="">{NO_PROJECT_NAME}</option>
+                <option value="">
+                  <span className="flex min-w-0 items-center gap-2">
+                    <FolderGit2 aria-hidden="true" className="h-4 w-4 shrink-0" />
+                    <span className="truncate">{NO_PROJECT_NAME}</span>
+                  </span>
+                </option>
                 {projects.map((project) => (
                   <option key={project.id} value={project.id}>
-                    {project.name}
+                    <span className="flex min-w-0 items-center gap-2">
+                      <span aria-hidden="true" className="shrink-0">
+                        <ProjectIcon project={project} className={PROJECT_SELECT_ICON_CLASS} />
+                      </span>
+                      <span className="truncate">{project.name}</span>
+                    </span>
                   </option>
                 ))}
               </GhostSelect>

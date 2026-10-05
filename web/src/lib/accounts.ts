@@ -69,6 +69,10 @@ export type AccountRecord = {
   label: string;
   /** モデル選択・ルーティングで使用するアカウントか。 */
   enabled: boolean;
+  /** Expiring Codex reset credits: default ON; explicit false disables for this account. */
+  codexResetAutoConsume?: boolean;
+  /** Claude subscription reset grants: default ON; requires account claude.ai cookies. */
+  anthropicResetAutoConsume?: boolean;
   /** このアカウントでログイン可能なプロバイダー（作成時に確定、変更不可）。 */
   providers: AccountProviderId[];
   note?: string;
@@ -409,6 +413,11 @@ function importAccountRecordsLocked(input: unknown): AccountRecord[] {
     const label = validateLabel(row.label);
     const note = validateNote(row.note);
     if (typeof row.enabled !== "boolean") throw badRequest("アカウントの有効状態が不正です");
+    for (const key of ["codexResetAutoConsume", "anthropicResetAutoConsume"] as const) {
+      if (row[key] !== undefined && typeof row[key] !== "boolean") {
+        throw badRequest(`${key} は真偽値で指定してください`);
+      }
+    }
     const existing = file.accounts.find((account) => account.id === row.id);
     if (existing) {
       if (providers.some((provider) => !existing.providers.includes(provider))) {
@@ -417,7 +426,7 @@ function importAccountRecordsLocked(input: unknown): AccountRecord[] {
       continue;
     }
     const now = new Date().toISOString();
-    additions.push({ id: row.id, label, enabled: row.enabled, providers, ...(note ? { note } : {}), createdAt: now, updatedAt: now });
+    additions.push({ id: row.id, label, enabled: row.enabled, providers, ...(note ? { note } : {}), ...(typeof row.codexResetAutoConsume === "boolean" ? { codexResetAutoConsume: row.codexResetAutoConsume } : {}), ...(typeof row.anthropicResetAutoConsume === "boolean" ? { anthropicResetAutoConsume: row.anthropicResetAutoConsume } : {}), createdAt: now, updatedAt: now });
   }
   if (additions.length) {
     file.accounts.push(...additions);
@@ -495,14 +504,14 @@ function assertAccountIdleForDisable(id: string, action: "delete" | "pause"): vo
 
 export function patchAccount(
   id: string,
-  patch: { label?: unknown; note?: unknown; enabled?: unknown },
+  patch: { label?: unknown; note?: unknown; enabled?: unknown; codexResetAutoConsume?: unknown; anthropicResetAutoConsume?: unknown },
 ): AccountRecord {
   return withAccountsLock(() => patchAccountLocked(id, patch));
 }
 
 function patchAccountLocked(
   id: string,
-  patch: { label?: unknown; note?: unknown; enabled?: unknown },
+  patch: { label?: unknown; note?: unknown; enabled?: unknown; codexResetAutoConsume?: unknown; anthropicResetAutoConsume?: unknown },
 ): AccountRecord {
   const file = readAccountsFileForWrite();
   const record = file.accounts.find((account) => account.id === id);
@@ -521,6 +530,12 @@ function patchAccountLocked(
       assertAccountIdleForDisable(id, "pause");
     }
     record.enabled = patch.enabled;
+  }
+  for (const [key, provider] of [["codexResetAutoConsume", "openai-codex"], ["anthropicResetAutoConsume", "anthropic"]] as const) {
+    if (!(key in patch)) continue;
+    if (typeof patch[key] !== "boolean") throw badRequest(`${key} は真偽値で指定してください`);
+    if (!accountHasProvider(record, provider)) throw badRequest(`${provider} アカウントのみ自動使用を設定できます`);
+    record[key] = patch[key];
   }
   record.updatedAt = new Date().toISOString();
   writeAccountsFile(file);

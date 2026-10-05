@@ -2,12 +2,12 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { UsageScope } from "./types";
 
 const state = vi.hoisted(() => ({
-  config: vi.fn((): Record<string, unknown> => ({})),
-  accounts: vi.fn((): { id: string; label: string; enabled: boolean; providers: string[] }[] => []),
+  accounts: vi.fn((): { id: string; label: string; enabled: boolean; providers: string[]; codexResetAutoConsume?: boolean; anthropicResetAutoConsume?: boolean }[] => []),
   peer: vi.fn((): object | null => null),
   configured: vi.fn(() => true),
   fetch: vi.fn((): Promise<unknown> => Promise.resolve({})),
   create: vi.fn(),
+  claude: vi.fn(async () => false),
 }));
 vi.mock("@/lib/accounts", () => ({
   listAccounts: state.accounts,
@@ -18,11 +18,8 @@ vi.mock("@/lib/accounts", () => ({
   accountAuthPath: (id: string, dir: string) => `${dir}/accounts/${id}/auth.json`,
 }));
 vi.mock("@backend-core/peer-auth-config.mjs", () => ({ readPeerConfig: state.peer }));
-vi.mock("./codexbar-config", async (importOriginal) => ({
-  ...(await importOriginal<typeof import("./codexbar-config")>()),
-  loadCodexBarConfig: state.config,
-}));
 vi.mock("./providers/openai-codex", () => ({ createOpenaiCodexProvider: state.create }));
+vi.mock("./providers/anthropic-auto-reset", () => ({ checkClaudeResetCredits: state.claude }));
 
 import { checkCodexResetCredits, ensureCodexResetScheduler } from "./reset-scheduler";
 const globals = globalThis as typeof globalThis & {
@@ -33,8 +30,8 @@ const account = (id: string, enabled = true) => ({ id, label: id, enabled, provi
 beforeEach(() => {
   vi.useFakeTimers();
   vi.spyOn(console, "warn").mockImplementation(() => undefined);
-  state.config.mockReset().mockReturnValue({});
   state.accounts.mockReturnValue([]);
+  state.claude.mockReset().mockResolvedValue(false);
   state.peer.mockReturnValue(null);
   state.configured.mockReturnValue(true);
   state.fetch.mockReset().mockResolvedValue({});
@@ -58,24 +55,49 @@ describe("owner reset scheduler", () => {
   });
 
   it("respects OFF and resumes on the next tick after enabling without a restart", async () => {
-    state.config.mockReturnValue({ codexResetAutoConsume: false });
+    state.accounts.mockReturnValue([{ ...account("off"), codexResetAutoConsume: false }]);
     ensureCodexResetScheduler();
     await checkCodexResetCredits();
     await vi.advanceTimersByTimeAsync(60_000);
     expect(state.fetch).not.toHaveBeenCalled();
-    state.config.mockReturnValue({ codexResetAutoConsume: true });
+    state.accounts.mockReturnValue([{ ...account("off"), codexResetAutoConsume: true }]);
     await vi.advanceTimersByTimeAsync(60_000);
     expect(state.fetch).toHaveBeenCalledOnce();
   });
 
   it("checks enabled local Codex accounts, but skips paused, peer and other providers", async () => {
-    state.accounts.mockReturnValue([account("active"), account("paused", false), account("shared"), { ...account("claude"), providers: ["anthropic"] }]);
+    state.accounts.mockReturnValue([account("active"), { ...account("off"), codexResetAutoConsume: false }, account("paused", false), account("shared"), { ...account("other"), providers: ["openai"] }]);
     state.peer.mockImplementation((...args: unknown[]) => String(args[0]).endsWith("/shared") ? {} : null);
     await checkCodexResetCredits();
     expect(state.create).toHaveBeenCalledOnce();
     expect(state.create).toHaveBeenCalledWith(expect.objectContaining({
       kind: "account", accountId: "active", authPath: "C:/test/agent/accounts/active/auth.json",
     }));
+  });
+
+  it("checks only enabled local Claude accounts on startup and later ticks", async () => {
+    const claude = (id: string, auto = true) => ({ ...account(id), providers: ["anthropic"], anthropicResetAutoConsume: auto });
+    state.accounts.mockReturnValue([account("codex"), claude("claude"), claude("off", false), { ...claude("paused"), enabled: false }, claude("shared")]);
+    state.peer.mockImplementation((...args: unknown[]) => String(args[0]).endsWith("/shared") ? {} : null);
+    ensureCodexResetScheduler();
+    await checkCodexResetCredits();
+    expect(state.claude).toHaveBeenCalledOnce();
+    expect(state.claude).toHaveBeenCalledWith(expect.objectContaining({ accountId: "claude", authPath: "C:/test/agent/accounts/claude/auth.json" }));
+    state.accounts.mockReturnValue([account("codex"), claude("off")]);
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(state.claude).toHaveBeenCalledTimes(2);
+    expect(state.claude.mock.calls[1][0]).toMatchObject({ accountId: "off" });
+  });
+
+  it("isolates Claude failures from other accounts and retries without logging response secrets", async () => {
+    state.accounts.mockReturnValue([account("codex"), { ...account("first"), providers: ["anthropic"] }, { ...account("second"), providers: ["anthropic"] }]);
+    state.claude.mockRejectedValueOnce(new Error("private-cookie"));
+    ensureCodexResetScheduler();
+    await checkCodexResetCredits();
+    expect(state.claude).toHaveBeenCalledTimes(2);
+    expect(console.warn).toHaveBeenCalledWith("[claude-auto-reset] account reset credits unavailable; retry on next check");
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(state.claude).toHaveBeenCalledTimes(4);
   });
 
   it("does not bypass a paused account through default auth", async () => {

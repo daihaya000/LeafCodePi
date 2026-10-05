@@ -10,6 +10,28 @@ export const THROTTLED_SNAPSHOT_EVENTS = new Set([
   "tool_execution_update",
 ]);
 export const SNAPSHOT_THROTTLE_MS = 100;
+/**
+ * Lifecycle events that change task metadata or controls but never the transcript. Their
+ * snapshots can omit the message projection: clients keep the messages they already hold
+ * when the key is absent.
+ */
+export const TRANSCRIPT_NEUTRAL_SNAPSHOT_EVENTS = new Set([
+  "settings_pending",
+  "thinking_level_changed",
+  "project_promoted",
+  "project_migrated",
+  "project_migration_rolled_back",
+  "agent_routed",
+  "task_changed",
+  "label_changed",
+  "supervisor_handoff",
+  "supervisor_released",
+]);
+
+/** True when a full snapshot for this event need not carry the message projection. */
+export function snapshotOmitsMessages(eventType, extra) {
+  return TRANSCRIPT_NEUTRAL_SNAPSHOT_EVENTS.has(eventType) && !(extra && "messages" in extra);
+}
 /** These lifecycle events do not change anything rendered by TaskView. */
 export const NON_RENDERING_SESSION_EVENTS = new Set([
   "turn_start",

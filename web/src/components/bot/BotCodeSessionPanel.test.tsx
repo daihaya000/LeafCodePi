@@ -101,7 +101,7 @@ it.each(["idle", "error", "archived"] as const)("does not notify the Bot sidebar
 
   currentTask = { ...workingTask, status };
   await act(async () => {
-    vi.advanceTimersByTime(2_000);
+    vi.advanceTimersByTime(5_000);
     await Promise.resolve();
     await Promise.resolve();
   });

@@ -9,6 +9,7 @@ const mocks = vi.hoisted(() => ({
   }),
   reconcileOrphanedWorkingTasks: vi.fn(),
   ensureRoutineScheduler: vi.fn(),
+  ensureCodexResetScheduler: vi.fn(),
   reconcileRoomRuntime: vi.fn(),
   setLeaseLostListener: vi.fn(),
   setOrphanedTaskListener: vi.fn(),
@@ -36,6 +37,7 @@ vi.mock("@/lib/pi/harness", () => ({
   listModelsForAccounts: undefined,
 }));
 vi.mock("@/lib/routines", () => ({ ensureRoutineScheduler: mocks.ensureRoutineScheduler }));
+vi.mock("@/lib/codexbar/reset-scheduler", () => ({ ensureCodexResetScheduler: mocks.ensureCodexResetScheduler }));
 vi.mock("@/lib/task-runtime-lease", () => ({
   reconcileOrphanedWorkingTasks: mocks.reconcileOrphanedWorkingTasks,
   setLeaseLostListener: mocks.setLeaseLostListener,
@@ -93,6 +95,7 @@ describe("startRuntimeServices", () => {
     expect(mocks.setRuntimeOwnerUnavailable).toHaveBeenCalledWith(false);
     expect(mocks.startBotCodeRelay).toHaveBeenCalledTimes(1);
     expect(mocks.ensureRoutineScheduler).toHaveBeenCalledTimes(1);
+    expect(mocks.ensureCodexResetScheduler).toHaveBeenCalledOnce();
     expect(mocks.reconcileOrphanedWorkingTasks).toHaveBeenCalledTimes(1);
     expect(mocks.reconcileRoomRuntime).toHaveBeenCalledTimes(1);
     expect(mocks.setLeaseLostListener).toHaveBeenCalledTimes(1);

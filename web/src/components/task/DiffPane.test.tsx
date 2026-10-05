@@ -318,3 +318,34 @@ describe("DiffPane 全選択", () => {
     expect(screen.queryByRole("button", { name: "残り100行を表示" })).toBeNull();
   });
 });
+describe("DiffPane lazy hunks", () => {
+  beforeEach(() => {
+    mocks.getJson.mockReset();
+    mocks.sendJson.mockReset();
+  });
+  afterEach(() => cleanup());
+
+  it("loads the list from numstat and fetches a file's hunks only when it is expanded", async () => {
+    const pending = { path: "src/a.ts", additions: 1, deletions: 1, binary: false, untracked: false, hunks: [], hunksPending: true };
+    const full = { ...pending, hunksPending: undefined, hunks: [{ header: "@@ -1 +1 @@", lines: [{ t: "-", text: "old line" }, { t: "+", text: "new line" }] }] };
+    mocks.getJson.mockImplementation((path: string, params?: Record<string, string>) => {
+      if (path === "/api/diff/files") {
+        return Promise.resolve({ git: true, branch: "master", files: [params?.path ? full : pending], additions: 1, deletions: 1 });
+      }
+      if (path === "/api/git/branches") return Promise.resolve({ current: "master", branches: ["master"], defaultTarget: null, hasRemote: false });
+      if (path === "/api/git/pr") return Promise.resolve({ available: false });
+      return Promise.reject(new Error(`unexpected path: ${path}`));
+    });
+    render(<DiffPane directory="C:\\repo" />);
+    await screen.findByText("a.ts");
+    const listCalls = () => mocks.getJson.mock.calls.filter(([p]) => p === "/api/diff/files");
+    expect(listCalls()).toHaveLength(1);
+    expect(listCalls()[0][1]).toMatchObject({ directory: expect.stringContaining("repo"), summary: "1" });
+    expect(document.body.textContent).not.toContain("new line");
+
+    fireEvent.click(screen.getByRole("button", { name: "src/a.ts の差分を展開" }));
+    await waitFor(() => expect(document.body.textContent).toContain("new line"));
+    expect(listCalls()).toHaveLength(2);
+    expect(listCalls()[1][1]).toMatchObject({ directory: expect.stringContaining("repo"), path: "src/a.ts" });
+  });
+});

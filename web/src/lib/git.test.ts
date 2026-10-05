@@ -5,7 +5,7 @@ import { beforeEach, expect, it, vi } from "vitest";
 const mocks = vi.hoisted(() => ({ spawn: vi.fn() }));
 vi.mock("node:child_process", () => ({ spawn: mocks.spawn }));
 
-import { gitBranchRefs, gitCommitFileDiff, gitCommitFiles, gitDiff, gitLogGraph, runGit } from "./git";
+import { GIT_MAX_CONCURRENT_OUTPUT_CAPTURES, GIT_MAX_OUTPUT_CHARS, gitBranchRefs, gitCommitFileDiff, gitCommitFiles, gitDiff, gitLogGraph, runGit } from "./git";
 
 beforeEach(() => mocks.spawn.mockReset());
 
@@ -39,6 +39,48 @@ it("kills git and rejects when output exceeds the buffer ceiling", async () => {
   child.stdout.write("0123456789ab");
   await expect(result).rejects.toThrow("git output exceeded 10 characters");
   if (process.platform !== "win32") expect(kill).toHaveBeenCalledWith("SIGKILL");
+});
+
+it("rejects excess concurrent git output captures before spawning them", async () => {
+  const children: Array<EventEmitter & { stdout: PassThrough; stderr: PassThrough; kill: ReturnType<typeof vi.fn>; pid: number }> = [];
+  mocks.spawn.mockImplementation(() => {
+    const child = Object.assign(new EventEmitter(), {
+      stdout: new PassThrough(),
+      stderr: new PassThrough(),
+      kill: vi.fn(),
+      pid: 123,
+    });
+    children.push(child);
+    return child;
+  });
+  const running = Array.from({ length: GIT_MAX_CONCURRENT_OUTPUT_CAPTURES }, () => runGit(".", ["diff"]));
+  expect(mocks.spawn).toHaveBeenCalledTimes(GIT_MAX_CONCURRENT_OUTPUT_CAPTURES);
+  await expect(runGit(".", ["diff"])).rejects.toThrow(`git output capacity reached (max ${GIT_MAX_CONCURRENT_OUTPUT_CAPTURES} concurrent captures)`);
+  expect(mocks.spawn).toHaveBeenCalledTimes(GIT_MAX_CONCURRENT_OUTPUT_CAPTURES);
+
+  const payload = "漢".repeat(GIT_MAX_OUTPUT_CHARS);
+  for (const child of children) {
+    child.stdout.end(payload);
+    child.stderr.end();
+    child.emit("close", 0);
+  }
+  const results = await Promise.all(running);
+  expect(results).toHaveLength(GIT_MAX_CONCURRENT_OUTPUT_CAPTURES);
+  expect(results.reduce((total, result) => total + result.stdout.length + result.stderr.length, 0))
+    .toBe(GIT_MAX_CONCURRENT_OUTPUT_CAPTURES * GIT_MAX_OUTPUT_CHARS);
+});
+
+it("enforces the hard output ceiling despite a larger caller override", async () => {
+  const child = Object.assign(new EventEmitter(), {
+    stdout: new PassThrough(),
+    stderr: new PassThrough(),
+    kill: vi.fn(),
+    pid: 123,
+  });
+  mocks.spawn.mockReturnValue(child);
+  const result = runGit(".", ["diff"], 30_000, undefined, GIT_MAX_OUTPUT_CHARS * 2);
+  child.stdout.write("x".repeat(GIT_MAX_OUTPUT_CHARS + 1));
+  await expect(result).rejects.toThrow(`git output exceeded ${GIT_MAX_OUTPUT_CHARS} characters`);
 });
 
 it.each(["staged", "unstaged"])("rejects a partial diff when %s git diff fails", async (failed) => {

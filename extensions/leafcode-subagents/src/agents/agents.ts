@@ -3,6 +3,7 @@
  */
 
 import { execSync } from "node:child_process";
+import { randomUUID } from "node:crypto";
 import * as fs from "node:fs";
 import { parse as parseYaml } from "yaml";
 import * as os from "node:os";
@@ -22,6 +23,7 @@ import { parseMemoryFrontmatter } from "./agent-memory.ts";
 import { resolveTurnBudgetConfig } from "../runs/shared/turn-budget.ts";
 import { validateAcceptanceInput } from "../runs/shared/acceptance.ts";
 import { validatePermissionRules, type PermissionRules } from "../runs/shared/permissions.ts";
+import { withDirectoryLock } from "../../../../backend/core/directory-lock.mjs";
 
 export type AgentScope = "user" | "project" | "both";
 
@@ -720,6 +722,52 @@ function getUserAgentSettingsPath(): string {
 	return path.join(getAgentDir(), "settings.json");
 }
 
+function readWebAgentOverrideSidecar(settingsFilePath: string): Record<string, unknown> {
+	if (path.resolve(settingsFilePath) !== path.resolve(getUserAgentSettingsPath())) return {};
+	const sidecarPath = path.join(path.dirname(settingsFilePath), "agent-overrides.json");
+	if (!fs.existsSync(sidecarPath)) return {};
+	let root: unknown;
+	try {
+		root = JSON.parse(fs.readFileSync(sidecarPath, "utf8"));
+	} catch (error) {
+		throw new Error(`Cannot read agent override sidecar '${sidecarPath}': ${error instanceof Error ? error.message : String(error)}`);
+	}
+	if (!root || typeof root !== "object" || Array.isArray(root)) {
+		throw new Error(`Agent override sidecar '${sidecarPath}' must be an object.`);
+	}
+	const record = root as Record<string, unknown>;
+	const overrides = record.overrides;
+	if (record.version !== 1 || !overrides || typeof overrides !== "object" || Array.isArray(overrides)) {
+		throw new Error(`Agent override sidecar '${sidecarPath}' has an invalid format.`);
+	}
+	return overrides as Record<string, unknown>;
+}
+
+function updateWebAgentOverrideSidecar(
+	settingsFilePath: string,
+	update: (overrides: Record<string, unknown>) => boolean | void,
+): string {
+	const sidecarPath = path.join(path.dirname(settingsFilePath), "agent-overrides.json");
+	withDirectoryLock({
+		lockPath: `${sidecarPath}.lock`,
+		parentDir: path.dirname(sidecarPath),
+		staleMs: 30_000,
+		busyMessage: "agent overrides are busy",
+	}, () => {
+		const overrides = { ...readWebAgentOverrideSidecar(settingsFilePath) };
+		if (update(overrides) === false) return;
+		const temporaryPath = `${sidecarPath}.${process.pid}.${randomUUID()}.tmp`;
+		try {
+			fs.writeFileSync(temporaryPath, `${JSON.stringify({ version: 1, overrides }, null, 2)}\n`, "utf8");
+			fs.renameSync(temporaryPath, sidecarPath);
+		} catch (error) {
+			try { fs.rmSync(temporaryPath, { force: true }); } catch { /* ignore */ }
+			throw error;
+		}
+	});
+	return sidecarPath;
+}
+
 function getProjectAgentSettingsPath(cwd: string): string | null {
 	const projectRoot = findConfiguredProjectRoot(cwd);
 	return projectRoot ? path.join(getProjectConfigDir(projectRoot), "settings.json") : null;
@@ -815,12 +863,12 @@ function parseBuiltinOverrideEntry(
 
 	if ("model" in input) {
 		if (typeof input.model === "string" || input.model === false) override.model = input.model;
-		else throw new Error(`Builtin override '${name}' in '${filePath}' has invalid 'model'; expected a string or false.`);
+		else if (input.model !== null) throw new Error(`Builtin override '${name}' in '${filePath}' has invalid 'model'; expected a string, false, or null.`);
 	}
 
 	if ("thinking" in input) {
 		if (typeof input.thinking === "string" || input.thinking === false) override.thinking = input.thinking;
-		else throw new Error(`Builtin override '${name}' in '${filePath}' has invalid 'thinking'; expected a string or false.`);
+		else if (input.thinking !== null) throw new Error(`Builtin override '${name}' in '${filePath}' has invalid 'thinking'; expected a string, false, or null.`);
 	}
 
 	if ("systemPromptMode" in input) {
@@ -916,9 +964,33 @@ function readSubagentSettings(filePath: string | null): SubagentSettings {
 	if (!filePath) return EMPTY_SUBAGENT_SETTINGS;
 	const settings = readSettingsFileStrict(filePath);
 	const subagents = settings.subagents;
-	if (!subagents || typeof subagents !== "object" || Array.isArray(subagents)) return EMPTY_SUBAGENT_SETTINGS;
-
-	const subagentsObject = subagents as Record<string, unknown>;
+	const subagentsObject = subagents && typeof subagents === "object" && !Array.isArray(subagents)
+		? { ...(subagents as Record<string, unknown>) }
+		: {};
+	const sidecarOverrides = readWebAgentOverrideSidecar(filePath);
+	if (Object.keys(sidecarOverrides).length > 0) {
+		const legacy = subagentsObject.agentOverrides && typeof subagentsObject.agentOverrides === "object" && !Array.isArray(subagentsObject.agentOverrides)
+			? subagentsObject.agentOverrides as Record<string, unknown>
+			: {};
+		const merged = { ...legacy };
+		for (const [name, patch] of Object.entries(sidecarOverrides)) {
+			const previous = merged[name];
+			if (patch && typeof patch === "object" && !Array.isArray(patch)) {
+				const fields = previous && typeof previous === "object" && !Array.isArray(previous)
+					? { ...(previous as Record<string, unknown>) }
+					: {};
+				for (const [field, value] of Object.entries(patch)) {
+					if (value === null) delete fields[field];
+					else fields[field] = value;
+				}
+				merged[name] = fields;
+			} else {
+				merged[name] = patch;
+			}
+		}
+		subagentsObject.agentOverrides = merged;
+	}
+	if (Object.keys(subagentsObject).length === 0) return EMPTY_SUBAGENT_SETTINGS;
 	let disableBuiltins: boolean | undefined;
 	if ("disableBuiltins" in subagentsObject) {
 		if (typeof subagentsObject.disableBuiltins === "boolean") {
@@ -1356,6 +1428,36 @@ export function saveBuiltinAgentOverride(
 export function removeBuiltinAgentOverride(cwd: string, name: string, scope: "user" | "project"): { path: string; removed: boolean } {
 	const filePath = scope === "project" ? getProjectAgentSettingsPath(cwd) : getUserAgentSettingsPath();
 	if (!filePath) throw new Error("Project override is not available here. No project config root was found.");
+	if (scope === "user") {
+		let removed = false;
+		const sidecarPath = updateWebAgentOverrideSidecar(filePath, (overrides) => {
+			const currentRaw = overrides[name];
+			const current = currentRaw && typeof currentRaw === "object" && !Array.isArray(currentRaw)
+				? currentRaw as Record<string, unknown>
+				: {};
+			const settings = readSettingsFileStrict(filePath);
+			const subagents = settings.subagents && typeof settings.subagents === "object" && !Array.isArray(settings.subagents)
+				? settings.subagents as Record<string, unknown>
+				: {};
+			const legacyOverrides = subagents.agentOverrides && typeof subagents.agentOverrides === "object" && !Array.isArray(subagents.agentOverrides)
+				? subagents.agentOverrides as Record<string, unknown>
+				: {};
+			const legacyRaw = legacyOverrides[name];
+			const legacy = legacyRaw && typeof legacyRaw === "object" && !Array.isArray(legacyRaw)
+				? legacyRaw as Record<string, unknown>
+				: {};
+			const fields = new Set([
+				...Object.keys(legacy),
+				...Object.entries(current).filter(([, value]) => value !== null).map(([field]) => field),
+			]);
+			if (fields.size === 0) return false;
+			const tombstones = { ...current };
+			for (const field of fields) tombstones[field] = null;
+			overrides[name] = tombstones;
+			removed = true;
+		});
+		return { path: sidecarPath, removed };
+	}
 	if (!fs.existsSync(filePath)) return { path: filePath, removed: false };
 
 	const settings = readSettingsFileStrict(filePath);
@@ -1386,6 +1488,15 @@ export function mergeBuiltinAgentOverride(
 ): string {
 	const filePath = scope === "project" ? getProjectAgentSettingsPath(cwd) : getUserAgentSettingsPath();
 	if (!filePath) throw new Error("Project override is not available here. No project config root was found.");
+	if (scope === "user") {
+		return updateWebAgentOverrideSidecar(filePath, (overrides) => {
+			const existing = overrides[name];
+			const base = existing && typeof existing === "object" && !Array.isArray(existing)
+				? existing as Record<string, unknown>
+				: {};
+			overrides[name] = { ...base, ...cloneOverrideValue(fields) };
+		});
+	}
 
 	const settings = readSettingsFileStrict(filePath);
 	const subagents = settings.subagents && typeof settings.subagents === "object" && !Array.isArray(settings.subagents)
@@ -1414,6 +1525,36 @@ export function removeBuiltinAgentOverrideFields(
 ): { path: string; removed: boolean } {
 	const filePath = scope === "project" ? getProjectAgentSettingsPath(cwd) : getUserAgentSettingsPath();
 	if (!filePath) throw new Error("Project override is not available here. No project config root was found.");
+	if (scope === "user") {
+		let removed = false;
+		const sidecarPath = updateWebAgentOverrideSidecar(filePath, (overrides) => {
+			const currentRaw = overrides[name];
+			const current = currentRaw && typeof currentRaw === "object" && !Array.isArray(currentRaw)
+				? currentRaw as Record<string, unknown>
+				: {};
+			const settings = readSettingsFileStrict(filePath);
+			const subagents = settings.subagents && typeof settings.subagents === "object" && !Array.isArray(settings.subagents)
+				? settings.subagents as Record<string, unknown>
+				: {};
+			const legacyOverrides = subagents.agentOverrides && typeof subagents.agentOverrides === "object" && !Array.isArray(subagents.agentOverrides)
+				? subagents.agentOverrides as Record<string, unknown>
+				: {};
+			const legacyRaw = legacyOverrides[name];
+			const legacy = legacyRaw && typeof legacyRaw === "object" && !Array.isArray(legacyRaw)
+				? legacyRaw as Record<string, unknown>
+				: {};
+			const shouldReset = fields.some((field) =>
+				Object.prototype.hasOwnProperty.call(legacy, field) ||
+				(Object.prototype.hasOwnProperty.call(current, field) && current[field] !== null)
+			);
+			if (!shouldReset) return false;
+			const tombstones = { ...current };
+			for (const field of fields) tombstones[field] = null;
+			overrides[name] = tombstones;
+			removed = true;
+		});
+		return { path: sidecarPath, removed };
+	}
 	if (!fs.existsSync(filePath)) return { path: filePath, removed: false };
 
 	const settings = readSettingsFileStrict(filePath);

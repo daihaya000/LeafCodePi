@@ -2,6 +2,14 @@ import { lstatSync } from "node:fs";
 import { resolve } from "node:path";
 import { NextRequest, NextResponse } from "next/server";
 import { commitPathError, gitDirectoryError, runGit } from "@/lib/git";
+import {
+  DEFAULT_GIT_COMMIT_AGENT_NAME,
+  GIT_COMMIT_AUTHOR_SETTING_KEY,
+  parseGitCommitAuthorSettings,
+  resolveGitCommitAuthor,
+} from "@/lib/git-commit-author";
+import { getMachineName } from "@/lib/machine-name";
+import { getSetting } from "@/lib/pi/web-settings";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -107,15 +115,18 @@ export async function POST(req: NextRequest) {
     commitArgs.push("--", ...validPaths);
   }
 
-  const agentName = (typeof agent === "string" ? agent.trim() : "") || "builder";
-  const gitEnv: Record<string, string> | undefined = SAFE_AGENT.test(agentName)
-    ? {
-        GIT_AUTHOR_NAME: agentName,
-        GIT_AUTHOR_EMAIL: `${agentName}@opencode.local`,
-        GIT_COMMITTER_NAME: agentName,
-        GIT_COMMITTER_EMAIL: `${agentName}@opencode.local`,
-      }
-    : undefined;
+  const agentName = (typeof agent === "string" ? agent.trim() : "") || DEFAULT_GIT_COMMIT_AGENT_NAME;
+  let gitEnv: Record<string, string> | undefined;
+  if (SAFE_AGENT.test(agentName)) {
+    const settings = parseGitCommitAuthorSettings(getSetting(GIT_COMMIT_AUTHOR_SETTING_KEY));
+    const author = resolveGitCommitAuthor(agentName, settings, getMachineName());
+    gitEnv = {
+      GIT_AUTHOR_NAME: author.name,
+      GIT_AUTHOR_EMAIL: author.email,
+      GIT_COMMITTER_NAME: author.name,
+      GIT_COMMITTER_EMAIL: author.email,
+    };
+  }
 
   const commit = await runGit(directory, commitArgs, undefined, gitEnv);
   if (commit.code !== 0) {

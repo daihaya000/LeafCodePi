@@ -25,11 +25,19 @@
 
 ## Codex リセット権の自動使用
 
-Codex リセット権の自動使用は**既定ON**です。設定 → エンジン →「Codex リセット権の自動使用」のトグルで変更でき、保存後の次回確認から反映します。OFFの場合は未使用の権利が失効する可能性があります。
+Codex リセット権の自動使用は**アカウントごとに既定ON**です。設定 → モデル → Codex の各アカウントカードの「リセット権」行にある「自動使用」トグルで変更でき、保存後の次回確認から反映します。他のアカウントには影響しません。OFFの場合は未使用の権利が失効する可能性があります。
 
-期限まで24時間以内の利用可能な権利を、期限が近い順に1回の確認につき1件だけ自動使用します。CodexBar の `config.json`（Windows: `%APPDATA%\CodexBar\config.json`）が未作成・破損していても既定ONで、明示的な `codexResetAutoConsume: false` だけで停止します。`codexResetAutoConsumeWindowHours` で対象期間を変更できます（0より大きく168時間以下）。不正な値は24時間に戻します。
+期限まで24時間以内の利用可能な権利を、期限が近い順に1回の確認につき1件だけ自動使用します。各アカウントの `codexResetAutoConsume` は `accounts.json` に保存し、未設定ならON、明示的な `false` ならそのアカウントだけ停止します。旧 CodexBar `config.json` の全体ON/OFF設定は無視します。同ファイルの `codexResetAutoConsumeWindowHours` で対象期間を変更できます（0より大きく168時間以下）。不正な値は24時間に戻します。
 
 Backend 起動時と1分ごとに確認し、成功した確認は最大5分間抑制、失敗・リセット対象なしの場合は次回再試行します。画面を閉じても動作しますが、LeafCodePi の停止中・PC のスリープ中は動作しません。停止中に失効した権利は復元できません。一時停止中・共有元が管理するアカウントは対象外。実行結果・失敗は `[codex-auto-reset]` のログに記録します。
+
+## Claude リセット権の自動使用
+
+Claude も**アカウントごとに既定ON**で、設定 → モデル → Claude の各カードの「リセット権」行の「自動使用」トグルで変更できます。`accounts.json` の `anthropicResetAutoConsume: false` でそのアカウントだけ停止します。APIキー・一時停止・共有元が管理するアカウントは対象外。
+
+そのアカウントに **claude.ai の cookie（sessionKey・lastActiveOrg）**を登録する必要があります。OAuthトークンや Anthropic Console の cookie だけでは動作しません。Backend 起動時と1分ごとに直接確認し、画面を閉じても動作します。通常は期限まで24時間以内の、Claude API が使用可能と判定した `next_grant_id` を1回の確認で1回だけ使用します。**上限到達条件・クールダウン等を満たさない権利は、期限間近でも使用できません。**
+
+成功・消費済み確認後は5分抑制し、未使用・失敗時は次回再試行します。ファイルロックと実行前に保存する request_id・残数で重複使用を抑止し、資格情報をログに出しません。保存状態が破損している場合は安全のため自動使用を停止します。`config.json` の `anthropicResetAutoConsumeWindowHours` で期間を変更できます（0より大きく168時間以下、不正値は24時間）。LeafCodePi停止・PCスリープ中は動作せず、失効した権利は復元できません。
 
 ## カスタム指示（AGENTS.md / SOUL.md / USER.md）
 

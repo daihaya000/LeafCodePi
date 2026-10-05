@@ -123,6 +123,7 @@ export function TaskTabs({
   statusFor,
   titleFor,
   canAddPane,
+  canClosePane = false,
   showAddButton,
   onActivateTab,
   onCloseTab,
@@ -139,6 +140,8 @@ export function TaskTabs({
   /** taskId → セッション名（タスク title）。未取得なら null。 */
   titleFor?: (taskId: string) => string | null;
   canAddPane: boolean;
+  /** 複数ペイン時は空でも閉じられる。 */
+  canClosePane?: boolean;
   /** + ボタンは最後のペインのタブバーのみ（仕様 §6）。 */
   showAddButton: boolean;
   onActivateTab: (taskId: string) => void;
@@ -222,9 +225,9 @@ export function TaskTabs({
       )}
       <button
         type="button"
-        aria-label="このペインを一括クリア"
-        title="このペインを一括クリア"
-        disabled={pane.tabs.length === 0}
+        aria-label={pane.tabs.length === 0 ? "空のペインを閉じる" : "このペインを一括クリア"}
+        title={pane.tabs.length === 0 ? "空のペインを閉じる" : "このペインを一括クリア"}
+        disabled={pane.tabs.length === 0 && !canClosePane}
         onClick={(event) => {
           event.stopPropagation();
           onClearPane();

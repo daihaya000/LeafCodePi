@@ -72,6 +72,18 @@ describe("GET /api/bots/sidebar", () => {
     expect(body.bots[0].lastMessageAt).toBe(new Date(1_700_000_000_000).toISOString());
   });
 
+  it("summarizes a huge reply from its head only", async () => {
+    mocks.listTasks.mockReturnValue([]);
+    mocks.listBots.mockReturnValue([bot("one")]);
+    mocks.getTask.mockReturnValue(task("bot:one"));
+    mocks.listBotCodeRequestsForBots.mockReturnValue(new Map());
+    mocks.readSessionLastMessage.mockReturnValue({ text: `  hello \n world ${"x".repeat(2_000_000)}`, timestamp: 1_700_000_000_000 });
+    mocks.listRooms.mockReturnValue([]);
+
+    const body = await (await GET()).json();
+    expect(body.bots[0].lastMessageSummary).toBe(`hello world ${"x".repeat(67)}…`);
+  });
+
   it("counts working bot tasks and detects in-flight code requests", async () => {
     mocks.listTasks.mockReturnValue([
       { ...task("code-a"), status: "working", botId: "one" },

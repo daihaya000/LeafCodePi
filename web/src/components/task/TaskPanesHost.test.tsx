@@ -39,7 +39,12 @@ vi.mock("next/dynamic", () => ({
 }));
 vi.mock("./TaskTabs", () => ({
   paneLayoutClass: () => "layout",
-  TaskTabs: ({ pane, onOpenHome }: { pane: TaskPanesState["panes"][number]; onOpenHome: () => void }) => (
+  TaskTabs: ({ pane, onOpenHome, canClosePane, onClearPane }: {
+    pane: TaskPanesState["panes"][number];
+    onOpenHome: () => void;
+    canClosePane: boolean;
+    onClearPane: () => void;
+  }) => (
     <div
       role="tablist"
       aria-label="タスクと設定のタブ"
@@ -47,6 +52,9 @@ vi.mock("./TaskTabs", () => ({
       data-tabs={pane.tabs.join(",")}
     >
       <button type="button" aria-label="新規作成タブを開く" onClick={onOpenHome} />
+      {pane.tabs.length === 0 && (
+        <button type="button" aria-label="空のペインを閉じる" disabled={!canClosePane} onClick={onClearPane} />
+      )}
     </div>
   ),
 }));
@@ -220,6 +228,36 @@ describe("TaskPanesHost lazy tab mounting", () => {
     }
   });
 
+  it("複数ペインの空ペインはクリア操作で閉じられる", () => {
+    const dispatch = vi.fn();
+    const state: TaskPanesState = {
+      panes: [
+        { id: "pane-1", tabs: ["active"], activeTabId: "active" },
+        { id: "pane-2", tabs: [], activeTabId: null },
+      ],
+      activePaneId: "pane-1",
+    };
+    mocks.useTaskPanes.mockReturnValue({ ...mocks.useTaskPanes(), state, dispatch });
+    render(<TaskPanesHost />);
+
+    const button = screen.getByRole("button", { name: "空のペインを閉じる" }) as HTMLButtonElement;
+    expect(button.disabled).toBe(false);
+    fireEvent.click(button);
+    expect(dispatch).toHaveBeenCalledWith({ type: "clearPane", paneId: "pane-2", keepTabIds: [] });
+  });
+
+  it("最後の空ペインはクリア操作で閉じられない", () => {
+    const state: TaskPanesState = {
+      panes: [{ id: "pane-1", tabs: [], activeTabId: null }],
+      activePaneId: "pane-1",
+    };
+    mocks.useTaskPanes.mockReturnValue({ ...mocks.useTaskPanes(), state, activeTaskId: null });
+    render(<TaskPanesHost />);
+
+    const button = screen.getByRole("button", { name: "空のペインを閉じる" }) as HTMLButtonElement;
+    expect(button.disabled).toBe(true);
+  });
+
   it("Bot tabs retain hidden mounts and receive visibility", async () => {
     mocks.usePathname.mockReturnValue("/bots/one");
     const state = { panes: [{ id: "pane-1", tabs: ["/bots/one", "/bots/rooms/two"], activeTabId: "/bots/one" }], activePaneId: "pane-1" };
@@ -276,6 +314,28 @@ describe("TaskPanesHost lazy tab mounting", () => {
     await waitFor(() => expect(contextValue.dispatch).toHaveBeenCalledWith({
       type: "showWorkingTasks",
       taskIds: ["newer", "older"],
+    }));
+  });
+
+  it("分割表示に保存済みのプロジェクト順とピン留めを反映する", async () => {
+    const dispatch = vi.fn();
+    mocks.useTaskPanes.mockReturnValue({ ...mocks.useTaskPanes(), dispatch });
+    mocks.getJson.mockImplementation(async (path: string) => {
+      if (path === "/api/settings/sidebar-project-order") return { value: '["b","a"]' };
+      if (path === "/api/settings/sidebar-pinned-tasks") return { value: '["pinned"]' };
+      if (path === "/api/projects?archived=1") return { projects: [{ id: "a" }, { id: "b" }] };
+      if (path === "/api/tasks?paneCandidates=1") return { tasks: [
+        { id: "newest", projectId: "a", status: "working", updatedAt: "2026-01-03" },
+        { id: "working", projectId: "b", status: "working", updatedAt: "2026-01-02" },
+        { id: "pinned", projectId: "b", status: "ready", updatedAt: "2026-01-01" },
+        { id: "no-project", projectId: null, status: "working", updatedAt: "2026-01-01" },
+      ] };
+      return {};
+    });
+    render(<TaskPanesHost />);
+    fireEvent.click(screen.getByRole("button", { name: "進行中タスクを分割表示" }));
+    await waitFor(() => expect(dispatch).toHaveBeenCalledWith({
+      type: "showWorkingTasks", taskIds: ["no-project", "pinned", "working", "newest"],
     }));
   });
 
@@ -368,7 +428,7 @@ describe("TaskPanesHost lazy tab mounting", () => {
 
     await waitFor(() => expect(contextValue.dispatch).toHaveBeenCalledWith({
       type: "showWorkingTasks",
-      taskIds: ["/bots/bot-a", "plain", "/bots/rooms/room-1"],
+      taskIds: ["plain", "/bots/bot-a", "/bots/rooms/room-1"],
     }));
   });
 
@@ -399,7 +459,7 @@ describe("TaskPanesHost lazy tab mounting", () => {
     }));
   });
 
-  it("未読セッションを進行中タスクの後ろへ新しい順で追加する", async () => {
+  it("Codeセッションをサイドバー順に並べて未読Bot・Roomを追加する", async () => {
     const contextValue = {
       state: createTreeState(),
       statusFor: () => null,
@@ -442,7 +502,7 @@ describe("TaskPanesHost lazy tab mounting", () => {
 
     await waitFor(() => expect(contextValue.dispatch).toHaveBeenCalledWith({
       type: "showWorkingTasks",
-      taskIds: ["working", "unread-new", "/bots/rooms/room-1", "/bots/bot-a", "unread-old"],
+      taskIds: ["working", "unread-new", "unread-old", "/bots/rooms/room-1", "/bots/bot-a"],
     }));
   });
 

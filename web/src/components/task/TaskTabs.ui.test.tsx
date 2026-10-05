@@ -70,11 +70,25 @@ describe("TaskTabs actions", () => {
     expect(onClearPane).toHaveBeenCalledOnce();
   });
 
-  it("空ペインでは一括クリアを無効にする", () => {
+  it("複数ペイン時は空ペインを閉じられる", () => {
+    const onClearPane = vi.fn();
+    renderTabs(
+      { id: "pane-1", tabs: [], activeTabId: null },
+      { onClearPane, canClosePane: true },
+    );
+
+    const button = screen.getByRole("button", { name: "空のペインを閉じる" }) as HTMLButtonElement;
+    expect(button.disabled).toBe(false);
+    fireEvent.click(button);
+
+    expect(onClearPane).toHaveBeenCalledOnce();
+  });
+
+  it("最後の空ペインは閉じられない", () => {
     const onClearPane = vi.fn();
     renderTabs({ id: "pane-1", tabs: [], activeTabId: null }, { onClearPane });
 
-    const button = screen.getByRole("button", { name: "このペインを一括クリア" }) as HTMLButtonElement;
+    const button = screen.getByRole("button", { name: "空のペインを閉じる" }) as HTMLButtonElement;
     expect(button.disabled).toBe(true);
     fireEvent.click(button);
 

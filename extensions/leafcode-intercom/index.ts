@@ -581,7 +581,8 @@ function getNamePollMs(): number {
       return value;
     }
   }
-  return 1000;
+  // Alias changes push the identity directly; this poll only catches /name edits made elsewhere.
+  return 5000;
 }
 export default function piIntercomExtension(pi: ExtensionAPI) {
   let client: IntercomClient | null = null;

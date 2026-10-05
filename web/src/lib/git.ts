@@ -1,4 +1,4 @@
-import { spawn } from "node:child_process";
+import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { isAllowedBrowsePath } from "@/lib/browse-paths";
 import { isAbsolutePath } from "@/lib/paths";
 import type { GraphCommit, GraphFileChange, GraphRef } from "@/lib/types";
@@ -6,13 +6,22 @@ import type { GraphCommit, GraphFileChange, GraphRef } from "@/lib/types";
 /** Hard ceiling so a hung git process cannot pin a BFF worker forever. */
 export const GIT_TIMEOUT_MS = 30_000;
 
-/**
- * Ceiling on buffered stdout+stderr (UTF-16 chars). A diff of huge generated or
- * binary files would otherwise be concatenated into one string and exhaust the
- * BFF heap, taking every task down with it. 32M chars (~64MB of heap) is far above any
- * reviewable diff while keeping the worst case before rejection bounded.
- */
-export const GIT_MAX_OUTPUT_CHARS = 32 * 1024 * 1024;
+/** Per-command ceiling on buffered stdout+stderr (UTF-16 code units). */
+export const GIT_MAX_OUTPUT_CHARS = 4 * 1024 * 1024;
+/** Active child-output buffers are bounded to about 64MB (8 captures × 8MB). */
+export const GIT_MAX_CONCURRENT_OUTPUT_CAPTURES = 8;
+let activeGitOutputCaptures = 0;
+
+function acquireGitOutputSlot(): (() => void) | undefined {
+  if (activeGitOutputCaptures >= GIT_MAX_CONCURRENT_OUTPUT_CAPTURES) return undefined;
+  activeGitOutputCaptures++;
+  let released = false;
+  return () => {
+    if (released) return;
+    released = true;
+    activeGitOutputCaptures--;
+  };
+}
 
 /** Reject absolute paths outside home / OneDrive / registered projects. */
 export function gitDirectoryError(directory: string | null | undefined): string | null {
@@ -29,22 +38,37 @@ export function runGit(
   env?: Record<string, string>,
   maxOutputChars = GIT_MAX_OUTPUT_CHARS,
 ): Promise<{ code: number; stdout: string; stderr: string }> {
+  const outputLimit = Number.isFinite(maxOutputChars)
+    ? Math.max(0, Math.min(GIT_MAX_OUTPUT_CHARS, Math.trunc(maxOutputChars)))
+    : GIT_MAX_OUTPUT_CHARS;
   return new Promise((resolve, reject) => {
+    const releaseSlot = acquireGitOutputSlot();
+    if (!releaseSlot) {
+      reject(new Error(`git output capacity reached (max ${GIT_MAX_CONCURRENT_OUTPUT_CAPTURES} concurrent captures)`));
+      return;
+    }
     // `core.quotepath=false` keeps non-ASCII paths (e.g. Japanese filenames)
     // literal instead of octal-escaped, so status/diff/name-status output can be
     // matched against the filesystem. The env vars stop git from blocking on an
     // interactive credential/editor prompt, which would hang the HTTP request.
-    const child = spawn("git", ["-c", "core.quotepath=false", ...args], {
-      cwd,
-      shell: false,
-      windowsHide: true,
-      env: {
-        ...process.env,
-        GIT_TERMINAL_PROMPT: "0",
-        GIT_EDITOR: "true",
-        ...(env ?? {}),
-      },
-    });
+    let child: ChildProcessWithoutNullStreams;
+    try {
+      child = spawn("git", ["-c", "core.quotepath=false", ...args], {
+        cwd,
+        shell: false,
+        windowsHide: true,
+        env: {
+          ...process.env,
+          GIT_TERMINAL_PROMPT: "0",
+          GIT_EDITOR: "true",
+          ...(env ?? {}),
+        },
+      });
+    } catch (error) {
+      releaseSlot();
+      reject(error);
+      return;
+    }
     let stdout = "";
     let stderr = "";
     // Lengths are tracked separately: `stdout += c` builds a new rope each time, and
@@ -75,6 +99,11 @@ export function runGit(
       if (settled) return;
       settled = true;
       killChild();
+      stdout = "";
+      stderr = "";
+      stdoutChars = 0;
+      stderrChars = 0;
+      releaseSlot();
       reject(new Error(`git timed out after ${timeoutMs}ms: git ${args.join(" ")}`));
     }, timeoutMs);
     const overflow = () => {
@@ -86,7 +115,8 @@ export function runGit(
       stderr = "";
       stdoutChars = 0;
       stderrChars = 0;
-      reject(new Error(`git output exceeded ${maxOutputChars} characters: git ${args.join(" ")}`));
+      releaseSlot();
+      reject(new Error(`git output exceeded ${outputLimit} characters: git ${args.join(" ")}`));
     };
     if (typeof timer.unref === "function") timer.unref();
     child.stdout.setEncoding("utf8");
@@ -94,7 +124,7 @@ export function runGit(
     child.stdout.on("data", (c: string) => {
       if (settled) return;
       // Refuse before appending so the buffer never exceeds the ceiling.
-      if (stdoutChars + stderrChars + c.length > maxOutputChars) {
+      if (stdoutChars + stderrChars + c.length > outputLimit) {
         overflow();
         return;
       }
@@ -103,7 +133,7 @@ export function runGit(
     });
     child.stderr.on("data", (c: string) => {
       if (settled) return;
-      if (stdoutChars + stderrChars + c.length > maxOutputChars) {
+      if (stdoutChars + stderrChars + c.length > outputLimit) {
         overflow();
         return;
       }
@@ -114,12 +144,16 @@ export function runGit(
       if (settled) return;
       settled = true;
       clearTimeout(timer);
+      stdout = "";
+      stderr = "";
+      releaseSlot();
       reject(err);
     });
     child.on("close", (code) => {
       if (settled) return;
       settled = true;
       clearTimeout(timer);
+      releaseSlot();
       resolve({ code: code ?? 1, stdout, stderr });
     });
   });

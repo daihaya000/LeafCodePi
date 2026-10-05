@@ -250,8 +250,10 @@ export function shouldConfirmCodeDelivery({ state }) {
 
 /** Settled requests only guard tool-call replay, so they are dropped after this long. */
 export const CODE_REQUEST_RETENTION_MS = 7 * 86_400_000;
-/** How often the outbox is scanned. */
+/** How often the outbox is scanned while a request is active. */
 export const CODE_RELAY_TICK_MS = 2_000;
+/** How often it is scanned when nothing is active; a saved request wakes the relay at once. */
+export const CODE_RELAY_IDLE_TICK_MS = 15_000;
 
 /**
  * Whether a request file may be deleted by the scan. Only settled requests are pruned, and only once

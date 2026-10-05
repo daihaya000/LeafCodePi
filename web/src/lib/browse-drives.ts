@@ -34,7 +34,7 @@ export function windowsDrivePaths(output: string): string[] {
     .map((path) => win32.normalize(path.toUpperCase())))];
 }
 
-const DRIVES_CACHE_MS = 10_000;
+const DRIVES_CACHE_MS = 30_000;
 let drivesCache: { expiresAt: number; drives: BrowseDrive[] } | null = null;
 let drivesLoad: Promise<BrowseDrive[]> | null = null;
 

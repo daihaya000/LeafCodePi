@@ -72,6 +72,10 @@ import {
 } from "@/lib/widget-settings";
 import { AUTO_AGENT_ENABLED_SETTING_KEY } from "@/lib/default-agent";
 import {
+  GIT_COMMIT_AUTHOR_SETTING_KEY,
+  validateGitCommitAuthorSetting,
+} from "@/lib/git-commit-author";
+import {
   COMPOSER_DEFAULTS_SETTING_KEY,
   normalizeComposerDefaults,
 } from "@/lib/composer-defaults";
@@ -99,6 +103,7 @@ export const ALLOWED_SETTING_KEYS: ReadonlySet<string> = new Set<string>([
   AUTO_JEV_ENABLED_SETTING_KEY,
   AUTO_JEV_MIN_CONFIDENCE_SETTING_KEY,
   AUTO_AGENT_ENABLED_SETTING_KEY,
+  GIT_COMMIT_AUTHOR_SETTING_KEY,
   JEV_COMPACTION_ENABLED_SETTING_KEY,
   JEV_COMPACTION_THRESHOLD_SETTING_KEY,
   OPENAI_FAST_MODE_SETTING_KEY,
@@ -185,6 +190,9 @@ export function validateSettingValue(key: string, value: string, importedAccount
   }
   if (key === AUTO_AGENT_ENABLED_SETTING_KEY) {
     return value === "0" || value === "1" ? value : null;
+  }
+  if (key === GIT_COMMIT_AUTHOR_SETTING_KEY) {
+    return validateGitCommitAuthorSetting(value);
   }
   if (key === AUTO_JEV_ENABLED_SETTING_KEY) {
     return value === "1" ? value : null;

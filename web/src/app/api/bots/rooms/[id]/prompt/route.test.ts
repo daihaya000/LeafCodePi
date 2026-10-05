@@ -83,8 +83,8 @@ function finish(taskId: string, patch: Partial<TaskDetail> = {}) {
 function assistant(id: string, text: string): UiMessage {
   return { id, role: "assistant", createdAt: Date.now(), parts: [{ id: `${id}-text`, type: "text", text }] };
 }
-function send(id: string, prompt: string, extra: Record<string, unknown> = {}) {
-  return POST(new NextRequest("http://localhost", { method: "POST", body: JSON.stringify({ prompt, ...extra }) }), { params: Promise.resolve({ id }) });
+function send(id: string, prompt: string, extra: Record<string, unknown> = {}, signal?: AbortSignal) {
+  return POST(new NextRequest("http://localhost", { method: "POST", body: JSON.stringify({ prompt, ...extra }), signal }), { params: Promise.resolve({ id }) });
 }
 function setup(names = ["A"]) {
   const bots = names.map((name) => createBot({ name }));
@@ -315,17 +315,52 @@ describe("room mention responses", () => {
     await vi.waitFor(() => expect(getRoom(room.id)?.messages.some((message) => message.status === "done")).toBe(true));
   });
 
-  it("propagates the request signal into the opener LLM call", async () => {
-    const { room, bots } = setup(["Designer", "Planner"]);
-    state.resolveRoomOpener.mockImplementationOnce(async (options: { signal?: AbortSignal }) => ({
-      bot: bots[1],
-      reason: "llm" as const,
-      // The route must hand its own AbortSignal down so a cancelled send stops the call.
-      seenSignal: options.signal,
-    }) as never);
-    await send(room.id, "残作業も進めて");
+  it("aborts opener selection and avoids routing when the request is cancelled", async () => {
+    const { room } = setup(["Designer", "Planner"]);
+    const request = new AbortController();
+    let openerSignal: AbortSignal | undefined;
+    state.resolveRoomOpener.mockImplementationOnce(async (options: { signal?: AbortSignal }) => {
+      openerSignal = options.signal;
+      await new Promise<void>((resolve) => {
+        if (options.signal?.aborted) resolve();
+        else options.signal?.addEventListener("abort", () => resolve(), { once: true });
+      });
+      return undefined;
+    });
+
+    const pending = send(room.id, "残作業も進めて", {}, request.signal);
     await vi.waitFor(() => expect(state.resolveRoomOpener).toHaveBeenCalled());
-    expect((state.resolveRoomOpener.mock.calls[0]?.[0] as { signal?: AbortSignal }).signal).toBeInstanceOf(AbortSignal);
+    request.abort();
+    const response = await pending;
+
+    expect(response.status).toBe(200);
+    expect(openerSignal?.aborted).toBe(true);
+    expect(state.promptTask).not.toHaveBeenCalled();
+    expect(getRoom(room.id)?.messages.some((message) => message.status === "working")).toBe(false);
+  });
+
+  it("aborts pending opener selection when the Room is stopped", async () => {
+    const { room } = setup(["Designer", "Planner"]);
+    let openerSignal: AbortSignal | undefined;
+    state.resolveRoomOpener.mockImplementationOnce(async (options: { signal?: AbortSignal }) => {
+      openerSignal = options.signal;
+      await new Promise<void>((resolve) => {
+        if (options.signal?.aborted) resolve();
+        else options.signal?.addEventListener("abort", () => resolve(), { once: true });
+      });
+      return undefined;
+    });
+
+    const pending = send(room.id, "残作業も進めて");
+    await vi.waitFor(() => expect(state.resolveRoomOpener).toHaveBeenCalled());
+    const stopped = await send(room.id, "/stop");
+    const response = await pending;
+
+    expect(stopped.status).toBe(200);
+    expect(openerSignal?.aborted).toBe(true);
+    expect(response.status).toBe(200);
+    expect(state.promptTask).not.toHaveBeenCalled();
+    expect(getRoom(room.id)?.messages.some((message) => message.status === "working")).toBe(false);
   });
   it("falls back to discuss rotate when LLM opener fails", async () => {
     const { room, bots, taskIds } = setup(["Designer", "Planner"]);

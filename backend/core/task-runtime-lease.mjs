@@ -1,5 +1,5 @@
 import { linkSync, mkdirSync, readFileSync, renameSync, rmSync, statSync, unlinkSync, writeFileSync } from "node:fs";
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { join } from "node:path";
 import { processStartKey } from "../../shared/process-identity.mjs";
 
@@ -177,11 +177,12 @@ export class TaskLeaseService {
 
   /**
    * The owner record is written in a temporary directory and renamed into place so a crash cannot
-   * leave an ownerless lock while a live process is still creating it. An old lock is reclaimed
-   * only after its PID is gone or its process-start key proves that the PID was reused; unknown
-   * identity fails closed. Returns the serialized owner token, or null when not acquired.
+   * leave an ownerless lock while a live process is still creating it. Reclaim operations require
+   * a process-start key; short session-write critical sections may omit their own key, but an old
+   * lock is still reclaimed only when its PID is gone or its process-start key proves PID reuse.
+   * Unknown identity fails closed. Returns the serialized owner token, or null when not acquired.
    */
-  #takeReclaimLock(lock) {
+  #takeReclaimLock(lock, { requireOwnerStartKey = true } = {}) {
     const readOwnStartKey = () => {
       if (!this.reclaimOwnerStartKeyRead) {
         try {
@@ -195,8 +196,10 @@ export class TaskLeaseService {
       return this.reclaimOwnerStartKeyRead ? this.reclaimOwnerStartKey : null;
     };
     const create = () => {
-      const ownStartKey = readOwnStartKey();
-      if (!ownStartKey) {
+      const ownStartKey = requireOwnerStartKey
+        ? readOwnStartKey()
+        : (this.reclaimOwnerStartKeyRead ? this.reclaimOwnerStartKey : null);
+      if (requireOwnerStartKey && !ownStartKey) {
         try { statSync(lock); }
         catch { return null; }
         const occupied = new Error("reclaim lock already exists");
@@ -260,10 +263,32 @@ export class TaskLeaseService {
         try { currentStartKey = this.getProcessStartKey(owner.pid); } catch { /* unknown is not dead */ }
         if (typeof currentStartKey === "string" && currentStartKey && currentStartKey !== owner.processStartKey) ownerGone = true;
       }
-      if (!ownerGone || this.#readReclaimOwner(lock) !== seen || !this.reclaimOwnerStartKeyRead) return null;
-      rmSync(lock, { recursive: true, force: true });
+      const ownStartKey = readOwnStartKey();
+      if (!ownerGone || this.#readReclaimOwner(lock) !== seen || !ownStartKey) return null;
+      // Atomically quarantine this exact stale owner. Retain the token-derived tombstone so a
+      // contender paused after validation cannot later rename a fresh lock into the stale slot.
+      const retiredLock = `${lock}.retired.${createHash("sha256").update(seen).digest("hex")}`;
+      try { this.renameDirectory(lock, retiredLock); }
+      catch { return null; }
       return create();
     } catch { return null; }
+  }
+
+  /**
+   * Run one synchronous session write while holding the same lock used by stale lease reclaim.
+   * This closes the ownership-check-to-append race with another process taking over the lease.
+   */
+  runWithTaskLeaseOwnership(taskId, action) {
+    const lock = `${this.taskRuntimeLeasePath(taskId)}.reclaim`;
+    const token = this.#takeReclaimLock(lock, { requireOwnerStartKey: false });
+    if (!token) return { acquired: false };
+    try {
+      if (!this.ownsTaskLease(taskId)) return { acquired: false };
+      return { acquired: true, value: action() };
+    } finally {
+      // The lock can outlive this operation only if another worker replaced it after expiry.
+      try { if (this.#readReclaimOwner(lock) === token) rmSync(lock, { recursive: true, force: true }); } catch { /* best effort */ }
+    }
   }
 
   /**

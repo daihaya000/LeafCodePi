@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { existsSync as defaultExistsSync, readFileSync as defaultReadFileSync } from "node:fs";
+import { existsSync as defaultExistsSync, readFileSync as defaultReadFileSync, statSync as defaultStatSync } from "node:fs";
 import { join } from "node:path";
 import { DEFAULT_BACKEND_PORT } from "../../shared/backend-protocol.mjs";
 
@@ -31,15 +31,31 @@ export const BACKEND_ENTRY_RELATIVE_PATH = join("backend", "src", "entry.mjs");
  */
 export function bundleGeneration(
   bundlePath,
-  { exists = defaultExistsSync, readBytes = defaultReadFileSync } = {},
+  { exists = defaultExistsSync, readBytes = defaultReadFileSync, stat = defaultStatSync } = {},
 ) {
   if (!exists(bundlePath)) return null;
   try {
-    return createHash("sha256").update(readBytes(bundlePath)).digest("hex").slice(0, 16);
+    // The bundle is ~6 MB and planBackend runs on every start/re-plan, so a hash is reused while the
+    // file is byte-for-byte the same as far as mtime and size can tell. Injected readers always hash.
+    let key = null;
+    if (readBytes === defaultReadFileSync) {
+      try {
+        const stats = stat(bundlePath, { bigint: true });
+        key = `${stats.mtimeNs}:${stats.size}`;
+      } catch { /* no stat: hash without caching */ }
+      const cached = key === null ? undefined : generationCache.get(bundlePath);
+      if (cached && cached.key === key) return cached.generation;
+    }
+    const generation = createHash("sha256").update(readBytes(bundlePath)).digest("hex").slice(0, 16);
+    if (key !== null) generationCache.set(bundlePath, { key, generation });
+    return generation;
   } catch {
     return null;
   }
 }
+
+/** bundle path -> the hash computed for one mtime+size. */
+const generationCache = new Map();
 
 /**
  * The environment for a Backend child of this Host.

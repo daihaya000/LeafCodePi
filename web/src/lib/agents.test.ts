@@ -19,6 +19,11 @@ function agentNamed(name: string): string {
   return AGENT.replace("__NAME__", name);
 }
 
+function readStoredOverrides(agentDir: string): Record<string, Record<string, unknown>> {
+  const file = JSON.parse(readFileSync(join(agentDir, "agent-overrides.json"), "utf8"));
+  return file.overrides;
+}
+
 describe("agentsDir", () => {
   it("lives in the Pi agent dir", () => {
     assert.equal(agentsDir(join("C:", "pi", "agent")), join("C:", "pi", "agent", "agents"));
@@ -109,7 +114,8 @@ describe("listAgents / setAgentEnabled", () => {
     assert.equal(listAgents(agentDir).agents.find((agent) => agent.name === "default")?.enabled, false);
     setAgentEnabled("default", true, agentDir);
     assert.equal(listAgents(agentDir).agents.find((agent) => agent.name === "default")?.enabled, true);
-    assert.equal(JSON.parse(readFileSync(settingsPath, "utf8")).subagents, undefined);
+    assert.equal(JSON.parse(readFileSync(settingsPath, "utf8")).subagents.agentOverrides.default.disabled, true);
+    assert.equal(readStoredOverrides(agentDir).default.disabled, false);
   });
 
   it.each([false, ["read"], "inherit"])("default always inherits all tools despite legacy override %j", (tools) => {
@@ -141,7 +147,7 @@ describe("listAgents / setAgentEnabled", () => {
     assert.deepEqual(loadAgentDefinition("researcher", agentDir)?.tools, ["read", "grep", "find", "ls"]);
   });
 
-  it("keeps unrelated settings keys when writing an agent override", () => {
+  it("does not overwrite concurrent Pi settings.json updates when saving a WebUI override", () => {
     fixture();
     const settingsPath = join(agentDir, "settings.json");
     writeFileSync(settingsPath, JSON.stringify({
@@ -153,21 +159,35 @@ describe("listAgents / setAgentEnabled", () => {
     setAgentEnabled("scout", false, agentDir);
 
     const raw = JSON.parse(readFileSync(settingsPath, "utf8"));
-    // A read-modify-write must not drop keys it does not own, at either level.
-    assert.deepEqual(raw.packages, ["npm:pi-subagents"]);
-    assert.equal(raw.defaultAgent, "scout");
-    assert.deepEqual(raw.subagents.other, { keep: true });
-    assert.deepEqual(raw.subagents.agentOverrides.researcher, { model: "anthropic/claude" });
-    assert.deepEqual(raw.subagents.agentOverrides.scout, { disabled: true });
+    // Pi core may rewrite settings.json without the WebUI lock; the WebUI never writes that file.
+    assert.deepEqual(raw, {
+      packages: ["npm:pi-subagents"],
+      defaultAgent: "scout",
+      subagents: { other: { keep: true }, agentOverrides: { researcher: { model: "anthropic/claude" } } },
+    });
+    assert.deepEqual(readStoredOverrides(agentDir).scout, { disabled: true });
+    assert.equal(listAgents(agentDir).agents.find((agent) => agent.name === "researcher")?.model, "anthropic/claude");
+
+    const externalSettings = {
+      ...raw,
+      packages: ["npm:pi-subagents", "npm:external"],
+      externalWriterRevision: 2,
+    };
+    writeFileSync(settingsPath, JSON.stringify(externalSettings), "utf8");
+    setAgentModel("worker", "openai/model", agentDir);
+    assert.deepEqual(JSON.parse(readFileSync(settingsPath, "utf8")), externalSettings);
+    assert.equal(listAgents(agentDir).agents.find((agent) => agent.name === "worker")?.model, "openai/model");
   });
 
-  it("refuses to overwrite an unparseable settings.json when writing an agent override", () => {
+  it("keeps malformed settings.json untouched while writing WebUI overrides to the sidecar", () => {
     fixture();
     const settingsPath = join(agentDir, "settings.json");
     for (const text of ["{torn", "", "[]", "null"]) {
       writeFileSync(settingsPath, text, "utf8");
-      assert.throws(() => setAgentEnabled("scout", false, agentDir), /中止/);
+      setAgentEnabled("scout", false, agentDir);
       assert.equal(readFileSync(settingsPath, "utf8"), text);
+      assert.deepEqual(readStoredOverrides(agentDir).scout, { disabled: true });
+      rmSync(join(agentDir, "agent-overrides.json"), { force: true });
     }
   });
 
@@ -185,13 +205,11 @@ describe("listAgents / setAgentEnabled", () => {
     setAgentEnabled("scout", false, agentDir);
     assert.equal(listAgents(agentDir).agents.find((a) => a.name === "scout")?.enabled, false);
 
-    const raw = JSON.parse(readFileSync(join(agentDir, "settings.json"), "utf8"));
-    assert.equal(raw.subagents.agentOverrides.scout.disabled, true);
+    assert.equal(readStoredOverrides(agentDir).scout.disabled, true);
 
     setAgentEnabled("scout", true, agentDir);
     assert.equal(listAgents(agentDir).agents.find((a) => a.name === "scout")?.enabled, true);
-    const raw2 = JSON.parse(readFileSync(join(agentDir, "settings.json"), "utf8"));
-    assert.deepEqual(raw2.subagents?.agentOverrides?.scout, { disabled: false });
+    assert.deepEqual(readStoredOverrides(agentDir).scout, { disabled: false });
   });
 
   it("prioritizes enabled agents and persists a package model override", () => {
@@ -208,11 +226,26 @@ describe("listAgents / setAgentEnabled", () => {
     );
     assert.equal(listed.agents.find((agent) => agent.name === "worker")?.model, "anthropic/claude");
 
-    const raw = JSON.parse(readFileSync(join(agentDir, "settings.json"), "utf8"));
-    assert.equal(raw.subagents.agentOverrides.worker.model, "anthropic/claude");
+    assert.equal(readStoredOverrides(agentDir).worker.model, "anthropic/claude");
 
     setAgentModel("worker", null, agentDir);
     assert.equal(listAgents(agentDir).agents.find((agent) => agent.name === "worker")?.model, undefined);
+  });
+
+  it("uses sidecar tombstones to clear legacy package model and thinking overrides", () => {
+    fixture();
+    writeFileSync(join(agentDir, "settings.json"), JSON.stringify({
+      packages: ["npm:pi-subagents"],
+      subagents: { agentOverrides: { worker: { model: "legacy-model", thinking: "high" } } },
+    }), "utf8");
+
+    setAgentModel("worker", null, agentDir);
+    setAgentThinking("worker", null, agentDir);
+
+    const worker = listAgents(agentDir).agents.find((agent) => agent.name === "worker");
+    assert.equal(worker?.model, undefined);
+    assert.equal(worker?.thinking, undefined);
+    assert.deepEqual(readStoredOverrides(agentDir).worker, { model: null, thinking: null });
   });
 
   it("persists subagent effort for package and user agents", () => {
@@ -223,8 +256,7 @@ describe("listAgents / setAgentEnabled", () => {
 
     assert.equal(listAgents(agentDir).agents.find((agent) => agent.name === "worker")?.thinking, "low");
     assert.equal(readUserAgent("scout", agentDir).draft.thinking, "low");
-    const raw = JSON.parse(readFileSync(join(agentDir, "settings.json"), "utf8"));
-    assert.equal(raw.subagents.agentOverrides.worker.thinking, "low");
+    assert.equal(readStoredOverrides(agentDir).worker.thinking, "low");
 
     setAgentThinking("worker", null, agentDir);
     assert.equal(listAgents(agentDir).agents.find((agent) => agent.name === "worker")?.thinking, initialPackageThinking);
@@ -238,8 +270,7 @@ describe("listAgents / setAgentEnabled", () => {
     assert.equal(readUserAgent("scout", agentDir).draft.thinking, false);
     assert.equal(listAgents(agentDir).agents.find((agent) => agent.name === "scout")?.thinking, false);
     assert.equal(listAgents(agentDir).agents.find((agent) => agent.name === "worker")?.thinking, false);
-    const raw = JSON.parse(readFileSync(join(agentDir, "settings.json"), "utf8"));
-    assert.equal(raw.subagents.agentOverrides.worker.thinking, false);
+    assert.equal(readStoredOverrides(agentDir).worker.thinking, false);
   });
 
   it("persists a normalized user-agent tool allowlist and supports no tools", () => {
@@ -256,8 +287,7 @@ describe("listAgents / setAgentEnabled", () => {
     setAgentTools("worker", ["read", " write ", "read"], agentDir);
     assert.deepEqual(listAgents(agentDir).agents.find((agent) => agent.name === "worker")?.tools, ["read", "write"]);
     assert.deepEqual(loadAgentDefinition("worker", agentDir)?.tools, ["read", "write"]);
-    const raw2 = JSON.parse(readFileSync(join(agentDir, "settings.json"), "utf8"));
-    assert.deepEqual(raw2.subagents.agentOverrides.worker.tools, ["read", "write"]);
+    assert.deepEqual(readStoredOverrides(agentDir).worker.tools, ["read", "write"]);
 
     setAgentTools("worker", [], agentDir);
     assert.deepEqual(listAgents(agentDir).agents.find((agent) => agent.name === "worker")?.tools, []);
@@ -271,8 +301,7 @@ describe("listAgents / setAgentEnabled", () => {
     setAgentTools("worker", [], agentDir);
     setAgentTools("worker", null, agentDir);
     assert.equal(listAgents(agentDir).agents.find((agent) => agent.name === "worker")?.tools, undefined);
-    const raw = JSON.parse(readFileSync(join(agentDir, "settings.json"), "utf8"));
-    assert.equal(raw.subagents.agentOverrides.worker.tools, "inherit");
+    assert.equal(readStoredOverrides(agentDir).worker.tools, "inherit");
     setAgentTools("scout", [], agentDir);
     setAgentTools("scout", null, agentDir);
     assert.equal(readUserAgent("scout", agentDir).draft.tools, undefined);

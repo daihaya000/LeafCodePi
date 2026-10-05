@@ -682,7 +682,6 @@ async function evaluateWatch(row: TaskHangWatchRow, timeoutMs: number): Promise<
     return;
   }
 
-  const fingerprint = progressFingerprint(messages);
   const activityAt = Math.max(latestActivityAt(messages, row.startedAt), row.startedAt);
 
   if (!isStreaming && !isCompacting) {
@@ -695,6 +694,8 @@ async function evaluateWatch(row: TaskHangWatchRow, timeoutMs: number): Promise<
   const now = Date.now();
   if (now - row.lastProgressAt < timeoutMs) return;
 
+  // Hashing every part is linear in the transcript, so it only runs once the row already looks stale.
+  const fingerprint = progressFingerprint(messages);
   const activeTool = turnHasActiveTool(messages, row.startedAt);
   const assistantResponse = turnHasAssistantResponse(messages, row.startedAt);
   const fingerprintChanged =

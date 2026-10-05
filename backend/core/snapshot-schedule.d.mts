@@ -1,5 +1,7 @@
 export const THROTTLED_SNAPSHOT_EVENTS: Set<string>;
 export const SNAPSHOT_THROTTLE_MS: number;
+export const TRANSCRIPT_NEUTRAL_SNAPSHOT_EVENTS: Set<string>;
+export function snapshotOmitsMessages(eventType: string, extra?: Record<string, unknown>): boolean;
 export const NON_RENDERING_SESSION_EVENTS: Set<string>;
 
 export type SnapshotEventDecision =

@@ -97,6 +97,7 @@ export function shouldConfirmCodeDelivery(input: { state: string }): boolean;
 export const CODE_REQUEST_RETENTION_MS: number;
 /** How often the outbox is scanned. */
 export const CODE_RELAY_TICK_MS: number;
+export const CODE_RELAY_IDLE_TICK_MS: number;
 
 /** Whether a request file may be deleted by the scan. */
 export function shouldPruneCodeRequest(input: {

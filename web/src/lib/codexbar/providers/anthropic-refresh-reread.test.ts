@@ -5,9 +5,16 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const lockRequested = vi.hoisted(() => vi.fn());
 const atomicWrite = vi.hoisted(() => vi.fn());
+const fetchMock = vi.hoisted(() => vi.fn());
+const writeBackPi = vi.hoisted(() => vi.fn());
 vi.mock("node:os", async (importOriginal) => {
   const actual = await importOriginal<typeof import("node:os")>();
   return { ...actual, homedir: () => process.env.CLAUDE_CONFIG_DIR ?? actual.tmpdir() };
+});
+vi.mock("@/lib/codexbar/pi-auth", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/codexbar/pi-auth")>();
+  writeBackPi.mockImplementation(actual.writeBackPiOAuthTokens);
+  return { ...actual, writeBackPiOAuthTokens: writeBackPi };
 });
 vi.mock("@/lib/codexbar/utils", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/lib/codexbar/utils")>();
@@ -15,7 +22,7 @@ vi.mock("@/lib/codexbar/utils", async (importOriginal) => {
   return {
     ...actual,
     atomicWriteText: atomicWrite,
-    fetchText: vi.fn(),
+    fetchText: fetchMock,
     withRefreshFileLock: vi.fn((path: string, run: () => Promise<unknown>) => {
       lockRequested();
       return actual.withRefreshFileLock(path, run);
@@ -45,6 +52,7 @@ beforeEach(() => {
   vi.stubEnv("PI_CODING_AGENT_DIR", join(dir, "empty-pi"));
   vi.mocked(fetchText).mockReset();
   atomicWrite.mockClear();
+  writeBackPi.mockClear();
   vi.mocked(withRefreshFileLock).mockClear();
   lockRequested.mockReset();
   vi.mocked(fetchText).mockImplementation(async (url, init) => {
@@ -69,10 +77,22 @@ function refreshTokensSent(): unknown[] {
     .map(([, init]) => JSON.parse(String(init?.body)).refresh_token);
 }
 
+async function failCredentialsWriteOnce(): Promise<void> {
+  const actual = await vi.importActual<typeof import("@/lib/codexbar/utils")>("@/lib/codexbar/utils");
+  let failed = false;
+  atomicWrite.mockImplementation((target: string, content: string, mode?: number) => {
+    if (target === path && !failed) {
+      failed = true;
+      throw new Error("simulated disk failure");
+    }
+    actual.atomicWriteText(target, content, mode);
+  });
+}
+
 describe("Anthropic credentials reread after locking", () => {
   it("keeps rotated tokens for later polls when persisting them fails", async () => {
     store("old-access-fixture", "old-refresh-fixture", Date.now() + 3600_000);
-    atomicWrite.mockImplementationOnce(() => { throw new Error("simulated disk failure"); });
+    await failCredentialsWriteOnce();
     let tokenRequests = 0;
     vi.mocked(fetchText).mockImplementation(async (url, init) => {
       if (url === tokenUrl) {
@@ -104,9 +124,63 @@ describe("Anthropic credentials reread after locking", () => {
     ]);
   });
 
+  it("recovers a rotated CLI token after module state is discarded", async () => {
+    store("old-access-fixture", "old-refresh-fixture", Date.now() + 3600_000);
+    await failCredentialsWriteOnce();
+    const provider = createAnthropicProvider(scope);
+
+    expect((await provider.fetch()).windows[0]?.usedPercent).toBe(10);
+    const journalPath = `${path}.leafcode-oauth-pending-anthropic-cli.json`;
+    expect(existsSync(journalPath)).toBe(true);
+
+    vi.resetModules();
+    const fresh = await import("./anthropic");
+    expect((await fresh.createAnthropicProvider(scope).fetch()).windows[0]?.usedPercent).toBe(10);
+    await vi.waitFor(() => {
+      expect(JSON.parse(readFileSync(path, "utf8")).claudeAiOauth.refreshToken).toBe("final-refresh-fixture");
+    });
+    expect(existsSync(journalPath)).toBe(false);
+    expect(refreshTokensSent()).toEqual(["old-refresh-fixture"]);
+  });
+
+  it("recovers a rotated Anthropic Pi token from the journal on a later poll", async () => {
+    const piDir = join(dir, "pi-store");
+    const piPath = join(piDir, "auth.json");
+    mkdirSync(piDir, { recursive: true });
+    vi.stubEnv("PI_CODING_AGENT_DIR", piDir);
+    writeFileSync(piPath, JSON.stringify({
+      anthropic: { type: "oauth", access: "old-pi-access-fixture", refresh: "old-pi-refresh-fixture", expires: Date.now() - 1000 },
+      untouched: "sentinel",
+    }), "utf8");
+    writeBackPi.mockImplementationOnce(async () => { throw new Error("simulated auth write failure"); });
+    vi.mocked(fetchText).mockImplementation(async (url, init) => {
+      if (url === tokenUrl) {
+        expect(JSON.parse(String(init?.body)).refresh_token).toBe("old-pi-refresh-fixture");
+        return { ok: true, status: 200, body: JSON.stringify({ access_token: "new-pi-access-fixture", refresh_token: "new-pi-refresh-fixture", expires_in: 3600 }) };
+      }
+      expect(url).toBe("https://api.anthropic.com/api/oauth/usage");
+      expect(new Headers(init?.headers).get("Authorization")).toBe("Bearer new-pi-access-fixture");
+      return { ok: true, status: 200, body: JSON.stringify({ five_hour: { utilization: 10 } }) };
+    });
+
+    const provider = createAnthropicProvider(scope);
+    expect((await provider.fetch()).windows[0]?.usedPercent).toBe(10);
+    expect(JSON.parse(readFileSync(piPath, "utf8")).anthropic.refresh).toBe("old-pi-refresh-fixture");
+    const journalPath = `${piPath}.leafcode-oauth-pending-anthropic-pi.json`;
+    expect(existsSync(journalPath)).toBe(true);
+
+    expect((await provider.fetch()).windows[0]?.usedPercent).toBe(10);
+    expect(JSON.parse(readFileSync(piPath, "utf8")).anthropic).toMatchObject({
+      access: "new-pi-access-fixture",
+      refresh: "new-pi-refresh-fixture",
+    });
+    expect(existsSync(journalPath)).toBe(false);
+    expect(refreshTokensSent()).toEqual(["old-pi-refresh-fixture"]);
+  });
+
   it("prefers externally updated credentials over the in-memory refresh result", async () => {
     store("old-access-fixture", "old-refresh-fixture", Date.now() + 3600_000);
-    atomicWrite.mockImplementationOnce(() => { throw new Error("simulated disk failure"); });
+    await failCredentialsWriteOnce();
     const provider = createAnthropicProvider(scope);
 
     expect((await provider.fetch()).windows[0]?.usedPercent).toBe(10);

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, rmSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
@@ -13,6 +13,26 @@ import {
 } from "./backend-launch.js";
 
 const REPO_ROOT = join("C:", "repo");
+
+test("the generation hash is reused while mtime and size are unchanged", () => {
+  const dir = mkdtempSync(join(tmpdir(), "leafcode-backend-plan-cache-"));
+  try {
+    const bundle = join(dir, "runtime.bundle.mjs");
+    const pinned = 1_700_000_000; // whole seconds survive utimes without rounding
+    writeFileSync(bundle, "export const a = 1;\n", "utf8");
+    utimesSync(bundle, pinned, pinned);
+    const first = bundleGeneration(bundle);
+    // Same mtime and size, different bytes: only a cache can return the old hash.
+    writeFileSync(bundle, "export const a = 2;\n", "utf8");
+    utimesSync(bundle, pinned, pinned);
+    assert.equal(bundleGeneration(bundle), first);
+    // A different size is a rebuild.
+    writeFileSync(bundle, "export const a = 22;\n", "utf8");
+    assert.notEqual(bundleGeneration(bundle), first);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
 
 test("the generation is the bundle hash, and a missing bundle has none", () => {
   const dir = mkdtempSync(join(tmpdir(), "leafcode-backend-plan-"));

@@ -4,6 +4,8 @@ import { ALLOWED_SETTING_KEYS as ALLOWED_KEYS, validateSettingValue as validateV
 import { COMPACTION_ACTION_SETTING_KEY, COMPACTION_THRESHOLD_SETTING_KEY } from "@/lib/compaction-settings";
 import { isAutoOptimizeMode } from "@/lib/auto-model";
 import { AUTO_AGENT_SYSTEM_INSTRUCTION } from "@/lib/auto-agent";
+import { GIT_COMMIT_AUTHOR_SETTING_KEY } from "@/lib/git-commit-author";
+import { getMachineName } from "@/lib/machine-name";
 import { CODE_PERMISSION_SETTING_KEYS } from "@/lib/pi/code-permission-settings";
 
 export const runtime = "nodejs";
@@ -18,6 +20,9 @@ export async function GET(
     return NextResponse.json({ error: "unknown setting key" }, { status: 400 });
   }
   const value = getSetting(key);
+  if (key === GIT_COMMIT_AUTHOR_SETTING_KEY) {
+    return NextResponse.json({ value, machineName: getMachineName() });
+  }
   return key === "auto-agent-prompt"
     ? NextResponse.json({ value, defaultPrompt: AUTO_AGENT_SYSTEM_INSTRUCTION })
     : NextResponse.json({ value });

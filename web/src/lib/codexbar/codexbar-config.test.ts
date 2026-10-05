@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   codexResetAutoConsumeWindowMs,
+  anthropicResetAutoConsumeWindowMs,
   loadCodexBarConfig,
   DEFAULT_CODEX_RESET_AUTO_CONSUME_WINDOW_HOURS,
   MAX_CODEX_RESET_AUTO_CONSUME_WINDOW_HOURS,
@@ -17,18 +18,25 @@ afterEach(() => {
   for (const dir of dirs.splice(0)) rmSync(dir, { recursive: true, force: true });
 });
 
-describe("codexResetAutoConsumeWindowMs", () => {
-  it.each([undefined, true, null, "false"])("defaults to enabled for missing or malformed flag %s", (flag) => {
-    expect(codexResetAutoConsumeWindowMs({ codexResetAutoConsume: flag } as CodexBarConfig)).toBe(defaultWindowMs);
+describe("anthropicResetAutoConsumeWindowMs", () => {
+  it.each([undefined, 0, -1, 169, "12", null])("defaults to 24 hours for absent/invalid Claude windows %s", (value) => {
+    expect(anthropicResetAutoConsumeWindowMs({ anthropicResetAutoConsumeWindowHours: value } as CodexBarConfig)).toBe(defaultWindowMs);
   });
+  it("accepts a bounded custom Claude window without affecting Codex", () => {
+    const config = { anthropicResetAutoConsumeWindowHours: 12 };
+    expect(anthropicResetAutoConsumeWindowMs(config)).toBe(12 * 3600_000);
+    expect(codexResetAutoConsumeWindowMs(config)).toBe(defaultWindowMs);
+  });
+});
 
-  it("respects an explicit boolean false", () => {
-    expect(codexResetAutoConsumeWindowMs({ codexResetAutoConsume: false })).toBeNull();
+describe("codexResetAutoConsumeWindowMs", () => {
+  it.each([undefined, false, true, null, "false"])("ignores the obsolete global flag %s", (flag) => {
+    expect(codexResetAutoConsumeWindowMs({ codexResetAutoConsume: flag } as CodexBarConfig)).toBe(defaultWindowMs);
   });
 
   it("accepts a bounded positive custom window without an enable flag", () => {
     expect(codexResetAutoConsumeWindowMs({ codexResetAutoConsumeWindowHours: 12 })).toBe(12 * 60 * 60 * 1000);
-    expect(codexResetAutoConsumeWindowMs({ codexResetAutoConsume: false, codexResetAutoConsumeWindowHours: 12 })).toBeNull();
+    expect(codexResetAutoConsumeWindowMs({ codexResetAutoConsume: false, codexResetAutoConsumeWindowHours: 12 })).toBe(12 * 60 * 60 * 1000);
     expect(codexResetAutoConsumeWindowMs({ codexResetAutoConsumeWindowHours: MAX_CODEX_RESET_AUTO_CONSUME_WINDOW_HOURS })).toBe(7 * 24 * 60 * 60 * 1000);
   });
 

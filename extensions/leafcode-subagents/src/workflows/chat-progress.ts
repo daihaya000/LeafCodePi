@@ -1,4 +1,4 @@
-import { spawnSync } from "node:child_process";
+import { execFile } from "node:child_process";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import type { Details } from "../shared/types.ts";
@@ -25,59 +25,93 @@ interface ResolveWorkflowChatProgressInput {
 	background: boolean;
 }
 
-function git(cwd: string, args: string[]): string | undefined {
-	const result = spawnSync("git", ["-C", cwd, ...args], { encoding: "utf-8", windowsHide: true });
-	if (result.status !== 0) return undefined;
-	const output = result.stdout.trim();
-	return output || undefined;
+function git(cwd: string, args: string[]): Promise<string | undefined> {
+	return new Promise((resolve) => {
+		execFile("git", ["-C", cwd, ...args], {
+			encoding: "utf-8",
+			windowsHide: true,
+			timeout: 3_000,
+			maxBuffer: 64 * 1024,
+		}, (error, stdout) => {
+			if (error) return resolve(undefined);
+			const output = stdout.trim();
+			resolve(output || undefined);
+		});
+	});
 }
 
-function realPath(value: string): string {
+async function realPath(value: string): Promise<string> {
 	try {
-		return fs.realpathSync.native(value);
+		return await fs.promises.realpath(value);
 	} catch {
 		return path.resolve(value);
 	}
 }
 
 /**
- * Repository identity rarely changes, but `git rev-parse` is a synchronous
- * spawn that stops the event loop for the caller. Cache it briefly per cwd so a
- * burst of workflow starts resolves the identity once instead of per call.
+ * Repository identity rarely changes. Async Git and filesystem probes avoid
+ * blocking the workflow runner; concurrent lookups for one cwd share a promise.
  */
 const IDENTITY_CACHE_TTL_MS = 10_000;
 const IDENTITY_CACHE_LIMIT = 32;
 const identityCache = new Map<string, { resolvedAt: number; identity: GitRepositoryIdentity | undefined }>();
+const identityInFlight = new Map<string, Promise<GitRepositoryIdentity | undefined>>();
+let identityCacheGeneration = 0;
 
-export function resolveGitRepositoryIdentity(cwd: string): GitRepositoryIdentity | undefined {
-	const resolvedCwd = realPath(cwd);
+export async function resolveGitRepositoryIdentity(cwd: string): Promise<GitRepositoryIdentity | undefined> {
+	const resolvedCwd = await realPath(cwd);
 	const now = Date.now();
 	const cached = identityCache.get(resolvedCwd);
 	if (cached && now - cached.resolvedAt < IDENTITY_CACHE_TTL_MS) return cached.identity;
-	const identity = probeGitRepositoryIdentity(resolvedCwd);
-	if (identityCache.size >= IDENTITY_CACHE_LIMIT) {
-		const oldest = [...identityCache.entries()].sort((a, b) => a[1].resolvedAt - b[1].resolvedAt)[0];
-		if (oldest) identityCache.delete(oldest[0]);
-	}
-	identityCache.set(resolvedCwd, { resolvedAt: now, identity });
-	return identity;
+	const pending = identityInFlight.get(resolvedCwd);
+	if (pending) return pending;
+
+	const generation = identityCacheGeneration;
+	const lookup = probeGitRepositoryIdentity(resolvedCwd).then((identity) => {
+		if (generation === identityCacheGeneration) {
+			if (identityCache.size >= IDENTITY_CACHE_LIMIT) {
+				const oldest = [...identityCache.entries()].sort((a, b) => a[1].resolvedAt - b[1].resolvedAt)[0];
+				if (oldest) identityCache.delete(oldest[0]);
+			}
+			identityCache.set(resolvedCwd, { resolvedAt: Date.now(), identity });
+		}
+		return identity;
+	}).finally(() => {
+		if (identityInFlight.get(resolvedCwd) === lookup) identityInFlight.delete(resolvedCwd);
+	});
+	identityInFlight.set(resolvedCwd, lookup);
+	return lookup;
 }
 
 /** Test-only: forget memoized repository identities. */
 export function resetGitRepositoryIdentityCacheForTests(): void {
+	identityCacheGeneration++;
 	identityCache.clear();
+	identityInFlight.clear();
 }
 
-function probeGitRepositoryIdentity(cwd: string): GitRepositoryIdentity | undefined {
+async function probeGitRepositoryIdentity(cwd: string): Promise<GitRepositoryIdentity | undefined> {
 	// One spawn instead of three: output is one value per requested option, in order.
-	const [inside, root, commonDir] = (git(cwd, ["rev-parse", "--is-inside-work-tree", "--show-toplevel", "--git-common-dir"]) ?? "").split(/\r?\n/).map((line) => line.trim());
+	const output = await git(cwd, ["rev-parse", "--is-inside-work-tree", "--show-toplevel", "--git-common-dir"]);
+	const [inside, root, commonDir] = (output ?? "").split(/\r?\n/).map((line) => line.trim());
 	if (inside !== "true" || !root || !commonDir) return undefined;
-	const commonDirPath = path.isAbsolute(commonDir)
-		? commonDir
-		: [path.resolve(cwd, commonDir), path.resolve(root, commonDir)].find((candidate) => fs.existsSync(candidate)) ?? path.resolve(root, commonDir);
+	let commonDirPath = commonDir;
+	if (!path.isAbsolute(commonDir)) {
+		const candidates = [path.resolve(cwd, commonDir), path.resolve(root, commonDir)];
+		commonDirPath = path.resolve(root, commonDir);
+		for (const candidate of candidates) {
+			try {
+				await fs.promises.access(candidate);
+				commonDirPath = candidate;
+				break;
+			} catch {
+				// Try the next Git-reported location.
+			}
+		}
+	}
 	return {
-		root: realPath(root),
-		commonDir: realPath(commonDirPath),
+		root: await realPath(root),
+		commonDir: await realPath(commonDirPath),
 	};
 }
 
@@ -86,8 +120,12 @@ function isSameGitRepositoryIdentity(left: GitRepositoryIdentity | undefined, ri
 	return left.commonDir === right.commonDir || left.root === right.root;
 }
 
-export function isSameGitRepository(leftCwd: string, rightCwd: string): boolean {
-	return isSameGitRepositoryIdentity(resolveGitRepositoryIdentity(leftCwd), resolveGitRepositoryIdentity(rightCwd));
+export async function isSameGitRepository(leftCwd: string, rightCwd: string): Promise<boolean> {
+	const [left, right] = await Promise.all([
+		resolveGitRepositoryIdentity(leftCwd),
+		resolveGitRepositoryIdentity(rightCwd),
+	]);
+	return isSameGitRepositoryIdentity(left, right);
 }
 
 function normalizeRequestedMode(value: unknown): { mode?: WorkflowChatProgressMode; error?: string } {
@@ -98,13 +136,13 @@ function normalizeRequestedMode(value: unknown): { mode?: WorkflowChatProgressMo
 	return { mode: value as WorkflowChatProgressMode };
 }
 
-export function resolveWorkflowChatProgress(input: ResolveWorkflowChatProgressInput): { projection?: WorkflowChatProgressProjection; error?: string } {
+export async function resolveWorkflowChatProgress(input: ResolveWorkflowChatProgressInput): Promise<{ projection?: WorkflowChatProgressProjection; error?: string }> {
 	const requested = normalizeRequestedMode(input.requested);
 	if (requested.error) return { error: requested.error };
-	const parentIdentity = resolveGitRepositoryIdentity(input.parentCwd);
+	const parentIdentity = await resolveGitRepositoryIdentity(input.parentCwd);
 	const workflowIdentity = path.resolve(input.parentCwd) === path.resolve(input.workflowCwd)
 		? parentIdentity
-		: resolveGitRepositoryIdentity(input.workflowCwd);
+		: await resolveGitRepositoryIdentity(input.workflowCwd);
 	const sameRepo = !!(
 		parentIdentity
 		&& workflowIdentity

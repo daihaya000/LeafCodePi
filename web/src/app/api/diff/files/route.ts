@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { NextRequest, NextResponse } from "next/server";
-import { parseUnifiedDiff, untrackedHunk } from "@/lib/diffparse";
+import { parseNumstatZ, parseUnifiedDiff, untrackedHunk } from "@/lib/diffparse";
 import { gitDirectoryError, runGit } from "@/lib/git";
 import type { DiffFile, DiffFilesPayload } from "@/lib/types";
 
@@ -57,6 +57,17 @@ export async function GET(req: NextRequest) {
   }
   const dir = directory!;
   const countOnly = req.nextUrl.searchParams.get("count") === "1";
+  // summary=1: file list with numstat only (no hunks, no untracked reads). path=: full diff of one file.
+  const summaryOnly = req.nextUrl.searchParams.get("summary") === "1";
+  const onlyPath = req.nextUrl.searchParams.get("path")?.replace(/\\/g, "/") ?? null;
+  const onlyOldPath = req.nextUrl.searchParams.get("oldPath")?.replace(/\\/g, "/") ?? null;
+  if (onlyPath !== null && (onlyPath === "" || path.isAbsolute(onlyPath) || !isUnder(dir, path.resolve(dir, onlyPath)))) {
+    return NextResponse.json({ error: "path is not allowed" }, { status: 400 });
+  }
+  const pathspec = onlyPath === null
+    ? []
+    : ["--", ...[onlyPath, onlyOldPath].filter((value): value is string => Boolean(value)).map((value) => `:(literal)${value}`)];
+  const diffFormat = summaryOnly ? ["--numstat", "-z"] : ["--no-color", "--no-ext-diff"];
 
   try {
     if (!fs.existsSync(dir)) {
@@ -91,34 +102,19 @@ export async function GET(req: NextRequest) {
     const files: DiffFile[] = [];
     if (hasTrackedChanges) {
       // Tracked changes (staged + unstaged vs HEAD); fresh repos fall back.
-      let diff = await runGit(dir, [
-        "diff",
-        "HEAD",
-        "--no-color",
-        "--no-ext-diff",
-        "-M",
-      ]);
+      let diff = await runGit(dir, ["diff", "HEAD", ...diffFormat, "-M", ...pathspec]);
       if (diff.code !== 0) {
-        const unstaged = await runGit(dir, [
-          "diff",
-          "--no-color",
-          "--no-ext-diff",
-          "-M",
-        ]);
-        const staged = await runGit(dir, [
-          "diff",
-          "--cached",
-          "--no-color",
-          "--no-ext-diff",
-          "-M",
-        ]);
+        const unstaged = await runGit(dir, ["diff", ...diffFormat, "-M", ...pathspec]);
+        const staged = await runGit(dir, ["diff", "--cached", ...diffFormat, "-M", ...pathspec]);
         diff = {
           code: 0,
-          stdout: [staged.stdout, unstaged.stdout].filter(Boolean).join("\n"),
+          stdout: [staged.stdout, unstaged.stdout].filter(Boolean).join(summaryOnly ? "" : "\n"),
           stderr: "",
         };
       }
-      files.push(...parseUnifiedDiff(diff.stdout));
+      const parsed = summaryOnly ? parseNumstatZ(diff.stdout) : parseUnifiedDiff(diff.stdout);
+      // The pathspec already limits a single-file request to that file (and its rename source).
+      files.push(...parsed);
     }
 
     for (const line of status.stdout.split(/\r?\n/)) {
@@ -126,7 +122,20 @@ export async function GET(req: NextRequest) {
       let rel = line.slice(3).trim();
       if (rel.startsWith('"') && rel.endsWith('"')) rel = rel.slice(1, -1);
       const norm = rel.replace(/\\/g, "/");
+      if (onlyPath !== null && norm !== onlyPath) continue;
       if (files.some((f) => f.path === norm)) continue;
+      if (summaryOnly) {
+        files.push({
+          path: norm,
+          additions: 0,
+          deletions: 0,
+          binary: false,
+          untracked: true,
+          hunks: [],
+          hunksPending: true,
+        });
+        continue;
+      }
       if (rel.endsWith("/")) {
         files.push({
           path: norm,

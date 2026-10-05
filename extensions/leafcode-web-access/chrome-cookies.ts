@@ -1,6 +1,6 @@
 import { execFile } from "node:child_process";
 import { createDecipheriv } from "node:crypto";
-import { copyFileSync, existsSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync } from "node:fs";
+import { copyFileSync, existsSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, statSync } from "node:fs";
 import { tmpdir, homedir } from "node:os";
 import { isAbsolute, join, sep } from "node:path";
 import { isBrowserCookieAccessAllowed, type BrowserCookiePreset } from "./gemini-web-config.ts";
@@ -169,12 +169,9 @@ export async function getBrowserCookiesForHosts(
 			}
 			sawCookieDatabase = true;
 
-			const tempDir = mkdtempSync(join(tmpdir(), "pi-chrome-cookies-"));
+			const snapshot = acquireCookieSnapshot(cookiesPath);
 			try {
-				const tempDb = join(tempDir, "Cookies");
-				copyFileSync(cookiesPath, tempDb);
-				copySidecar(cookiesPath, tempDb, "-wal");
-				copySidecar(cookiesPath, tempDb, "-shm");
+				const tempDb = snapshot.dbPath;
 
 				if (requiredCookies?.length) {
 					const preflight = await hasCookieNames(tempDb, hosts, requiredCookies);
@@ -256,7 +253,7 @@ export async function getBrowserCookiesForHosts(
 					...(options.requestUrl ? { cookieHeader: buildCookieHeader(entries) } : {}),
 				};
 			} finally {
-				rmSync(tempDir, { recursive: true, force: true });
+				snapshot.release();
 			}
 		}
 	}
@@ -612,6 +609,90 @@ function domainCookieHosts(host: string): string[] {
 	const candidates = new Set<string>();
 	for (let i = 0; i <= parts.length - 2; i++) candidates.add(parts.slice(i).join("."));
 	return [...candidates];
+}
+
+interface CookieSnapshotEntry {
+	stamp: string;
+	dir: string;
+	dbPath: string;
+	users: number;
+	stale: boolean;
+}
+
+/**
+ * Chromium Cookies databases can be hundreds of MB, so the private copy is shared between lookups
+ * while the database and its -wal/-shm sidecars keep the same size and mtime. A changed stamp makes
+ * a fresh copy; the old one is removed once its last reader releases it.
+ */
+const cookieSnapshots = new Map<string, CookieSnapshotEntry>();
+let cookieSnapshotCleanupRegistered = false;
+
+function cookieSourceStamp(dbPath: string): string {
+	return ["", "-wal", "-shm"].map((suffix) => {
+		try {
+			const stat = statSync(`${dbPath}${suffix}`, { bigint: true });
+			return `${stat.size}:${stat.mtimeNs}`;
+		} catch {
+			return "-";
+		}
+	}).join("|");
+}
+
+function removeCookieSnapshot(entry: CookieSnapshotEntry): void {
+	rmSync(entry.dir, { recursive: true, force: true });
+}
+
+function registerCookieSnapshotCleanup(): void {
+	if (cookieSnapshotCleanupRegistered) return;
+	cookieSnapshotCleanupRegistered = true;
+	process.once("exit", () => {
+		for (const entry of cookieSnapshots.values()) removeCookieSnapshot(entry);
+		cookieSnapshots.clear();
+	});
+}
+
+export function acquireCookieSnapshot(cookiesPath: string): { dbPath: string; release: () => void } {
+	const stampBefore = cookieSourceStamp(cookiesPath);
+	const existing = cookieSnapshots.get(cookiesPath);
+	let entry: CookieSnapshotEntry;
+	if (existing && existing.stamp === stampBefore && !existing.stale) {
+		entry = existing;
+	} else {
+		if (existing) {
+			existing.stale = true;
+			cookieSnapshots.delete(cookiesPath);
+			if (existing.users === 0) removeCookieSnapshot(existing);
+		}
+		const dir = mkdtempSync(join(tmpdir(), "pi-chrome-cookies-"));
+		const dbPath = join(dir, "Cookies");
+		try {
+			copyFileSync(cookiesPath, dbPath);
+			copySidecar(cookiesPath, dbPath, "-wal");
+			copySidecar(cookiesPath, dbPath, "-shm");
+		} catch (error) {
+			rmSync(dir, { recursive: true, force: true });
+			throw error;
+		}
+		entry = { stamp: stampBefore, dir, dbPath, users: 0, stale: false };
+		// A write that raced the copy leaves the stamp different, so the next lookup copies again.
+		if (cookieSourceStamp(cookiesPath) === stampBefore) {
+			cookieSnapshots.set(cookiesPath, entry);
+			registerCookieSnapshotCleanup();
+		} else {
+			entry.stale = true;
+		}
+	}
+	entry.users += 1;
+	let released = false;
+	return {
+		dbPath: entry.dbPath,
+		release: () => {
+			if (released) return;
+			released = true;
+			entry.users -= 1;
+			if (entry.stale && entry.users === 0) removeCookieSnapshot(entry);
+		},
+	};
 }
 
 function copySidecar(srcDb: string, targetDb: string, suffix: string): void {

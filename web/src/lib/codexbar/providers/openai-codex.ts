@@ -5,6 +5,7 @@
 
 import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
 import { homedir } from "node:os";
+import { getAccount } from "@/lib/accounts";
 import { join } from "node:path";
 import {
   ProviderError,
@@ -29,6 +30,12 @@ import {
   readPiOAuthTokens,
   writeBackPiOAuthTokens,
 } from "@/lib/codexbar/pi-auth";
+import {
+  clearOAuthRefreshJournal,
+  hasOAuthRefreshJournal,
+  recoverOAuthRefreshJournal,
+  writeOAuthRefreshJournal,
+} from "@/lib/codexbar/oauth-refresh-journal";
 import { codexResetAutoConsumeWindowMs, loadCodexBarConfig } from "@/lib/codexbar/codexbar-config";
 import {
   autoConsumeExpiringResetCredits,
@@ -47,6 +54,44 @@ type CodexAuth = {
   emailFromJwt: string | null;
   planFromJwt: string | null;
 };
+
+type CodexJournalCredentials = {
+  accessToken: string;
+  refreshToken: string | null;
+  idToken: string | null;
+};
+
+const CODEX_CLI_JOURNAL = "openai-codex-cli";
+const CODEX_PI_JOURNAL = "openai-codex-pi";
+
+function toJournalCredentials(auth: CodexAuth, idToken: string | null = null): CodexJournalCredentials | null {
+  if (!auth.refreshToken) return null;
+  return { accessToken: auth.accessToken, refreshToken: auth.refreshToken, idToken };
+}
+
+function sameCodexCredentials(left: CodexJournalCredentials, right: CodexJournalCredentials): boolean {
+  return left.accessToken === right.accessToken &&
+    left.refreshToken === right.refreshToken &&
+    left.idToken === right.idToken;
+}
+
+function codexAuthFromJournal(
+  credentials: CodexJournalCredentials,
+  previous: CodexAuth | null,
+): CodexAuth {
+  const claims = credentials.idToken ? parseJwtClaims(credentials.idToken) : null;
+  return {
+    accessToken: credentials.accessToken,
+    refreshToken: credentials.refreshToken,
+    accountId: previous?.accountId ?? null,
+    emailFromJwt: claims?.email ?? previous?.emailFromJwt ?? null,
+    planFromJwt: claims?.plan ?? previous?.planFromJwt ?? null,
+  };
+}
+
+function clearCodexJournal(path: string, provider: string): void {
+  try { clearOAuthRefreshJournal(path, provider); } catch { /* a later recovery can clear it */ }
+}
 
 function codexHome(): string {
   const env = process.env.CODEX_HOME;
@@ -122,6 +167,89 @@ function loadAuth(path = authPath()): CodexAuth | null {
   }
 }
 
+function loadCliJournalCredentials(path: string): CodexJournalCredentials | null | undefined {
+  let raw: string;
+  try {
+    raw = readFileSync(path, "utf8");
+  } catch (error) {
+    return (error as NodeJS.ErrnoException)?.code === "ENOENT" ? null : undefined;
+  }
+  let tokens: Record<string, unknown> | null;
+  try {
+    tokens = asRecord(asRecord(JSON.parse(raw))?.tokens);
+  } catch {
+    return null;
+  }
+  if (!tokens || typeof tokens.access_token !== "string") return null;
+  return {
+    accessToken: tokens.access_token,
+    refreshToken: typeof tokens.refresh_token === "string" ? tokens.refresh_token : null,
+    idToken: typeof tokens.id_token === "string" ? tokens.id_token : null,
+  };
+}
+
+function loadPiJournalCredentials(path: string): CodexJournalCredentials | null | undefined {
+  try {
+    readFileSync(path, "utf8");
+  } catch (error) {
+    return (error as NodeJS.ErrnoException)?.code === "ENOENT" ? null : undefined;
+  }
+  try {
+    const tokens = readPiOAuthTokens("openai-codex", { authPath: path });
+    return tokens
+      ? { accessToken: tokens.access, refreshToken: tokens.refresh, idToken: null }
+      : null;
+  } catch {
+    return undefined;
+  }
+}
+
+async function recoverCodexCliRefresh(path: string): Promise<CodexAuth | null> {
+  if (!hasOAuthRefreshJournal(path, CODEX_CLI_JOURNAL)) return null;
+  try {
+    return await withRefreshFileLock(path, async () => {
+      const recovered = await recoverOAuthRefreshJournal({
+        authPath: path,
+        provider: CODEX_CLI_JOURNAL,
+        readCurrent: () => loadCliJournalCredentials(path),
+        same: sameCodexCredentials,
+        persist: (tokens) => {
+          if (!tokens.refreshToken) throw new Error("Rotated Codex auth is missing a refresh token");
+          persistTokens(tokens.accessToken, tokens.idToken, tokens.refreshToken, path);
+        },
+      });
+      return recovered ? codexAuthFromJournal(recovered, loadAuth(path)) : null;
+    });
+  } catch {
+    return null;
+  }
+}
+
+async function recoverCodexPiRefresh(path: string): Promise<CodexAuth | null> {
+  if (!hasOAuthRefreshJournal(path, CODEX_PI_JOURNAL)) return null;
+  try {
+    return await withRefreshFileLock(path, async () => {
+      const recovered = await recoverOAuthRefreshJournal({
+        authPath: path,
+        provider: CODEX_PI_JOURNAL,
+        readCurrent: () => loadPiJournalCredentials(path),
+        same: sameCodexCredentials,
+        persist: (tokens) => {
+          if (!tokens.refreshToken) throw new Error("Rotated Codex auth is missing a refresh token");
+          return writeBackPiOAuthTokens(
+            "openai-codex",
+            { access: tokens.accessToken, refresh: tokens.refreshToken },
+            { authPath: path },
+          );
+        },
+      });
+      return recovered ? codexAuthFromJournal(recovered, loadAuthFromPi(path)) : null;
+    });
+  } catch {
+    return null;
+  }
+}
+
 function persistTokens(
   accessToken: string,
   idToken: string | null,
@@ -147,11 +275,23 @@ function tryRefreshTokens(
   const path = authPath();
   const key = `codex-cli:${path}`;
   return singleFlight(key, () =>
-    withRefreshFileLock(path, () => {
+    withRefreshFileLock(path, async () => {
+      const recovered = await recoverOAuthRefreshJournal({
+        authPath: path,
+        provider: CODEX_CLI_JOURNAL,
+        readCurrent: () => loadCliJournalCredentials(path),
+        same: sameCodexCredentials,
+        persist: (tokens) => {
+          if (!tokens.refreshToken) throw new Error("Rotated Codex auth is missing a refresh token");
+          persistTokens(tokens.accessToken, tokens.idToken, tokens.refreshToken, path);
+        },
+      });
       // Another process may have rotated tokens while this caller waited for the lock.
-      const latest = loadAuth(path);
-      if (!latest) return Promise.resolve(null);
-      if (latest.accessToken !== auth.accessToken) return Promise.resolve(latest);
+      const latest = recovered
+        ? codexAuthFromJournal(recovered, loadAuth(path))
+        : loadAuth(path);
+      if (!latest) return null;
+      if (latest.accessToken !== auth.accessToken) return latest;
       // Unchanged credentials may still need refresh after a 401, even before expiry.
       return refreshTokensOnce(latest, signal, path);
     }),
@@ -186,8 +326,25 @@ async function refreshTokensOnce(
       typeof root?.refresh_token === "string"
         ? root.refresh_token
         : auth.refreshToken;
+    const previous = loadCliJournalCredentials(path) ?? toJournalCredentials(auth);
+    if (!previous) return null;
+    const refreshed = { accessToken, refreshToken, idToken: idToken || previous.idToken };
+    try {
+      writeOAuthRefreshJournal(path, CODEX_CLI_JOURNAL, previous, refreshed);
+    } catch {
+      // Main auth persistence is still attempted; restart recovery needs the sidecar.
+    }
     persistTokens(accessToken, idToken, refreshToken, path);
-    return loadAuth(path);
+    const loaded = loadAuth(path);
+    if (loaded?.accessToken === accessToken && loaded.refreshToken === refreshToken) {
+      clearCodexJournal(path, CODEX_CLI_JOURNAL);
+      return loaded;
+    }
+    if (loaded && (loaded.accessToken !== auth.accessToken || loaded.refreshToken !== auth.refreshToken)) {
+      clearCodexJournal(path, CODEX_CLI_JOURNAL);
+      return loaded;
+    }
+    return null;
   } catch {
     return null;
   }
@@ -387,13 +544,25 @@ function tryRefreshTokensInPi(
   const path = authPathOverride ?? piAuthPathFor("openai-codex");
   const key = `codex-pi:${path}`;
   return singleFlight(key, () =>
-    withRefreshFileLock(path, () => {
+    withRefreshFileLock(path, async () => {
+      const recovered = await recoverOAuthRefreshJournal({
+        authPath: path,
+        provider: CODEX_PI_JOURNAL,
+        readCurrent: () => loadPiJournalCredentials(path),
+        same: sameCodexCredentials,
+        persist: (tokens) => {
+          if (!tokens.refreshToken) throw new Error("Rotated Codex auth is missing a refresh token");
+          return writeBackPiOAuthTokens("openai-codex", { access: tokens.accessToken, refresh: tokens.refreshToken }, { authPath: path });
+        },
+      });
       // Another process may have rotated tokens while this caller waited for the lock.
-      const latest = loadAuthFromPi(path);
-      if (!latest) return Promise.resolve(null);
-      if (latest.accessToken !== auth.accessToken) return Promise.resolve(latest);
+      const latest = recovered
+        ? codexAuthFromJournal(recovered, loadAuthFromPi(path))
+        : loadAuthFromPi(path);
+      if (!latest) return null;
+      if (latest.accessToken !== auth.accessToken) return latest;
       // Unchanged credentials may still need refresh after a 401, even before expiry.
-      return refreshTokensInPiOnce(latest, signal, authPathOverride);
+      return refreshTokensInPiOnce(latest, signal, path);
     }),
   );
 }
@@ -422,14 +591,25 @@ async function refreshTokensInPiOnce(
     if (!accessToken) return null;
     const refreshToken =
       typeof root?.refresh_token === "string" ? root.refresh_token : auth.refreshToken;
-    await writeBackPiOAuthTokens(
-      "openai-codex",
-      {
-        access: accessToken,
-        refresh: refreshToken,
-      },
-      authPathOverride ? { authPath: authPathOverride } : undefined,
-    );
+    const path = authPathOverride ?? piAuthPathFor("openai-codex");
+    const previous = toJournalCredentials(auth);
+    if (!previous) return null;
+    const refreshed = { accessToken, refreshToken, idToken: null };
+    try {
+      writeOAuthRefreshJournal(path, CODEX_PI_JOURNAL, previous, refreshed);
+    } catch {
+      // Main auth persistence is still attempted; restart recovery needs the sidecar.
+    }
+    try {
+      await writeBackPiOAuthTokens(
+        "openai-codex",
+        { access: accessToken, refresh: refreshToken },
+        { authPath: path },
+      );
+      clearCodexJournal(path, CODEX_PI_JOURNAL);
+    } catch {
+      return null;
+    }
     return {
       accessToken,
       refreshToken,
@@ -484,8 +664,12 @@ async function maybeAutoConsumeResetCredits(
   // The dedicated credits endpoint is authoritative when usage omits the count.
   if (available !== null && available !== undefined && available <= 0) return snapshot;
 
+  // Re-read account preferences for both background and widget-triggered usage checks.
+  if (scope.accountId) {
+    const account = getAccount(scope.accountId);
+    if (!account || account.enabled === false || account.codexResetAutoConsume === false) return snapshot;
+  }
   const windowMs = codexResetAutoConsumeWindowMs(loadCodexBarConfig());
-  if (windowMs === null) return snapshot;
 
   const key = autoResetInstanceId(scope);
   const now = Date.now();
@@ -561,9 +745,12 @@ export function createOpenaiCodexProvider(scope: UsageScope): IUsageProvider {
     async fetch(signal) {
       // Account scope is deliberately Pi-only. Default scope preserves the
       // existing Pi → Codex CLI fallback for compatibility.
-      const piAuth = loadPiAuth();
+      const piRecoveryPath = strictAccount ? piPath : piPath ?? piAuthPathFor("openai-codex");
+      const recoveredPi = piRecoveryPath ? await recoverCodexPiRefresh(piRecoveryPath) : null;
+      const piAuth = recoveredPi ?? loadPiAuth();
       const usingPi = piAuth !== null;
-      const auth = strictAccount ? piAuth : piAuth ?? loadAuth();
+      const recoveredCli = !strictAccount && !usingPi ? await recoverCodexCliRefresh(authPath()) : null;
+      const auth = strictAccount ? piAuth : piAuth ?? recoveredCli ?? loadAuth();
       if (!auth) {
         throw new ProviderError(
           strictAccount
@@ -650,7 +837,7 @@ export async function resolveOpenaiCodexWhamAuth(
     }
     const agentDir = await resolvePiAgentDir();
     const piPath = accountAuthPath(accountId, agentDir);
-    const auth = loadAuthFromPi(piPath);
+    const auth = await recoverCodexPiRefresh(piPath) ?? loadAuthFromPi(piPath);
     if (!auth) return null;
     return {
       credentials: {
@@ -670,7 +857,8 @@ export async function resolveOpenaiCodexWhamAuth(
     };
   }
 
-  const piAuth = loadAuthFromPi();
+  const defaultPiPath = piAuthPathFor("openai-codex");
+  const piAuth = await recoverCodexPiRefresh(defaultPiPath) ?? loadAuthFromPi(defaultPiPath);
   if (piAuth) {
     return {
       credentials: {
@@ -690,7 +878,8 @@ export async function resolveOpenaiCodexWhamAuth(
     };
   }
 
-  const cliAuth = loadAuth();
+  const cliPath = authPath();
+  const cliAuth = await recoverCodexCliRefresh(cliPath) ?? loadAuth(cliPath);
   if (!cliAuth) return null;
   return {
     credentials: {

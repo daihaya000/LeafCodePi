@@ -92,9 +92,6 @@ vi.mock("@/components/settings/ReasoningTranslationSettings", () => ({
 vi.mock("@/components/settings/CompactionSettings", () => ({
   CompactionSettings: () => <h3>コンテキスト圧縮</h3>,
 }));
-vi.mock("@/components/settings/CodexResetSettings", () => ({
-  CodexResetSettings: () => <h3>Codex リセット権の自動使用</h3>,
-}));
 vi.mock("@/components/settings/HangTimeoutSettings", () => ({
   HangTimeoutSettings: () => <h3>ハング判定</h3>,
 }));
@@ -404,8 +401,7 @@ describe("SettingsView", () => {
     const responseSection = enginePanel.querySelector('section[aria-label="応答"]');
     const responseGrid = responseSection?.querySelector(":scope > div.grid");
     expect(responseGrid?.className).toContain("@4xl:grid-cols-2");
-    expect(responseGrid?.children).toHaveLength(5);
-    expect(screen.getByRole("heading", { name: "Codex リセット権の自動使用" })).toBeTruthy();
+    expect(responseGrid?.children).toHaveLength(4);
     expect(Array.from(responseGrid?.children ?? []).every((item) => !item.className.includes("@4xl:col-span-2"))).toBe(true);
     expect(screen.getByRole("heading", { name: "Pi Coding Agent" }).tagName).toBe("H3");
     expect(mountCounts.basic).toBe(1);

@@ -185,7 +185,10 @@ describe("Sidebar project ordering", () => {
     expect(localStorage.getItem("leafcodepi.mode")).toBe("bot");
   });
 
-  it("進行中タスクをワンクリックで分割表示する", async () => {
+  it.each([
+    { order: [], pinned: [], expected: ["working-old", "unread-done", "working-new"] },
+    { order: ["project-b", "project-a"], pinned: ["unread-done"], expected: ["working-new", "unread-done", "working-old"] },
+  ])("分割表示にプロジェクト・セッション順を反映する: $order", async ({ order, pinned, expected }) => {
     const workingTasks = [
       {
         id: "working-old",
@@ -231,6 +234,8 @@ describe("Sidebar project ordering", () => {
       },
     ];
     mocks.getJson.mockImplementation((path: string) => {
+      if (path === "/api/settings/sidebar-project-order") return Promise.resolve({ value: JSON.stringify(order) });
+      if (path === "/api/settings/sidebar-pinned-tasks") return Promise.resolve({ value: JSON.stringify(pinned) });
       if (path === "/api/projects?archived=1") return Promise.resolve({ projects });
       if (path === "/api/tasks?kind=all" || path === "/api/tasks?archived=1&kind=all") return Promise.resolve({ tasks: workingTasks });
       if (path === "/api/health") {
@@ -250,10 +255,12 @@ describe("Sidebar project ordering", () => {
     localStorage.setItem("webui.sidebar.collapsed", "1");
     render(<Sidebar mobileOpen={false} onClose={vi.fn()} />);
 
-    fireEvent.click(await screen.findByRole("button", { name: "進行中タスクを分割表示" }));
+    await screen.findByRole("button", { name: "進行中タスクを分割表示" });
+    await waitFor(() => expect(screen.getByRole("button", { name: "サイドバーを展開" })).toBeTruthy());
+    fireEvent.click(screen.getByRole("button", { name: "進行中タスクを分割表示" }));
     expect(mocks.dispatch).toHaveBeenCalledWith({
       type: "showWorkingTasks",
-      taskIds: ["working-new", "working-old", "unread-done"],
+      taskIds: expected,
     });
   });
 

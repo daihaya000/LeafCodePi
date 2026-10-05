@@ -21,10 +21,12 @@ export type CodexBarConfig = Record<string, unknown> & {
   syntheticApiKey?: string | null;
   openRouterApiKey?: string | null;
   commandCodeApiKey?: string | null;
-  /** Auto-redeem expiring Codex reset credits (default: true; explicit false disables). */
+  /** @deprecated Ignored. Automatic resets are configured per account in accounts.json. */
   codexResetAutoConsume?: boolean;
   /** Hours before expiry that count as "about to expire" (default: 24). */
   codexResetAutoConsumeWindowHours?: number;
+  /** Claude reset grant expiry window, in hours (default: 24). */
+  anthropicResetAutoConsumeWindowHours?: number;
 };
 
 export function codexBarConfigPath(): string {
@@ -57,17 +59,18 @@ export function updateCodexBarConfig(
   return next;
 }
 
-/** Missing/malformed flags stay enabled; only an explicit boolean false disables. */
-export function isCodexResetAutoConsumeEnabled(config: CodexBarConfig): boolean {
-  return config.codexResetAutoConsume !== false;
-}
-
 /** Invalid expiry windows fall back to 24 hours, without disabling the feature. */
 export function codexResetAutoConsumeWindowMs(
   config: CodexBarConfig,
-): number | null {
-  if (!isCodexResetAutoConsumeEnabled(config)) return null;
-  const rawHours = config.codexResetAutoConsumeWindowHours;
+): number {
+  return resetAutoConsumeWindowMs(config.codexResetAutoConsumeWindowHours);
+}
+
+export function anthropicResetAutoConsumeWindowMs(config: CodexBarConfig): number {
+  return resetAutoConsumeWindowMs(config.anthropicResetAutoConsumeWindowHours);
+}
+
+function resetAutoConsumeWindowMs(rawHours: unknown): number {
   const hours =
     typeof rawHours === "number" &&
     Number.isFinite(rawHours) &&
