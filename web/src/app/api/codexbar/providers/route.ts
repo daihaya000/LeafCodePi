@@ -3,7 +3,7 @@ import { promises as fs } from "node:fs";
 import { dirname } from "node:path";
 import { clearCachedUsage } from "@/lib/codexbar/cache";
 import { clearProviderCache } from "@/lib/codexbar/provider-cache";
-import { codexBarConfigPath } from "@/lib/codexbar/codexbar-config";
+import { codexBarConfigPath, isCodexResetAutoConsumeEnabled } from "@/lib/codexbar/codexbar-config";
 import {
   catalog,
   isKnownProviderId,
@@ -71,6 +71,10 @@ function safeError(error: unknown, status = 503): Response {
 
 type UpdateRequest =
   | {
+      codexResetAutoConsume: boolean;
+      version: string;
+    }
+  | {
       providerId: ProviderId;
       enabled: boolean;
       version: string;
@@ -85,6 +89,10 @@ function isUpdateRequest(value: unknown): value is UpdateRequest {
   const body = value as Record<string, unknown>;
   const keys = Object.keys(body);
   if (typeof body.version !== "string") return false;
+
+  if (keys.length === 2 && keys.every((key) => key === "codexResetAutoConsume" || key === "version")) {
+    return typeof body.codexResetAutoConsume === "boolean";
+  }
 
   if (
     keys.length === 2 &&
@@ -131,6 +139,7 @@ export async function GET() {
     const current = await readProviderConfig();
     return json({
       providers: catalog(current.enabled, current.order),
+      codexResetAutoConsume: isCodexResetAutoConsumeEnabled(current.config),
       version: versionOf(current.text),
     });
   } catch (error) {
@@ -139,7 +148,7 @@ export async function GET() {
 }
 
 /**
- * Update provider enablement or order. Preserves every other config key.
+ * Update provider enablement, order or Codex automatic resets. Preserves other keys.
  * Missing config.json is treated as "{}" so the first PUT can succeed.
  */
 export async function PUT(request: Request) {
@@ -151,7 +160,7 @@ export async function PUT(request: Request) {
   }
   if (!isUpdateRequest(body)) {
     return json(
-      { error: "providerId、enabled または providerOrder と version を指定してください" },
+      { error: "providerId、enabled、providerOrder または codexResetAutoConsume と version を指定してください" },
       400,
     );
   }
@@ -167,6 +176,18 @@ export async function PUT(request: Request) {
       );
     }
 
+    if ("codexResetAutoConsume" in body) {
+      const updated = { ...current.config, codexResetAutoConsume: body.codexResetAutoConsume };
+      await writeConfig(updated);
+      clearCachedUsage();
+      clearProviderCache();
+      return json({
+        providers: catalog(current.enabled, current.order),
+        codexResetAutoConsume: body.codexResetAutoConsume,
+        version: versionOf(`${JSON.stringify(updated, null, 2)}\n`),
+      });
+    }
+
     if ("providerOrder" in body) {
       const updated = {
         ...current.config,
@@ -178,6 +199,7 @@ export async function PUT(request: Request) {
       const text = `${JSON.stringify(updated, null, 2)}\n`;
       return json({
         providers: catalog(current.enabled, body.providerOrder),
+        codexResetAutoConsume: isCodexResetAutoConsumeEnabled(updated),
         version: versionOf(text),
       });
     }
@@ -203,6 +225,7 @@ export async function PUT(request: Request) {
     const text = `${JSON.stringify(updated, null, 2)}\n`;
     return json({
       providers: catalog(enabled, current.order),
+      codexResetAutoConsume: isCodexResetAutoConsumeEnabled(updated),
       version: versionOf(text),
     });
   } catch (error) {

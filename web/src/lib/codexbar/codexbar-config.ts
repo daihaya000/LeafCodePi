@@ -21,7 +21,7 @@ export type CodexBarConfig = Record<string, unknown> & {
   syntheticApiKey?: string | null;
   openRouterApiKey?: string | null;
   commandCodeApiKey?: string | null;
-  /** @deprecated Ignored: expiring Codex reset credits are always auto-redeemed. */
+  /** Auto-redeem expiring Codex reset credits (default: true; explicit false disables). */
   codexResetAutoConsume?: boolean;
   /** Hours before expiry that count as "about to expire" (default: 24). */
   codexResetAutoConsumeWindowHours?: number;
@@ -57,10 +57,16 @@ export function updateCodexBarConfig(
   return next;
 }
 
-/** Always enabled; missing, malformed or legacy disable settings cannot skip expiry checks. */
+/** Missing/malformed flags stay enabled; only an explicit boolean false disables. */
+export function isCodexResetAutoConsumeEnabled(config: CodexBarConfig): boolean {
+  return config.codexResetAutoConsume !== false;
+}
+
+/** Invalid expiry windows fall back to 24 hours, without disabling the feature. */
 export function codexResetAutoConsumeWindowMs(
   config: CodexBarConfig,
-): number {
+): number | null {
+  if (!isCodexResetAutoConsumeEnabled(config)) return null;
   const rawHours = config.codexResetAutoConsumeWindowHours;
   const hours =
     typeof rawHours === "number" &&

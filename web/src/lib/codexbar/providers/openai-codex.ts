@@ -485,6 +485,7 @@ async function maybeAutoConsumeResetCredits(
   if (available !== null && available !== undefined && available <= 0) return snapshot;
 
   const windowMs = codexResetAutoConsumeWindowMs(loadCodexBarConfig());
+  if (windowMs === null) return snapshot;
 
   const key = autoResetInstanceId(scope);
   const now = Date.now();

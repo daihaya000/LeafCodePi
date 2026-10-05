@@ -81,7 +81,7 @@ beforeEach(() => {
 });
 
 describe("Codex automatic reset redemption", () => {
-  it.each([{}, { codexResetAutoConsume: false }, { codexResetAutoConsumeWindowHours: 0 }])("redeems even with missing, legacy-disabled or invalid config %j", async (config) => {
+  it.each([{}, { codexResetAutoConsume: null }, { codexResetAutoConsumeWindowHours: 0 }])("redeems by default with missing or invalid config %j", async (config) => {
     loadCodexBarConfig.mockReturnValue(config);
     undiciFetch
       .mockResolvedValueOnce(usageResponse(1))
@@ -90,6 +90,13 @@ describe("Codex automatic reset redemption", () => {
     const snapshot = await createOpenaiCodexProvider(accountScope(`always-on-${JSON.stringify(config)}`)).fetch();
     expect(snapshot.rateLimitResetCreditsAvailable).toBe(0);
     expect(undiciFetch).toHaveBeenCalledTimes(3);
+  });
+
+  it("does not consume when explicitly disabled in settings", async () => {
+    loadCodexBarConfig.mockReturnValue({ codexResetAutoConsume: false });
+    undiciFetch.mockResolvedValueOnce(usageResponse(1));
+    expect((await createOpenaiCodexProvider(accountScope("disabled")).fetch()).rateLimitResetCreditsAvailable).toBe(1);
+    expect(undiciFetch).toHaveBeenCalledOnce();
   });
 
   it("does not request reset credits when none are available", async () => {
