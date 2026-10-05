@@ -180,6 +180,22 @@ describe("Bot ⇄ Code relay", () => {
     expect(listBotCodeRequests("one")).toHaveLength(1);
   });
 
+  it("backs off when idle and a saved request wakes the relay within the active interval", async () => {
+    vi.useFakeTimers();
+    try {
+      relay.start();
+      await vi.advanceTimersByTimeAsync(2_000); // first scan finds nothing and goes idle
+      const code = task("code", { kind: "code", botId: "one", status: "working" });
+      store.tasks.set(code.id, code);
+      queueBotCodePrompt("one", code, "今の作業を止めて確認して", { streamingBehavior: "steer" });
+      await vi.advanceTimersByTimeAsync(2_000);
+      expect(deps.prompt).toHaveBeenCalledTimes(1);
+    } finally {
+      relay.dispose();
+      vi.useRealTimers();
+    }
+  });
+
   it("delivers a Code-side prompt through the owning worker only", async () => {
     const code = task("code", { kind: "code", botId: "one", status: "working" });
     store.tasks.set(code.id, code);

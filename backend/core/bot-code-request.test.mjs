@@ -5,7 +5,7 @@ import {
   codeCompletionAction, codeDispatchResultState, CODE_SESSION_EVENT_TARGETS,
   codeGoalLoopRefusal,
   codeLaunchRefusal, codeLinkedSessionState, codePromptRefusal, codeProjectRefusal, codeReportingRefusal,
-  codeTaskIdRefusal, CODE_DELIVERY_RETRY_MS, CODE_RELAY_TICK_MS,
+  codeTaskIdRefusal, CODE_DELIVERY_RETRY_MS, CODE_RELAY_IDLE_TICK_MS, CODE_RELAY_TICK_MS,
   markFollowUpAttempt, MAX_AUTO_CODE_CHAIN, MAX_CODE_PROMPT_CHARS,
   releaseSupervisionRefusal, reportingStateForRequest,
   CODE_REQUEST_RETENTION_MS, codeRequestPayload, codeRequestSummaries, codeRequestSummary,
@@ -349,6 +349,7 @@ test("only a settled request older than the retention window is pruned", () => {
 
 test("one scan runs at a time and the interval is two seconds", () => {
   assert.equal(CODE_RELAY_TICK_MS, 2_000);
+  assert.equal(CODE_RELAY_IDLE_TICK_MS, 15_000);
   assert.equal(shouldStartCodeRelayTick({ ticking: false }), true);
   assert.equal(shouldStartCodeRelayTick({ ticking: true }), false);
   for (const value of [undefined, null, 0, "true", 1]) {

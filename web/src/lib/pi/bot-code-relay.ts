@@ -32,6 +32,7 @@ import {
   buildCodeRequestRecord,
   cancellationTargetForRequest,
   CODE_DELIVERY_RETRY_MS,
+  CODE_RELAY_IDLE_TICK_MS,
   CODE_RELAY_TICK_MS,
   codeAutoChainRefusal,
   codeCompletionAction,
@@ -237,7 +238,13 @@ function requestPath(id: string): string {
   if (!/^[a-f0-9]{64}$/.test(id)) throw new Error("Invalid Code request id");
   return join(root(), `${id}.json`);
 }
+/** Live relays; a saved request wakes them so the idle scan interval never delays new work. */
+const relayWakeListeners = new Set<() => void>();
 function save(request: CodeRequest): void {
+  saveRequestFile(request);
+  for (const wake of relayWakeListeners) wake();
+}
+function saveRequestFile(request: CodeRequest): void {
   mkdirSync(root(), { recursive: true });
   // This process just created or replaced a record, so the memoized listing is
   // stale by definition. Drop it instead of waiting out the TTL, so the writer
@@ -817,8 +824,13 @@ export function hasBotCodeReport(entries: readonly unknown[], requestId: string)
 }
 
 export function createBotCodeRelay(deps: RelayDependencies) {
-  let timer: ReturnType<typeof setInterval> | undefined;
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  let timerIdle = false;
+  let started = false;
+  let generation = 0;
   let ticking = false;
+  let scanHadActive = true;
+  let woken = false;
   const reporting = new Map<string, { room: boolean; followUpStarted: boolean; userStopped: boolean; autoChain: number }>();
   const notifySettled = (request: CodeRequest) => notifyCodeSessionSettled(deps.onCodeSessionSettled, request);
 
@@ -1371,6 +1383,7 @@ export function createBotCodeRelay(deps: RelayDependencies) {
     try {
       // Settled records only guard tool-call replay, so drop the old ones and keep scans small.
       const pruneNow = Date.now();
+      scanHadActive = false;
       for (const request of requests()) {
         let fileMtimeMs: number | undefined;
         try { fileMtimeMs = statSync(requestPath(request.id)).mtimeMs; } catch { /* already gone */ }
@@ -1379,16 +1392,41 @@ export function createBotCodeRelay(deps: RelayDependencies) {
       }
       // Which requests a scan processes lives in backend core; the parallel run stays here so one
       // failing request cannot stop the others.
-      await Promise.all(activeCodeRequestIds(requests()).map((id) => processRequest(id).catch((error) => {
+      const activeIds = activeCodeRequestIds(requests());
+      scanHadActive = activeIds.length > 0;
+      await Promise.all(activeIds.map((id) => processRequest(id).catch((error) => {
         console.warn("[bot-code-relay] delivery deferred:", error instanceof Error ? error.message : String(error));
       })));
     } finally { ticking = false; }
   }
-  function start(): void {
-    if (timer) return;
-    // ponytail: file-backed outbox scan; index pending requests if history grows large.
-    timer = setInterval(() => { void tick().catch((error) => console.warn("[bot-code-relay] scan failed", error)); }, CODE_RELAY_TICK_MS);
+  // ponytail: file-backed outbox scan; index pending requests if history grows large.
+  // Scans run every CODE_RELAY_TICK_MS while a request is active and back off to
+  // CODE_RELAY_IDLE_TICK_MS when none is; saving a request wakes the relay at once.
+  function schedule(ms: number): void {
+    if (timer) clearTimeout(timer);
+    const mine = generation;
+    timerIdle = ms >= CODE_RELAY_IDLE_TICK_MS;
+    timer = setTimeout(() => {
+      timer = undefined;
+      woken = false;
+      void tick().catch((error) => { scanHadActive = true; console.warn("[bot-code-relay] scan failed", error); }).finally(() => {
+        if (mine === generation && started && !timer) schedule(scanHadActive || woken ? CODE_RELAY_TICK_MS : CODE_RELAY_IDLE_TICK_MS);
+      });
+    }, ms);
     timer.unref?.();
+  }
+  function wake(): void {
+    if (!started) return;
+    // A scan in flight reschedules itself fast; only an idle wait needs shortening.
+    woken = true;
+    if (timer && timerIdle) schedule(CODE_RELAY_TICK_MS);
+  }
+  function start(): void {
+    relayWakeListeners.add(wake);
+    started = true;
+    scanHadActive = true;
+    if (timer) { wake(); return; }
+    if (!ticking) schedule(CODE_RELAY_TICK_MS);
   }
   function register(originTaskId: string): (pi: ExtensionAPI) => void {
     return (pi) => {
@@ -1419,5 +1457,5 @@ export function createBotCodeRelay(deps: RelayDependencies) {
       });
     };
   }
-  return { run, register, tick, start, complete, adoptUserCodeTask, releaseUserCodeTask, originForCode, codeForOrigin, codeTasksForOrigin, requestIdForCode, dispose: () => { if (timer) clearInterval(timer); timer = undefined; } };
+  return { run, register, tick, start, complete, adoptUserCodeTask, releaseUserCodeTask, originForCode, codeForOrigin, codeTasksForOrigin, requestIdForCode, dispose: () => { generation += 1; started = false; relayWakeListeners.delete(wake); if (timer) clearTimeout(timer); timer = undefined; } };
 }
