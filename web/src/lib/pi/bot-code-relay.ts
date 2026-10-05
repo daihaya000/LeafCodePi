@@ -1424,7 +1424,7 @@ export function createBotCodeRelay(deps: RelayDependencies) {
   function start(): void {
     relayWakeListeners.add(wake);
     started = true;
-    scanHadActive = true;
+    woken = true;
     if (timer) { wake(); return; }
     if (!ticking) schedule(CODE_RELAY_TICK_MS);
   }
