@@ -25,7 +25,7 @@ import {
   listPendingBotIntercomAsks,
   markBotIntercomInboxRead,
   replyBotIntercom,
-  promptAttachmentsFromIntercomMessage,
+  promptAttachmentsFromIntercomMessageAsync,
   resetBotIntercomForTests,
   sendBotIntercom,
   setBotIntercomAskTimeoutMsForTests,
@@ -597,7 +597,7 @@ describe("bot intercom Phase C contract", () => {
     busy.add(bob.id);
     let loaded = { images: [] as { mimeType: string }[], files: [] as { name: string }[] };
     setBotIntercomSteerHandler(async (message) => {
-      loaded = promptAttachmentsFromIntercomMessage(message);
+      loaded = await promptAttachmentsFromIntercomMessageAsync(message);
     });
 
     sendBotIntercom({

@@ -1,5 +1,6 @@
 import { EventEmitter } from "node:events";
 import { existsSync, mkdirSync, readFileSync, renameSync, statSync, writeFileSync } from "node:fs";
+import { readFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { randomUUID } from "node:crypto";
 import { botWorkspace, getBot, listBots } from "@/lib/bots";
@@ -909,6 +910,31 @@ export function promptAttachmentsFromIntercomMessage(message: BotIntercomMessage
     } catch {
       /* missing attachment file — steer text still proceeds */
     }
+  }
+  return { images, files };
+}
+
+/** Non-blocking variant of {@link promptAttachmentsFromIntercomMessage}: files are read concurrently without stalling the event loop. */
+export async function promptAttachmentsFromIntercomMessageAsync(message: BotIntercomMessageV1): Promise<{
+  images: PromptImageInput[];
+  files: PromptFileInput[];
+}> {
+  const metas = (message.attachments ?? []).filter((meta) =>
+    Boolean(meta?.file) && typeof meta.file === "string" &&
+    !meta.file.includes("..") && !meta.file.includes("/") && !meta.file.includes("\\"));
+  const loaded = await Promise.all(metas.map(async (meta) => {
+    try {
+      return { meta, data: (await readFile(join(attachmentsDir(), meta.file))).toString("base64") };
+    } catch {
+      return null; // missing attachment file — steer text still proceeds
+    }
+  }));
+  const images: PromptImageInput[] = [];
+  const files: PromptFileInput[] = [];
+  for (const item of loaded) {
+    if (!item) continue;
+    if (item.meta.kind === "image") images.push({ mimeType: item.meta.mimeType, data: item.data });
+    else files.push({ name: item.meta.name, mimeType: item.meta.mimeType, data: item.data });
   }
   return { images, files };
 }
