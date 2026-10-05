@@ -49,7 +49,7 @@ test('translation status reports an installed runtime before lazy startup', () =
   delete process.env.LEAFCODE_TRANSLATION_PYTHON;
   rmSync(dataDir, { recursive: true, force: true });
   try {
-    const service = createTranslationService({ repoRoot: process.cwd(), dataDir });
+    const service = createTranslationService({ repoRoot: process.cwd(), dataDir, cacheSaveDelayMs: 0 });
     assert.equal(service.status().installed, false);
 
     mkdirSync(modelDir, { recursive: true });
@@ -106,7 +106,7 @@ test('applyReviewResults overwrites poor translations and marks entries reviewed
     },
   }));
   try {
-    const service = createTranslationService({ repoRoot: process.cwd(), dataDir });
+    const service = createTranslationService({ repoRoot: process.cwd(), dataDir, cacheSaveDelayMs: 0 });
     // Both seeded entries are pending review.
     const pending = service.unreviewedEntries(500);
     assert.equal(pending.length, 2);
@@ -127,6 +127,34 @@ test('applyReviewResults overwrites poor translations and marks entries reviewed
     assert.equal(goodEntry.translation, '十分に良い訳');
     assert.equal(goodEntry.reviewed, true);
     service.stop();
+  } finally {
+    rmSync(dataDir, { recursive: true, force: true });
+  }
+});
+
+test('cache writes are deferred and flushed on stop', () => {
+  const dataDir = join(tmpdir(), `leafcode-translation-debounce-${process.pid}`);
+  const translationDir = join(dataDir, 'translation');
+  const text = 'Debounced reasoning line';
+  rmSync(dataDir, { recursive: true, force: true });
+  mkdirSync(translationDir, { recursive: true });
+  writeFileSync(join(translationDir, 'cache.json'), JSON.stringify({
+    version: 2,
+    entries: {
+      [seededCacheKey(text, 'unknown')]: {
+        source: 'en', target: 'ja', pipelineVersion: TRANSLATION_PIPELINE_VERSION, modelVersion: 'unknown',
+        text, translation: '未レビューの訳', updatedAt: Date.now(),
+      },
+    },
+  }));
+  try {
+    const service = createTranslationService({ repoRoot: process.cwd(), dataDir, cacheSaveDelayMs: 60_000 });
+    service.applyReviewResults([{ text, quality: 'good' }], 'review-model-x');
+    const before = JSON.parse(readFileSync(join(translationDir, 'cache.json'), 'utf8'));
+    assert.equal(Object.values(before.entries)[0].reviewed ?? false, false, 'not written yet');
+    service.stop();
+    const after = JSON.parse(readFileSync(join(translationDir, 'cache.json'), 'utf8'));
+    assert.equal(Object.values(after.entries)[0].reviewed, true, 'stop flushes');
   } finally {
     rmSync(dataDir, { recursive: true, force: true });
   }
@@ -154,7 +182,7 @@ test('applyReviewResults rejects corrections that fail the quality gate', () => 
     },
   }));
   try {
-    const service = createTranslationService({ repoRoot: process.cwd(), dataDir });
+    const service = createTranslationService({ repoRoot: process.cwd(), dataDir, cacheSaveDelayMs: 0 });
     // A model that echoes the English back must not overwrite a usable
     // translation, but the entry is still consumed so the run does not repeat.
     const updated = service.applyReviewResults([
@@ -201,7 +229,7 @@ test('skipTrivialReviews marks fixed-template lines reviewed without a model cal
     },
   }));
   try {
-    const service = createTranslationService({ repoRoot: process.cwd(), dataDir });
+    const service = createTranslationService({ repoRoot: process.cwd(), dataDir, cacheSaveDelayMs: 0 });
     assert.equal(service.status().unreviewedEntries, 2);
 
     assert.equal(service.skipTrivialReviews(), 1);
@@ -250,7 +278,7 @@ test('translation cache is reused by a new service instance', async () => {
     },
   }));
   try {
-    const first = createTranslationService({ repoRoot: process.cwd(), dataDir });
+    const first = createTranslationService({ repoRoot: process.cwd(), dataDir, cacheSaveDelayMs: 0 });
     const firstResult = await first.translate([text]);
     assert.equal(firstResult.v, 1);
     assert.equal(typeof firstResult.id, 'string');
@@ -260,7 +288,7 @@ test('translation cache is reused by a new service instance', async () => {
     assert.equal(first.status().state, 'stopped');
     first.stop();
 
-    const second = createTranslationService({ repoRoot: process.cwd(), dataDir });
+    const second = createTranslationService({ repoRoot: process.cwd(), dataDir, cacheSaveDelayMs: 0 });
     assert.deepEqual((await second.translate([text])).translations, [translation]);
     assert.equal(second.status().state, 'stopped');
     second.stop();
@@ -287,7 +315,7 @@ test('translation cache from an older pipeline version is ignored', () => {
     },
   }));
   try {
-    const service = createTranslationService({ repoRoot: process.cwd(), dataDir });
+    const service = createTranslationService({ repoRoot: process.cwd(), dataDir, cacheSaveDelayMs: 0 });
     assert.equal(service.status().cacheEntries, 0);
     assert.equal(service.status().pipelineVersion, TRANSLATION_PIPELINE_VERSION);
     service.stop();
@@ -302,7 +330,7 @@ test('user correction overrides translation across service instances', async () 
   const correction = '完全一致する修正訳を確認中';
   rmSync(dataDir, { recursive: true, force: true });
   try {
-    const first = createTranslationService({ repoRoot: process.cwd(), dataDir });
+    const first = createTranslationService({ repoRoot: process.cwd(), dataDir, cacheSaveDelayMs: 0 });
     assert.deepEqual(first.setOverride(text, correction), { text, translation: correction });
     const firstResult = await first.translate([text]);
     assert.deepEqual(firstResult.translations, [correction]);
@@ -310,7 +338,7 @@ test('user correction overrides translation across service instances', async () 
     assert.equal(first.status().state, 'stopped');
     first.stop();
 
-    const second = createTranslationService({ repoRoot: process.cwd(), dataDir });
+    const second = createTranslationService({ repoRoot: process.cwd(), dataDir, cacheSaveDelayMs: 0 });
     const secondResult = await second.translate([text]);
     assert.deepEqual(secondResult.translations, [correction]);
     assert.deepEqual(secondResult.overridden, [true]);

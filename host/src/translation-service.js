@@ -28,6 +28,8 @@ const TARGET_CODE = 'ja';
 const CACHE_VERSION = 2;
 const CACHE_MAX_ENTRIES = 1_000;
 const CACHE_MAX_BYTES = 4 * 1024 * 1024;
+/** Delay before a changed translation cache is written; stop() flushes it at once. */
+const CACHE_SAVE_DELAY_MS = 3_000;
 const OVERRIDE_VERSION = 1;
 const OVERRIDE_MAX_ENTRIES = 1_000;
 const OVERRIDE_MAX_BYTES = 4 * 1024 * 1024;
@@ -47,8 +49,9 @@ export function createTranslationService({
   repoRoot, dataDir, log = () => {}, installTimeoutMs = INSTALL_TIMEOUT_MS,
   spawn: spawnChild = spawn, getProcessStartKey = processStartKey,
   stopProcessTree = stopProcessTreeGracefully, stopTimeoutMs = 5_000,
-  platform = process.platform, readyTimeoutMs = READY_TIMEOUT_MS,
+  platform = process.platform, readyTimeoutMs = READY_TIMEOUT_MS, cacheSaveDelayMs = CACHE_SAVE_DELAY_MS,
 }) {
+  let cacheSaveTimer = null;
   let child = null;
   let stoppingChild = null;
   let childStopPromise = Promise.resolve(true);
@@ -224,7 +227,22 @@ export function createTranslationService({
     }
   }
 
+  /** Coalesces bursts of new translations into one trim + serialize + write. 0 writes immediately. */
   function saveCache() {
+    if (cacheSaveDelayMs <= 0) {
+      flushCache();
+      return;
+    }
+    if (cacheSaveTimer) return;
+    cacheSaveTimer = setTimeout(flushCache, cacheSaveDelayMs);
+    cacheSaveTimer.unref?.();
+  }
+
+  function flushCache() {
+    if (cacheSaveTimer) {
+      clearTimeout(cacheSaveTimer);
+      cacheSaveTimer = null;
+    }
     const entries = [...cache.entries()].sort((a, b) => b[1].updatedAt - a[1].updatedAt);
     while (entries.length > CACHE_MAX_ENTRIES) {
       const [key] = entries.pop();
@@ -536,6 +554,7 @@ export function createTranslationService({
   }
 
   function stop() {
+    if (cacheSaveTimer) flushCache();
     lifecycleGeneration += 1;
     const generation = lifecycleGeneration;
     const termination = stopActiveChild();
