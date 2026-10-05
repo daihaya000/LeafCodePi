@@ -625,6 +625,10 @@ export const BotView = memo(function BotView({ id, active = true }: { id: string
   }, [active]);
 
   useEffect(() => {
+    // Split-pane background tabs: skip the full Bot EventSource. RoomView
+    // already does this; keeping N idle Bot streams + heartbeats was the
+    // OPTIMIZATION P1-1 hotspot. Fronting the tab re-runs this effect.
+    if (!active) return;
     let closed = false;
     let source: EventSource | null = null;
     let retry: ReturnType<typeof setTimeout> | null = null;
@@ -813,7 +817,7 @@ export const BotView = memo(function BotView({ id, active = true }: { id: string
       retry = cancelPendingSseReconnect(retry);
       source = closeSseSource(source);
     };
-  }, [cachedSession, id, sseEpoch]);
+  }, [active, cachedSession, id, sseEpoch]);
 
   const selectedModel = useMemo(
     () => modelOptionForValue(models, bot?.model) ?? models[0],

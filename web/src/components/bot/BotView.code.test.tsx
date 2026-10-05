@@ -309,10 +309,11 @@ it("keeps a document-hidden active Bot unread until the document is visible", as
 
 it("does not mark inactive Bot tab messages read until activation", async () => {
   const view = render(<ShellProvider><BotView id="one" active={false} /></ShellProvider>);
-  snapshot({ messages: [{ id: "message", role: "assistant", createdAt: 123, parts: [{ type: "text", text: "hello" }] }] });
   expect(mocks.markRead).not.toHaveBeenCalled();
   view.rerender(<ShellProvider><BotView id="one" active /></ShellProvider>);
   expect(await screen.findByRole("button", { name: "設定" })).toBeTruthy();
+  // Inactive tabs no longer hold an EventSource; messages arrive after activation.
+  snapshot({ messages: [{ id: "message", role: "assistant", createdAt: 123, parts: [{ type: "text", text: "hello" }] }] });
   expect(mocks.markRead).toHaveBeenCalledWith("bot", "one", 123);
 });
 
@@ -350,15 +351,15 @@ it("scrolls to the latest message when a hidden Bot tab is activated", async () 
   snapshot({ messages: [{ id: "old", role: "assistant", createdAt: 1, parts: [{ type: "text", text: "old reply" }] }] });
   expect(viewport.scrollTop).toBe(1_000);
 
-  // A hidden tab keeps its SSE connection, but the browser cannot measure its content.
+  // Hidden tabs drop the EventSource (OPTIMIZATION P1-1). New messages arrive after activation.
   active = false;
-  contentHeight = 1_200;
   view.rerender(renderBot());
-  snapshot({ messages: [{ id: "old", role: "assistant", createdAt: 1, parts: [{ type: "text", text: "old reply" }] }, { id: "new", role: "assistant", createdAt: 2, parts: [{ type: "text", text: "new reply" }] }] });
   expect(viewport.scrollTop).toBe(1_000);
 
   active = true;
+  contentHeight = 1_200;
   view.rerender(renderBot());
+  snapshot({ messages: [{ id: "old", role: "assistant", createdAt: 1, parts: [{ type: "text", text: "old reply" }] }, { id: "new", role: "assistant", createdAt: 2, parts: [{ type: "text", text: "new reply" }] }] });
   expect(viewport.scrollTop).toBe(1_200);
 });
 
@@ -989,9 +990,26 @@ it("keeps Bot idle when no Code session is in progress", async () => {
   expect(document.querySelector("header svg.bot-avatar-working")).toBeNull();
 });
 
-it("reports streaming activity for the Bot tab even when hidden", async () => {
-  render(<ShellProvider><BotView id="one" active={false} /></ShellProvider>);
+it("does not open a Bot EventSource while the tab is inactive", () => {
+  class TestSource {
+    static instances: TestSource[] = [];
+    constructor() { TestSource.instances.push(this); }
+    addEventListener() {}
+    close() {}
+  }
+  vi.stubGlobal("EventSource", TestSource);
+  const view = render(<ShellProvider><BotView id="one" active={false} /></ShellProvider>);
+  expect(TestSource.instances).toHaveLength(0);
   expect(mocks.reportStatus).toHaveBeenLastCalledWith("/bots/one", "idle");
+  view.rerender(<ShellProvider><BotView id="one" active /></ShellProvider>);
+  expect(TestSource.instances).toHaveLength(1);
+});
+
+it("reports streaming activity after a hidden Bot tab is activated", async () => {
+  const view = render(<ShellProvider><BotView id="one" active={false} /></ShellProvider>);
+  expect(mocks.reportStatus).toHaveBeenLastCalledWith("/bots/one", "idle");
+  view.rerender(<ShellProvider><BotView id="one" active /></ShellProvider>);
+  await screen.findByRole("heading", { name: "Bot" });
   snapshot({ isStreaming: true });
   expect(mocks.reportStatus).toHaveBeenLastCalledWith("/bots/one", "working");
   snapshot({ isStreaming: false });
@@ -1330,17 +1348,18 @@ it("updates the collapsed tool elapsed time while a tool is running", async () =
 });
 
 it("pauses Code request polling while the Bot tab is hidden", async () => {
-  const view = render(<ShellProvider><BotView id="one" active={false} /></ShellProvider>);
+  const view = render(<ShellProvider><BotView id="one" active /></ShellProvider>);
   snapshot({ messages: [{
     id: "bot-1",
     role: "assistant",
     createdAt: 2,
     parts: [{ type: "tool", tool: "code_session", callID: "call-1", state: { status: "completed", output: JSON.stringify({ requestId: "request-1" }) } }],
   }] });
-  expect(mocks.getJson).not.toHaveBeenCalledWith("/api/bots/one/code-requests");
-
-  view.rerender(<ShellProvider><BotView id="one" active /></ShellProvider>);
   await waitFor(() => expect(mocks.getJson).toHaveBeenCalledWith("/api/bots/one/code-requests"));
+  mocks.getJson.mockClear();
+  view.rerender(<ShellProvider><BotView id="one" active={false} /></ShellProvider>);
+  await act(async () => { await Promise.resolve(); });
+  expect(mocks.getJson).not.toHaveBeenCalledWith("/api/bots/one/code-requests");
 });
 
 it("follows the Bot viewport when a Code request card arrives asynchronously", async () => {
