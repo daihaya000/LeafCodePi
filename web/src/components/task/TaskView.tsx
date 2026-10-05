@@ -124,7 +124,12 @@ import { notifyBotSidebarChanged, notifyTasksChanged } from "@/lib/events";
 import { taskSidebarNotifyKey } from "@/lib/task-sidebar-notify";
 import { markRead } from "@/lib/bot-unread";
 import { getJson, sendJson } from "@/lib/client";
-import { hasReceivedSubmittedPrompt, isUnconfirmedPromptDelivery } from "@/lib/prompt-delivery";
+import {
+  hasNewUserMessageSince,
+  hasReceivedSubmittedPrompt,
+  isUnconfirmedPromptDelivery,
+  optimisticUserMessage,
+} from "@/lib/prompt-delivery";
 import { readCachedModels, writeCachedModels } from "@/lib/models-cache";
 import {
   AUTO_AGENT_VALUE,
@@ -199,6 +204,8 @@ const WORKTREE_STATUS_POLL_MS = 10_000;
 const TITLE_AUTO_UPDATE_ENABLED = false;
 const PROMPT_DELIVERY_RECONCILE_TIMEOUT_MS = 10_000;
 const PROMPT_DELIVERY_READ_TIMEOUT_MS = 2_000;
+/** Longest an accepted prompt echo may wait for the owner's transcript row before it is dropped. */
+const OPTIMISTIC_PROMPT_MAX_MS = 60_000;
 const PROMPT_DELIVERY_RETRY_INITIAL_DELAY_MS = 250;
 const PROMPT_DELIVERY_RETRY_MAX_DELAY_MS = 1_000;
 
@@ -774,6 +781,15 @@ export const TaskView = memo(function TaskView({
   const messageHistoryRef = useRef(messageHistory);
   const messagesRef = useRef(messages);
   messagesRef.current = messages;
+  /**
+   * Local echo of the prompt just sent, rendered after the transcript until the owner's row lands.
+   * Not part of `messages`, so caches, navigation, resume detection and history never see it.
+   */
+  const [optimisticPrompt, setOptimisticPrompt] = useState<{
+    message: UiMessage;
+    before: UiMessage[];
+    accepted: boolean;
+  } | null>(null);
   const historyLoadingRef = useRef(false);
   const historyRequestEpochRef = useRef(0);
   const [historyLoading, setHistoryLoading] = useState(false);
@@ -1775,6 +1791,7 @@ export const TaskView = memo(function TaskView({
     const cachedHistory = cached?.messageHistory ?? EMPTY_TASK_MESSAGE_HISTORY;
     setTask(cached);
     setMessages(cached?.messages ?? []);
+    setOptimisticPrompt(null);
     messageHistoryRef.current = cachedHistory;
     setMessageHistory(cachedHistory);
     historyLoadedRef.current = false;
@@ -1841,7 +1858,26 @@ export const TaskView = memo(function TaskView({
 
   useLayoutEffect(() => {
     scheduleScrollToBottom();
-  }, [messages, task?.isStreaming, isCompacting, scheduleScrollToBottom]);
+  }, [messages, task?.isStreaming, isCompacting, optimisticPrompt, scheduleScrollToBottom]);
+
+  // Drop the echo in the same commit that renders the owner's row, so both never show together.
+  const optimisticVisible = Boolean(
+    optimisticPrompt &&
+      !hasNewUserMessageSince(optimisticPrompt.before, messages) &&
+      !(optimisticPrompt.accepted && task?.status === "error"),
+  );
+  useEffect(() => {
+    if (!optimisticPrompt) return;
+    if (!optimisticVisible) {
+      setOptimisticPrompt(null);
+      return;
+    }
+    // Safety net: an accepted prompt that never reaches the transcript must not linger forever.
+    const timer = window.setTimeout(() => {
+      setOptimisticPrompt((current) => (current === optimisticPrompt ? null : current));
+    }, OPTIMISTIC_PROMPT_MAX_MS);
+    return () => window.clearTimeout(timer);
+  }, [optimisticPrompt, optimisticVisible]);
 
   useEffect(() => {
     const perf = taskPerfRef.current;
@@ -2318,6 +2354,16 @@ export const TaskView = memo(function TaskView({
           setAttachments([]);
           draftCleared = true;
         }
+        // Echo an idle text send at once; the owner's row replaces it when the snapshot lands.
+        // Steering waits for a tool boundary and attachments may be rewritten, so they skip it.
+        if (!streamingBehavior && !working && submittedAttachments.length === 0 && submittedPrompt.trim()) {
+          stickRef.current = true;
+          setOptimisticPrompt({
+            message: optimisticUserMessage(submittedPrompt, Date.now()),
+            before: beforeSubmitMessages,
+            accepted: false,
+          });
+        }
         const result = await sendJson<{
           task: TaskSummary;
           autoDecision?: AutoDecision;
@@ -2338,6 +2384,7 @@ export const TaskView = memo(function TaskView({
         resolvedAgent = result.task.agent ?? null;
         resolvedAutoDecision = result.autoDecision;
         setTask((current) => (current ? { ...current, ...result.task } : current));
+        setOptimisticPrompt((current) => (current ? { ...current, accepted: true } : current));
       }
       if (isAuto && resolvedAutoDecision) {
         const nextRecord: AutoTaskRecord = {
@@ -2418,6 +2465,9 @@ export const TaskView = memo(function TaskView({
           return;
         }
       }
+      // Not delivered (or unconfirmed after reconciliation): the echo must not suggest otherwise.
+      // A reconciled delivery returned above and keeps it until the real row replaces it.
+      setOptimisticPrompt(null);
       if (queued && shouldRestoreQueuedFollowUpOnFailure(sentQueueEpoch, queueClearEpochRef.current)) {
         setFailedQueuedId(queued.id);
         setQueuedFollowUps((current) => [queued, ...current]);
@@ -3624,6 +3674,16 @@ export const TaskView = memo(function TaskView({
                 </div>
               );
             })}
+            {optimisticVisible && optimisticPrompt && (
+              <div className="task-message-row opacity-70" aria-busy="true" data-optimistic-prompt>
+                <PartView
+                  message={optimisticPrompt.message}
+                  references={messageReferences}
+                  taskId={taskId}
+                  active={active}
+                />
+              </div>
+            )}
             {showResume && !resumeInsideExistingBanner && resumeTarget && (
               <TurnNoticeBanner
                 message={resumeBannerText}
@@ -3642,7 +3702,7 @@ export const TaskView = memo(function TaskView({
                 onResume={(maxTurns) => void goalLoopAction("resume", maxTurns)}
               />
             )}
-            {renderedMessages.length === 0 && (
+            {renderedMessages.length === 0 && !optimisticVisible && (
               <p
                 className="py-12 text-center text-sm text-muted"
                 role={sessionHydrating ? "status" : undefined}

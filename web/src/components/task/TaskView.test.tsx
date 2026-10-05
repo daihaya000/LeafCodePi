@@ -354,7 +354,7 @@ it("does not reconnect SSE when the status callback identity changes", async () 
   expect(connections).toBe(1);
 });
 
-it("renders a submitted user prompt only after the authoritative SSE message", async () => {
+it("echoes a submitted prompt until the authoritative SSE message replaces it, never both", async () => {
   class TestEventSource extends EventTarget {
     static latest: TestEventSource | null = null;
     constructor() {
@@ -376,7 +376,9 @@ it("renders a submitted user prompt only after the authoritative SSE message", a
     `/api/tasks/${task.id}/prompt`,
     expect.objectContaining({ prompt: "同じ指示" }),
   ));
-  expect(document.querySelectorAll("[data-task-message]")).toHaveLength(0);
+  // The local echo shows at once (outside the transcript state) ...
+  await waitFor(() => expect(document.querySelectorAll("[data-task-message]")).toHaveLength(1));
+  expect(document.querySelector("[data-task-message]")?.getAttribute("data-task-message")).toMatch(/^optimistic-user:/);
 
   await act(async () => {
     TestEventSource.latest!.dispatchEvent(new MessageEvent("snapshot", {
@@ -395,7 +397,9 @@ it("renders a submitted user prompt only after the authoritative SSE message", a
     await Promise.resolve();
   });
 
-  await waitFor(() => expect(document.querySelectorAll("[data-task-message]")).toHaveLength(1));
+  // ... and the authoritative row replaces it in the same commit: never a duplicate.
+  await waitFor(() => expect(document.querySelector("[data-task-message]")?.getAttribute("data-task-message")).toBe("entry-42"));
+  expect(document.querySelectorAll("[data-task-message]")).toHaveLength(1);
   expect(document.querySelector("[data-task-message]")?.textContent).toBe("同じ指示");
 });
 
@@ -2624,8 +2628,9 @@ describe("TaskView draft submission", () => {
     fireEvent.change(input, { target: { value: "retry this" } });
     fireEvent.submit(screen.getByRole("form", { name: "フォローアップ" }));
 
-    expect(await screen.findByText("retry this")).toBeTruthy();
-    expect(historyReads).toBeGreaterThanOrEqual(2);
+    await waitFor(() => expect(historyReads).toBeGreaterThanOrEqual(2));
+    // The optimistic echo bridges reconciliation and yields to the reconciled row: never both.
+    await waitFor(() => expect(screen.getAllByText("retry this")).toHaveLength(1));
     expect(screen.queryByText(/送信結果を確認できません/)).toBeNull();
     expect(input.value).toBe("");
     expect(mocks.sendJson).toHaveBeenCalledTimes(1);
@@ -2676,6 +2681,8 @@ describe("TaskView draft submission", () => {
     fireEvent.submit(screen.getByRole("form", { name: "フォローアップ" }));
     await screen.findByText("request failed");
     expect(input.value).toBe("retry this");
+    // A rejected send never leaves its optimistic echo behind.
+    expect(document.querySelector("[data-optimistic-prompt]")).toBeNull();
   });
 
   it.each(["success", "failure"])("preserves text and attachments entered during a pending %s", async (outcome) => {
