@@ -112,10 +112,6 @@ export function PeerShareSettings() {
         <Badge tone={badge.tone}>{badge.label}</Badge>
       </div>
 
-      <p className="rounded-xl border border-warning/30 bg-warning-bg px-3 py-2 text-xs text-warning">
-        トークンと認証情報は暗号化されずに流れます。信頼できるLAN、またはTailscale経由でのみ使ってください。
-      </p>
-
       <div className="mt-4 space-y-3">
         <div className="flex flex-wrap items-center gap-3">
           <Switch checked={snapshot?.enabled === true} onChange={() => void toggle()} label="認証情報の共有" disabled={disabled || !snapshot || (!snapshot.enabled && !snapshot.authRequired)} />

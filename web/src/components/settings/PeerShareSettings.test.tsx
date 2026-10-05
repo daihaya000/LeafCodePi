@@ -38,13 +38,13 @@ describe("PeerShareSettings", () => {
     sendJson.mockReset();
   });
 
-  it("offers the providers held by added accounts, with account counts, and warns that traffic is unencrypted", async () => {
+  it("offers the providers held by added accounts, with account counts, without the unencrypted traffic warning", async () => {
     render(<PeerShareSettings />);
     expect(await screen.findByLabelText(/Anthropic（1アカウント）/)).toBeTruthy();
     expect(screen.getByLabelText(/OpenAI Codex（1アカウント）/)).toBeTruthy();
     // Only the default account holds it (and the disabled account is not counted).
     expect(screen.queryByLabelText(/OpenRouter/)).toBeNull();
-    expect(screen.getByText(/暗号化されずに流れます/)).toBeTruthy();
+    expect(screen.queryByText(/暗号化されずに流れます/)).toBeNull();
   });
 
   it("creates a provider-scoped grant and shows the token once", async () => {
