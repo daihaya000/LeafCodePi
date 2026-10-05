@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { setProviderBaseUrl } from "@/lib/provider-endpoints";
 import {
   modelRows,
+  classifierRows,
   registerRemoteProvider,
   syncRemoteProvider,
   REMOTE_PROVIDER_BASE,
@@ -58,6 +59,57 @@ describe("remote-provider", () => {
   it("excludes the decision model from chat rows even if the catalog includes it", () => {
     expect(modelRows({ data: [{ id: "LeafModel" }, { id: "jev-latest" }] }).map((model) => model.id))
       .toEqual(["LeafModel"]);
+  });
+
+  it("never registers mixed or renamed System One entries as chat models", () => {
+    expect(modelRows({ data: [
+      { id: "LeafModel" }, { id: "LeafModelSub" },
+      { id: "LeafJev", type: "jev", api: "systemone" },
+      { id: "LeafJevSub", type: "classifier", api: "typesafe-system-one" },
+      { id: "CustomDecision", api: "systemone" },
+      { id: "LeafJev" }, { id: "LeafJevSub" },
+      { id: "other-classifier", type: "classifier" }, { id: "image", type: "image" },
+    ] }).map(({ id }) => id)).toEqual(["LeafModel", "LeafModelSub"]);
+  });
+
+  it("discovers both classifiers and preserves the main alias and trusted endpoint", () => {
+    const rows = classifierRows({ classifiers: [
+      { id: "MainJudge", name: "MainJudge", gpu: 1, aliases: ["jev-latest"], api: "typesafe-system-one", type: "classifier", baseUrl: "https://untrusted.example/v1" },
+      { id: "LeafJevSub", name: "LeafJevSub", gpu: 2, api: "typesafe-system-one", type: "classifier" },
+      { id: "chat", type: "model" }, { id: "other-api", type: "classifier", api: "other-classifier" },
+      { id: "image", type: "image", api: "systemone" }, { id: "has space", api: "systemone" },
+    ] }, "https://trusted.example/v1");
+    expect(rows).toMatchObject([
+      { id: "jev-latest", name: "MainJudge", type: "classifier", api: "typesafe-system-one", baseUrl: "https://trusted.example/v1" },
+      { id: "LeafJevSub", name: "LeafJevSub", type: "classifier", api: "typesafe-system-one", baseUrl: "https://trusted.example/v1" },
+    ]);
+    expect(classifierRows({ data: [{ id: "LeafJev", type: "jev", api: "systemone" }] })[0].id).toBe("jev-latest");
+  });
+
+  it("registers split server catalogs without a duplicate legacy classifier", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(JSON.stringify({
+      data: [{ id: "LeafModel" }, { id: "LeafModelSub" }],
+      classifiers: [
+        { id: "LeafJev", name: "LeafJev", gpu: 1, aliases: ["jev-latest"], type: "classifier", api: "typesafe-system-one" },
+        { id: "LeafJevSub", name: "LeafJevSub", gpu: 2, type: "classifier", api: "typesafe-system-one" },
+      ],
+    }))));
+    const registerProvider = vi.fn();
+    await syncRemoteProvider({ getProvider: () => undefined, registerProvider });
+    expect(registerProvider.mock.calls[0][1].models).toMatchObject([
+      { id: "LeafModel", api: "openai-completions" }, { id: "LeafModelSub", api: "openai-completions" },
+      { id: "jev-latest", name: "LeafJev", type: "classifier" },
+      { id: "LeafJevSub", name: "LeafJevSub", type: "classifier" },
+    ]);
+    expect(registerProvider.mock.calls[0][1].models).toHaveLength(4);
+  });
+
+  it("honors an explicitly empty classifier catalog", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(JSON.stringify({ data: [{ id: "LeafModel" }], classifiers: [] }))));
+    const registerProvider = vi.fn();
+    await syncRemoteProvider({ getProvider: () => undefined, registerProvider });
+    expect(registerProvider.mock.calls[0][1].models).toHaveLength(1);
+    expect(registerProvider.mock.calls[0][1].models[0].id).toBe("LeafModel");
   });
 
   it("retains LeafJev when the chat catalog is unavailable", async () => {

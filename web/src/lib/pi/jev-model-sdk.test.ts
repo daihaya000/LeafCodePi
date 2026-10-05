@@ -38,7 +38,7 @@ function classifier(id = "judge-v1", baseUrl = "https://model.example/v1"): Clas
 const noNetwork = () => vi.fn().mockResolvedValue(new Response(JSON.stringify({ data: [] })));
 
 describe("Jev discovery against the installed SDK contract", () => {
-  it("registers LeafJev only as a classifier using LeafCodeCloud URL and credentials across refreshes", async () => {
+  it("registers both LeafJev models only as classifiers using LeafCodeCloud URL and credentials across refreshes", async () => {
     const rt = await runtime();
     const dir = dirs[dirs.length - 1];
     vi.stubEnv("PI_CODING_AGENT_DIR", dir);
@@ -46,21 +46,38 @@ describe("Jev discovery against the installed SDK contract", () => {
     vi.stubEnv(REMOTE_PROVIDER_API_KEY_ENV, "leaf-test-key");
     setProviderBaseUrl("leafcodecloud", "https://leaf.example/v1");
     const fetchImpl = vi.fn().mockResolvedValue(new Response(JSON.stringify({
-      data: [{ id: "LeafModel" }, { id: "jev-latest" }],
+      data: [{ id: "LeafModel" }, { id: "LeafModelSub" }],
+      classifiers: [
+        { id: "LeafJev", name: "LeafJev", type: "classifier", api: "typesafe-system-one", gpu: 1, aliases: ["jev-latest"] },
+        { id: "LeafJevSub", name: "LeafJevSub", type: "classifier", api: "typesafe-system-one", gpu: 2 },
+      ],
     })));
     vi.stubGlobal("fetch", fetchImpl);
+    // A live runtime may still contain the previous, wrongly registered chat rows.
+    rt.registerProvider("leafcodecloud", {
+      baseUrl: "https://leaf.example/v1", apiKey: "leaf-test-key",
+      models: ["LeafJev", "LeafJevSub"].map((id) => ({
+        ...classifier(id, "https://leaf.example/v1"), type: "chat" as const,
+        api: "openai-completions" as const, reasoning: false, maxTokens: 32_768,
+      })),
+    });
     await syncRemoteProvider(rt);
-    expect(rt.getModels("leafcodecloud").map((model) => model.id)).toEqual(["LeafModel"]);
+    expect(rt.getModels("leafcodecloud").map((model) => model.id)).toEqual(["LeafModel", "LeafModelSub"]);
     expect(rt.getModelsOfType("classifier", "leafcodecloud")).toMatchObject([
       { id: "jev-latest", name: "LeafJev", api: "typesafe-system-one", baseUrl: "https://leaf.example/v1" },
+      { id: "LeafJevSub", name: "LeafJevSub", api: "typesafe-system-one", baseUrl: "https://leaf.example/v1" },
     ]);
     const noCatalog = noNetwork();
     const models = await discoverJevModels(rt, { providerIds: ["leafcodecloud"] }, noCatalog);
     expect(models).toMatchObject([
       { providerId: "leafcodecloud", modelId: "jev-latest", name: "LeafJev", baseUrl: "https://leaf.example/v1" },
+      { providerId: "leafcodecloud", modelId: "LeafJevSub", name: "LeafJevSub", baseUrl: "https://leaf.example/v1" },
     ]);
     expect(await resolveRegisteredJevConnection(rt, models[0], noCatalog)).toEqual({
       baseUrl: "https://leaf.example/v1", model: "jev-latest", apiKey: "leaf-test-key", headers: {},
+    });
+    expect(await resolveRegisteredJevConnection(rt, models[1], noCatalog)).toMatchObject({
+      baseUrl: "https://leaf.example/v1", model: "LeafJevSub", apiKey: "leaf-test-key",
     });
     expect(noCatalog).not.toHaveBeenCalled();
 
