@@ -10,6 +10,9 @@ import { notifyBotSidebarChanged } from "@/lib/events";
 import { DEFAULT_GOAL_LOOP_COOLDOWN_SECONDS, DEFAULT_GOAL_LOOP_MAX_TURNS, isGoalLoopLiveStatus } from "@/lib/goal-loop-settings";
 import { NO_PROJECT_NAME, type GoalLoopDto, type ProjectDto, type TaskSummary } from "@/lib/types";
 
+/** Live Code session refresh while the panel is visible. */
+const LIVE_POLL_MS = 5_000;
+
 function statusLabel(status: TaskSummary["status"]): string {
   if (status === "working") return "実行中";
   if (status === "error") return "エラー";
@@ -116,7 +119,7 @@ export function BotCodeSessionPanel({
       if (document.visibilityState === "hidden") return;
       void load();
     };
-    const timer = window.setInterval(tick, 2_000);
+    const timer = window.setInterval(tick, LIVE_POLL_MS);
     return () => window.clearInterval(timer);
   }, [active, load, needsPoll]);
 
