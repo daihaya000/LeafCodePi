@@ -18,6 +18,7 @@ import { getListeningPids, getPortListenerStatus } from "./port-scanner.js";
 import { hardKillTree, stopProcessTreeGracefully } from "./process-stop.js";
 import { stopOrphanedWebUi } from "./stale-webui.js";
 import { buildHostRestartScript, buildHostRestartWaitProgram, consumeHostRestartBuild } from "./host-restart.js";
+import { serviceRestartBusyReason } from "./runtime-restart-guard.js";
 import { DEFAULT_BACKEND_PORT } from "../../shared/backend-protocol.mjs";
 import { createBackendService, shouldRunBackend } from "./backend-service.js";
 import { readBackendHealth, waitForBackendReady } from "./backend-health.js";
@@ -662,8 +663,24 @@ async function stopWeb() {
  * can restart freely without interrupting the independent Backend.
  */
 async function webUiRestartBlockReason() {
-  // Restarting the client cannot interrupt sessions in the independent Backend.
-  if (backendService) return null;
+  // A concurrent restart must be refused before the control plane answers 202.
+  const busy = serviceRestartBusyReason(restarting);
+  if (busy) return busy;
+  // Production WebUI is a Backend client: refuse while that Backend is not ready
+  // so the operator gets a 409 instead of a silent no-op after 202.
+  if (backendService) {
+    const clientEnv = backendService.clientEnv();
+    const health = await readBackendHealth({
+      baseUrl: clientEnv.LEAFCODE_PI_BACKEND_URL ?? `http://127.0.0.1:${DEFAULT_BACKEND_PORT}`,
+      token: clientEnv.LEAFCODE_PI_BACKEND_TOKEN,
+      expectedGeneration: backendService.status().generation ?? "",
+    });
+    if (health.ok !== true || health.ready !== true) {
+      return "Backend が準備できていないため WebUI の再起動を拒否しました。Backend の状態を確認してから再試行してください。";
+    }
+    // Independent Backend owns sessions; restarting the client cannot interrupt them.
+    return null;
+  }
   try {
     const response = await fetch(`${WEBUI_URL}/api/goal-loop/active`, {
       cache: "no-store",
@@ -696,6 +713,8 @@ function webUiRestartUnknownReason(detail) {
  * when WebUI is down; an unknown state on a living owner must fail closed.
  */
 async function backendRestartBlockReason() {
+  const busy = serviceRestartBusyReason(restarting);
+  if (busy) return busy;
   // A confirmed dead owner has no live sessions to protect; recovery stays available.
   if (!backendService || backendService.status().state !== "running") return null;
   const { backendRuntimeRestartBlockReason } = await import("./runtime-restart-guard.js");
@@ -871,6 +890,29 @@ async function refreshStatusMenu() {
   await publishStatusWebItem();
 }
 
+async function trayRequestRestart(target) {
+  let blocked = null;
+  if (target === "webui") blocked = await webUiRestartBlockReason();
+  else if (target === "backend") blocked = await backendRestartBlockReason();
+  else blocked = (await backendRestartBlockReason()) ?? (await webUiRestartBlockReason());
+  if (blocked) {
+    error(blocked);
+    const previous = statusWebItem.title;
+    statusWebItem.title = "再起動を拒否しました";
+    await publishStatusWebItem();
+    setTimeout(() => {
+      if (statusWebItem.title === "再起動を拒否しました") {
+        statusWebItem.title = previous;
+        void publishStatusWebItem();
+      }
+    }, 5_000).unref?.();
+    return;
+  }
+  if (target === "webui") await restartWeb();
+  else if (target === "backend") await restartBackend();
+  else await restartHost();
+}
+
 function buildTrayMenu() {
   return {
     icon: TRAY_ICON,
@@ -891,7 +933,25 @@ function buildTrayMenu() {
         checked: false,
         enabled: true,
         click: () => {
-          void restartWeb();
+          void trayRequestRestart("webui");
+        },
+      },
+      {
+        title: "Restart Backend",
+        tooltip: "Rebuild and restart the Pi Backend (ends live sessions; use previous build on failure)",
+        checked: false,
+        enabled: true,
+        click: () => {
+          void trayRequestRestart("backend");
+        },
+      },
+      {
+        title: "Restart Host",
+        tooltip: "Rebuild and restart the tray Host, WebUI, and Backend (ends live sessions)",
+        checked: false,
+        enabled: true,
+        click: () => {
+          void trayRequestRestart("host");
         },
       },
       {

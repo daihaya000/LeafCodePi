@@ -40,6 +40,11 @@ export async function POST(req: Request) {
     });
     const data = (await res.json().catch(() => ({}))) as Record<string, unknown>;
     if (!res.ok && res.status !== 202) {
+      // Preserve operator-facing refusals (Goal Loop 409, capability 501) instead of
+      // flattening every failure into a generic 502 gateway error.
+      const status = res.status === 409 || res.status === 501 || res.status === 400
+        ? res.status
+        : 502;
       return NextResponse.json(
         {
           error:
@@ -49,8 +54,9 @@ export async function POST(req: Request) {
                 ? "トレイホストがバックエンド再起動に未対応です。トレイメニューからホストを再起動してください"
                 : `host control failed: ${res.status}`,
           target,
+          ...(data.blocked === true ? { blocked: true } : {}),
         },
-        { status: 502 },
+        { status },
       );
     }
     return NextResponse.json(

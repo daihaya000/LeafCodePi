@@ -203,6 +203,15 @@ test("the Host entry imports the restart script builder it calls", () => {
   assert.ok(/\bbuildHostRestartScript\(\{/.test(source), "Host restart must use the imported builder");
 });
 
+test("tray menu offers Backend and Host restart beside WebUI", () => {
+  const index = readFileSync(join(repoRoot, "host", "src", "index.js"), "utf8");
+  assert.match(index, /title: "Restart WebUI"/);
+  assert.match(index, /title: "Restart Backend"/);
+  assert.match(index, /title: "Restart Host"/);
+  assert.match(index, /trayRequestRestart\("backend"\)/);
+  assert.match(index, /trayRequestRestart\("host"\)/);
+});
+
 test("host restart relaunches through LeafCodePi.exe when available", () => {
   const lines = buildHostRestartScript({
     lockFile: "C:\\Users\\Daichi\\AppData\\Roaming\\leafcode-pi\\host.lock",

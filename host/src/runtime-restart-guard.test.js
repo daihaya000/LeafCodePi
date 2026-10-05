@@ -3,7 +3,11 @@ import { test } from "node:test";
 import { createServer } from "node:http";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { backendRuntimeRestartBlockReason } from "./runtime-restart-guard.js";
+import {
+  backendRuntimeRestartBlockReason,
+  serviceRestartBusyReason,
+  RESTART_BUSY_MESSAGE,
+} from "./runtime-restart-guard.js";
 import { backendClientEnv, backendLaunchPlan } from "./backend-launch.js";
 import { BACKEND_PROTOCOL_HEADER, DEFAULT_BACKEND_PORT } from "../../shared/backend-protocol.mjs";
 
@@ -52,7 +56,7 @@ test("a caller that passes no URL falls back to the default port instead of refu
   assert.equal(reason, null);
   assert.ok(urls.every((url) => url.startsWith(`http://127.0.0.1:${DEFAULT_BACKEND_PORT}/`)));
 });
-test("a health body that stalls after headers remains bounded and fails closed", { timeout: 5000 }, async (t) => {
+test("a health body that stalls after headers still fails closed (owner answered headers)", { timeout: 5000 }, async (t) => {
   let requests = 0;
   const server = createServer((_req, res) => {
     requests++;
@@ -63,10 +67,23 @@ test("a health body that stalls after headers remains bounded and fails closed",
   t.after(() => { server.closeAllConnections(); return new Promise((resolve) => server.close(resolve)); });
   const reason = await backendRuntimeRestartBlockReason({ ...options, baseUrl: `http://127.0.0.1:${server.address().port}` });
   assert.equal(requests, 1);
+  // Headers arrived from a living owner whose body never finishes — fail closed.
   assert.equal(typeof reason, "string");
 });
-test("unreachable, malformed, incompatible and wrong-generation owners fail closed", async () => {
-  for (const fetchImpl of [async () => { throw new Error("offline"); }, fetchState({}), fetchState({ taskIds: [] }, { status: 503 }), fetchState({ taskIds: [] }, { generation: "other" })]) {
+test("unreachable and not-ready owners allow recovery; malformed control answers still fail closed", async () => {
+  assert.equal(await backendRuntimeRestartBlockReason({ ...options, fetchImpl: async () => { throw new Error("offline"); } }), null);
+  assert.equal(
+    await backendRuntimeRestartBlockReason({
+      ...options,
+      fetchImpl: fetchState({ taskIds: [] }, { generation: "other" }),
+    }),
+    null,
+  );
+  for (const fetchImpl of [fetchState({}), fetchState({ taskIds: [] }, { status: 503 })]) {
     assert.equal(typeof await backendRuntimeRestartBlockReason({ ...options, fetchImpl }), "string");
   }
+});
+test("serviceRestartBusyReason reports an in-flight restart", () => {
+  assert.equal(serviceRestartBusyReason(false), null);
+  assert.equal(serviceRestartBusyReason(true), RESTART_BUSY_MESSAGE);
 });

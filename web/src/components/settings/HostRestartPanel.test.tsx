@@ -64,7 +64,7 @@ describe("HostRestartPanel", () => {
     ).toBe(true);
   });
 
-  it("トレイホストの再起動ではWebUI再起動イベントを発火しない", async () => {
+  it("トレイホストの再起動ではWebUI再起動イベントを発火してオーバーレイに任せる", async () => {
     fetchMock
       .mockResolvedValueOnce(jsonResponse({ running: true }))
       .mockResolvedValueOnce(jsonResponse({ ok: true, target: "host", accepted: true }, 202))
@@ -84,8 +84,8 @@ describe("HostRestartPanel", () => {
       expect(screen.getByRole("dialog").textContent).toContain("フロントエンドとバックエンドを再ビルド・再起動");
       fireEvent.click(screen.getByRole("button", { name: "再起動する" }));
 
-      await waitFor(() => expect(onRestarted).toHaveBeenCalled(), { timeout: 3_000 });
-      expect(restartEvent).not.toHaveBeenCalled();
+      await waitFor(() => expect(restartEvent).toHaveBeenCalled(), { timeout: 3_000 });
+      expect(onRestarted).not.toHaveBeenCalled();
     } finally {
       window.removeEventListener("leafcode:webui-restart", restartEvent);
     }

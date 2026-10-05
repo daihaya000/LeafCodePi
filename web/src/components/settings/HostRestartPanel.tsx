@@ -83,7 +83,15 @@ export function HostRestartPanel({ onRestarted }: { onRestarted?: () => void }) 
           [data.error, data.hint].filter(Boolean).join(" — ") || "再起動に失敗しました",
         );
       }
-      if (action === "webui") window.dispatchEvent(new Event("leafcode:webui-restart"));
+      // Host restart replaces the WebUI process too — show the reconnect overlay so the
+      // page reloads onto the new build instead of sitting on a stale SPA after health returns.
+      if (action === "webui" || action === "host") {
+        window.dispatchEvent(new Event("leafcode:webui-restart"));
+      }
+      if (action === "host") {
+        // Overlay owns wait+reload; the dying page must not claim success via onRestarted.
+        return;
+      }
       const deadline = Date.now() + HEALTH_BUDGET_MS;
       let success = false;
       while (Date.now() < deadline) {
