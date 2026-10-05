@@ -5,6 +5,7 @@ import {
   mkdirSync,
   readFileSync,
   rmSync,
+  utimesSync,
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
@@ -269,6 +270,22 @@ describe("accounts store CRUD", () => {
     );
     assert.equal(listAccounts()[0]?.enabled, true);
     assert.equal(getAccount("legacy")?.enabled, true);
+  });
+
+  it("sees an external rewrite of accounts.json even when the cached read has the same size", () => {
+    const dir = tempDataDir();
+    const file = join(dir, "accounts.json");
+    const rows = (label: string) => JSON.stringify({ version: 1, accounts: [{ id: "a", label, createdAt: "t", updatedAt: "t", enabled: true }] });
+    writeFileSync(file, rows("aaaa"));
+    assert.equal(listAccounts()[0]?.label, "aaaa");
+    assert.equal(listAccounts()[0]?.label, "aaaa");
+    writeFileSync(file, rows("bbbb"));
+    const later = new Date(Date.now() + 5_000);
+    utimesSync(file, later, later);
+    assert.equal(listAccounts()[0]?.label, "bbbb");
+    // Callers may mutate what they get without poisoning the cache.
+    listAccounts()[0]!.label = "mutated";
+    assert.equal(listAccounts()[0]?.label, "bbbb");
   });
 
   it("refuses to overwrite an unreadable accounts.json", () => {

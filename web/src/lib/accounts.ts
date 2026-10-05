@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { readFileSync } from "node:fs";
+import { readFileSync, statSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { readPeerConfig } from "@backend-core/peer-auth-config.mjs";
 import { withDirectoryLock } from "@backend-core/directory-lock.mjs";
@@ -218,11 +218,41 @@ function emptyAccountsFile(): AccountsFile {
   return { version: 1, accounts: [] };
 }
 
+/**
+ * Parsed accounts.json reused while the file keeps the same size, mtime (ns) and inode. Writers
+ * replace the file by rename, so any write (this process or another worker) changes the stamp.
+ */
+let accountsFileCache: { path: string; stamp: string; parsed: AccountsFile | null } | null = null;
+
+function accountsFileStamp(path: string): string | null {
+  try {
+    const stat = statSync(path, { bigint: true });
+    return `${stat.size}:${stat.mtimeNs}:${stat.ino}`;
+  } catch {
+    return null;
+  }
+}
+
+function readAccountsJson(): AccountsFile | null {
+  const path = accountsPath();
+  const stamp = accountsFileStamp(path);
+  if (stamp !== null && accountsFileCache?.path === path && accountsFileCache.stamp === stamp) {
+    return accountsFileCache.parsed;
+  }
+  const parsed = JSON.parse(readFileSync(path, "utf8")) as AccountsFile | null;
+  // A write racing the read leaves a different stamp, so only cache a read that stayed stable.
+  accountsFileCache = stamp !== null && accountsFileStamp(path) === stamp ? { path, stamp, parsed } : null;
+  return parsed;
+}
+
+/** @internal test hook */
+export function __resetAccountsFileCacheForTests(): void {
+  accountsFileCache = null;
+}
+
 function readAccountsFile(): AccountsFile {
   try {
-    const parsed = JSON.parse(
-      readFileSync(accountsPath(), "utf8"),
-    ) as AccountsFile | null;
+    const parsed = readAccountsJson();
     if (!parsed || parsed.version !== 1 || !Array.isArray(parsed.accounts)) {
       return emptyAccountsFile();
     }
