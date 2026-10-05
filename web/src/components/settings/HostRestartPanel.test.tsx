@@ -166,7 +166,7 @@ describe("HostRestartPanel", () => {
     expect(screen.getByRole("dialog").textContent).toContain("最初に最新ソースを取得");
   });
 
-  it("WebUI再起動は更新確認付きの /api/host/restart を叩いて health 復帰を待つ", async () => {
+  it("WebUI再起動はオーバーレイに任せ、同一プロセスの health では成功扱いにしない", async () => {
     fetchMock
       .mockResolvedValueOnce(jsonResponse({ running: true }))
       .mockResolvedValueOnce(jsonResponse({ ok: true, target: "webui", accepted: true }, 202))
@@ -188,10 +188,12 @@ describe("HostRestartPanel", () => {
       expect(screen.getByRole("dialog").textContent).toContain("ビルド失敗時は前回のビルドで起動");
       fireEvent.click(screen.getByRole("button", { name: "再起動する" }));
 
-      await waitFor(() => expect(onRestarted).toHaveBeenCalled(), { timeout: 3_000 });
+      await waitFor(() => expect(restartEvent).toHaveBeenCalled(), { timeout: 3_000 });
+      expect(onRestarted).not.toHaveBeenCalled();
       expect(fetchMock.mock.calls[1]?.[0]).toBe("/api/host/restart");
       expect(JSON.parse(fetchMock.mock.calls[1]?.[1]?.body as string)).toEqual({ target: "webui" });
-      expect(restartEvent).toHaveBeenCalled();
+      // Must not keep polling /api/health after handoff (would false-succeed on the live SPA).
+      expect(fetchMock.mock.calls.slice(2).every((call) => !String(call[0]).startsWith("/api/health"))).toBe(true);
     } finally {
       window.removeEventListener("leafcode:webui-restart", restartEvent);
     }

@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
+import { EventEmitter } from "node:events";
 import test from "node:test";
-import { GIT_PULL_TIMEOUT_MS, pullLatestSources } from "./git-pull.js";
+import { GIT_PULL_TIMEOUT_MS, pullLatestSources, pullLatestSourcesAsync } from "./git-pull.js";
 
 test("pullLatestSources skips rebuild when HEAD is unchanged", () => {
   const calls = [];
@@ -62,4 +63,51 @@ test("pullLatestSources keeps the local sources when pull fails", () => {
   assert.equal(errors.length, 1);
   assert.match(errors[0], /continuing with local sources/);
   assert.match(errors[0], /git exited 1/);
+});
+
+function mockSpawn(handlers) {
+  return (_cmd, args) => {
+    const key = args[0];
+    const handler = handlers[key] || handlers.default;
+    const result = typeof handler === "function" ? handler(args) : handler;
+    const child = new EventEmitter();
+    child.stdout = new EventEmitter();
+    child.stderr = new EventEmitter();
+    child.kill = () => {};
+    queueMicrotask(() => {
+      if (result.stdout) child.stdout.emit("data", result.stdout);
+      if (result.stderr) child.stderr.emit("data", result.stderr);
+      if (result.error) child.emit("error", result.error);
+      else child.emit("close", result.status ?? 0);
+    });
+    return child;
+  };
+}
+
+test("pullLatestSourcesAsync stays non-blocking and reports up to date", async () => {
+  const logs = [];
+  const result = await pullLatestSourcesAsync({
+    repoRoot: "C:\\repo",
+    spawn: mockSpawn({
+      "rev-parse": { status: 0, stdout: "abc123\n" },
+      pull: { status: 0, stdout: "Already up to date.\n" },
+    }),
+    log: (message) => logs.push(message),
+  });
+  assert.deepEqual(result, { ok: true, updated: false });
+  assert.ok(logs.some((message) => message.includes("Already up to date.")));
+});
+
+test("pullLatestSourcesAsync continues on pull failure", async () => {
+  const errors = [];
+  const result = await pullLatestSourcesAsync({
+    repoRoot: "C:\\repo",
+    spawn: mockSpawn({
+      "rev-parse": { status: 0, stdout: "abc\n" },
+      pull: { status: 1, stderr: "fatal: offline" },
+    }),
+    error: (message) => errors.push(message),
+  });
+  assert.deepEqual(result, { ok: false, updated: false });
+  assert.match(errors[0], /continuing with local sources/);
 });

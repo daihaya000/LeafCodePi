@@ -274,7 +274,7 @@ test("host restart falls back to start-webui.bat without the native launcher", (
 test("WebUI restart always rebuilds and launches once without pulling twice", () => {
   const index = readFileSync(join(repoRoot, "host", "src", "index.js"), "utf8");
   const restart = index.slice(index.indexOf("async function restartWeb("), index.indexOf("async function restartHost("));
-  assert.match(restart, /pullLatestSources\(/);
+  assert.match(restart, /pullLatestSourcesAsync\(/);
   assert.match(restart, /await stopWeb\(\)/);
   assert.match(restart, /await spawnWeb\(\{ pull: false, forceBuild: true \}\)/);
   assert.doesNotMatch(restart, /buildBackend|stopForRestart/);
@@ -295,6 +295,9 @@ test("the WebUI is always the Backend's client", () => {
   const restart = index.slice(index.indexOf("async function restartWeb("), index.indexOf("async function restartHost("));
   assert.doesNotMatch(restart, /Refusing to restart the WebUI as a Backend client/);
   assert.match(restart, /Do not re-check here/);
+  assert.doesNotMatch(restart, /await webUiRestartBlockReason\(/);
+  assert.match(restart, /claimServiceRestart\(/);
+  assert.match(restart, /await pullLatestSourcesAsync\(/);
 });
 
 test("Backend hang-watch avoids overlapping probes and race restarts", () => {
@@ -304,6 +307,8 @@ test("Backend hang-watch avoids overlapping probes and race restarts", () => {
   assert.match(index, /backendHangProbeInFlight = true/);
   assert.match(index, /\.finally\(\(\) => \{\s*backendHangProbeInFlight = false/);
   assert.match(index, /if \(restarting \|\| quitting\) \{\s*backendHangStrikes = 0/);
+  assert.match(index, /function claimServiceRestart\(/);
+  assert.match(index, /maintenanceTick % 3 === 0 && \(restarting \|\| quitting\)/);
 });
 
 test("every service restart pulls latest sources first", () => {
@@ -311,11 +316,11 @@ test("every service restart pulls latest sources first", () => {
   const backend = index.slice(index.indexOf("async function restartBackend("), index.indexOf("async function restartWeb("));
   const web = index.slice(index.indexOf("async function restartWeb("), index.indexOf("async function restartHost("));
   const host = index.slice(index.indexOf("async function restartHost("), index.indexOf("async function refreshStatusMenu("));
-  assert.match(backend, /pullLatestSources\(/);
-  assert.match(web, /pullLatestSources\(/);
-  assert.match(host, /pullLatestSources\(/);
+  assert.match(backend, /pullLatestSourcesAsync\(/);
+  assert.match(web, /pullLatestSourcesAsync\(/);
+  assert.match(host, /pullLatestSourcesAsync\(/);
   // Pull precedes stop/rebuild for Backend, and spawnWeb keeps pull:false after WebUI's explicit pull.
-  assert.ok(backend.indexOf("pullLatestSources(") < backend.indexOf("stopForRestart()"));
+  assert.ok(backend.indexOf("pullLatestSourcesAsync(") < backend.indexOf("stopForRestart()"));
   assert.match(web, /await spawnWeb\(\{ pull: false, forceBuild: true \}\)/);
   // Tray handlers route through the same restart functions (no separate pull-less path).
   assert.match(index, /if \(target === "webui"\) await restartWeb\(\)/);
@@ -328,11 +333,11 @@ test("the Host can restart the Backend on request, and refuses while a Goal Loop
   assert.match(index, /onRestartBackendBlocked: \(\) => backendRestartBlockReason\(\)/);
   const restart = index.slice(index.indexOf("async function restartBackend("), index.indexOf("async function restartWeb("));
   // Pull first (same as WebUI / Host), then stop, rebuild, start attached.
-  assert.match(restart, /pullLatestSources\(/);
+  assert.match(restart, /pullLatestSourcesAsync\(/);
   assert.match(restart, /await backendService\.stopForRestart\(\)/);
   assert.match(restart, /backendService\.start\(\{ attachRuntime: true \}\)/);
   assert.match(restart, /await buildBackendWithFallback\(\{ force: true, log, error \}\)/);
-  assert.ok(restart.indexOf("pullLatestSources(") < restart.indexOf("stopForRestart()"));
+  assert.ok(restart.indexOf("pullLatestSourcesAsync(") < restart.indexOf("stopForRestart()"));
   assert.ok(restart.indexOf("stopForRestart()") < restart.indexOf("buildBackendWithFallback("));
   assert.ok(restart.indexOf("buildBackendWithFallback(") < restart.indexOf("backendService.start("));
   assert.match(restart, /publishBackendGeneration\(\)/);

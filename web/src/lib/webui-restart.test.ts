@@ -109,12 +109,13 @@ describe("nextRestartProbe", () => {
       requestedAt: 1_000,
       startedAt: 100,
     };
-    const { state, reload } = nextRestartProbe(
+    const { state, reload, gaveUp } = nextRestartProbe(
       requested,
       { startedAt: 100 },
       1_000 + RESTART_REQUEST_GIVE_UP_MS,
     );
     assert.equal(reload, false);
+    assert.equal(gaveUp, true);
     assert.equal(isRestartOverlayVisible(state), false);
     assert.equal(state.requestedAt, null);
   });

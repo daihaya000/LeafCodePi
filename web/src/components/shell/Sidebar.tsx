@@ -68,6 +68,7 @@ import {
 import { compareIsoUpdatedAtDescending, orderPaneTabIdsForSidebar, projectsForSidebar, sidebarTaskComparator } from "@/lib/sidebar-order";
 import { isGoalLoopLiveStatus } from "@/lib/goal-loop-settings";
 import { restartConfirmation } from "@/lib/host-restart-copy";
+import { WEBUI_RESTART_ABORTED_EVENT } from "@/lib/webui-restart";
 import { createBackendRestartCheck, type BackendRestartStatus } from "@/lib/host-restart-state";
 import { NO_PROJECT_NAME, type BotDto, type HealthDto, type RoomDto, type ProjectDto, type ProjectIconColor, type TaskSummary } from "@/lib/types";
 
@@ -244,6 +245,17 @@ function SidebarFooter({ health, onSettings }: { health: HealthDto | null; onSet
   useEffect(() => {
     mountedRef.current = true;
     return () => { mountedRef.current = false; };
+  }, []);
+  useEffect(() => {
+    const onAborted = (event: Event) => {
+      const detail = (event as CustomEvent<{ message?: string }>).detail;
+      const message = typeof detail?.message === "string"
+        ? detail.message
+        : "再起動が開始されなかったため、待機を解除しました。";
+      if (mountedRef.current) setRestartError(message);
+    };
+    window.addEventListener(WEBUI_RESTART_ABORTED_EVENT, onAborted);
+    return () => window.removeEventListener(WEBUI_RESTART_ABORTED_EVENT, onAborted);
   }, []);
   const [restartError, setRestartError] = useState<string | null>(null);
   const [latestCommit, setLatestCommit] = useState<string | null>(null);

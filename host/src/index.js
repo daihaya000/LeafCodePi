@@ -26,7 +26,7 @@ import { BACKEND_HANG_STRIKE_LIMIT, backendHangShouldRestart, nextBackendHangStr
 import { consumePiUpdateRequest, installedPiVersion, readPiUpdateRequest, readPiUpdateState, requestPiUpdate, updatePiBeforeStartup, writePiUpdateState, PI_UPDATE_MODES } from "./pi-update.js";
 import { assertInstalledPiVersions, assertPiDependencyVersions, DEFAULT_PI_VERSION, PI_DEPS_LOCK_NAME, piDepsLockHeld } from "../../shared/pi-dependencies.mjs";
 import { buildBackendWithFallback } from "./backend-build.js";
-import { pullLatestSources } from "./git-pull.js";
+import { pullLatestSources, pullLatestSourcesAsync } from "./git-pull.js";
 import { createTranslationService } from "./translation-service.js";
 import { openProjectInExplorer } from "./open-explorer.js";
 import { withLocalLeafcodeTempEnv } from "./tray-temp.js";
@@ -174,6 +174,15 @@ let webRestarts = 0;
 let trayRestarts = 0;
 let trayCopyDir = true;
 let restarting = false;
+let backendHangStrikes = 0;
+
+/** Claim the single-flight restart lock; clears hang-watch strikes so a manual restart cannot be followed by an immediate hang re-restart. */
+function claimServiceRestart() {
+  if (restarting) return false;
+  restarting = true;
+  backendHangStrikes = 0;
+  return true;
+}
 /**
  * The Host's independent Backend process, or null when the operator did not ask for one. It stays
  * always attached: it owns the Pi runtime, and two owners would double-write
@@ -731,20 +740,20 @@ async function backendRestartBlockReason() {
  * for readiness. The WebUI stays up as its client and serves 503s until the runtime is back.
  */
 async function restartBackend() {
-  if (restarting) {
+  if (!claimServiceRestart()) {
     log("Service restart is already in progress");
     return;
   }
   if (!backendService) {
+    restarting = false;
     error("Backend restart requested, but this Host does not run a Backend");
     return;
   }
-  restarting = true;
   log("Restarting the Backend (Pi runtime)...");
   try {
     // Same as WebUI / Host restart: pull first so the rebuild uses the latest sources.
-    // pullLatestSources never fails the restart; network errors keep local sources.
-    pullLatestSources({ repoRoot: REPO_ROOT, log, error });
+    // Async so hang-watch and the control plane stay responsive during git pull.
+    await pullLatestSourcesAsync({ repoRoot: REPO_ROOT, log, error });
     await backendService.stopForRestart();
     await buildBackendWithFallback({ force: true, log, error });
     backendService.start({ attachRuntime: true });
@@ -772,22 +781,17 @@ async function restartBackend() {
 }
 
 async function restartWeb() {
-  if (restarting) {
+  // Backend readiness / Goal Loop / busy refusals are decided in webUiRestartBlockReason
+  // before the control plane answers 202. Do not re-check here: a silent return after 202
+  // leaves the WebUI reconnect overlay stuck on the still-live SPA. Claim immediately so
+  // concurrent handlers cannot interleave another restart during pull/stop.
+  if (!claimServiceRestart()) {
     log("Service restart is already in progress");
     return;
   }
-  // Backend readiness / Goal Loop / busy refusals are decided in webUiRestartBlockReason
-  // before the control plane answers 202. Do not re-check here: a silent return after 202
-  // leaves the WebUI reconnect overlay stuck on the still-live SPA.
-  const blocked = await webUiRestartBlockReason();
-  if (blocked) {
-    error(blocked);
-    return;
-  }
-  restarting = true;
   log("Restarting LeafCodePi WebUI...");
   try {
-    pullLatestSources({ repoRoot: REPO_ROOT, log, error });
+    await pullLatestSourcesAsync({ repoRoot: REPO_ROOT, log, error });
     await stopWeb();
     await sleep(STOP_SETTLE_MS);
     // Always rebuild, even without a Pull update. spawnWeb launches the restored
@@ -804,10 +808,9 @@ async function restartWeb() {
  * lock to clear, then quit so the new host can take over.
  */
 async function restartHost() {
-  if (restarting) return;
-  restarting = true;
+  if (!claimServiceRestart()) return;
   log("Host restart requested; spawning replacement…");
-  pullLatestSources({ repoRoot: REPO_ROOT, log, error });
+  await pullLatestSourcesAsync({ repoRoot: REPO_ROOT, log, error });
   if (process.platform !== "win32") {
     const waitProgram = buildHostRestartWaitProgram();
     const child = spawn(
@@ -1393,7 +1396,6 @@ async function main() {
   // The binding check stays on the 5s tick; the tray text (an HTTP health probe) refreshes every 15s,
   // or every tick while a build is running so progress still reads live.
   let maintenanceTick = 0;
-  let backendHangStrikes = 0;
   let backendHangProbeInFlight = false;
   setInterval(() => {
     maintenanceTick += 1;
@@ -1405,6 +1407,9 @@ async function main() {
     // A hung Backend left CLOSE_WAIT sockets and a live PID that served nothing; exit-only
     // restart never fired. Three timed-out probes (~45s) is enough to call it hung.
     // Skip while a probe is already in flight so slow health timeouts cannot stack restarts.
+    if (maintenanceTick % 3 === 0 && (restarting || quitting)) {
+      backendHangStrikes = 0;
+    }
     if (
       maintenanceTick % 3 === 0 &&
       backendService?.status().state === "running" &&

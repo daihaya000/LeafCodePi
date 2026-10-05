@@ -41,6 +41,8 @@ export type RestartOverlayTarget = "webui" | "host";
 
 /** Settings / Sidebar がオーバーレイへ渡す CustomEvent 名。 */
 export const WEBUI_RESTART_EVENT = "leafcode:webui-restart";
+/** Fired when the reconnect overlay gives up because the process never went down. */
+export const WEBUI_RESTART_ABORTED_EVENT = "leafcode:webui-restart-aborted";
 
 export function restartOverlayMessage(target: RestartOverlayTarget | null | undefined): string {
   return target === "host"
@@ -64,13 +66,13 @@ export function nextRestartProbe(
   prev: RestartProbeState,
   sample: { startedAt: number | null } | null,
   now = Date.now(),
-): { state: RestartProbeState; reload: boolean } {
+): { state: RestartProbeState; reload: boolean; gaveUp?: boolean } {
   if (!sample) {
     const failures = prev.failures + 1;
     // 明示要求後はダウンを待つ状態なので 1 回の失敗で確定させる。
     const offline =
       prev.offline || prev.requested || (prev.connected && failures >= OFFLINE_STREAK);
-    return { state: { ...prev, failures, offline }, reload: false };
+    return { state: { ...prev, failures, offline }, reload: false, gaveUp: false };
   }
   // startedAt を返さないサーバ（旧版）は判別できないので従来どおりリロードする。
   const changedProcess =
@@ -89,6 +91,7 @@ export function nextRestartProbe(
         startedAt: sample.startedAt,
       },
       reload: true,
+      gaveUp: false,
     };
   }
   // 202 を受けたあと Host が黙って中断し、同じプロセスが生き続けている場合は畳む。
@@ -109,5 +112,6 @@ export function nextRestartProbe(
       startedAt: sample.startedAt,
     },
     reload: false,
+    gaveUp: Boolean(giveUp),
   };
 }
