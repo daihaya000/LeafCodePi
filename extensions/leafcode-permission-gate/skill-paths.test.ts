@@ -3,7 +3,7 @@ import { homedir, tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import registerSkillPaths, { bundledSkillPaths, resolveSkillReadPath, SKILL_PATH_GUIDANCE } from "./skill-paths.ts";
+import registerSkillPaths, { __resetBundledSkillPathsCacheForTests, bundledSkillPaths, resolveSkillReadPath, SKILL_PATH_GUIDANCE } from "./skill-paths.ts";
 import { buildSkillInjection, clearSkillCache, resolveSkills } from "../leafcode-subagents/src/agents/skills.ts";
 
 // Exercise the installed SDK read tool, not a substitute filesystem reader.
@@ -129,4 +129,29 @@ it("uses explicit roots independently of cwd, and resolves repository defaults f
   const repo = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
   expect(bundledSkillPaths()).toContain(join(repo, "skills"));
   expect(bundledSkillPaths()).toContain(join(repo, "extensions", "leafcode-subagents", "skills"));
+});
+
+describe("bundledSkillPaths cache", () => {
+  it("reuses the scan for the same roots and rescans when the roots change", () => {
+    const base = mkdtempSync(join(tmpdir(), "leafcode-skill-cache-"));
+    const first = join(base, "a");
+    const second = join(base, "b");
+    mkdirSync(join(first, "ext", "skills"), { recursive: true });
+    mkdirSync(join(second, "ext2", "skills"), { recursive: true });
+    const previous = process.env.LEAFCODE_PI_EXTENSIONS_DIR;
+    __resetBundledSkillPathsCacheForTests();
+    try {
+      process.env.LEAFCODE_PI_EXTENSIONS_DIR = first;
+      const paths = bundledSkillPaths();
+      expect(paths).toContain(join(first, "ext", "skills"));
+      mkdirSync(join(first, "late", "skills"), { recursive: true });
+      expect(bundledSkillPaths()).toEqual(paths);
+      process.env.LEAFCODE_PI_EXTENSIONS_DIR = second;
+      expect(bundledSkillPaths()).toContain(join(second, "ext2", "skills"));
+    } finally {
+      if (previous === undefined) delete process.env.LEAFCODE_PI_EXTENSIONS_DIR; else process.env.LEAFCODE_PI_EXTENSIONS_DIR = previous;
+      __resetBundledSkillPathsCacheForTests();
+      rmSync(base, { recursive: true, force: true });
+    }
+  });
 });

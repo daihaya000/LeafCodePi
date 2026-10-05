@@ -11,7 +11,24 @@ function isDirectory(path: string): boolean {
 }
 
 /** Child processes run in arbitrary projects; resolve bundled roots from this module, not cwd. */
+const BUNDLED_SKILL_PATHS_TTL_MS = 30_000;
+let bundledSkillPathsCache: { key: string; at: number; paths: string[] } | null = null;
+
+/** @internal test hook */
+export function __resetBundledSkillPathsCacheForTests(): void { bundledSkillPathsCache = null; }
+
 export function bundledSkillPaths(): string[] {
+  const key = `${process.env.LEAFCODE_PI_SKILLS_DIR ?? ""}\0${process.env.LEAFCODE_PI_EXTENSIONS_DIR ?? ""}`;
+  const now = Date.now();
+  if (bundledSkillPathsCache && bundledSkillPathsCache.key === key && now - bundledSkillPathsCache.at < BUNDLED_SKILL_PATHS_TTL_MS) {
+    return [...bundledSkillPathsCache.paths];
+  }
+  const paths = scanBundledSkillPaths();
+  bundledSkillPathsCache = { key, at: now, paths };
+  return [...paths];
+}
+
+function scanBundledSkillPaths(): string[] {
   const repo = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
   const root = resolve(process.env.LEAFCODE_PI_SKILLS_DIR?.trim() || join(repo, "skills"));
   const extensions = resolve(process.env.LEAFCODE_PI_EXTENSIONS_DIR?.trim() || join(repo, "extensions"));
