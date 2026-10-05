@@ -1644,6 +1644,7 @@ describe("TaskView draft submission", () => {
         third.dispatchEvent(new Event("error"));
       });
       expect(screen.queryByText(/セッションを準備しています/)).toBeNull();
+      expect(screen.getByRole("alert").textContent).toContain("イベント接続が切断されています");
     } finally {
       vi.useRealTimers();
     }

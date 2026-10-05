@@ -191,6 +191,7 @@ import { applyGoalLoopSummaryToDetail } from "@/lib/goal-loop-detail-sync";
 const MODEL_KEY = "leafcodepi.defaultModel";
 /** Match BotView: release hydration after this many transport reconnect failures. */
 const TASK_SSE_DISCONNECTED_AFTER_ATTEMPTS = 3;
+const TASK_SSE_DISCONNECTED_MESSAGE = "イベント接続が切断されています。再接続しています…";
 const USER_OWNERSHIP_OPTION = "__user_ownership__";
 /** Safety-net poll for the worktree change count; task mutations also refresh it immediately. */
 const WORKTREE_STATUS_POLL_MS = 10_000;
@@ -1215,6 +1216,7 @@ export const TaskView = memo(function TaskView({
     let source: EventSource | null = null;
     let retryTimer: ReturnType<typeof setTimeout> | null = null;
     let retryCount = 0;
+    let disconnectedShown = false;
     const perf = taskPerfRef.current;
     if (TASK_PERF_ENABLED && perf) {
       perf.connectedAt = taskPerfNow();
@@ -1282,6 +1284,8 @@ export const TaskView = memo(function TaskView({
         if (retryCount > 0) setError(null);
         setSseReconnecting(false);
         retryCount = 0;
+        disconnectedShown = false;
+        setError((current) => (current === TASK_SSE_DISCONNECTED_MESSAGE ? null : current));
         let payload: {
           task?: TaskSummary;
           messages?: UiMessage[];
@@ -1571,7 +1575,8 @@ export const TaskView = memo(function TaskView({
           return;
         }
         setSseReconnecting(true);
-        setError(null);
+        // Keep the disconnect alert once shown; clearing it every retry flashes the UI.
+        setError((current) => (current === TASK_SSE_DISCONNECTED_MESSAGE ? current : null));
         // Auto-reconnect: close the broken stream and retry with backoff.
         source = closeSseSource(nextSource);
         retryTimer = cancelPendingSseReconnect(retryTimer);
@@ -1579,8 +1584,13 @@ export const TaskView = memo(function TaskView({
         // cache_ready / bootstrap keep hydrating=true until ready. If the Backend
         // never answers, release the gate so drain / resume / composer are not
         // blocked forever behind "セッションを準備しています".
-        if (retryCount >= TASK_SSE_DISCONNECTED_AFTER_ATTEMPTS) {
+        if (retryCount >= TASK_SSE_DISCONNECTED_AFTER_ATTEMPTS && !disconnectedShown) {
+          disconnectedShown = true;
           setSessionHydrating(false);
+          // Parity with BotView: soft reconnect banner alone looks like a
+          // brief blip; after several failures surface a persistent alert
+          // while backoff reconnect continues in the background.
+          setError(TASK_SSE_DISCONNECTED_MESSAGE);
         }
         const delay = sseReconnectDelayMs(retryCount);
         retryTimer = setTimeout(connect, delay);
