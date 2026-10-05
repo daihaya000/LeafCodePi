@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   codexResetAutoConsumeWindowMs,
+  anthropicResetAutoConsumeWindowMs,
   loadCodexBarConfig,
   DEFAULT_CODEX_RESET_AUTO_CONSUME_WINDOW_HOURS,
   MAX_CODEX_RESET_AUTO_CONSUME_WINDOW_HOURS,
@@ -15,6 +16,17 @@ const dirs: string[] = [];
 afterEach(() => {
   vi.unstubAllEnvs();
   for (const dir of dirs.splice(0)) rmSync(dir, { recursive: true, force: true });
+});
+
+describe("anthropicResetAutoConsumeWindowMs", () => {
+  it.each([undefined, 0, -1, 169, "12", null])("defaults to 24 hours for absent/invalid Claude windows %s", (value) => {
+    expect(anthropicResetAutoConsumeWindowMs({ anthropicResetAutoConsumeWindowHours: value } as CodexBarConfig)).toBe(defaultWindowMs);
+  });
+  it("accepts a bounded custom Claude window without affecting Codex", () => {
+    const config = { anthropicResetAutoConsumeWindowHours: 12 };
+    expect(anthropicResetAutoConsumeWindowMs(config)).toBe(12 * 3600_000);
+    expect(codexResetAutoConsumeWindowMs(config)).toBe(defaultWindowMs);
+  });
 });
 
 describe("codexResetAutoConsumeWindowMs", () => {

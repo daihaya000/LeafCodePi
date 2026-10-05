@@ -11,21 +11,21 @@ beforeEach(() => {
 });
 afterEach(() => { vi.unstubAllEnvs(); rmSync(root, { recursive: true, force: true }); });
 
-describe("account automatic reset persistence", () => {
+describe.each([["openai-codex", "codexResetAutoConsume"], ["anthropic", "anthropicResetAutoConsume"]] as const)("account %s automatic reset persistence", (provider, flag) => {
   it("preserves OFF through unrelated patches and importing a backup into a new account", () => {
-    const a = createAccount({ label: "A", providers: ["openai-codex"], note: "keep" });
-    patchAccount(a.id, { codexResetAutoConsume: false });
+    const a = createAccount({ label: "A", providers: [provider], note: "keep" });
+    patchAccount(a.id, { [flag]: false });
     patchAccount(a.id, { label: "renamed" });
     const saved = getAccount(a.id)!;
-    expect(saved).toMatchObject({ codexResetAutoConsume: false, enabled: true, note: "keep" });
+    expect(saved).toMatchObject({ [flag]: false, enabled: true, note: "keep" });
     importAccountRecords([{ ...saved, id: "restored" }]);
-    expect(getAccount("restored")?.codexResetAutoConsume).toBe(false);
+    expect(getAccount("restored")?.[flag]).toBe(false);
   });
 
   it("does not overwrite an existing local preference when importing the same account", () => {
-    const a = createAccount({ label: "A", providers: ["openai-codex"] });
-    patchAccount(a.id, { codexResetAutoConsume: false });
-    importAccountRecords([{ ...a, codexResetAutoConsume: true }]);
-    expect(getAccount(a.id)?.codexResetAutoConsume).toBe(false);
+    const a = createAccount({ label: "A", providers: [provider] });
+    patchAccount(a.id, { [flag]: false });
+    importAccountRecords([{ ...a, [flag]: true }]);
+    expect(getAccount(a.id)?.[flag]).toBe(false);
   });
 });

@@ -103,3 +103,36 @@ describe("per-account Codex automatic reset toggle", () => {
     expect(await toggle()).toBeTruthy();
   });
 });
+
+function mockClaude(kind: "oauth" | "api_key" = "oauth") {
+  accounts = accounts.map((account, index) => ({ ...account, providers: ["anthropic"], anthropicResetAutoConsume: index === 0 }));
+  const base = fetchMock.getMockImplementation()!;
+  fetchMock.mockImplementation(async (input: RequestInfo | URL, init?: RequestInit) => {
+    const path = new URL(String(input), "http://localhost").pathname;
+    if (path.endsWith("/auth-status")) return response({ providers: ["anthropic"], credentialKinds: { anthropic: kind }, anthropicCookieConfigured: true });
+    if (path === "/api/codexbar/usage") return response({ providers: accounts.map((account) => ({ id: "anthropic", accountId: account.id, usedPercent: 90, resetCreditsAvailable: kind === "oauth" ? 2 : 0 })) });
+    return base(input, init);
+  });
+  return [{ ...providers[0], id: "anthropic", name: "Claude" }];
+}
+
+describe("Claude per-account automatic reset toggle", () => {
+  it("shows the same reset-row switch and saves only the chosen Claude account", async () => {
+    render(<ProviderAuthPanel providers={mockClaude()} onChanged={changed} />);
+    const a = await toggle();
+    expect(a.getAttribute("aria-checked")).toBe("true");
+    expect((await toggle("Account B")).getAttribute("aria-checked")).toBe("false");
+    fireEvent.click(a);
+    await waitFor(() => expect(a.getAttribute("aria-checked")).toBe("false"));
+    const patch = fetchMock.mock.calls.find(([, init]) => init?.method === "PATCH");
+    expect(JSON.parse(String(patch?.[1]?.body))).toEqual({ anthropicResetAutoConsume: false });
+    expect(accounts[0].codexResetAutoConsume).toBeUndefined();
+    expect(accounts[1].anthropicResetAutoConsume).toBe(false);
+  });
+
+  it("does not present subscription reset controls for API-key accounts", async () => {
+    render(<ProviderAuthPanel providers={mockClaude("api_key")} onChanged={changed} />);
+    await screen.findAllByText("Anthropic Console cookie");
+    await waitFor(() => expect(screen.queryByRole("switch", { name: autoLabel("Account A") })).toBeNull());
+  });
+});

@@ -392,7 +392,7 @@ function ResetCreditsControl({
                 busy={autoConsume.busy}
                 disabled={autoConsume.disabled}
                 label={`${autoConsume.label}のリセット権を自動使用`}
-                title="期限まで24時間以内のリセット権を自動使用（既定ON）。保存後の次回確認から反映"
+                title="期限間近の使用可能なリセット権を自動使用（既定ON、通常24時間以内）。Claudeはclaude.aiのcookieと使用可能条件が必要"
                 onChange={autoConsume.onChange}
               />
             </label>
@@ -1117,13 +1117,14 @@ export const ProviderAuthPanel = memo(function ProviderAuthPanel({
     }
   }
 
-  async function toggleAccountAutoReset(account: AccountRecord) {
+  async function toggleAccountAutoReset(account: AccountRecord, providerId: string) {
+    const key = providerId === "anthropic" ? "anthropicResetAutoConsume" : "codexResetAutoConsume";
     if (accountBusy) return;
     setAccountBusy(true);
     try {
       const result = await sendJson<{ account: AccountRecord }>(
         `/api/accounts/${encodeURIComponent(account.id)}`,
-        { codexResetAutoConsume: account.codexResetAutoConsume === false },
+        { [key]: account[key] === false },
         "PATCH",
       );
       setAccounts((current) => current?.map((entry) => entry.id === account.id ? result.account : entry) ?? null);
@@ -1742,7 +1743,7 @@ export const ProviderAuthPanel = memo(function ProviderAuthPanel({
                         <UsageBar percent={usage.usedPercent} />
                       )}
                       {usage?.credits && <CreditsLine credits={usage.credits} />}
-                      {(usage || providerId === "openai-codex") && (
+                      {(usage || providerId === "openai-codex" || providerId === "anthropic") && (
                         <ResetCreditsControl
                           provider={usage}
                           busy={usage ? resetBusyKey === resetCreditKey(usage) : false}
@@ -1750,12 +1751,12 @@ export const ProviderAuthPanel = memo(function ProviderAuthPanel({
                             usage ? resetStatusByKey[resetCreditKey(usage)] ?? null : null
                           }
                           onRedeem={redeemResetCredit}
-                          autoConsume={providerId === "openai-codex" && !peerManaged ? {
-                            enabled: account.codexResetAutoConsume !== false,
+                          autoConsume={(providerId === "openai-codex" || (providerId === "anthropic" && credentialKinds[cookieKey(providerId, account.id)] !== "api_key")) && !peerManaged ? {
+                            enabled: (providerId === "anthropic" ? account.anthropicResetAutoConsume : account.codexResetAutoConsume) !== false,
                             busy: accountBusy,
                             disabled: Boolean(login) || authStatuses[account.id] === undefined,
                             label: account.label,
-                            onChange: () => void toggleAccountAutoReset(account),
+                            onChange: () => void toggleAccountAutoReset(account, providerId),
                           } : undefined}
                         />
                       )}

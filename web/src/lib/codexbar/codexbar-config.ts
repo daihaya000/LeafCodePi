@@ -25,6 +25,8 @@ export type CodexBarConfig = Record<string, unknown> & {
   codexResetAutoConsume?: boolean;
   /** Hours before expiry that count as "about to expire" (default: 24). */
   codexResetAutoConsumeWindowHours?: number;
+  /** Claude reset grant expiry window, in hours (default: 24). */
+  anthropicResetAutoConsumeWindowHours?: number;
 };
 
 export function codexBarConfigPath(): string {
@@ -61,7 +63,14 @@ export function updateCodexBarConfig(
 export function codexResetAutoConsumeWindowMs(
   config: CodexBarConfig,
 ): number {
-  const rawHours = config.codexResetAutoConsumeWindowHours;
+  return resetAutoConsumeWindowMs(config.codexResetAutoConsumeWindowHours);
+}
+
+export function anthropicResetAutoConsumeWindowMs(config: CodexBarConfig): number {
+  return resetAutoConsumeWindowMs(config.anthropicResetAutoConsumeWindowHours);
+}
+
+function resetAutoConsumeWindowMs(rawHours: unknown): number {
   const hours =
     typeof rawHours === "number" &&
     Number.isFinite(rawHours) &&
