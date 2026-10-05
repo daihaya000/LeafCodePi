@@ -8,7 +8,6 @@ import {
   resolvePiAgentDir,
 } from "@/lib/accounts";
 import { readPeerConfig } from "@backend-core/peer-auth-config.mjs";
-import { codexResetAutoConsumeWindowMs, loadCodexBarConfig } from "./codexbar-config";
 import { createOpenaiCodexProvider } from "./providers/openai-codex";
 import type { UsageScope } from "./types";
 
@@ -20,7 +19,6 @@ const globals = globalThis as typeof globalThis & {
 };
 
 async function checkAccounts(): Promise<void> {
-  if (codexResetAutoConsumeWindowMs(loadCodexBarConfig()) === null) return;
   const registered = listAccounts();
   const accounts = registered.filter((account) =>
     isAccountEnabled(account) && accountHasProvider(account, "openai-codex"),

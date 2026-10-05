@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { UsageScope } from "./types";
 
 const state = vi.hoisted(() => ({
-  window: vi.fn((): number | null => 24 * 60 * 60_000),
+  config: vi.fn(() => { throw new Error("configuration unavailable"); }),
   accounts: vi.fn((): { id: string; label: string; enabled: boolean; providers: string[] }[] => []),
   peer: vi.fn((): object | null => null),
   configured: vi.fn(() => true),
@@ -18,7 +18,7 @@ vi.mock("@/lib/accounts", () => ({
   accountAuthPath: (id: string, dir: string) => `${dir}/accounts/${id}/auth.json`,
 }));
 vi.mock("@backend-core/peer-auth-config.mjs", () => ({ readPeerConfig: state.peer }));
-vi.mock("./codexbar-config", () => ({ loadCodexBarConfig: () => ({}), codexResetAutoConsumeWindowMs: state.window }));
+vi.mock("./codexbar-config", () => ({ loadCodexBarConfig: state.config }));
 vi.mock("./providers/openai-codex", () => ({ createOpenaiCodexProvider: state.create }));
 
 import { checkCodexResetCredits, ensureCodexResetScheduler } from "./reset-scheduler";
@@ -30,18 +30,16 @@ const account = (id: string, enabled = true) => ({ id, label: id, enabled, provi
 beforeEach(() => {
   vi.useFakeTimers();
   vi.spyOn(console, "warn").mockImplementation(() => undefined);
-  state.window.mockReturnValue(24 * 60 * 60_000);
+  state.config.mockClear();
   state.accounts.mockReturnValue([]);
   state.peer.mockReturnValue(null);
   state.configured.mockReturnValue(true);
   state.fetch.mockReset().mockResolvedValue({});
   state.create.mockReset().mockImplementation(() => ({ isConfigured: state.configured, fetch: state.fetch }));
 });
-afterEach(async () => {
+afterEach(() => {
   if (globals.__leafcodeCodexResetScheduler) clearInterval(globals.__leafcodeCodexResetScheduler);
   delete globals.__leafcodeCodexResetScheduler;
-  state.window.mockReturnValue(null);
-  await checkCodexResetCredits();
   vi.useRealTimers();
   vi.restoreAllMocks();
 });
@@ -56,16 +54,12 @@ describe("owner reset scheduler", () => {
     expect(state.fetch).toHaveBeenCalledTimes(2);
   });
 
-  it("never fetches or redeems unless explicitly enabled", async () => {
-    state.window.mockReturnValue(null);
+  it("never gates the scheduler on an enablement flag or config availability", async () => {
     ensureCodexResetScheduler();
     await checkCodexResetCredits();
     await vi.advanceTimersByTimeAsync(60_000);
-    expect(state.create).not.toHaveBeenCalled();
-    // Configuration is re-read, so enabling it requires no process restart.
-    state.window.mockReturnValue(24 * 60 * 60_000);
-    await vi.advanceTimersByTimeAsync(60_000);
-    expect(state.fetch).toHaveBeenCalledOnce();
+    expect(state.config).not.toHaveBeenCalled();
+    expect(state.fetch).toHaveBeenCalledTimes(2);
   });
 
   it("checks enabled local Codex accounts, but skips paused, peer and other providers", async () => {

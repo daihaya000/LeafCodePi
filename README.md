@@ -25,7 +25,7 @@
 
 ## Codex リセット権の自動使用
 
-CodexBar の `config.json`（Windows: `%APPDATA%\CodexBar\config.json`）に `"codexResetAutoConsume": true` を保存すると、期限まで24時間以内の利用可能なリセット権を、期限が近い順に1回の確認につき1件だけ自動使用します。既定は無効。`codexResetAutoConsumeWindowHours` で対象期間を変更できます（0より大きく168時間以下）。
+Codex リセット権の自動使用は**常時有効**です。期限まで24時間以内の利用可能な権利を、期限が近い順に1回の確認につき1件だけ自動使用します。CodexBar の `config.json`（Windows: `%APPDATA%\CodexBar\config.json`）が未作成・破損していても有効で、旧 `codexResetAutoConsume: false` は無視します。`codexResetAutoConsumeWindowHours` で対象期間を変更できます（0より大きく168時間以下）。不正な値は24時間に戻します。
 
 Backend 起動時と1分ごとに確認し、成功した確認は最大5分間抑制、失敗・リセット対象なしの場合は次回再試行します。画面を閉じても動作しますが、LeafCodePi の停止中・PC のスリープ中は動作しません。停止中に失効した権利は復元できません。一時停止中・共有元が管理するアカウントは対象外。実行結果・失敗は `[codex-auto-reset]` のログに記録します。
 

@@ -5,9 +5,6 @@ const readPiOAuthTokens = vi.hoisted(() =>
   vi.fn(() => ({ access: "token", refresh: null, accountId: null })),
 );
 const loadCodexBarConfig = vi.hoisted(() => vi.fn(() => ({})));
-const codexResetAutoConsumeWindowMs = vi.hoisted(() =>
-  vi.fn((): number | null => null),
-);
 
 vi.mock("undici", async (importOriginal) => ({
   ...(await importOriginal<typeof import("undici")>()),
@@ -19,9 +16,10 @@ vi.mock("@/lib/codexbar/pi-auth", () => ({
   writeBackPiOAuthTokens: vi.fn(),
 }));
 
-vi.mock("@/lib/codexbar/codexbar-config", () => ({
+// Use the real window policy so configuration regressions cannot be hidden by mocks.
+vi.mock("@/lib/codexbar/codexbar-config", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/codexbar/codexbar-config")>()),
   loadCodexBarConfig,
-  codexResetAutoConsumeWindowMs,
 }));
 
 import { createOpenaiCodexProvider } from "./openai-codex";
@@ -80,23 +78,27 @@ beforeEach(() => {
   readPiOAuthTokens.mockClear();
   loadCodexBarConfig.mockReset();
   loadCodexBarConfig.mockReturnValue({});
-  codexResetAutoConsumeWindowMs.mockReset();
-  codexResetAutoConsumeWindowMs.mockReturnValue(null);
 });
 
 describe("Codex automatic reset redemption", () => {
-  it("does not redeem by default", async () => {
-    undiciFetch.mockResolvedValueOnce(usageResponse(1));
+  it.each([{}, { codexResetAutoConsume: false }, { codexResetAutoConsumeWindowHours: 0 }])("redeems even with missing, legacy-disabled or invalid config %j", async (config) => {
+    loadCodexBarConfig.mockReturnValue(config);
+    undiciFetch
+      .mockResolvedValueOnce(usageResponse(1))
+      .mockResolvedValueOnce(creditListResponse(60))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ code: "reset" }), { status: 200 }));
+    const snapshot = await createOpenaiCodexProvider(accountScope(`always-on-${JSON.stringify(config)}`)).fetch();
+    expect(snapshot.rateLimitResetCreditsAvailable).toBe(0);
+    expect(undiciFetch).toHaveBeenCalledTimes(3);
+  });
 
-    const snapshot = await createOpenaiCodexProvider(scope).fetch();
-
-    expect(snapshot.rateLimitResetCreditsAvailable).toBe(1);
+  it("does not request reset credits when none are available", async () => {
+    undiciFetch.mockResolvedValueOnce(usageResponse(0));
+    expect((await createOpenaiCodexProvider(accountScope("no-credits")).fetch()).rateLimitResetCreditsAvailable).toBe(0);
     expect(undiciFetch).toHaveBeenCalledOnce();
   });
 
   it("keeps valid usage when the automatic check fails", async () => {
-    loadCodexBarConfig.mockReturnValue({ codexResetAutoConsume: true });
-    codexResetAutoConsumeWindowMs.mockReturnValue(24 * 60 * 60 * 1000);
     undiciFetch
       .mockResolvedValueOnce(usageResponse(1))
       .mockResolvedValueOnce(new Response("temporary failure", { status: 503 }));
@@ -108,7 +110,6 @@ describe("Codex automatic reset redemption", () => {
   });
 
   it("retries a temporary failure on the next poll instead of suppressing it for an hour", async () => {
-    codexResetAutoConsumeWindowMs.mockReturnValue(24 * 60 * 60 * 1000);
     undiciFetch
       .mockResolvedValueOnce(usageResponse(1))
       .mockResolvedValueOnce(new Response("temporary failure", { status: 503 }))
@@ -122,7 +123,6 @@ describe("Codex automatic reset redemption", () => {
   });
 
   it("retries when usage becomes resettable after nothing_to_reset", async () => {
-    codexResetAutoConsumeWindowMs.mockReturnValue(24 * 60 * 60 * 1000);
     undiciFetch
       .mockResolvedValueOnce(usageResponse(1))
       .mockResolvedValueOnce(creditListResponse(2))
@@ -137,7 +137,6 @@ describe("Codex automatic reset redemption", () => {
   });
 
   it("uses the credits endpoint when usage omits the available count", async () => {
-    codexResetAutoConsumeWindowMs.mockReturnValue(24 * 60 * 60 * 1000);
     undiciFetch
       .mockResolvedValueOnce(usageResponse())
       .mockResolvedValueOnce(creditListResponse(2))
@@ -148,7 +147,7 @@ describe("Codex automatic reset redemption", () => {
 
   it("checks a short expiry window again after five minutes", async () => {
     vi.useFakeTimers();
-    codexResetAutoConsumeWindowMs.mockReturnValue(10 * 60_000);
+    loadCodexBarConfig.mockReturnValue({ codexResetAutoConsumeWindowHours: 10 / 60 });
     undiciFetch
       .mockResolvedValueOnce(usageResponse(1))
       .mockResolvedValueOnce(creditListResponse(11))
@@ -164,7 +163,7 @@ describe("Codex automatic reset redemption", () => {
 
   it("does not throttle beyond a two-minute expiry window", async () => {
     vi.useFakeTimers();
-    codexResetAutoConsumeWindowMs.mockReturnValue(2 * 60_000);
+    loadCodexBarConfig.mockReturnValue({ codexResetAutoConsumeWindowHours: 2 / 60 });
     undiciFetch
       .mockResolvedValueOnce(usageResponse(1))
       .mockResolvedValueOnce(creditListResponse(2.5))
@@ -177,9 +176,7 @@ describe("Codex automatic reset redemption", () => {
     expect((await provider.fetch()).rateLimitResetCreditsAvailable).toBe(0);
   });
 
-  it("redeems one expiring credit only after explicit opt-in", async () => {
-    loadCodexBarConfig.mockReturnValue({ codexResetAutoConsume: true });
-    codexResetAutoConsumeWindowMs.mockReturnValue(24 * 60 * 60 * 1000);
+  it("automatically redeems one credit and coalesces subsequent checks", async () => {
     undiciFetch
       .mockResolvedValueOnce(usageResponse(1))
       .mockResolvedValueOnce(

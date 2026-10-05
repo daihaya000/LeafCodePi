@@ -124,7 +124,7 @@ describe("Codex refresh lock paths", () => {
         return { ok: false, status: 401, body: "unauthorized" };
       }
       expect(new Headers(init?.headers).get("Authorization")).toBe("Bearer new-access-fixture");
-      return { ok: true, status: 200, body: JSON.stringify({ rate_limit: { primary_window: { used_percent: 10 } } }) };
+      return { ok: true, status: 200, body: JSON.stringify({ rate_limit: { primary_window: { used_percent: 10 } }, rate_limit_reset_credits: { available_count: 0 } }) };
     });
 
     const provider = createOpenaiCodexProvider({
@@ -180,7 +180,7 @@ function mockUsageAndRefresh(): void {
     expect(url).toBe(usageUrl);
     const authorization = new Headers(init?.headers).get("Authorization");
     if (authorization === "Bearer old-access-fixture") return { ok: false, status: 401, body: "unauthorized" };
-    return { ok: true, status: 200, body: JSON.stringify({ rate_limit: { primary_window: { used_percent: 10 } } }) };
+    return { ok: true, status: 200, body: JSON.stringify({ rate_limit: { primary_window: { used_percent: 10 } }, rate_limit_reset_credits: { available_count: 0 } }) };
   });
 }
 

@@ -21,7 +21,7 @@ export type CodexBarConfig = Record<string, unknown> & {
   syntheticApiKey?: string | null;
   openRouterApiKey?: string | null;
   commandCodeApiKey?: string | null;
-  /** Auto-redeem Codex reset credits before they expire (default: false). */
+  /** @deprecated Ignored: expiring Codex reset credits are always auto-redeemed. */
   codexResetAutoConsume?: boolean;
   /** Hours before expiry that count as "about to expire" (default: 24). */
   codexResetAutoConsumeWindowHours?: number;
@@ -57,27 +57,19 @@ export function updateCodexBarConfig(
   return next;
 }
 
-/**
- * Resolve the automatic reset window. Returns null unless auto-redeem is
- * explicitly enabled and the configured window is finite and bounded.
- */
+/** Always enabled; missing, malformed or legacy disable settings cannot skip expiry checks. */
 export function codexResetAutoConsumeWindowMs(
   config: CodexBarConfig,
-): number | null {
-  if (config.codexResetAutoConsume !== true) return null;
+): number {
   const rawHours = config.codexResetAutoConsumeWindowHours;
   const hours =
-    rawHours === undefined
-      ? DEFAULT_CODEX_RESET_AUTO_CONSUME_WINDOW_HOURS
-      : typeof rawHours === "number" &&
-          Number.isFinite(rawHours) &&
-          rawHours > 0 &&
-          rawHours <= MAX_CODEX_RESET_AUTO_CONSUME_WINDOW_HOURS
-        ? rawHours
-        : null;
-  if (hours === null) return null;
-  const windowMs = hours * 60 * 60 * 1000;
-  return Number.isFinite(windowMs) ? windowMs : null;
+    typeof rawHours === "number" &&
+    Number.isFinite(rawHours) &&
+    rawHours > 0 &&
+    rawHours <= MAX_CODEX_RESET_AUTO_CONSUME_WINDOW_HOURS
+      ? rawHours
+      : DEFAULT_CODEX_RESET_AUTO_CONSUME_WINDOW_HOURS;
+  return hours * 60 * 60 * 1000;
 }
 
 export function readConfigString(

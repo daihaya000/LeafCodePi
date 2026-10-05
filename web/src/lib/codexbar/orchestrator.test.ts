@@ -229,6 +229,7 @@ describe("fetchNativeUsage", () => {
       return new Response(
         JSON.stringify({
           plan_type: "pro",
+          rate_limit_reset_credits: { available_count: 0 },
           rate_limit: {
             primary_window: {
               used_percent: percent,
@@ -273,6 +274,7 @@ describe("fetchNativeUsage", () => {
     });
     undiciFetch.mockImplementation(async () => new Response(JSON.stringify({
       plan_type: "pro",
+      rate_limit_reset_credits: { available_count: 0 },
       rate_limit: { primary_window: { used_percent: 35, reset_at: 1_800_000_000, limit_window_seconds: 18_000 } },
     }), { status: 200 }));
 
@@ -296,6 +298,7 @@ describe("fetchNativeUsage", () => {
     undiciFetch.mockImplementation(async () =>
       new Response(
         JSON.stringify({
+          rate_limit_reset_credits: { available_count: 0 },
           rate_limit: { primary_window: { used_percent: 20 } },
         }),
         { status: 200 },
