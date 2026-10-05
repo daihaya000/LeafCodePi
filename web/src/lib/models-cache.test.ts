@@ -3,7 +3,9 @@ import {
   MODELS_CACHE_MAX_AGE_MS,
   MODELS_CACHE_STORAGE_KEY,
   clearCachedModels,
+  getCachedModelsSnapshot,
   readCachedModels,
+  subscribeCachedModels,
   writeCachedModels,
 } from "./models-cache";
 import type { ModelOption } from "@/lib/types";
@@ -50,6 +52,17 @@ describe("models-cache", () => {
     expect(writeCachedModels(models, 1_000)).toBe(true);
     expect(readCachedModels(1_000)).toEqual(models);
     expect(sessionStorage.getItem(MODELS_CACHE_STORAGE_KEY)).toContain("provider::model-a");
+  });
+
+  it("notifies model-label subscribers when the cached picker options change", () => {
+    const listener = vi.fn();
+    const unsubscribe = subscribeCachedModels(listener);
+    expect(writeCachedModels(models)).toBe(true);
+    expect(listener).toHaveBeenCalledTimes(1);
+    expect(getCachedModelsSnapshot()).toEqual(models);
+    unsubscribe();
+    clearCachedModels();
+    expect(listener).toHaveBeenCalledTimes(1);
   });
 
   it("refuses to cache an empty list so loading stays visible", () => {

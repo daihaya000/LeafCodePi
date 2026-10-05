@@ -40,6 +40,8 @@ import { HostnameLabel } from "@/components/shell/HostnameContext";
 import { Button, cx, timeAgo } from "@/components/ui";
 import { SessionLabelBadge } from "@/components/SessionLabelBadge";
 import { ProviderIcon } from "@/components/ProviderIcon";
+import { messageModelLabel, messageModelLabels } from "@/lib/message-model-label";
+import { getCachedModelsSnapshot, getServerCachedModelsSnapshot, subscribeCachedModels } from "@/lib/models-cache";
 import { taskResponseModel } from "@/lib/task-response-model";
 import { useSessionLabels } from "@/components/useSessionLabels";
 import { BotAvatar, type BotFace } from "@/components/bot/BotAvatar";
@@ -97,6 +99,7 @@ const POLL_WORKING_MS = 4_000;
 const PROJECT_DRAG_MIME = "application/x-leafcode-project";
 const HOVER_QUERY = "(hover: hover)";
 const NO_PROJECT_GROUP_ID = "__leafcode_no_project__";
+const EMPTY_MODEL_LABELS: ReadonlyMap<string, string> = new Map();
 /** 展開したプロジェクト/アーカイブで一度に描画する行数。残りは「さらに表示」で増やす。 */
 export const SIDEBAR_TASK_RENDER_STEP = 50;
 
@@ -119,6 +122,7 @@ function sameTaskSummary(left: TaskSummary, right: TaskSummary): boolean {
     left.label === right.label &&
     left.providerID === right.providerID &&
     left.modelID === right.modelID &&
+    left.accountId === right.accountId &&
     left.responseModel?.providerID === right.responseModel?.providerID &&
     left.responseModel?.modelID === right.responseModel?.modelID &&
     left.projectId === right.projectId &&
@@ -948,11 +952,16 @@ export const TaskActivityIcon = memo(function TaskActivityIcon({
   );
 });
 
-export function TaskSessionMetadata({ task, faint = false }: {
-  task: Pick<TaskSummary, "label" | "updatedAt" | "providerID" | "modelID" | "responseModel">;
+export function TaskSessionMetadata({ task, faint = false, modelLabels }: {
+  task: Pick<TaskSummary, "label" | "updatedAt" | "providerID" | "modelID" | "responseModel" | "accountId">;
   faint?: boolean;
+  modelLabels?: ReadonlyMap<string, string>;
 }) {
   const model = taskResponseModel(task);
+  const modelLabel = model && messageModelLabel(
+    { provider: model.providerID, model: model.modelID, accountId: task.accountId },
+    modelLabels ?? EMPTY_MODEL_LABELS,
+  );
   return (
     <span className="flex w-full min-w-0 items-center gap-1 text-[10px] text-muted">
       <span className="flex w-11 shrink-0 items-center">
@@ -961,7 +970,7 @@ export function TaskSessionMetadata({ task, faint = false }: {
       {model && (
         <span className="flex min-w-0 flex-1 items-center gap-1" title={`${model.providerID} / ${model.modelID}`}>
           <ProviderIcon providerID={model.providerID} size={12} />
-          <span className="truncate">{model.modelID}</span>
+          <span className="truncate">{modelLabel ?? model.modelID}</span>
         </span>
       )}
       <span className={cx("ml-auto shrink-0 text-right", faint && "text-faint")}>{timeAgo(task.updatedAt)}</span>
@@ -973,6 +982,7 @@ export const SidebarTaskRow = memo(function SidebarTaskRow({
   task,
   active,
   bot,
+  modelLabels,
   pinned,
   unread = false,
   mdUp,
@@ -986,6 +996,7 @@ export const SidebarTaskRow = memo(function SidebarTaskRow({
   task: TaskSummary;
   active: boolean;
   bot?: BotFace & { name: string };
+  modelLabels?: ReadonlyMap<string, string>;
   pinned: boolean;
   unread?: boolean;
   mdUp: boolean;
@@ -1017,7 +1028,7 @@ export const SidebarTaskRow = memo(function SidebarTaskRow({
           <TaskActivityIcon task={task} bot={bot} unread={unread} />
           <span className="relative top-0.5 flex min-w-0 flex-1 flex-col items-start">
             <span className="w-full truncate text-xs font-medium">{task.title}</span>
-            <TaskSessionMetadata task={task} />
+            <TaskSessionMetadata task={task} modelLabels={modelLabels} />
           </span>
         </button>
         <button
@@ -1416,6 +1427,12 @@ const SidebarView = memo(function SidebarView({
   const [archivedTasks, setArchivedTasks] = useState<TaskSummary[]>([]);
   const [bots, setBots] = useState<BotDto[]>([]);
   const [health, setHealth] = useState<HealthDto | null>(null);
+  const cachedModelOptions = useSyncExternalStore(
+    subscribeCachedModels,
+    getCachedModelsSnapshot,
+    getServerCachedModelsSnapshot,
+  );
+  const modelLabels = useMemo(() => messageModelLabels(cachedModelOptions), [cachedModelOptions]);
   const botSidebar = useSyncExternalStore(
     subscribeBotSidebar,
     getBotSidebarSnapshot,
@@ -2524,6 +2541,7 @@ const SidebarView = memo(function SidebarView({
             task={task}
             active={task.id === activeTaskId}
             bot={(task.botId ?? task.supervisorBotId) ? botsById.get(task.botId ?? task.supervisorBotId!) : undefined}
+            modelLabels={modelLabels}
             pinned={pinnedTaskIds.has(task.id)}
             unread={hasUnreadTask(task, activeTaskId)}
             mdUp={mdUp}
@@ -2824,7 +2842,7 @@ const SidebarView = memo(function SidebarView({
                               <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-faint" />
                               <span className="relative top-0.5 flex min-w-0 flex-1 flex-col items-start">
                                 <span className="w-full truncate text-xs font-medium">{task.title}</span>
-                                <TaskSessionMetadata task={task} />
+                                <TaskSessionMetadata task={task} modelLabels={modelLabels} />
                               </span>
                             </button>
                             <button
@@ -3263,7 +3281,7 @@ const SidebarView = memo(function SidebarView({
                     <TaskActivityIcon task={task} bot={(task.botId ?? task.supervisorBotId) ? botsById.get(task.botId ?? task.supervisorBotId!) : undefined} />
                     <span className="relative top-0.5 flex min-w-0 flex-1 flex-col items-start">
                       <span className="w-full truncate font-medium">{task.title}</span>
-                      <TaskSessionMetadata task={task} faint />
+                      <TaskSessionMetadata task={task} faint modelLabels={modelLabels} />
                     </span>
                   </button>
                   <TaskProgressBar task={task} className="mx-3 mb-1" />

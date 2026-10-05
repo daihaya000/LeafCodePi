@@ -17,6 +17,27 @@ type StoredModelsCache = {
 };
 
 let memoryCache: ModelsCacheEntry | null = null;
+const EMPTY_MODELS: readonly ModelOption[] = Object.freeze([]);
+const listeners = new Set<() => void>();
+
+export function subscribeCachedModels(listener: () => void): () => void {
+  listeners.add(listener);
+  return () => {
+    listeners.delete(listener);
+  };
+}
+
+export function getCachedModelsSnapshot(): readonly ModelOption[] {
+  return readCachedModels() ?? EMPTY_MODELS;
+}
+
+export function getServerCachedModelsSnapshot(): readonly ModelOption[] {
+  return EMPTY_MODELS;
+}
+
+function notifyCachedModelsChanged(): void {
+  for (const listener of listeners) listener();
+}
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -71,26 +92,30 @@ export function writeCachedModels(models: ModelOption[], now = Date.now()): bool
   if (!models.every(isModelOption)) return false;
   const entry: ModelsCacheEntry = { at: now, models };
   memoryCache = entry;
-  if (typeof sessionStorage === "undefined") return true;
-  try {
-    const payload: StoredModelsCache = {
-      version: MODELS_CACHE_VERSION,
-      at: now,
-      models,
-    };
-    sessionStorage.setItem(MODELS_CACHE_STORAGE_KEY, JSON.stringify(payload));
-    return true;
-  } catch {
-    return true;
+  if (typeof sessionStorage !== "undefined") {
+    try {
+      const payload: StoredModelsCache = {
+        version: MODELS_CACHE_VERSION,
+        at: now,
+        models,
+      };
+      sessionStorage.setItem(MODELS_CACHE_STORAGE_KEY, JSON.stringify(payload));
+    } catch {
+      /* sessionStorage が使えない環境でもメモリキャッシュは有効 */
+    }
   }
+  notifyCachedModelsChanged();
+  return true;
 }
 
 export function clearCachedModels(): void {
   memoryCache = null;
-  if (typeof sessionStorage === "undefined") return;
-  try {
-    sessionStorage.removeItem(MODELS_CACHE_STORAGE_KEY);
-  } catch {
-    /* private mode 等 */
+  if (typeof sessionStorage !== "undefined") {
+    try {
+      sessionStorage.removeItem(MODELS_CACHE_STORAGE_KEY);
+    } catch {
+      /* private mode 等 */
+    }
   }
+  notifyCachedModelsChanged();
 }

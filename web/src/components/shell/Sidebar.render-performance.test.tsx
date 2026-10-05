@@ -2,6 +2,7 @@
 import { cleanup, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { TaskSummary } from "@/lib/types";
+import { messageModelLabels } from "@/lib/message-model-label";
 
 const mocks = vi.hoisted(() => ({ timeAgo: vi.fn(() => "now") }));
 
@@ -51,6 +52,29 @@ describe("TaskSessionMetadata", () => {
     expect(time.className).toContain("text-right");
     expect(time.className).toContain("shrink-0");
     expect(view.container.textContent).not.toContain("next-model");
+  });
+
+  it("uses the Composer picker label for the responding model", () => {
+    const modelLabels = messageModelLabels([
+      {
+        value: "account-a::anthropic::claude-sonnet-5-5",
+        label: "Claude Sonnet 5.5 (Account A)",
+        providerID: "anthropic",
+        modelID: "claude-sonnet-5-5",
+        accountId: "account-a",
+      },
+    ]);
+    render(
+      <TaskSessionMetadata
+        task={{
+          ...task,
+          accountId: "account-a",
+          responseModel: { providerID: "anthropic", modelID: "claude-sonnet-5-5" },
+        }}
+        modelLabels={modelLabels}
+      />,
+    );
+    expect(screen.getByText("Claude Sonnet 5.5 (Account A)")).toBeTruthy();
   });
 
   it("keeps time right-aligned without model data and falls back for unknown providers", () => {
