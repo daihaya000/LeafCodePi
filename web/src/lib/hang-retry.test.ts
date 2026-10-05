@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   countHangRetryUserMessages,
+  hangRetryNoticeCount,
   HANG_RETRY_PREFIX,
   isHangRetryUserMessage,
   markHangRetryPrompt,
@@ -37,5 +38,42 @@ describe("hang-retry", () => {
     ];
     expect(isHangRetryUserMessage(messages[0]!)).toBe(true);
     expect(countHangRetryUserMessages(messages)).toBe(1);
+  });
+
+  it("does not keep the hang notice from historical retries after a real user turn", () => {
+    const messages: UiMessage[] = [
+      {
+        id: "u1",
+        role: "user",
+        createdAt: 1,
+        hangRetry: true,
+        parts: [{ id: "t1", type: "text", text: "hello" }],
+      },
+      {
+        id: "u2",
+        role: "user",
+        createdAt: 2,
+        hangRetry: true,
+        parts: [{ id: "t2", type: "text", text: "again" }],
+      },
+      userMessage("u3", "fresh turn"),
+    ];
+    expect(countHangRetryUserMessages(messages)).toBe(2);
+    expect(hangRetryNoticeCount(0, messages)).toBe(0);
+    expect(hangRetryNoticeCount(2, messages)).toBe(2);
+  });
+
+  it("falls back to one while the tip user message is still a hang retry", () => {
+    const messages: UiMessage[] = [
+      userMessage("u1", "original"),
+      {
+        id: "u2",
+        role: "user",
+        createdAt: 2,
+        hangRetry: true,
+        parts: [{ id: "t2", type: "text", text: "retry" }],
+      },
+    ];
+    expect(hangRetryNoticeCount(0, messages)).toBe(1);
   });
 });

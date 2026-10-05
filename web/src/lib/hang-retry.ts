@@ -23,3 +23,22 @@ export function countHangRetryUserMessages(messages: UiMessage[]): number {
   }
   return count;
 }
+
+/**
+ * Count for the hang-retry banner. Prefer the live server counter (reset to 0 on
+ * the next real user turn). Fall back to "1" only when the latest user message is
+ * still a hang-retry (SSE lag). Never sum historical hang-retry markers — that
+ * kept the banner up for the life of the transcript.
+ */
+export function hangRetryNoticeCount(
+  hangRetryCount: number,
+  messages: readonly UiMessage[],
+): number {
+  if (hangRetryCount > 0) return hangRetryCount;
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    const message = messages[index];
+    if (!message || message.role !== "user") continue;
+    return isHangRetryUserMessage(message) ? 1 : 0;
+  }
+  return 0;
+}
