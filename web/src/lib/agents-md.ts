@@ -82,26 +82,44 @@ function assertUtf8Size(filePath: string, content: string): void {
   }
 }
 
+/** Last read per real path, reused while size, mtime (ns) and inode are unchanged. */
+const AGENTS_MD_CACHE_LIMIT = 32;
+const agentsMdContentCache = new Map<string, { stamp: string; content: string }>();
+
 export function readAgentsMdFile(filePath: string): AgentsMdDto {
   const resolved = resolve(filePath);
-  if (!existsSync(resolved)) {
-    return { path: resolved, exists: false, content: "" };
-  }
   const name = basename(resolved);
-  if (lstatSync(resolved).isSymbolicLink()) {
+  let link: ReturnType<typeof lstatSync>;
+  try {
+    link = lstatSync(resolved);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException)?.code === "ENOENT") return { path: resolved, exists: false, content: "" };
+    throw error;
+  }
+  if (link.isSymbolicLink()) {
     throw Object.assign(new Error(`${name}はシンボリックリンクのため読み込めません`), {
       status: 400,
     });
   }
   const real = realpathSync.native(resolved);
-  if (!statSync(real).isFile()) {
+  const stat = statSync(real, { bigint: true });
+  if (!stat.isFile()) {
     throw Object.assign(new Error(`${name}を安全に読み込めません`), { status: 400 });
   }
-  const size = statSync(real).size;
-  if (size > MAX_AGENTS_MD_BYTES) {
+  if (stat.size > BigInt(MAX_AGENTS_MD_BYTES)) {
     throw Object.assign(new Error(`${name}は2MBを超えているため編集できません`), { status: 413 });
   }
-  return { path: real, exists: true, content: readFileSync(real, "utf8") };
+  const stamp = `${stat.size}:${stat.mtimeNs}:${stat.ino}`;
+  const cached = agentsMdContentCache.get(real);
+  if (cached?.stamp === stamp) return { path: real, exists: true, content: cached.content };
+  const content = readFileSync(real, "utf8");
+  agentsMdContentCache.delete(real);
+  agentsMdContentCache.set(real, { stamp, content });
+  if (agentsMdContentCache.size > AGENTS_MD_CACHE_LIMIT) {
+    const oldest = agentsMdContentCache.keys().next().value;
+    if (oldest !== undefined) agentsMdContentCache.delete(oldest);
+  }
+  return { path: real, exists: true, content };
 }
 
 export function writeAgentsMdFile(filePath: string, content: string): AgentsMdDto {
