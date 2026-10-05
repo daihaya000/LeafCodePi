@@ -9,7 +9,7 @@ import {
 import { createSseWriter } from "@/lib/sse-writer";
 import { localRuntimeBlocked } from "@/lib/pi/runtime-ownership";
 import { forwardPendingRequestsByTask, type PendingRequestsByTask } from "@/lib/backend-forward";
-import { subscribeBackendTaskDirty } from "@/lib/backend-task-dirty-hub";
+import { BACKEND_TASK_STREAM_REASON, subscribeBackendTaskDirty } from "@/lib/backend-task-dirty-hub";
 import { roomSnapshotSignature } from "@/lib/room-events";
 import type { RoomAttention, RoomDto } from "@/lib/types";
 export const runtime = "nodejs";
@@ -138,7 +138,12 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
         for (const taskId of taskIds) {
           if (dirtyStops.has(taskId)) continue;
           try {
-            dirtyStops.set(taskId, subscribeBackendTaskDirty(taskId, () => { void snapshot(); }));
+            // Room bodies come from the room file, which streaming text never touches: skip the
+            // per-token wakes so a streaming member does not re-read the file and pending map 5x/s.
+            dirtyStops.set(taskId, subscribeBackendTaskDirty(taskId, (payload) => {
+              if (payload?.reason === BACKEND_TASK_STREAM_REASON) return;
+              void snapshot();
+            }));
             if (!dirtyAttached) {
               dirtyAttached = true;
               rescheduleRefresh();

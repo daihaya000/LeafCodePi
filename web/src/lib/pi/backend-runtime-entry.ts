@@ -35,6 +35,8 @@ export {
   refreshCompactionSuggestions,
   subscribeBotCodeSession,
   subscribeTaskDirty,
+  // Optional for the Backend loader: streaming-text wakes for cutover viewers.
+  subscribeTaskStream,
   startBotCodeRelay,
   applyCodePermissionSettingsToLiveTasks,
   // Rewinding a transcript rewrites the session and clears the owner's pending attention.

@@ -33,6 +33,7 @@ vi.mock("@/lib/backend-forward", () => ({
   forwardPendingRequestsByTask: mocks.forwardPendingRequestsByTask,
 }));
 vi.mock("@/lib/backend-task-dirty-hub", () => ({
+  BACKEND_TASK_STREAM_REASON: "stream",
   subscribeBackendTaskDirty: mocks.subscribeBackendTaskDirty,
 }));
 
@@ -209,6 +210,30 @@ describe("GET /api/bots/rooms/[id]/events", () => {
     expect((await readEvent(reader)).data.attention).toEqual([
       { botId: "two", taskId: "bot:two:room:r1", permission: { id: "p2" }, question: null },
     ]);
+    await reader.cancel();
+  });
+
+  it("ignores streaming-text wakes, which never change the room file", async () => {
+    vi.useFakeTimers();
+    mocks.localRuntimeBlocked.mockReturnValue(true);
+    let dirtyListener: ((payload?: { taskId: string; reason?: string }) => void) | undefined;
+    mocks.subscribeBackendTaskDirty.mockImplementation(
+      (_taskId: string, listener: (payload?: { taskId: string; reason?: string }) => void) => {
+        dirtyListener = listener;
+        return () => undefined;
+      },
+    );
+    const response = await GET(request(), params);
+    const reader = response.body!.getReader();
+    await readEvent(reader);
+    await vi.advanceTimersByTimeAsync(0);
+    const reads = mocks.forwardPendingRequestsByTask.mock.calls.length;
+    dirtyListener!({ taskId: "bot:one:room:r1", reason: "stream" });
+    await vi.advanceTimersByTimeAsync(0);
+    expect(mocks.forwardPendingRequestsByTask).toHaveBeenCalledTimes(reads);
+    dirtyListener!({ taskId: "bot:one:room:r1", reason: "agent_settled" });
+    await vi.advanceTimersByTimeAsync(0);
+    expect(mocks.forwardPendingRequestsByTask).toHaveBeenCalledTimes(reads + 1);
     await reader.cancel();
   });
 

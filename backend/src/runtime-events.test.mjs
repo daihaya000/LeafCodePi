@@ -92,8 +92,14 @@ test("undrained sockets skip further event payloads until drain", () => {
   assert.equal(response.chunks.length, afterConnect, "backpressure skips while undrained");
   response.writableLength = 0;
   response.emit("drain");
-  owner.emit("event", { event: "task_dirty", payload: { taskId: "c" } });
+  // The deferred task wake is replayed on drain; the routine frame stays dropped.
   assert.equal(response.chunks.length, afterConnect + 1);
+  assert.match(response.chunks.at(-1), /"taskId":"a"/);
+  assert.doesNotMatch(response.chunks.at(-1), /routine/);
+  response.writableLength = 0;
+  response.emit("drain");
+  owner.emit("event", { event: "task_dirty", payload: { taskId: "c" } });
+  assert.equal(response.chunks.length, afterConnect + 2);
   assert.match(response.chunks.at(-1), /"taskId":"c"/);
   response.destroy();
   assert.equal(owner.listenerCount("event"), 0);
@@ -127,4 +133,66 @@ test("byte-cap drop still works when writes keep succeeding past the high-water 
   }
   assert.equal(response.destroyed, true);
   assert.equal(owner.listenerCount("event"), 0);
+});
+
+test("task wakes deferred under backpressure coalesce per task and replay once on drain", () => {
+  const owner = new EventEmitter();
+  const response = fakeResponse();
+  streamRuntimeEvents(response, (listener) => { owner.on("event", listener); return () => owner.off("event", listener); },
+    { heartbeatMs: 60_000, stallMs: 60_000, includeStream: true, maxDeferredTaskWakes: 2 });
+  const afterConnect = response.chunks.length;
+  for (let i = 0; i < 5; i++) owner.emit("event", { event: "task_dirty", payload: { taskId: "a", reason: `r${i}` } });
+  owner.emit("event", { event: "task_stream", payload: { taskId: "a", reason: "stream" } });
+  owner.emit("event", { event: "task_dirty", payload: { taskId: "overflow" } });
+  assert.equal(response.chunks.length, afterConnect);
+  response.writableLength = 0;
+  response.emit("drain");
+  assert.equal(response.chunks.length, afterConnect + 1);
+  const replay = response.chunks.at(-1);
+  assert.equal(replay.match(/event: task_dirty/g)?.length, 1, "one dirty per task");
+  assert.match(replay, /"reason":"r4"/, "newest wake wins");
+  assert.match(replay, /event: task_stream/);
+  assert.doesNotMatch(replay, /overflow/, "bounded: the safety-net poll covers overflow");
+  response.destroy();
+});
+
+test("streaming-text wakes are only sent to consumers that opt in", () => {
+  const owner = new EventEmitter();
+  const make = (includeStream) => {
+    const response = new EventEmitter();
+    Object.assign(response, {
+      writableLength: 0, destroyed: false, chunks: [], writeHead() {}, flushHeaders() {},
+      write(chunk) { response.chunks.push(chunk); return true; },
+      destroy() { response.destroyed = true; response.emit("close"); },
+    });
+    streamRuntimeEvents(response, (listener) => { owner.on("event", listener); return () => owner.off("event", listener); },
+      { heartbeatMs: 60_000, includeStream });
+    return response;
+  };
+  const browser = make(false);
+  const hub = make(true);
+  owner.emit("event", { event: "task_stream", payload: { taskId: "t", reason: "stream" } });
+  assert.equal(browser.chunks.some((chunk) => chunk.includes("task_stream")), false);
+  assert.equal(hub.chunks.some((chunk) => chunk.includes("task_stream")), true);
+  browser.destroy();
+  hub.destroy();
+});
+
+test("the HTTP route opts into streaming wakes with ?stream=1", async (t) => {
+  const owner = new EventEmitter();
+  const server = createBackendServer({ token: "test-token-that-is-at-least-32-chars", isReady: () => true,
+    subscribeRuntimeEvents: (listener) => { owner.on("event", listener); return () => owner.off("event", listener); },
+  });
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  t.after(() => closeBackend(server));
+  const url = `http://127.0.0.1:${server.address().port}${BACKEND_RUNTIME_EVENTS_PATH}?stream=1`;
+  const response = await fetch(url, { headers: { authorization: "Bearer test-token-that-is-at-least-32-chars", [BACKEND_PROTOCOL_HEADER]: "1" } });
+  assert.equal(response.status, 200);
+  const reader = response.body.getReader();
+  await reader.read();
+  owner.emit("event", { event: "task_stream", payload: { taskId: "task-9", reason: "stream" } });
+  let text = "";
+  while (!text.includes("task-9")) text += new TextDecoder().decode((await reader.read()).value);
+  assert.match(text, /event: task_stream/);
+  await reader.cancel();
 });

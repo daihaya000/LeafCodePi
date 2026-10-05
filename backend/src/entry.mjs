@@ -255,18 +255,25 @@ try {
       const unsubscribeCode = runtime.subscribeBotCodeSession((payload) => listener({ event: "snapshot", payload }));
       let unsubscribeRoutine;
       let unsubscribeDirty;
+      let unsubscribeStream = () => {};
       try {
         unsubscribeRoutine = runtime.subscribeRoutineRuns((payload) => listener({ event: "routine", payload }));
         unsubscribeDirty = runtime.subscribeTaskDirty((payload) => listener({ event: "task_dirty", payload }));
+        // Optional: older bundles have no streaming wake, and their viewers keep the 2s stream poll.
+        if (typeof runtime.subscribeTaskStream === "function") {
+          unsubscribeStream = runtime.subscribeTaskStream((payload) => listener({ event: "task_stream", payload }));
+        }
       } catch (error) {
         unsubscribeCode();
         unsubscribeRoutine?.();
+        unsubscribeDirty?.();
         throw error;
       }
       return () => {
         unsubscribeCode();
         unsubscribeRoutine();
         unsubscribeDirty();
+        unsubscribeStream();
       };
     },
     runtimeControlAction: async ({ action, value }) => {

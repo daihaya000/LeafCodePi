@@ -18,6 +18,7 @@ import { prepareWorkspaceMove, type PreparedWorkspaceMove } from "@/lib/workspac
 import { assertLocalRuntimeAllowed, localRuntimeBlocked } from "@/lib/pi/runtime-ownership";
 import { readDiskTodoProgress } from "@/lib/pi/disk-todo-progress";
 import { fetchRemoteCodeProgress, fetchRemoteTodoProgressMany, needsRemoteTodoProgress } from "@/lib/pi/remote-todo-progress";
+import { createTaskStreamWake } from "./task-stream-wake";
 import { beginTaskPreparation, hasTaskPreparation, invalidateTaskPreparations, isTaskTreeEditing, withTaskSessionMutation, withTaskTreeEdit } from "./task-operation-guard";
 import { buildGoalLoopResumeCommand, dispatchGoalLoopCommand, isGoalLoopCommandApplied } from "@/lib/pi/goal-loop-command";
 import { notifyPushoverCompletion, shouldNotifyPushoverCompletion } from "@/lib/pushover";
@@ -1719,6 +1720,30 @@ function publishTaskDirty(taskId: string, reason: string): void {
   pendingTaskDirty.set(taskId, { reason, timer });
 }
 
+const TASK_STREAM_EVENT_CHANNEL = "__task_stream__";
+/**
+ * Streaming-text wakes for cutover viewers. Deltas never publish `task_dirty` (lifecycle consumers
+ * such as the Sidebar must not wake per token), so without this a Backend-owned stream only
+ * refreshed on its 2s poll and replies appeared in 2-second jumps.
+ */
+const throttledTaskStreamWake = createTaskStreamWake({
+  emit: (taskId) => state().events.emit(TASK_STREAM_EVENT_CHANNEL, { taskId, reason: "stream" }),
+});
+function publishTaskStream(taskId: string): void {
+  // No cutover consumer (in-process WebUI): nothing to wake, and no timers to arm.
+  if (state().events.listenerCount(TASK_STREAM_EVENT_CHANNEL) === 0) return;
+  throttledTaskStreamWake(taskId);
+}
+
+/** Backend→Web cutover: throttled "streaming text changed" notices (never on the dirty channel). */
+export function subscribeTaskStream(
+  listener: (payload: { taskId: string; reason?: string }) => void,
+): () => void {
+  const handler = (payload: { taskId: string; reason?: string }) => listener(payload);
+  state().events.on(TASK_STREAM_EVENT_CHANNEL, handler);
+  return () => state().events.off(TASK_STREAM_EVENT_CHANNEL, handler);
+}
+
 export function subscribeBotCodeSession(
   listener: (payload: Record<string, unknown>) => void,
 ): () => void {
@@ -1808,6 +1833,9 @@ export function emitTaskChanged(taskId: string, eventType = "task_changed"): voi
  * latestOnly snapshot path.
  */
 function emitTaskDelta(live: LiveRuntime, eventType: string): void {
+  // Wake cutover viewers before the local-listener early return: a Backend owner has no local
+  // SSE listeners, and its WebUI streams would otherwise wait for their 2s poll per update.
+  publishTaskStream(live.taskId);
   if (state().events.listenerCount(live.taskId) === 0) return;
   // High-frequency events only change the message and session flags. Task
   // metadata is refreshed by the non-throttled lifecycle snapshots, so avoid

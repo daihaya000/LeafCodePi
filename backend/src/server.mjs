@@ -628,7 +628,12 @@ export function createBackendServer({
         sendJson(response, 503, { error: "Backend runtime unavailable", code: BACKEND_ERROR_CODES.runtimeUnavailable });
         return;
       }
-      streamRuntimeEvents(response, subscribeRuntimeEvents, { request });
+      // `?stream=1` opts into throttled streaming-text wakes (the WebUI's dirty hub); browser
+      // proxies omit it so per-token traffic never reaches a tab.
+      streamRuntimeEvents(response, subscribeRuntimeEvents, {
+        request,
+        includeStream: target.searchParams.get("stream") === "1",
+      });
       return;
     }
     if (target.pathname === BACKEND_RUNTIME_CONTROL_PATH && request.method === "POST") {

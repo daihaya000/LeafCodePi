@@ -9,9 +9,22 @@ import {
 /**
  * Process-local hub: one Backend runtime-events SSE feeds every remote task stream's dirty wake.
  * Falls back silently when the Backend is unreachable; callers keep their idle poll safety net.
+ *
+ * The hub opts into `task_stream` (throttled streaming-text wakes, reason `"stream"`) so cutover
+ * task streams refresh while a reply is being written instead of on their 2s poll. Listeners that
+ * only care about lifecycle changes should ignore `reason === "stream"`.
+ *
+ * Wakes are not replayed across a reconnect, so every listener gets one `reason: "resync"` wake
+ * when the stream (re)connects: a prompt accepted while the hub was down then shows at once
+ * instead of after the 30s idle safety-net poll. `isBackendTaskDirtyConnected()` lets callers keep
+ * a short safety-net poll while the hub is down.
  */
 
 export type BackendTaskDirtyPayload = { taskId: string; reason?: string };
+/** Streaming-text wake reason; lifecycle-only consumers ignore it. */
+export const BACKEND_TASK_STREAM_REASON = "stream";
+/** Synthetic wake sent to every listener after the hub (re)connects. */
+export const BACKEND_TASK_RESYNC_REASON = "resync";
 
 type DirtyListener = (payload: BackendTaskDirtyPayload) => void;
 
@@ -19,6 +32,12 @@ const listeners = new Map<string, Set<DirtyListener>>();
 let pump: AbortController | null = null;
 let reconnectTimer: ReturnType<typeof setTimeout> | undefined;
 let reconnectAttempt = 0;
+let connected = false;
+
+/** True while the shared Backend runtime-events stream is attached and delivering wakes. */
+export function isBackendTaskDirtyConnected(): boolean {
+  return connected;
+}
 
 function clearReconnect() {
   if (reconnectTimer !== undefined) clearTimeout(reconnectTimer);
@@ -30,6 +49,12 @@ function disconnect() {
   pump?.abort();
   pump = null;
   reconnectAttempt = 0;
+  connected = false;
+}
+
+/** Wake every listener once; used after (re)connect because missed wakes are not replayed. */
+function notifyAll(reason: string) {
+  for (const taskId of [...listeners.keys()]) notify({ taskId, reason });
 }
 
 function notify(payload: BackendTaskDirtyPayload) {
@@ -72,7 +97,8 @@ async function runPump(signal: AbortSignal, env: BackendEnv, fetchImpl: typeof f
   const timer = setTimeout(() => deadline.abort(), 10_000);
   let response: Response;
   try {
-    response = await fetchImpl(`${backendBaseUrl(env)}${BACKEND_RUNTIME_EVENTS_PATH}`, {
+    // `stream=1` opts into throttled streaming-text wakes (`task_stream`).
+    response = await fetchImpl(`${backendBaseUrl(env)}${BACKEND_RUNTIME_EVENTS_PATH}?stream=1`, {
       headers: {
         authorization: `Bearer ${token}`,
         [BACKEND_PROTOCOL_HEADER]: String(BACKEND_PROTOCOL_VERSION),
@@ -94,6 +120,9 @@ async function runPump(signal: AbortSignal, env: BackendEnv, fetchImpl: typeof f
     throw new Error("backend dirty stream unavailable");
   }
   reconnectAttempt = 0;
+  connected = true;
+  // Anything that changed while the hub was down produced wakes nobody saw.
+  if (!signal.aborted) notifyAll(BACKEND_TASK_RESYNC_REASON);
   const reader = response.body.getReader();
   const decoder = new TextDecoder();
   let buffer = "";
@@ -104,10 +133,13 @@ async function runPump(signal: AbortSignal, env: BackendEnv, fetchImpl: typeof f
     const parsed = parseSseChunk(buffer);
     buffer = parsed.rest;
     for (const frame of parsed.events) {
-      if (frame.event !== "task_dirty") continue;
+      if (frame.event !== "task_dirty" && frame.event !== "task_stream") continue;
       try {
         const payload = JSON.parse(frame.data) as BackendTaskDirtyPayload;
-        if (typeof payload?.taskId === "string" && payload.taskId) notify(payload);
+        if (typeof payload?.taskId !== "string" || !payload.taskId) continue;
+        notify(frame.event === "task_stream"
+          ? { taskId: payload.taskId, reason: BACKEND_TASK_STREAM_REASON }
+          : payload);
       } catch {
         // Malformed frames are dropped; the next dirty or idle poll recovers.
       }
@@ -134,7 +166,10 @@ function ensurePump(env: BackendEnv = process.env, fetchImpl: typeof fetch = fet
   void runPump(controller.signal, env, fetchImpl)
     .catch(() => undefined)
     .finally(() => {
-      if (pump === controller) pump = null;
+      if (pump === controller) {
+        pump = null;
+        connected = false;
+      }
       if (listeners.size > 0 && !controller.signal.aborted) scheduleReconnect(env, fetchImpl);
     });
 }
@@ -162,6 +197,15 @@ export function subscribeBackendTaskDirty(
     if (current.size === 0) listeners.delete(taskId);
     if (listeners.size === 0) disconnect();
   };
+}
+
+/**
+ * Wake this process's viewers of one task without waiting for the Backend's notice. The prompt
+ * route calls it once the owner accepted a send, so the sender's stream re-reads at once even if
+ * the Backend wake is delayed or lost; the shared read dedupes it with the Backend wake.
+ */
+export function wakeBackendTaskListeners(taskId: string, reason = "local") {
+  notify({ taskId, reason });
 }
 
 /** Test helper: drop shared connection state between cases. */

@@ -5,6 +5,7 @@ import { goalLoopCommand, isTaskRuntimeBusyForGoalLoopStart, jsonError, promptTa
 import { isGoalLoopLiveStatus } from "@/lib/pi/goal-loop-state";
 import { localRuntimeBlocked } from "@/lib/pi/runtime-ownership";
 import { forwardGoalLoopStart, forwardTaskPrompt } from "@/lib/backend-forward";
+import { wakeBackendTaskListeners } from "@/lib/backend-task-dirty-hub";
 import { clampGoalLoopCooldownSeconds, clampGoalLoopMaxTurns, DEFAULT_GOAL_LOOP_MAX_TURNS, normalizeGoalLoopAcceptance } from "@/lib/goal-loop-settings";
 export const runtime = "nodejs"; export const dynamic = "force-dynamic";
 export async function POST(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
@@ -23,6 +24,8 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
         ...(body.files !== undefined ? { files: body.files } : {}),
       });
       if (forwarded.ok) {
+        // The owner has the prompt: refresh this process's open streams now, not after its wake.
+        wakeBackendTaskListeners(botTaskId(id), "prompt");
         // Backend business errors arrive as HTTP 200 + result envelope; replay them like tasks.
         if (forwarded.result) return NextResponse.json(forwarded.result.body, { status: forwarded.result.status });
         return NextResponse.json({ task: forwarded.task });

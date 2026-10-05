@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
+  isBackendTaskDirtyConnected,
   resetBackendTaskDirtyHubForTests,
   subscribeBackendTaskDirty,
 } from "./backend-task-dirty-hub";
@@ -60,8 +61,54 @@ describe("backend-task-dirty-hub", () => {
     await Promise.resolve();
     expect(first).toHaveBeenCalledWith({ taskId: "task-1", reason: "abort" });
     expect(second).toHaveBeenCalledWith({ taskId: "task-2" });
-    expect(first).toHaveBeenCalledTimes(1);
+    // One resync wake on connect, then only its own dirty notice.
+    expect(first.mock.calls).toEqual([
+      [{ taskId: "task-1", reason: "resync" }],
+      [{ taskId: "task-1", reason: "abort" }],
+    ]);
     stopFirst();
     stopSecond();
+  });
+
+  it("opts into streaming wakes and reports them with the stream reason", async () => {
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => { release = resolve; });
+    const encoder = new TextEncoder();
+    const chunks = [
+      ": connected\n\n",
+      "event: task_stream\ndata: {\"taskId\":\"task-1\",\"reason\":\"stream\"}\n\n",
+    ];
+    let index = 0;
+    const fetchImpl = vi.fn().mockResolvedValue(new Response(new ReadableStream({
+      async pull(controller) {
+        if (index < chunks.length) {
+          controller.enqueue(encoder.encode(chunks[index++]));
+          return;
+        }
+        await gate;
+        controller.close();
+      },
+    }), {
+      status: 200,
+      headers: {
+        "Content-Type": "text/event-stream; charset=utf-8",
+        [BACKEND_PROTOCOL_HEADER]: String(BACKEND_PROTOCOL_VERSION),
+      },
+    }));
+    const listener = vi.fn();
+    const stop = subscribeBackendTaskDirty("task-1", listener, {
+      env: { LEAFCODE_PI_BACKEND_TOKEN: "token", LEAFCODE_PI_BACKEND_PORT: "18776" },
+      fetchImpl,
+    });
+    await vi.advanceTimersByTimeAsync(0);
+    await Promise.resolve();
+    expect(String(fetchImpl.mock.calls[0]?.[0])).toMatch(/\?stream=1$/);
+    expect(isBackendTaskDirtyConnected()).toBe(true);
+    expect(listener).toHaveBeenCalledWith({ taskId: "task-1", reason: "stream" });
+    release();
+    await vi.advanceTimersByTimeAsync(0);
+    await Promise.resolve();
+    expect(isBackendTaskDirtyConnected()).toBe(false);
+    stop();
   });
 });

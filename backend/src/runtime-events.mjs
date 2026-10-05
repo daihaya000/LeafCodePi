@@ -4,6 +4,10 @@ import { BACKEND_PROTOCOL_HEADER, BACKEND_PROTOCOL_VERSION } from "../../shared/
 export const RUNTIME_EVENTS_MAX_BUFFERED_BYTES = 1024 * 1024;
 /** How long a consumer may leave the socket undrained before it counts as stalled. */
 export const RUNTIME_EVENTS_STALL_MS = 45_000;
+/** Task wakes remembered while the socket is above high-water, replayed once on drain. */
+export const RUNTIME_EVENTS_MAX_DEFERRED_TASK_WAKES = 256;
+/** Per-task notices that are tiny, idempotent, and worth replaying instead of dropping. */
+const TASK_WAKE_EVENTS = new Set(["task_dirty", "task_stream"]);
 
 /**
  * Bounded SSE transport for the owner's process-local Bot/routine buses.
@@ -13,9 +17,16 @@ export const RUNTIME_EVENTS_STALL_MS = 45_000;
  * consumer; dropping the stream there cut the WebUI relay mid-stream ("other side closed"). The
  * stream is dropped only when the backlog exceeds the byte cap or no drain arrives in time.
  *
- * While the socket is above high-water, further event payloads are skipped (dirty/snapshot/routine
- * are recoverable via reconnect or idle poll). Heartbeats still write so a dead peer fails the
- * stall window. The inbound `request` must be passed so a peer FIN destroys our half — otherwise
+ * While the socket is above high-water, further event payloads are skipped (snapshot/routine are
+ * recoverable via reconnect or idle poll). Task wakes (`task_dirty`, `task_stream`) are instead
+ * coalesced per task and replayed on drain: a dropped wake left the WebUI waiting for its 30s
+ * idle safety-net poll before a sent message appeared. Heartbeats still write so a dead peer
+ * fails the stall window.
+ *
+ * `task_stream` (throttled streaming-text wakes) is only sent to consumers that opt in with
+ * `includeStream`, so browser proxies of this stream never carry per-token traffic.
+ *
+ * The inbound `request` must be passed so a peer FIN destroys our half — otherwise
  * Windows accumulates CLOSE_WAIT and the HTTP server eventually stops answering.
  */
 export function streamRuntimeEvents(response, subscribe, {
@@ -24,11 +35,15 @@ export function streamRuntimeEvents(response, subscribe, {
   stallMs = RUNTIME_EVENTS_STALL_MS,
   now = Date.now,
   request = null,
+  includeStream = false,
+  maxDeferredTaskWakes = RUNTIME_EVENTS_MAX_DEFERRED_TASK_WAKES,
 } = {}) {
   let unsubscribe = () => {};
   let heartbeat;
   let closed = false;
   let undrainedSince = null;
+  /** `${event}:${taskId}` → frame, kept while undrained so the newest wake per task survives. */
+  const deferredTaskWakes = new Map();
   const cleanup = () => {
     if (closed) return;
     closed = true;
@@ -57,7 +72,16 @@ export function streamRuntimeEvents(response, subscribe, {
   };
   response.once("close", cleanup);
   response.once("error", cleanup);
-  response.on("drain", () => { undrainedSince = null; });
+  const flushDeferredTaskWakes = () => {
+    if (deferredTaskWakes.size === 0 || closed) return;
+    const chunk = [...deferredTaskWakes.values()].join("");
+    deferredTaskWakes.clear();
+    write(chunk);
+  };
+  response.on("drain", () => {
+    undrainedSince = null;
+    flushDeferredTaskWakes();
+  });
   if (request) {
     request.once("close", onRequestGone);
     request.once("aborted", onRequestGone);
@@ -69,8 +93,20 @@ export function streamRuntimeEvents(response, subscribe, {
   response.flushHeaders();
   try {
     unsubscribe = subscribe(({ event, payload }) => {
-      if (closed || !["snapshot", "routine", "task_dirty"].includes(event)) return;
-      write(`event: ${event}\ndata: ${JSON.stringify(payload)}\n\n`);
+      if (closed) return;
+      if (event === "task_stream" && !includeStream) return;
+      if (!["snapshot", "routine", "task_dirty", "task_stream"].includes(event)) return;
+      const frame = `event: ${event}\ndata: ${JSON.stringify(payload)}\n\n`;
+      if (TASK_WAKE_EVENTS.has(event) && undrainedSince !== null) {
+        const taskId = typeof payload?.taskId === "string" ? payload.taskId : "";
+        const key = `${event}:${taskId}`;
+        if (deferredTaskWakes.has(key) || deferredTaskWakes.size < maxDeferredTaskWakes) {
+          deferredTaskWakes.delete(key);
+          deferredTaskWakes.set(key, frame);
+        }
+        return;
+      }
+      write(frame);
     });
     if (closed) { unsubscribe(); return; }
     write(": connected\n\n", { force: true });

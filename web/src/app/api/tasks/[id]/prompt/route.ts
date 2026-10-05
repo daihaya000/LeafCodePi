@@ -8,6 +8,7 @@ import { jsonError } from "@/lib/pi/harness";
 import { handleTaskPrompt, type TaskPromptBody } from "@/lib/pi/task-prompt";
 import { localRuntimeBlocked } from "@/lib/pi/runtime-ownership";
 import { forwardTaskPrompt } from "@/lib/backend-forward";
+import { wakeBackendTaskListeners } from "@/lib/backend-task-dirty-hub";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -55,6 +56,8 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     if (localRuntimeBlocked()) {
       const forwarded = await forwardTaskPrompt(id, body);
       if (forwarded.ok) {
+        // The owner has the prompt: refresh this process's open streams now, not after its wake.
+        wakeBackendTaskListeners(id, "prompt");
         if (forwarded.result) return NextResponse.json(forwarded.result.body, { status: forwarded.result.status });
         return NextResponse.json({ task: forwarded.task });
       }

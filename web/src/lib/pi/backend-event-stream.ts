@@ -1,6 +1,11 @@
 import { pageTaskDetailMessages } from "@/lib/task-history";
 import { forwardTaskDetail, forwardTaskPendingRequests } from "@/lib/backend-forward";
-import { subscribeBackendTaskDirty } from "@/lib/backend-task-dirty-hub";
+import {
+  BACKEND_TASK_STREAM_REASON,
+  isBackendTaskDirtyConnected,
+  subscribeBackendTaskDirty,
+  type BackendTaskDirtyPayload,
+} from "@/lib/backend-task-dirty-hub";
 
 /**
  * The event stream of a task this process does not own.
@@ -13,8 +18,13 @@ import { subscribeBackendTaskDirty } from "@/lib/backend-task-dirty-hub";
  *
  * Idle polls use `messages=omit` and keep the last page locally when `messageRevision` is unchanged,
  * so the owner skips full history projection. Streaming/compacting and revision changes still fetch
- * a page. Dirty wakes are coalesced in a fixed window; a slow idle timer remains as a safety net.
+ * a page. Dirty wakes are coalesced in a short window; a slow idle timer remains as a safety net.
  * Notices received during a read are retained for a follow-up, never dropped.
+ *
+ * Streaming-text wakes (`reason: "stream"`) read a page directly, so the first tokens do not pay an
+ * extra omit round-trip. A working task (prompt accepted, stream not open yet) keeps the short poll,
+ * and the long dirty-attached idle poll only applies while the hub is actually connected: a missed
+ * wake must not hold a sent message back for 30 seconds.
  *
  * An initial failed read is reported to the caller, which ends the stream with an error. Failed polls
  * retry on the next tick; falling back to an in-process session would report a state we do not own.
@@ -28,8 +38,12 @@ export type BackendEventSink = {
 };
 
 export const BACKEND_EVENT_POLL_MS = 2_000;
-/** Bound dirty bursts without postponing refresh indefinitely under continuous updates. */
-export const BACKEND_EVENT_DIRTY_COALESCE_MS = 100;
+/**
+ * Bound dirty bursts without postponing refresh indefinitely under continuous updates. The Backend
+ * already coalesces dirty (50ms) and throttles stream wakes (200ms), so this only merges the
+ * near-simultaneous notices of one change; every extra millisecond here is visible send latency.
+ */
+export const BACKEND_EVENT_DIRTY_COALESCE_MS = 30;
 /** Idle remote polls without a dirty wake: open tabs otherwise hammer full detail projection. */
 export const BACKEND_EVENT_IDLE_POLL_MS = 5_000;
 /** When Backend dirty events are subscribed, idle safety-net polls can stretch further. */
@@ -167,6 +181,7 @@ export async function startBackendTaskStream({
   setTimeoutImpl = setTimeout,
   clearTimeoutImpl = clearTimeout,
   subscribeDirty = subscribeBackendTaskDirty,
+  dirtyConnected = isBackendTaskDirtyConnected,
 }: {
   id: string;
   sse: BackendEventSink;
@@ -176,7 +191,9 @@ export async function startBackendTaskStream({
   dirtyIdleIntervalMs?: number;
   setTimeoutImpl?: typeof setTimeout;
   clearTimeoutImpl?: typeof clearTimeout;
-  subscribeDirty?: (taskId: string, listener: () => void) => () => void;
+  subscribeDirty?: (taskId: string, listener: (payload?: BackendTaskDirtyPayload) => void) => () => void;
+  /** Whether dirty wakes are currently being delivered; the long idle poll requires it. */
+  dirtyConnected?: () => boolean;
 }): Promise<{ ok: true; stop: () => void } | { ok: false; reason: string }> {
   const [detail, pending] = await readBackendSnapshot(id, "page");
   if (!detail.ok) return { ok: false, reason: detail.reason };
@@ -189,6 +206,12 @@ export async function startBackendTaskStream({
   let dirtyAttached = false;
   let cachedPage = cachePageFromDetail(detail.detail);
   let lastStreaming = detail.detail?.isStreaming === true || detail.detail?.isCompacting === true;
+  /** Accepted prompt / running turn: poll at the short interval even before the stream opens. */
+  const isWorking = (current: Record<string, unknown> | null | undefined) =>
+    current?.status === "working" || current?.isStreaming === true || current?.isCompacting === true;
+  let lastWorking = isWorking(detail.detail);
+  /** A streaming-text wake arrived: the next read needs bodies, never an omit probe. */
+  let forcePage = false;
   const stop = () => {
     stopped = true;
     if (timer !== undefined) clearTimeoutImpl(timer);
@@ -226,8 +249,13 @@ export async function startBackendTaskStream({
     lastSnapshot = serialized;
     lastStreaming = current?.isStreaming === true || current?.isCompacting === true;
   };
+  const noteState = (current: Record<string, unknown> | null) => {
+    lastStreaming = current?.isStreaming === true || current?.isCompacting === true;
+    lastWorking = isWorking(current);
+  };
   const readNext = async (): Promise<{ detail: Record<string, unknown> | null; pending: BackendSnapshotRead[1] } | null> => {
-    const mode: DetailMessages = lastStreaming || !cachedPage ? "page" : "omit";
+    const mode: DetailMessages = lastStreaming || forcePage || !cachedPage ? "page" : "omit";
+    forcePage = false;
     const [next, requests] = await readBackendSnapshot(id, mode);
     if (stopped || sse.closed || !next.ok) return null;
     if (mode === "page") {
@@ -251,7 +279,11 @@ export async function startBackendTaskStream({
     dirtyPending = false;
     try {
       const next = await readNext();
-      if (next) send(next.detail, next.pending);
+      if (next) {
+        // Interval state follows every successful read, not only reads that changed the snapshot.
+        noteState(next.detail);
+        send(next.detail, next.pending);
+      }
     } catch {
       // A transient transport/read failure retries without opening a local session.
     } finally {
@@ -269,7 +301,9 @@ export async function startBackendTaskStream({
     dirtyScheduled = dirtyPending;
     const delay = dirtyPending
       ? BACKEND_EVENT_DIRTY_COALESCE_MS
-      : lastStreaming ? intervalMs : dirtyAttached ? dirtyIdleIntervalMs : idleIntervalMs;
+      : lastStreaming || lastWorking
+        ? intervalMs
+        : dirtyAttached && dirtyConnectedSafe() ? dirtyIdleIntervalMs : idleIntervalMs;
     timer = setTimeoutImpl(() => {
       timer = undefined;
       dirtyScheduled = false;
@@ -277,11 +311,19 @@ export async function startBackendTaskStream({
     }, delay);
     timer.unref?.();
   };
+  const dirtyConnectedSafe = () => {
+    try {
+      return dirtyConnected();
+    } catch {
+      return false;
+    }
+  };
   send(detail.detail, pending);
   if (sse.closed) return { ok: true, stop };
   try {
-    wake = subscribeDirty(id, () => {
+    wake = subscribeDirty(id, (payload) => {
       if (stopped || sse.closed) return;
+      if (payload?.reason === BACKEND_TASK_STREAM_REASON) forcePage = true;
       dirtyPending = true;
       schedule();
     });

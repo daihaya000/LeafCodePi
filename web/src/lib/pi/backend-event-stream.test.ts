@@ -1,5 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { backendTaskSnapshot, startBackendTaskStream } from "./backend-event-stream";
+import {
+  BACKEND_EVENT_DIRTY_COALESCE_MS,
+  backendTaskSnapshot,
+  startBackendTaskStream,
+} from "./backend-event-stream";
 import { createSseWriter } from "@/lib/sse-writer";
 
 const mocks = vi.hoisted(() => ({
@@ -8,6 +12,8 @@ const mocks = vi.hoisted(() => ({
 }));
 vi.mock("@/lib/backend-forward", () => mocks);
 vi.mock("@/lib/backend-task-dirty-hub", () => ({
+  BACKEND_TASK_STREAM_REASON: "stream",
+  isBackendTaskDirtyConnected: () => false,
   subscribeBackendTaskDirty: () => () => {},
 }));
 
@@ -36,7 +42,8 @@ async function start(
     idleIntervalMs?: number;
     intervalMs?: number;
     dirtyIdleIntervalMs?: number;
-    subscribeDirty?: (taskId: string, listener: () => void) => () => void;
+    subscribeDirty?: (taskId: string, listener: (payload?: { taskId: string; reason?: string }) => void) => () => void;
+    dirtyConnected?: () => boolean;
   } = {},
 ) {
   const stream = await startBackendTaskStream({
@@ -47,6 +54,7 @@ async function start(
     // Keep dirty idle aligned with the test's idle interval unless a case opts in.
     dirtyIdleIntervalMs: options.dirtyIdleIntervalMs ?? options.idleIntervalMs ?? 2_000,
     subscribeDirty: options.subscribeDirty ?? (() => () => {}),
+    dirtyConnected: options.dirtyConnected ?? (() => true),
   });
   if (!stream.ok) throw new Error(stream.reason);
   return stream;
@@ -161,7 +169,7 @@ describe("Backend task stream polling", () => {
     expect(mocks.forwardTaskDetail).toHaveBeenCalledTimes(1);
     mocks.forwardTaskDetail.mockResolvedValue({ ok: true, detail: { ...detail(0), updatedAt: 1 } });
     wake?.();
-    await vi.advanceTimersByTimeAsync(99);
+    await vi.advanceTimersByTimeAsync(BACKEND_EVENT_DIRTY_COALESCE_MS - 1);
     expect(mocks.forwardTaskDetail).toHaveBeenCalledTimes(1);
     await vi.advanceTimersByTimeAsync(1);
     expect(mocks.forwardTaskDetail).toHaveBeenCalledTimes(2);
@@ -179,7 +187,7 @@ describe("Backend task stream polling", () => {
     for (let revision = 1; revision <= 10; revision += 1) {
       mocks.forwardTaskDetail.mockResolvedValue(result(revision, { isStreaming: true }));
       wake?.();
-      await vi.advanceTimersByTimeAsync(5);
+      await vi.advanceTimersByTimeAsync(2);
     }
     await vi.advanceTimersByTimeAsync(50);
     stream.stop();
@@ -199,9 +207,10 @@ describe("Backend task stream polling", () => {
     });
     for (let index = 0; index < 10; index += 1) {
       wake?.();
-      await vi.advanceTimersByTimeAsync(50);
+      await vi.advanceTimersByTimeAsync(10);
     }
-    expect(mocks.forwardTaskDetail).toHaveBeenCalledTimes(6);
+    // A wake every 10ms still reads every 30ms window (initial read + 3), never waits for quiet.
+    expect(mocks.forwardTaskDetail).toHaveBeenCalledTimes(4);
     stream.stop();
     expect(vi.getTimerCount()).toBe(0);
   });
@@ -239,6 +248,52 @@ describe("Backend task stream polling", () => {
     }));
     stream.stop();
     expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it("reads a page directly on a streaming-text wake instead of an omit probe", async () => {
+    let wake: ((payload?: { taskId: string; reason?: string }) => void) | undefined;
+    mocks.forwardTaskDetail.mockResolvedValue(result(0));
+    const stream = await start(sink(), {
+      idleIntervalMs: 30_000,
+      subscribeDirty: (_id, listener) => { wake = listener; return () => {}; },
+    });
+    mocks.forwardTaskDetail.mockResolvedValue(result(1, { isStreaming: true }));
+    wake?.({ taskId: "task-1", reason: "stream" });
+    await vi.advanceTimersByTimeAsync(BACKEND_EVENT_DIRTY_COALESCE_MS);
+    expect(mocks.forwardTaskDetail.mock.calls).toEqual([
+      ["task-1", { messages: "page" }],
+      ["task-1", { messages: "page" }],
+    ]);
+    stream.stop();
+  });
+
+  it("keeps the short poll while a prompt is accepted but the stream has not opened", async () => {
+    mocks.forwardTaskDetail.mockResolvedValue(result(0, { status: "working" }));
+    const stream = await start(sink(), { intervalMs: 2_000, idleIntervalMs: 30_000, dirtyIdleIntervalMs: 30_000 });
+    await vi.advanceTimersByTimeAsync(2_000);
+    expect(mocks.forwardTaskDetail).toHaveBeenCalledTimes(2);
+    stream.stop();
+  });
+
+  it("uses the shorter idle poll while the dirty hub is disconnected", async () => {
+    let connected = false;
+    const stream = await start(sink(), {
+      idleIntervalMs: 5_000,
+      dirtyIdleIntervalMs: 30_000,
+      subscribeDirty: () => () => {},
+      dirtyConnected: () => connected,
+    });
+    await vi.advanceTimersByTimeAsync(5_000);
+    expect(mocks.forwardTaskDetail).toHaveBeenCalledTimes(2);
+    connected = true;
+    // That tick was already armed at 5s; the one after it sees a connected hub and stretches.
+    await vi.advanceTimersByTimeAsync(5_000);
+    expect(mocks.forwardTaskDetail).toHaveBeenCalledTimes(3);
+    await vi.advanceTimersByTimeAsync(29_999);
+    expect(mocks.forwardTaskDetail).toHaveBeenCalledTimes(3);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(mocks.forwardTaskDetail).toHaveBeenCalledTimes(4);
+    stream.stop();
   });
 
   it("cancels a queued dirty refresh on stop", async () => {
