@@ -1,5 +1,5 @@
 import { execFileSync } from 'child_process';
-import { chmodSync, mkdirSync, writeFileSync } from 'fs';
+import { chmodSync, mkdirSync, statSync, writeFileSync } from 'fs';
 import { dirname } from 'path';
 
 /**
@@ -17,6 +17,23 @@ import { dirname } from 'path';
 
 /** Cache the outcome so a broken icacls does not spawn a process per write. */
 let icaclsUsable = null;
+
+/**
+ * Files whose ACL was already locked down, keyed by path -> inode + birth time. Rewriting the same
+ * file keeps its ACL, so repeated saves (e.g. the translation cache) skip the icacls spawn; a file that
+ * was deleted and recreated has a new identity and is locked down again.
+ */
+const restrictedFiles = new Map();
+const RESTRICTED_FILES_LIMIT = 256;
+
+function fileIdentity(file) {
+  try {
+    const stat = statSync(file, { bigint: true });
+    return `${stat.ino}:${stat.birthtimeNs}`;
+  } catch {
+    return null;
+  }
+}
 
 /** Well-known SIDs, used instead of names so a localized Windows still matches. */
 const SID_SYSTEM = '*S-1-5-18';
@@ -60,6 +77,9 @@ export function restrictToCurrentUser(file, deps = {}) {
   }
   const principal = domain ? `${domain}\\${user}` : user;
 
+  const identity = fileIdentity(file);
+  if (identity !== null && restrictedFiles.get(file) === identity) return true;
+
   try {
     execFile(
       'icacls',
@@ -76,6 +96,12 @@ export function restrictToCurrentUser(file, deps = {}) {
       { stdio: 'pipe', windowsHide: true },
     );
     icaclsUsable = true;
+    const applied = fileIdentity(file);
+    if (applied !== null) {
+      restrictedFiles.delete(file);
+      restrictedFiles.set(file, applied);
+      if (restrictedFiles.size > RESTRICTED_FILES_LIMIT) restrictedFiles.delete(restrictedFiles.keys().next().value);
+    }
     return true;
   } catch (err) {
     icaclsUsable = false;
@@ -91,6 +117,7 @@ export function restrictToCurrentUser(file, deps = {}) {
 /** Reset the cached icacls availability. Tests only. */
 export function resetIcaclsCache() {
   icaclsUsable = null;
+  restrictedFiles.clear();
 }
 
 /**
