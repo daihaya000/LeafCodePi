@@ -9,6 +9,7 @@ import {
   ChevronsDown,
   ChevronsUp,
   GitGraph,
+  Loader2,
   PanelRight,
   Plus,
   RotateCcw,
@@ -191,6 +192,7 @@ import {
   cancelPendingSseReconnect,
   closeSseSource,
   sseReconnectDelayMs,
+  subscribeSseReconnectWake,
 } from "@/lib/sse-reconnect";
 import { applyGoalLoopSummaryToDetail } from "@/lib/goal-loop-detail-sync";
 
@@ -207,6 +209,8 @@ const PROMPT_DELIVERY_RECONCILE_TIMEOUT_MS = 10_000;
 const PROMPT_DELIVERY_READ_TIMEOUT_MS = 2_000;
 /** Longest an accepted prompt echo may wait for the owner's transcript row before it is dropped. */
 const OPTIMISTIC_PROMPT_MAX_MS = 60_000;
+/** Grace before the soft "イベント接続を再試行しています" banner paints for a transport blip. */
+const SSE_RECONNECT_BANNER_DELAY_MS = 2_500;
 const PROMPT_DELIVERY_RETRY_INITIAL_DELAY_MS = 250;
 const PROMPT_DELIVERY_RETRY_MAX_DELAY_MS = 1_000;
 
@@ -788,6 +792,17 @@ export const TaskView = memo(function TaskView({
    */
   const [optimisticPrompt, setOptimisticPrompt] = useState<{
     message: UiMessage;
+    before: UiMessage[];
+    accepted: boolean;
+  } | null>(null);
+  /** Synchronous double-submit latch (render state lags a same-frame second Enter / click). */
+  const submitInFlightRef = useRef(false);
+  /**
+   * A steer ("今すぐ送信" while working) leaves the queue at once but only reaches the transcript at
+   * the next tool boundary; without this notice the instruction seems to vanish in between.
+   */
+  const [pendingSteer, setPendingSteer] = useState<{
+    text: string;
     before: UiMessage[];
     accepted: boolean;
   } | null>(null);
@@ -1616,6 +1631,12 @@ export const TaskView = memo(function TaskView({
 
     // The SSE endpoint sends the initial timeline page; avoid a duplicate task-detail request.
     connect();
+    // Skip the rest of a backoff wait when the network / tab comes back.
+    const stopReconnectWake = subscribeSseReconnectWake(() => {
+      if (closed || retryTimer === null) return;
+      retryTimer = cancelPendingSseReconnect(retryTimer);
+      connect();
+    });
 
     void getJson<{ models: ModelOption[] }>("/api/models").then((result) => {
       if (!closed) {
@@ -1660,6 +1681,7 @@ export const TaskView = memo(function TaskView({
     });
     return () => {
       closed = true;
+      stopReconnectWake();
       retryTimer = cancelPendingSseReconnect(retryTimer);
       source = closeSseSource(source);
     };
@@ -1793,6 +1815,7 @@ export const TaskView = memo(function TaskView({
     setTask(cached);
     setMessages(cached?.messages ?? []);
     setOptimisticPrompt(null);
+    setPendingSteer(null);
     messageHistoryRef.current = cachedHistory;
     setMessageHistory(cachedHistory);
     historyLoadedRef.current = false;
@@ -1935,6 +1958,36 @@ export const TaskView = memo(function TaskView({
   const statusWorking = task?.status === "working";
   const working = Boolean(statusWorking || task?.isStreaming);
   const isReverted = Boolean(task?.revertLeafId);
+
+  // One transport blip (proxy idle recycle, Backend restart) reconnects within ~1s; painting the
+  // banner on the first error made every blip flash. Gates still use sseReconnecting at once.
+  const [sseReconnectBannerVisible, setSseReconnectBannerVisible] = useState(false);
+  useEffect(() => {
+    if (!sseReconnecting) {
+      setSseReconnectBannerVisible(false);
+      return;
+    }
+    const timer = window.setTimeout(() => setSseReconnectBannerVisible(true), SSE_RECONNECT_BANNER_DELAY_MS);
+    return () => window.clearTimeout(timer);
+  }, [sseReconnecting]);
+
+  // The steer notice yields to the real row, or to an idle task once the owner accepted it.
+  const pendingSteerVisible = Boolean(
+    pendingSteer &&
+      !hasNewUserMessageSince(pendingSteer.before, messages) &&
+      !(pendingSteer.accepted && !working),
+  );
+  useEffect(() => {
+    if (!pendingSteer) return;
+    if (!pendingSteerVisible) {
+      setPendingSteer(null);
+      return;
+    }
+    const timer = window.setTimeout(() => {
+      setPendingSteer((current) => (current === pendingSteer ? null : current));
+    }, OPTIMISTIC_PROMPT_MAX_MS);
+    return () => window.clearTimeout(timer);
+  }, [pendingSteer, pendingSteerVisible]);
 
   const taskKind = task?.kind;
   const taskSupervisorBotId = task?.supervisorBotId;
@@ -2270,6 +2323,9 @@ export const TaskView = memo(function TaskView({
     if (
       (!submittedPrompt.trim() && submittedAttachments.length === 0) ||
       submitting ||
+      // `submitting` is render state: a double Ctrl+Enter / Enter+click in one frame still sees
+      // false, so a synchronous latch keeps the same draft from being POSTed twice.
+      submitInFlightRef.current ||
       resumingTurn ||
       compacting ||
       agentChanging ||
@@ -2306,6 +2362,7 @@ export const TaskView = memo(function TaskView({
     // clear while working — that path is blocked above.
     stopRequestedRef.current = false;
     setStopRequested(false);
+    submitInFlightRef.current = true;
     setSubmitting(true);
     setError(null);
     const beforeSubmitMessages = messagesRef.current.map((message) => ({ ...message }));
@@ -2316,6 +2373,7 @@ export const TaskView = memo(function TaskView({
       let resolvedAutoDecision: AutoDecision | undefined;
       if (goalLoopEnabled) {
         if (files.length > 0) throw new Error("Goal loop の開始では画像のみ添付できます");
+        stickRef.current = true;
         setPrompt("");
         setAttachments([]);
         draftCleared = true;
@@ -2355,12 +2413,22 @@ export const TaskView = memo(function TaskView({
           setAttachments([]);
           draftCleared = true;
         }
-        // Echo an idle text send at once; the owner's row replaces it when the snapshot lands.
-        // Steering waits for a tool boundary and attachments may be rewritten, so they skip it.
-        if (!streamingBehavior && !working && submittedAttachments.length === 0 && submittedPrompt.trim()) {
+        // An explicit send (typed or "今すぐ送信") follows the transcript to the bottom even when the
+        // user had scrolled up; a queue auto-drain keeps their reading position.
+        if (!queued || sendNow) stickRef.current = true;
+        // Echo an idle send at once (attachments as previews); the owner's row replaces it when the
+        // snapshot lands. Steering waits for a tool boundary, so it gets a pending notice instead.
+        if (!streamingBehavior && !working && (submittedAttachments.length > 0 || submittedPrompt.trim())) {
           stickRef.current = true;
           setOptimisticPrompt({
-            message: optimisticUserMessage(submittedPrompt, Date.now()),
+            message: optimisticUserMessage(submittedPrompt, Date.now(), submittedAttachments),
+            before: beforeSubmitMessages,
+            accepted: false,
+          });
+        }
+        if (streamingBehavior) {
+          setPendingSteer({
+            text: submittedPrompt.trim() || `添付 ${submittedAttachments.length} 件`,
             before: beforeSubmitMessages,
             accepted: false,
           });
@@ -2386,6 +2454,7 @@ export const TaskView = memo(function TaskView({
         resolvedAutoDecision = result.autoDecision;
         setTask((current) => (current ? { ...current, ...result.task } : current));
         setOptimisticPrompt((current) => (current ? { ...current, accepted: true } : current));
+        if (streamingBehavior) setPendingSteer((current) => (current ? { ...current, accepted: true } : current));
       }
       if (isAuto && resolvedAutoDecision) {
         const nextRecord: AutoTaskRecord = {
@@ -2469,6 +2538,7 @@ export const TaskView = memo(function TaskView({
       // Not delivered (or unconfirmed after reconciliation): the echo must not suggest otherwise.
       // A reconciled delivery returned above and keeps it until the real row replaces it.
       setOptimisticPrompt(null);
+      setPendingSteer(null);
       if (queued && shouldRestoreQueuedFollowUpOnFailure(sentQueueEpoch, queueClearEpochRef.current)) {
         setFailedQueuedId(queued.id);
         setQueuedFollowUps((current) => [queued, ...current]);
@@ -2483,6 +2553,7 @@ export const TaskView = memo(function TaskView({
         ? `送信結果を確認できません。再送前に履歴を確認してください（${deliveryReason}）`
         : err instanceof Error ? err.message : "送信に失敗しました");
     } finally {
+      submitInFlightRef.current = false;
       setSubmitting(false);
     }
   }
@@ -3019,7 +3090,15 @@ export const TaskView = memo(function TaskView({
   // Pending send chrome (echo / POST in flight) without touching `working` sound/TTS gates.
   const pendingTurn = Boolean(promptSubmitting || optimisticVisible);
   const showWorkingChrome = working || pendingTurn;
-  const showWorkingRow = shouldShowWorkingRow(showWorkingChrome, renderedMessages);
+  const showWorkingRow = shouldShowWorkingRow(showWorkingChrome, renderedMessages, optimisticVisible);
+  // While the echo stands in for this turn the transcript tail is the previous turn: time the row
+  // from the send, not from an old message (which painted a red multi-minute clock at once).
+  const workingRowStartedAt = optimisticVisible ? optimisticPrompt?.message.createdAt : undefined;
+  const workingRowLabel = stopRequested
+    ? "停止しています…"
+    : pendingTurn && !working
+      ? "送信しています…"
+      : undefined;
   const resumeTarget = useMemo(
     () =>
       working
@@ -3698,7 +3777,14 @@ export const TaskView = memo(function TaskView({
                 tone={resumeTarget.reason === "silent" ? "neutral" : "danger"}
               />
             )}
-            {showWorkingRow && <WorkingRow messages={renderedMessages} active={active} />}
+            {showWorkingRow && (
+              <WorkingRow
+                messages={renderedMessages}
+                active={active}
+                startedAtMs={workingRowStartedAt}
+                label={workingRowLabel}
+              />
+            )}
             {task?.todos && <TodoProgressPanel todos={task.todos} />}
             {goalLoopVisible && !archived && (
               <GoalLoopPanel
@@ -4047,7 +4133,7 @@ export const TaskView = memo(function TaskView({
             Goal Loop を開始しています…
           </p>
         )}
-        {sseReconnecting && !error && (
+        {sseReconnectBannerVisible && !error && (
           <p role="status" className="mx-auto mb-2 max-w-5xl rounded-card border border-border bg-surface-2 px-3 py-2 text-sm text-muted">
             イベント接続を再試行しています…
           </p>
@@ -4074,6 +4160,18 @@ export const TaskView = memo(function TaskView({
         )}
         <div ref={progressPanelRef} className="mx-auto max-w-5xl" />
         <div ref={nextActionPanelRef} className="mx-auto max-w-5xl" />
+        {pendingSteerVisible && pendingSteer && (
+          <p
+            role="status"
+            aria-live="polite"
+            data-pending-steer
+            className="mx-auto mb-2 flex max-w-5xl items-center gap-2 rounded-card border border-border bg-surface-2 px-3 py-2 text-sm text-muted"
+          >
+            <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin text-working" aria-hidden="true" />
+            <span className="shrink-0">{pendingSteer.accepted ? "次の区切りで割り込みます:" : "割り込みを送信中:"}</span>
+            <span className="min-w-0 flex-1 truncate text-text">{pendingSteer.text}</span>
+          </p>
+        )}
         <div className="mx-auto max-w-5xl">
           <QueuedFollowUpsNotice
             items={queuedFollowUps}

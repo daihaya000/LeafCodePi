@@ -2145,6 +2145,44 @@ describe("TaskView draft submission", () => {
     expect(screen.getByRole("alert").textContent).toContain("offline");
   });
 
+  it("shows a steer as pending until its row lands at the tool boundary", async () => {
+    class TestEventSource extends EventTarget {
+      static latest: TestEventSource;
+      constructor() { super(); TestEventSource.latest = this; }
+      close() {}
+    }
+    vi.stubGlobal("EventSource", TestEventSource);
+    mocks.sendJson.mockResolvedValue({ task: { ...task, status: "working", isStreaming: true } });
+    render(<TaskView taskId={task.id} mdUp />);
+    const working = (messages: UiMessage[]) => act(async () => {
+      TestEventSource.latest.dispatchEvent(new MessageEvent("snapshot", {
+        data: JSON.stringify({ eventType: "ready", task: { ...task, status: "working", isStreaming: true }, isStreaming: true, messages }),
+      }));
+    });
+    await working([]);
+    const input = screen.getByRole("textbox", { name: "フォローアップ" }) as HTMLTextAreaElement;
+    fireEvent.change(input, { target: { value: "割り込み指示" } });
+    fireEvent.submit(screen.getByRole("form", { name: "フォローアップ" }));
+    fireEvent.click(screen.getByRole("button", { name: "即時送信: 割り込み指示" }));
+    await waitFor(() => expect(document.querySelector("[data-pending-steer]")?.textContent).toContain("次の区切りで割り込みます"));
+    expect(document.querySelector("[data-pending-steer]")?.textContent).toContain("割り込み指示");
+    await working([{ id: "steer-row", role: "user", createdAt: Date.now() + 1, parts: [{ id: "t", type: "text", text: "割り込み指示" }] }]);
+    await waitFor(() => expect(document.querySelector("[data-pending-steer]")).toBeNull());
+  });
+
+  it("posts a double submit of the same draft only once", async () => {
+    mocks.sendJson.mockReturnValue(new Promise(() => undefined));
+    render(<TaskView taskId={task.id} mdUp />);
+    const input = screen.getByRole("textbox", { name: "フォローアップ" }) as HTMLTextAreaElement;
+    fireEvent.change(input, { target: { value: "once" } });
+    const form = screen.getByRole("form", { name: "フォローアップ" });
+    fireEvent.submit(form);
+    fireEvent.keyDown(input, { key: "Enter", ctrlKey: true });
+    fireEvent.submit(form);
+    await waitFor(() => expect(mocks.sendJson).toHaveBeenCalledTimes(1));
+    expect(document.querySelectorAll("[data-optimistic-prompt]")).toHaveLength(1);
+  });
+
   it("drains queued content when the current turn ends with an error", async () => {
     class TestEventSource extends EventTarget {
       static latest: TestEventSource;

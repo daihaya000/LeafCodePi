@@ -1,7 +1,7 @@
 // @vitest-environment happy-dom
 import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { GoalLoopPanel } from "./GoalLoopPanel";
+import { formatCooldownRemaining, GoalLoopPanel } from "./GoalLoopPanel";
 import type { GoalLoopDto } from "@/lib/types";
 
 function loopFixture(overrides: Partial<GoalLoopDto> = {}): GoalLoopDto {
@@ -285,23 +285,30 @@ describe("GoalLoopPanel progress", () => {
     expect(screen.getByText(/ハング検知で一時停止しました/)).toBeTruthy();
   });
 
-  it("clears the waiting label when nextTurnAt expires", () => {
+  it("counts the cooldown down and clears it when nextTurnAt expires", () => {
     vi.useFakeTimers();
     try {
-      const nextTurnAt = new Date(Date.now() + 1_000).toISOString();
+      const nextTurnAt = new Date(Date.now() + 3_000).toISOString();
       render(
         <GoalLoopPanel
-          loop={loopFixture({ status: "queued", nextTurnAt, cooldownSeconds: 1, turnCount: 1 })}
+          loop={loopFixture({ status: "queued", nextTurnAt, cooldownSeconds: 3, turnCount: 1 })}
           busy={false}
           onAction={() => {}}
           onResume={() => {}}
         />,
       );
-      expect(screen.getByText(/待機中/)).toBeTruthy();
-      act(() => { vi.advanceTimersByTime(1_100); });
-      expect(screen.queryByText(/待機中/)).toBeNull();
+      expect(screen.getByText(/次のターンまで 3秒/)).toBeTruthy();
+      act(() => { vi.advanceTimersByTime(1_000); });
+      expect(screen.getByText(/次のターンまで 2秒/)).toBeTruthy();
+      act(() => { vi.advanceTimersByTime(2_100); });
+      expect(screen.queryByText(/次のターンまで/)).toBeNull();
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  it("formats long cooldowns as m:ss", () => {
+    expect(formatCooldownRemaining(125_000)).toBe("2:05");
+    expect(formatCooldownRemaining(400)).toBe("1秒");
   });
 });

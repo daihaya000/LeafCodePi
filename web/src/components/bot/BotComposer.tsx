@@ -1,7 +1,7 @@
 "use client";
 
 import { type ChangeEventHandler, type ClipboardEventHandler, type CompositionEventHandler, type KeyboardEventHandler, type ReactNode, type RefObject, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { ArrowUp, Bookmark, ChevronRight, FileText, Paperclip, SlidersHorizontal, Square, UsersRound, Wrench } from "lucide-react";
+import { ArrowUp, Bookmark, ChevronRight, FileText, Loader2, Paperclip, SlidersHorizontal, Square, UsersRound, Wrench } from "lucide-react";
 import { COMPOSER_ACTION_BUTTON_CLASS, composerAttachmentText, ImageLightbox, type ComposerAttachment, type ComposerReferences } from "@/components/Composer";
 import { composerReferenceInsertion, composerReferenceToolNames, filterComposerPromptPrefixes, filterComposerReferences, findComposerPromptPrefixToken, findComposerReferenceToken, type ComposerReference } from "@/lib/composer-references";
 import { pasteLargeText } from "@/lib/clipboard-image";
@@ -24,6 +24,10 @@ type BotComposerProps = {
   busy?: boolean;
   onSend: () => void;
   onAbort?: () => void;
+  /** Stop was pressed and the abort request is in flight. */
+  aborting?: boolean;
+  /** Overrides `busy && onAbort` for when Stop shows (Room keeps send usable while members answer). */
+  showAbort?: boolean;
   footer?: ReactNode;
   inputOverlay?: ReactNode;
   references?: ComposerReferences;
@@ -47,6 +51,8 @@ export function BotComposer({
   busy = false,
   onSend,
   onAbort,
+  aborting = false,
+  showAbort,
   footer,
   inputOverlay,
   references,
@@ -258,8 +264,8 @@ export function BotComposer({
             )}
             {inputOverlay}
           </div>
-          {busy && onAbort ? (
-            <button type="button" onClick={onAbort} aria-label="応答を停止" title="応答を停止" className={`${COMPOSER_ACTION_BUTTON_CLASS} mb-1 bg-danger text-white hover:opacity-90`}><Square className="h-4 w-4 fill-current" /></button>
+          {(showAbort ?? busy) && onAbort ? (
+            <button type="button" onClick={onAbort} disabled={aborting} aria-busy={aborting || undefined} aria-label={aborting ? "停止しています" : "応答を停止"} title={aborting ? "停止しています…" : "応答を停止"} className={`${COMPOSER_ACTION_BUTTON_CLASS} mb-1 bg-danger text-white hover:opacity-90 disabled:opacity-70`}>{aborting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Square className="h-4 w-4 fill-current" />}</button>
           ) : (
             <button type="button" onClick={onSend} aria-label="送信" title={sendDisabled ? "メッセージを入力してください" : "送信"} disabled={!canSend} className={`${COMPOSER_ACTION_BUTTON_CLASS} mb-1 ${sendDisabled || busy ? "bg-surface-3 text-muted" : "bg-accent text-white hover:bg-accent/90"}`}><ArrowUp className="h-4 w-4" /></button>
           )}

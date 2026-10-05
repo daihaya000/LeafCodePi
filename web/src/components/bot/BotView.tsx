@@ -10,6 +10,7 @@ import {
   hasNewUserMessageSince,
   hasReceivedSubmittedPrompt,
   isUnconfirmedPromptDelivery,
+  optimisticAttachmentPreviews,
   optimisticUserMessage,
   shouldShowWorkingRow,
 } from "@/lib/prompt-delivery";
@@ -43,7 +44,8 @@ import { messageModelLabel, messageModelLabels } from "@/lib/message-model-label
 import { decideNotification } from "@/lib/notify";
 import { useNotificationDeliveryEnabled } from "@/lib/notification-delivery-client";
 import { playAttentionRequiredSound, playSessionCompleteSound } from "@/lib/session-complete-sound";
-import { cancelPendingSseReconnect, closeSseSource, sseReconnectDelayMs } from "@/lib/sse-reconnect";
+import { cancelPendingSseReconnect, closeSseSource, sseReconnectDelayMs, subscribeSseReconnectWake } from "@/lib/sse-reconnect";
+import { isImeComposingEvent } from "@/lib/composer-ime";
 import { messageRenderKey, stabilizeUiMessages, upsertUiMessage } from "@/lib/stabilize-messages";
 import { loadTaskSessionCache, saveTaskSessionCache, type TaskSessionCacheSnapshot } from "@/lib/task-session-cache";
 import {
@@ -245,7 +247,19 @@ export const BotView = memo(function BotView({ id, active = true }: { id: string
   const [optimisticPrompt, setOptimisticPrompt] = useState<{
     message: import("@/lib/types").UiMessage;
     before: import("@/lib/types").UiMessage[];
+    attachments: ComposerAttachment[];
   } | null>(null);
+  /**
+   * POST /prompt in flight. A snapshot taken before the owner accepted the send still says idle;
+   * letting it clear `sending` unlocked the composer and hid the status row mid-send.
+   */
+  const sendInFlightRef = useRef(false);
+  /** Last working/streaming state the server reported, to settle `sending` once POST returns. */
+  const serverWorkingRef = useRef<{ working: boolean; at: number } | null>(null);
+  const [stopping, setStopping] = useState(false);
+  const stoppingRef = useRef(false);
+  /** Bumped on every explicit send so the list follows to the bottom even when scrolled up. */
+  const [sendFollowKey, setSendFollowKey] = useState(0);
   const cacheTaskRef = useRef<TaskSummary | null>(cachedSession);
   const cacheSnapshotsRef = useRef(new Map<string, TaskSessionCacheSnapshot>());
   const cacheTimersRef = useRef(new Map<string, ReturnType<typeof setTimeout>>());
@@ -487,6 +501,10 @@ export const BotView = memo(function BotView({ id, active = true }: { id: string
     setTimelineLoading(!cached);
     setSending(cached?.isStreaming ?? false);
     setOptimisticPrompt(null);
+    sendInFlightRef.current = false;
+    serverWorkingRef.current = null;
+    stoppingRef.current = false;
+    setStopping(false);
     setPermission(null);
     setQuestion(null);
     setAttentionBusy(null);
@@ -742,7 +760,14 @@ export const BotView = memo(function BotView({ id, active = true }: { id: string
           // already working while isStreaming is still false. Mirror TaskView so
           // the composer does not fall back to "not sent" right after sending.
           if (payload.isStreaming !== undefined || payload.task) {
-            setSending(payload.isStreaming === true || payload.task?.status === "working");
+            const serverWorking = payload.isStreaming === true || payload.task?.status === "working";
+            serverWorkingRef.current = { working: serverWorking, at: Date.now() };
+            // An idle snapshot cannot end a send whose POST has not returned yet.
+            setSending(serverWorking || sendInFlightRef.current);
+            if (!serverWorking && stoppingRef.current) {
+              stoppingRef.current = false;
+              setStopping(false);
+            }
           }
           if (payload.intercomInbox) setIntercomInbox(payload.intercomInbox);
           if (payload.error) setError(payload.error);
@@ -774,7 +799,9 @@ export const BotView = memo(function BotView({ id, active = true }: { id: string
               setMessages((current) => upsertUiMessage(current, payload.message!));
             }
             if (payload.isStreaming !== undefined) {
-              setSending((current) => current === payload.isStreaming ? current : payload.isStreaming!);
+              serverWorkingRef.current = { working: payload.isStreaming, at: Date.now() };
+              const next = payload.isStreaming || sendInFlightRef.current;
+              setSending((current) => current === next ? current : next);
             }
             if (payload.contextUsage) setContextUsage(payload.contextUsage);
           });
@@ -823,8 +850,14 @@ export const BotView = memo(function BotView({ id, active = true }: { id: string
       };
     };
     connect();
+    const stopReconnectWake = subscribeSseReconnectWake(() => {
+      if (closed || retry === null) return;
+      retry = cancelPendingSseReconnect(retry);
+      connect();
+    });
     return () => {
       closed = true;
+      stopReconnectWake();
       retry = cancelPendingSseReconnect(retry);
       source = closeSseSource(source);
     };
@@ -867,33 +900,46 @@ export const BotView = memo(function BotView({ id, active = true }: { id: string
 
   const send = async () => {
     const value = prompt.trim();
-    if ((!value && attachments.length === 0) || sending || reverting) return;
+    // sendInFlightRef: a double Ctrl+Enter / Enter+click lands before `sending` re-renders.
+    if ((!value && attachments.length === 0) || sending || reverting || sendInFlightRef.current) return;
     const requestContext = botRequestContextRef.current;
     const submittedAttachments = attachments;
     const submittedPrompt = value;
     const beforeSubmitMessages = messagesRef.current.map((message) => ({ ...message }));
     const { images, files } = composerPromptAttachments(submittedAttachments);
+    const sentAt = Date.now();
+    sendInFlightRef.current = true;
     setPrompt("");
     setAttachments([]);
     setError(null);
     setSending(true);
-    if (submittedAttachments.length === 0 && submittedPrompt.trim()) {
-      setOptimisticPrompt({
-        message: optimisticUserMessage(submittedPrompt, Date.now()),
-        before: beforeSubmitMessages,
-      });
-    } else {
-      setOptimisticPrompt(null);
-    }
+    setSendFollowKey((key) => key + 1);
+    // Attachments echo as previews too; the owner's row (with stored images) replaces it.
+    setOptimisticPrompt({
+      message: optimisticUserMessage(submittedPrompt, sentAt),
+      before: beforeSubmitMessages,
+      attachments: submittedAttachments,
+    });
     try {
       await sendJson(`/api/bots/${encodeURIComponent(id)}/prompt`, {
         prompt: value,
         ...(images.length > 0 ? { images } : {}),
         ...(files.length > 0 ? { files } : {}),
       });
-      if (botRequestContextRef.current === requestContext) notifyBotSidebarChanged();
+      if (botRequestContextRef.current === requestContext) {
+        sendInFlightRef.current = false;
+        // A turn that already finished while POST was pending left only an idle snapshot behind,
+        // which the in-flight guard ignored: settle from the server's latest word.
+        const observed = serverWorkingRef.current;
+        if (observed && observed.at >= sentAt && !observed.working
+          && hasNewUserMessageSince(beforeSubmitMessages, messagesRef.current)) {
+          setSending(false);
+        }
+        notifyBotSidebarChanged();
+      }
     } catch (reason) {
       if (botRequestContextRef.current !== requestContext) return;
+      sendInFlightRef.current = false;
       if (submittedAttachments.length === 0 && isUnconfirmedPromptDelivery(reason)) {
         let received = hasReceivedSubmittedPrompt(beforeSubmitMessages, messagesRef.current, submittedPrompt);
         if (!received) {
@@ -983,10 +1029,16 @@ export const BotView = memo(function BotView({ id, active = true }: { id: string
   };
 
   const abort = async () => {
+    // One Stop per turn: repeated clicks used to fire parallel aborts with no feedback at all.
+    if (stoppingRef.current) return;
     const requestContext = botRequestContextRef.current;
+    stoppingRef.current = true;
+    setStopping(true);
     try {
       await sendJson(`/api/bots/${encodeURIComponent(id)}/abort`, {});
       if (botRequestContextRef.current !== requestContext) return;
+      stoppingRef.current = false;
+      setStopping(false);
       setSending(false);
       // Same as TaskView: abort clears attention server-side; drop local cards
       // immediately so a dead SSE cannot leave 許可/質問 stuck on Stop. Latch
@@ -1002,6 +1054,8 @@ export const BotView = memo(function BotView({ id, active = true }: { id: string
       notifyBotSidebarChanged();
     } catch (reason) {
       if (botRequestContextRef.current === requestContext) {
+        stoppingRef.current = false;
+        setStopping(false);
         setError(reason instanceof Error ? reason.message : "リクエストに失敗しました");
       }
     }
@@ -1415,6 +1469,12 @@ export const BotView = memo(function BotView({ id, active = true }: { id: string
     return () => window.clearTimeout(timer);
   }, [optimisticPrompt, optimisticVisible]);
 
+  const optimisticEchoPreviews = useMemo(
+    () => optimisticPrompt
+      ? optimisticAttachmentPreviews(optimisticPrompt.message.createdAt, optimisticPrompt.attachments)
+      : { images: [], files: [] },
+    [optimisticPrompt],
+  );
   const chatScrollKey = useMemo(() => ({
     messages,
     permissionId: permission?.id ?? null,
@@ -1461,6 +1521,7 @@ export const BotView = memo(function BotView({ id, active = true }: { id: string
       <BotMessageList
         conversationId={id}
         contentKey={chatScrollKey}
+        followKey={sendFollowKey}
         active={active}
         viewportRef={viewportRef}
       >
@@ -1522,10 +1583,18 @@ export const BotView = memo(function BotView({ id, active = true }: { id: string
                 createdAt={optimisticPrompt.message.createdAt}
                 sender={{ name: "あなた" }}
                 text={optimisticPrompt.message.parts.filter((part) => part.type === "text").map((part) => part.text).join("\n\n")}
+                images={<BotMessageImages images={optimisticEchoPreviews.images} />}
+                files={<BotMessageFiles files={optimisticEchoPreviews.files} />}
               />
             </div>
           )}
-          {sending && shouldShowWorkingRow(true, messages) && <BotResponseStatus messages={messages} avatar={bot} />}
+          {sending && shouldShowWorkingRow(true, messages, optimisticVisible) && (
+            <BotResponseStatus
+              messages={messages}
+              avatar={bot}
+              label={stopping ? "停止しています…" : undefined}
+            />
+          )}
           {codePanelOpen && (
             <BotCodeSessionPanel botId={id} active={active} onClose={() => setCodePanelOpen(false)} />
           )}
@@ -1545,10 +1614,11 @@ export const BotView = memo(function BotView({ id, active = true }: { id: string
         references={{ prompts: promptPresetReferences }}
         onCompositionStart={() => { composingRef.current = true; }}
         onCompositionEnd={() => { composingRef.current = false; }}
-        onKeyDown={(event) => { if (event.key === "Enter" && (event.metaKey || event.ctrlKey) && !composingRef.current) { event.preventDefault(); void send(); } }}
+        onKeyDown={(event) => { if (event.key === "Enter" && (event.metaKey || event.ctrlKey) && !composingRef.current && !isImeComposingEvent(event)) { event.preventDefault(); void send(); } }}
         placeholder={`${bot.name}\u306b\u30e1\u30c3\u30bb\u30fc\u30b8（Ctrl+Enterで送信、Enterで改行）`}
         sendDisabled={!prompt.trim() && attachments.length === 0}
         busy={sending || reverting}
+        aborting={stopping}
         onSend={() => void send()}
         onAbort={() => void abort()}
         footer={<><button type="button" onClick={() => setRoutineCardOpen(true)} className="shrink-0 font-medium text-accent hover:underline">{"\u30eb\u30fc\u30c6\u30a3\u30f3\u3092\u4f5c\u6210"}</button><button type="button" aria-expanded={codePanelOpen} aria-controls="bot-code-session-panel" onClick={() => setCodePanelOpen((open) => !open)} className="shrink-0 font-medium text-accent hover:underline">Codeを操作</button><button type="button" onClick={() => updateSettingsOpen(true)} className="truncate hover:text-text">{"\u30e2\u30c7\u30eb"}: {selectedModel?.label ?? "\u672a\u9078\u629e"}</button><button type="button" onClick={() => updateSettingsOpen(true)} className="shrink-0 hover:text-text">{"\u601d\u8003"}: {thinkingValue}</button></>}

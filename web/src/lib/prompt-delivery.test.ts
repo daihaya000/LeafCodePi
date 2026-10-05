@@ -6,6 +6,8 @@ import {
   hasReceivedSubmittedPrompt,
   isUnconfirmedPromptDelivery,
   optimisticUserMessage,
+  isStreamingTextTail,
+  optimisticAttachmentPreviews,
   shouldShowWorkingRow,
 } from "./prompt-delivery";
 import type { UiMessage } from "@/lib/types";
@@ -78,6 +80,43 @@ describe("prompt-delivery", () => {
       ],
     } as UiMessage;
     expect(shouldShowWorkingRow(true, [tool])).toBe(true);
+  });
+
+  it("keeps WorkingRow for a new turn even when the previous turn ended in text", () => {
+    const answered: UiMessage = { id: "a1", role: "assistant", createdAt: 1, parts: [{ id: "x", type: "text", text: "done" }] };
+    const followUp: UiMessage = { id: "u2", role: "user", createdAt: 2, parts: [{ id: "y", type: "text", text: "next" }] };
+    // The sent follow-up has landed but nothing streams yet: the old answer must not hide the row.
+    expect(shouldShowWorkingRow(true, [answered, followUp])).toBe(true);
+    // The echo is outside `messages`: the previous answer is still last, the row still shows.
+    expect(shouldShowWorkingRow(true, [answered], true)).toBe(true);
+    // Text followed by a finished tool means the next step is pending: show the row.
+    const afterTool = {
+      id: "a3",
+      role: "assistant" as const,
+      createdAt: 3,
+      parts: [
+        { id: "x", type: "text" as const, text: "Let me check" },
+        { id: "tool", type: "tool" as const, tool: "bash", callID: "c1", state: { status: "completed" as const, input: {}, output: "" } },
+      ],
+    } as UiMessage;
+    expect(shouldShowWorkingRow(true, [afterTool])).toBe(true);
+    expect(isStreamingTextTail(afterTool)).toBe(false);
+    expect(isStreamingTextTail(answered)).toBe(true);
+  });
+
+  it("echoes attachments as image and file parts", () => {
+    const echo = optimisticUserMessage("see", 7, [
+      { uri: "data:image/png;base64,AAAA", mime: "image/png", name: "a.png" },
+      { uri: "data:text/plain;base64,BBBB", mime: "text/plain", name: "notes.txt" },
+    ]);
+    expect(echo.parts.map((part) => part.type)).toEqual(["text", "image", "file"]);
+    expect(optimisticUserMessage("", 8, [{ uri: "data:image/png;base64,AAAA", mime: "image/png" }]).parts.map((part) => part.type)).toEqual(["image"]);
+    const previews = optimisticAttachmentPreviews(7, [
+      { uri: "data:image/png;base64,AAAA", mime: "image/png", name: "a.png" },
+      { uri: "data:text/plain;base64,BBBB", mime: "text/plain", name: "notes.txt" },
+    ]);
+    expect(previews.images).toHaveLength(1);
+    expect(previews.files).toEqual([expect.objectContaining({ name: "notes.txt" })]);
   });
 
   it("builds a text-only optimistic user row", () => {

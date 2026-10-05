@@ -98,7 +98,14 @@ describe("TaskView render stability", () => {
       createdAt: 1,
       parts: [{ id: "assistant-1-text", type: "text", text: "応答" }],
     };
-    saveTaskSessionCache({ task, messages: [userMessage, message], isStreaming: false, isCompacting: false });
+    // A follow-up was just sent: the previous answer's text must not hide the WorkingRow.
+    const followUp: UiMessage = {
+      id: "user-2",
+      role: "user",
+      createdAt: 2,
+      parts: [{ id: "user-2-text", type: "text", text: "続き" }],
+    };
+    saveTaskSessionCache({ task, messages: [userMessage, message, followUp], isStreaming: false, isCompacting: false });
 
     class TestEventSource extends EventTarget {
       static latest: TestEventSource | null = null;
@@ -116,6 +123,7 @@ describe("TaskView render stability", () => {
     await waitFor(() => {
       expect(mocks.partView).toHaveBeenCalledWith(userMessage.id);
       expect(mocks.partView).toHaveBeenCalledWith(message.id);
+      expect(mocks.partView).toHaveBeenCalledWith(followUp.id);
     });
     await act(async () => {
       await Promise.resolve();

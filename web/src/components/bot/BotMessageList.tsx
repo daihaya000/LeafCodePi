@@ -121,9 +121,11 @@ export const BotMessageMarkdown = memo(function BotMessageMarkdown({ text, menti
   );
 });
 
-export function BotMessageList({ conversationId, contentKey, children, viewportRef, active = true }: {
+export function BotMessageList({ conversationId, contentKey, followKey, children, viewportRef, active = true }: {
   conversationId: string;
   contentKey?: unknown;
+  /** Changes on each explicit send: resume following so the sent bubble is never off-screen. */
+  followKey?: unknown;
   children: ReactNode;
   viewportRef?: RefObject<HTMLElement | null>;
   active?: boolean;
@@ -146,7 +148,7 @@ export function BotMessageList({ conversationId, contentKey, children, viewportR
   // an active tab still respect an explicit upward user scroll.
   useLayoutEffect(() => {
     if (active) following.current = true;
-  }, [active, conversationId]);
+  }, [active, conversationId, followKey]);
   useLayoutEffect(() => {
     if (!active) return;
     const element = viewport.current;
@@ -201,12 +203,15 @@ function activeTool(messages: UiMessage[]) {
 export function BotResponseStatus({
   messages,
   avatar,
+  label,
 }: {
   messages: UiMessage[];
   avatar: BotFace & { name: string };
+  /** Replaces the tool / 考え中 detail (e.g. 停止しています…). */
+  label?: string;
 }) {
   const running = activeTool(messages);
-  const action = running ? toolLabel(running.tool, running.state.input) : "考え中";
+  const action = label ?? (running ? toolLabel(running.tool, running.state.input) : "考え中");
   return (
     <div role="status" aria-live="polite" className="flex min-w-0 max-w-bubble items-center gap-2 text-xs text-muted">
       <span aria-hidden="true" className="shrink-0"><BotAvatar size={24} {...avatar} active /></span>

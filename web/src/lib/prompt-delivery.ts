@@ -39,9 +39,41 @@ export const OPTIMISTIC_USER_MESSAGE_PREFIX = "optimistic-user:";
  * It bridges POST → Backend accept → session message_start → dirty wake → SSE, which can take a
  * noticeable moment (cold session, Auto routing, extension hooks) before anything else changes.
  */
-export function optimisticUserMessage(text: string, createdAt: number): UiMessage {
+export function optimisticUserMessage(
+  text: string,
+  createdAt: number,
+  attachments: readonly OptimisticAttachment[] = [],
+): UiMessage {
   const id = `${OPTIMISTIC_USER_MESSAGE_PREFIX}${createdAt}`;
-  return { id, role: "user", createdAt, parts: [{ id: `${id}:text`, type: "text", text }] };
+  const parts: UiMessage["parts"] = [];
+  if (text) parts.push({ id: `${id}:text`, type: "text", text });
+  attachments.forEach((attachment, index) => {
+    const partId = `${id}:attachment:${index}`;
+    if (attachment.mime.toLowerCase().startsWith("image/")) {
+      parts.push({ id: partId, type: "image", url: attachment.uri, mime: attachment.mime, ...(attachment.name ? { filename: attachment.name } : {}) });
+    } else {
+      parts.push({ id: partId, type: "file", name: attachment.name?.trim() || "attachment", mime: attachment.mime || "application/octet-stream" });
+    }
+  });
+  return { id, role: "user", createdAt, parts };
+}
+
+/** Composer attachment as the echo needs it (data URI + mime); mirrors `ComposerAttachment`. */
+export type OptimisticAttachment = { uri: string; mime: string; name?: string };
+
+/** Image / file previews for Bot and Room echo bubbles (same split as `composerPromptAttachments`). */
+export function optimisticAttachmentPreviews(createdAt: number, attachments: readonly OptimisticAttachment[]): {
+  images: { key: string; src: string; alt?: string }[];
+  files: { key: string; name: string; mime?: string }[];
+} {
+  const images: { key: string; src: string; alt?: string }[] = [];
+  const files: { key: string; name: string; mime?: string }[] = [];
+  attachments.forEach((attachment, index) => {
+    const key = `${OPTIMISTIC_USER_MESSAGE_PREFIX}${createdAt}:${index}`;
+    if (attachment.mime.toLowerCase().startsWith("image/")) images.push({ key, src: attachment.uri, ...(attachment.name ? { alt: attachment.name } : {}) });
+    else files.push({ key, name: attachment.name?.trim() || "attachment", mime: attachment.mime || undefined });
+  });
+  return { images, files };
 }
 
 /**
@@ -81,28 +113,34 @@ export function hasNewRoomUserMessageSince(
 
 /**
  * Whether the sticky WorkingRow should paint under the transcript.
- * Hide it when the last assistant bubble is already growing text and no tool is running — a
- * streaming caret covers that state; a second "作業中…" spinner feels like lag.
+ * Hide it only while the newest turn's assistant bubble is growing text at its tail — a streaming
+ * caret covers that state; a second "作業中…" spinner feels like lag. A user row (or a pending echo)
+ * after the last assistant means the new turn has not produced text yet, so the row must show:
+ * walking back past it would find the previous turn's finished text and hide the indicator.
  */
 export function shouldShowWorkingRow(
   working: boolean,
   messages: readonly UiMessage[],
+  pendingEcho = false,
 ): boolean {
   if (!working) return false;
+  if (pendingEcho) return true;
   for (let index = messages.length - 1; index >= 0; index -= 1) {
     const message = messages[index];
-    if (!message || message.role !== "assistant") continue;
-    let hasText = false;
-    let hasRunningTool = false;
-    for (const part of message.parts) {
-      if (part.type === "text" && part.text.length > 0) hasText = true;
-      if (part.type === "tool" && (part.state.status === "running" || part.state.status === "pending")) {
-        hasRunningTool = true;
-      }
-    }
-    if (hasRunningTool) return true;
-    if (hasText) return false;
-    return true;
+    if (!message) continue;
+    if (message.role === "user") return true;
+    if (message.role !== "assistant") continue;
+    return !isStreamingTextTail(message);
   }
   return true;
+}
+
+/** True when the message's last part is non-empty text and no tool is still running in it. */
+export function isStreamingTextTail(message: UiMessage): boolean {
+  if (message.role !== "assistant") return false;
+  for (const part of message.parts) {
+    if (part.type === "tool" && (part.state.status === "running" || part.state.status === "pending")) return false;
+  }
+  const last = message.parts.at(-1);
+  return last?.type === "text" && last.text.length > 0;
 }

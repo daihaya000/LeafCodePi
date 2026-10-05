@@ -1961,3 +1961,43 @@ it("persists the intercom scope and fanout opt-in from settings", async () => {
     "PATCH",
   ));
 });
+
+it("keeps the send in progress when an idle snapshot lands before POST returns", async () => {
+  let resolvePrompt!: (value: unknown) => void;
+  mocks.sendJson.mockImplementation((url: string) => url === "/api/bots/one/prompt"
+    ? new Promise((resolve) => { resolvePrompt = resolve; })
+    : Promise.resolve({ bot: testBot }));
+  render(<ShellProvider><BotView id="one" active /></ShellProvider>);
+  const input = await screen.findByRole("textbox", { name: /Botにメッセージ/ });
+  fireEvent.change(input, { target: { value: "依頼" } });
+  fireEvent.keyDown(input, { key: "Enter", ctrlKey: true });
+  fireEvent.keyDown(input, { key: "Enter", ctrlKey: true });
+  await waitFor(() => expect(mocks.sendJson).toHaveBeenCalledWith("/api/bots/one/prompt", { prompt: "依頼" }));
+  expect(mocks.sendJson.mock.calls.filter(([url]) => url === "/api/bots/one/prompt")).toHaveLength(1);
+
+  // A snapshot taken before the owner accepted the prompt still reports idle.
+  snapshot({ task: { status: "idle" }, isStreaming: false });
+  expect(screen.getByRole("button", { name: "応答を停止" })).toBeTruthy();
+  expect(document.querySelector("[data-optimistic-prompt]")?.textContent).toContain("依頼");
+
+  await act(async () => { resolvePrompt({}); });
+  snapshot({ eventType: "prompt_accepted", task: { status: "working" }, isStreaming: false });
+  expect(screen.getByRole("button", { name: "応答を停止" })).toBeTruthy();
+});
+
+it("sends one abort per Stop and shows it is stopping", async () => {
+  let resolveAbort!: (value: unknown) => void;
+  mocks.sendJson.mockImplementation((url: string) => url === "/api/bots/one/abort"
+    ? new Promise((resolve) => { resolveAbort = resolve; })
+    : Promise.resolve({ bot: testBot }));
+  render(<ShellProvider><BotView id="one" active /></ShellProvider>);
+  await screen.findByRole("heading", { name: "Bot" });
+  snapshot({ isStreaming: true });
+  fireEvent.click(screen.getByRole("button", { name: "応答を停止" }));
+  const stopping = await screen.findByRole("button", { name: "停止しています" });
+  fireEvent.click(stopping);
+  expect(mocks.sendJson.mock.calls.filter(([url]) => url === "/api/bots/one/abort")).toHaveLength(1);
+  expect(screen.getByText("停止しています…")).toBeTruthy();
+  await act(async () => { resolveAbort({}); });
+  expect(await screen.findByRole("button", { name: "送信" })).toBeTruthy();
+});

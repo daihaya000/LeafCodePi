@@ -718,3 +718,38 @@ describe("RoomView mentions", () => {
     expect(input.value).toBe("@channel ");
   });
 });
+
+describe("RoomView instant send", () => {
+  it("posts a double Ctrl+Enter only once", async () => {
+    mocks.sendJson.mockImplementation(() => new Promise(() => undefined));
+    render(<RoomView id={room.id} />);
+    const input = await screen.findByRole("textbox", { name: /Ctrl\+Enterで送信/ }) as HTMLTextAreaElement;
+    fireEvent.change(input, { target: { value: "依頼" } });
+    fireEvent.keyDown(input, { key: "Enter", ctrlKey: true });
+    fireEvent.keyDown(input, { key: "Enter", ctrlKey: true });
+    await vi.waitFor(() => expect(mocks.sendJson).toHaveBeenCalledTimes(1));
+    // The echo shows at once, before the POST resolves.
+    expect(document.querySelector("[data-optimistic-prompt]")?.textContent).toContain("依頼");
+  });
+
+  it("echoes an attachment-only send with its preview", async () => {
+    mocks.sendJson.mockImplementation(() => new Promise(() => undefined));
+    render(<RoomView id={room.id} />);
+    const input = await screen.findByRole("textbox") as HTMLTextAreaElement;
+    fireEvent.paste(input, { clipboardData: { items: [{ kind: "file", type: "image/png", getAsFile: () => new File(["x"], "shot.png", { type: "image/png" }) }] } });
+    await screen.findByLabelText("1番目の画像を削除");
+    fireEvent.click(screen.getByRole("button", { name: "送信" }));
+    await vi.waitFor(() => expect(document.querySelector("[data-optimistic-prompt] img")).toBeTruthy());
+  });
+
+  it("stops members that are answering with the documented /stop request", async () => {
+    render(<RoomView id={room.id} />);
+    await screen.findByRole("textbox");
+    act(() => pushSnapshot({ room: { ...room, messages: [...room.messages, { id: "a-1", role: "assistant" as const, botId: bot.id, botName: bot.name, text: "", status: "working", createdAt: 2 }] } }));
+    fireEvent.click(await screen.findByRole("button", { name: "応答を停止" }));
+    await vi.waitFor(() => expect(mocks.sendJson).toHaveBeenCalledWith(
+      `/api/bots/rooms/${room.id}/prompt`,
+      { prompt: "/stop", broadcast: false },
+    ));
+  });
+});

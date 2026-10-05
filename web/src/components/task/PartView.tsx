@@ -966,7 +966,19 @@ export const MessageMetaHeader = memo(function MessageMetaHeader({
 });
 
 /** タイムライン末尾の実行中インジケータ（本家の WorkingProgressPanel 相当の 1 行版）。 */
-export const WorkingRow = memo(function WorkingRow({ messages, active = true }: { messages: UiMessage[]; active?: boolean }) {
+export const WorkingRow = memo(function WorkingRow({
+  messages,
+  active = true,
+  startedAtMs: startedAtOverride,
+  label,
+}: {
+  messages: UiMessage[];
+  active?: boolean;
+  /** Clock origin when the transcript tail is not this turn (pending echo / POST in flight). */
+  startedAtMs?: number;
+  /** Replaces the tool / "作業中…" headline (e.g. 停止しています…). */
+  label?: string;
+}) {
   const running = useMemo(() => {
     for (let index = messages.length - 1; index >= 0; index -= 1) {
       const message = messages[index];
@@ -981,11 +993,11 @@ export const WorkingRow = memo(function WorkingRow({ messages, active = true }: 
     return null;
   }, [messages]);
   const startedAtMs =
-    running?.state.startedAtMs ?? messages[messages.length - 1]?.createdAt ?? undefined;
+    startedAtOverride ?? running?.state.startedAtMs ?? messages[messages.length - 1]?.createdAt ?? undefined;
   const elapsedMs = useElapsedMs(startedAtMs, undefined, active);
-  const headline = running
+  const headline = label ?? (running
     ? `${toolLabel(running.tool, running.state.input)} ${toolSummary(running.tool, running.state)}`
-    : "作業中…";
+    : "作業中…");
   return (
     <div role="status" aria-live="polite" className="flex max-w-bubble items-center gap-2 rounded-3xl bg-transparent px-4 py-2.5 text-sm text-muted">
       <Loader2 className="h-4 w-4 shrink-0 animate-spin text-working" />
@@ -1279,14 +1291,15 @@ export const PartView = memo(
         ) : (
           message.parts.map((part) => {
             if (part.type === "text") {
-              const lastText = [...message.parts].reverse().find((entry) => entry.type === "text");
+              // Caret only while text is the live tail; a tool/thinking after it has its own indicator.
+              const tail = message.parts.at(-1);
               return (
                 <AssistantTextPart
                   key={part.id}
                   text={part.text}
                   goalLoopTurn={message.goalLoopTurn}
                   taskId={taskId}
-                  streaming={streaming && lastText?.id === part.id}
+                  streaming={streaming && tail?.id === part.id}
                 />
               );
             }

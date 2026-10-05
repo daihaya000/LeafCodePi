@@ -40,6 +40,14 @@ const pauseHints: Record<string, string> = {
   blocked: "要対応のため停止しました。対応後に再開するか、ここで完了できます。",
 };
 
+/** Remaining cooldown as m:ss (or Ns under a minute), rounded up so it never shows 0 early. */
+export function formatCooldownRemaining(ms: number): string {
+  const seconds = Math.max(0, Math.ceil(ms / 1000));
+  if (seconds < 60) return `${seconds}秒`;
+  const minutes = Math.floor(seconds / 60);
+  return `${minutes}:${String(seconds % 60).padStart(2, "0")}`;
+}
+
 export function GoalLoopPanel({
   loop,
   busy,
@@ -61,9 +69,14 @@ export function GoalLoopPanel({
   const [nowMs, setNowMs] = useState(() => Date.now());
   useEffect(() => {
     if (!Number.isFinite(cooldownUntilMs) || cooldownUntilMs <= Date.now()) return;
-    const delay = Math.max(16, cooldownUntilMs - Date.now());
-    const timer = setTimeout(() => setNowMs(Date.now()), delay);
-    return () => clearTimeout(timer);
+    // Tick once a second so the wait shows a live countdown instead of a static "待機中".
+    setNowMs(Date.now());
+    const timer = setInterval(() => {
+      const now = Date.now();
+      setNowMs(now);
+      if (now >= cooldownUntilMs) clearInterval(timer);
+    }, 1_000);
+    return () => clearInterval(timer);
   }, [cooldownUntilMs]);
 
   if (!loop) return null;
@@ -212,7 +225,11 @@ export function GoalLoopPanel({
           />
         </div>
         <span className="shrink-0 text-xs tabular-nums text-muted">
-          {cooldownActive && "待機中 · "}
+          {cooldownActive && (
+            <span data-goal-loop-countdown title="クールタイム後に次のターンを送信します">
+              次のターンまで {formatCooldownRemaining(cooldownUntilMs - nowMs)} ·{" "}
+            </span>
+          )}
           {progressPercent === null ? "無制限" : `${progressPercent}%`}
         </span>
       </div>

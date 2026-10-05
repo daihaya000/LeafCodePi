@@ -22,8 +22,9 @@ import { BotMessageError, BotMessageFiles, BotMessageImages, BotMessageList, Bot
 import { composerPromptAttachments, readComposerFiles, useComposerPromptPresetReferences, type ComposerAttachment, type ComposerReference } from "@/components/Composer";
 import { canAttachComposerImages, pasteImage } from "@/lib/clipboard-image";
 import { stabilizeIdentifiedList } from "@/lib/stabilize-messages";
-import { cancelPendingSseReconnect, closeSseSource, sseReconnectDelayMs } from "@/lib/sse-reconnect";
-import { hasNewRoomUserMessageSince } from "@/lib/prompt-delivery";
+import { cancelPendingSseReconnect, closeSseSource, sseReconnectDelayMs, subscribeSseReconnectWake } from "@/lib/sse-reconnect";
+import { hasNewRoomUserMessageSince, optimisticAttachmentPreviews } from "@/lib/prompt-delivery";
+import { isImeComposingEvent } from "@/lib/composer-ime";
 
 import { CodeRequestCard } from "@/components/bot/CodeRequestCard";
 
@@ -160,7 +161,21 @@ export function RoomView({ id, active = true }: { id: string; active?: boolean }
     text: string;
     createdAt: number;
     beforeUserIds: Set<string>;
+    attachments: ComposerAttachment[];
   } | null>(null);
+  /**
+   * The newest send's row has not reached the room yet. Synchronous, so a double Ctrl+Enter cannot
+   * POST the same draft twice; it releases as soon as the row lands even while the POST is still
+   * resolving the opener, so a correction can be sent without waiting for routing.
+   */
+  const sendLatchRef = useRef(false);
+  /** Increments per send; only the newest POST may clear busy or report "no bots". */
+  const sendSeqRef = useRef(0);
+  const [stopping, setStopping] = useState(false);
+  const stoppingRef = useRef(false);
+  /** Sends issued before the latest Stop must not report "応答できるボットがいません". */
+  const stopEpochRef = useRef(0);
+  const [sendFollowKey, setSendFollowKey] = useState(0);
   const [deleting, setDeleting] = useState(false);
   const [resetting, setResetting] = useState(false);
   const [memberSaving, setMemberSaving] = useState(false);
@@ -213,6 +228,10 @@ export function RoomView({ id, active = true }: { id: string; active?: boolean }
     setPrompt("");
     setAttachments([]);
     setBusy(false);
+    sendLatchRef.current = false;
+    sendSeqRef.current += 1;
+    stoppingRef.current = false;
+    setStopping(false);
     setBroadcast(false);
     setMentionContext(null);
     setSettingsOpen(false);
@@ -338,8 +357,14 @@ export function RoomView({ id, active = true }: { id: string; active?: boolean }
       };
     };
     connect();
+    const stopReconnectWake = subscribeSseReconnectWake(() => {
+      if (closed || retry === null) return;
+      retry = cancelPendingSseReconnect(retry);
+      connect();
+    });
     return () => {
       closed = true;
+      stopReconnectWake();
       retry = cancelPendingSseReconnect(retry);
       source = closeSseSource(source);
     };
@@ -469,36 +494,41 @@ export function RoomView({ id, active = true }: { id: string; active?: boolean }
         return;
       }
     }
-    if (event.key === "Enter" && (event.metaKey || event.ctrlKey) && !composingRef.current) {
+    if (event.key === "Enter" && (event.metaKey || event.ctrlKey) && !composingRef.current && !isImeComposingEvent(event)) {
       event.preventDefault();
       void send();
     }
   };
 
   const addFiles = useCallback((files: FileList) => {
-    if (!canAttachComposerImages({ submitting: busy || reverting })) return;
+    // Attaching only edits the next draft; a POST still routing an already-landed row must not block it.
+    if (!canAttachComposerImages({ submitting: reverting })) return;
     readComposerFiles(files, (attachment) => {
       setAttachments((current) => [...current, attachment]);
     });
-  }, [busy, reverting]);
+  }, [reverting]);
 
   const send = async () => {
     const value = prompt.trim();
-    if ((!value && attachments.length === 0) || busy || reverting) return;
+    if ((!value && attachments.length === 0) || sendLatchRef.current || reverting) return;
     const requestContext = roomRequestContextRef.current;
     const submittedAttachments = attachments;
     const { images, files } = composerPromptAttachments(submittedAttachments);
+    const seq = ++sendSeqRef.current;
+    const stopEpoch = stopEpochRef.current;
+    const sentAt = Date.now();
+    const sseVersionAtSend = roomSseVersionRef.current;
+    sendLatchRef.current = true;
     setPrompt("");
     setAttachments([]);
     setMentionContext(null);
     setError(null);
     setBusy(true);
+    setSendFollowKey((key) => key + 1);
     const beforeUserIds = new Set((room?.messages ?? []).filter((message) => message.role === "user").map((message) => message.id));
-    if (submittedAttachments.length === 0 && value.trim()) {
-      setOptimisticPrompt({ text: value, createdAt: Date.now(), beforeUserIds });
-    } else {
-      setOptimisticPrompt(null);
-    }
+    // Attachments echo as previews; the stored room row replaces the bubble when it lands.
+    setOptimisticPrompt({ text: value, createdAt: sentAt, beforeUserIds, attachments: submittedAttachments });
+    const isLatest = () => roomRequestContextRef.current === requestContext && sendSeqRef.current === seq;
     try {
       const result = await sendJson<{ room: RoomDto; routedBotIds?: string[]; steeredBotIds?: string[]; stopped?: boolean }>(
         `/api/bots/rooms/${encodeURIComponent(id)}/prompt`,
@@ -510,22 +540,61 @@ export function RoomView({ id, active = true }: { id: string; active?: boolean }
         },
       );
       if (roomRequestContextRef.current === requestContext && result.room) {
-        setRoom(result.room);
+        // The POST answer is a snapshot from when routing finished; SSE may already be newer
+        // (members streaming). Only let it in when it carries rows SSE has not delivered.
+        const resultRoom = result.room;
+        setRoom((current) => {
+          if (!current || roomSseVersionRef.current === sseVersionAtSend) return applyRoomSnapshot(current, resultRoom);
+          const known = new Set(current.messages.map((message) => message.id));
+          return resultRoom.messages.some((message) => !known.has(message.id)) ? applyRoomSnapshot(current, resultRoom) : current;
+        });
         notifyBotSidebarChanged();
       }
       // Redirecting a turn already being written is a real outcome, even with nobody newly routed.
-      if (roomRequestContextRef.current === requestContext && !result.stopped && result.routedBotIds?.length === 0 && !result.steeredBotIds?.length) {
+      // A newer send or a Stop since this one supersedes it, so its empty routing is expected.
+      if (isLatest() && stopEpochRef.current === stopEpoch && !result.stopped && result.routedBotIds?.length === 0 && !result.steeredBotIds?.length) {
         setError("応答できるボットがいません。有効なメンバーとメンション先を確認してください。");
       }
     } catch (reason) {
       if (roomRequestContextRef.current !== requestContext) return;
-      setOptimisticPrompt(null);
+      setOptimisticPrompt((current) => (current?.createdAt === sentAt ? null : current));
       setPrompt((current) => current || value);
       setAttachments((current) => current.length > 0 ? current : submittedAttachments);
       setError(reason instanceof Error ? reason.message : "リクエストに失敗しました");
     }
     finally {
-      if (roomRequestContextRef.current === requestContext) setBusy(false);
+      if (isLatest()) {
+        sendLatchRef.current = false;
+        setBusy(false);
+      }
+    }
+  };
+
+  /** Room Stop: the documented `/stop` request (ends turns being written; delegated Code continues). */
+  const stopRoom = async () => {
+    if (stoppingRef.current) return;
+    const requestContext = roomRequestContextRef.current;
+    stoppingRef.current = true;
+    stopEpochRef.current += 1;
+    setStopping(true);
+    setError(null);
+    try {
+      const result = await sendJson<{ room?: RoomDto }>(
+        `/api/bots/rooms/${encodeURIComponent(id)}/prompt`,
+        { prompt: "/stop", broadcast: false },
+      );
+      if (roomRequestContextRef.current === requestContext && result.room) {
+        const resultRoom = result.room;
+        setRoom((current) => applyRoomSnapshot(current, resultRoom));
+        notifyBotSidebarChanged();
+      }
+    } catch (reason) {
+      if (roomRequestContextRef.current === requestContext) setError(reason instanceof Error ? reason.message : "停止に失敗しました");
+    } finally {
+      if (roomRequestContextRef.current === requestContext) {
+        stoppingRef.current = false;
+        setStopping(false);
+      }
     }
   };
 
@@ -652,6 +721,8 @@ export function RoomView({ id, active = true }: { id: string; active?: boolean }
   useEffect(() => {
     if (!optimisticPrompt) return;
     if (!optimisticVisible) {
+      // The room holds the row: a follow-up may go out while this POST still routes.
+      sendLatchRef.current = false;
       setOptimisticPrompt(null);
       return;
     }
@@ -674,6 +745,21 @@ export function RoomView({ id, active = true }: { id: string; active?: boolean }
     .map((item) => `${item.taskId}:${item.permission?.id ?? ""}:${item.question?.id ?? ""}`)
     .join("|");
   const displayError = error ?? sseError;
+  const optimisticEchoPreviews = useMemo(
+    () => optimisticPrompt ? optimisticAttachmentPreviews(optimisticPrompt.createdAt, optimisticPrompt.attachments) : { images: [], files: [] },
+    [optimisticPrompt],
+  );
+  // POST still routing after its row landed = opener selection; say so instead of "送信中…".
+  const roomStatusLabel = stopping
+    ? "停止しています…"
+    : working
+      ? "応答中…"
+      : busy && optimisticVisible
+        ? "送信中…"
+        : busy
+          ? "応答するメンバーを選んでいます…"
+          : null;
+  const composerBlocked = reverting || (busy && optimisticVisible);
   const chatScrollKey = useMemo(() => ({
     messages: room?.messages,
     attention: attentionScrollKey,
@@ -702,7 +788,7 @@ export function RoomView({ id, active = true }: { id: string; active?: boolean }
       />
 
 
-      <BotMessageList conversationId={id} contentKey={chatScrollKey}>
+      <BotMessageList conversationId={id} contentKey={chatScrollKey} followKey={sendFollowKey}>
         <div className={conversationContentClass}>
           {room.messages.length === 0 && !optimisticVisible && <BotEmptyState icon={<Users className="h-5 w-5" />} title={room.name + " \u3067\u8a71\u3059"} description="そのまま送るとメンバーが会話します。@ボット名で相手を指定、@hereで全員に個別回答を依頼できます。実作業は承認後にCodeで実行し、このRoomへ結果を返します。">{members.length > 0 && <div className="mt-3 flex flex-wrap justify-center gap-2">{members.map((bot) => <span key={bot.id} className="inline-flex items-center gap-1.5 rounded-full border border-border bg-surface px-2 py-1 text-xs"><BotAvatar size={18} {...bot} />{bot.name}</span>)}</div>}</BotEmptyState>}
           {rendered}
@@ -720,10 +806,18 @@ export function RoomView({ id, active = true }: { id: string; active?: boolean }
           </div>)}
           {optimisticVisible && optimisticPrompt && (
             <div className="opacity-70" aria-busy="true" data-optimistic-prompt>
-              <BotChatMessage user createdAt={optimisticPrompt.createdAt} sender={{ name: "あなた" }} text={optimisticPrompt.text} mentions={bots} />
+              <BotChatMessage
+                user
+                createdAt={optimisticPrompt.createdAt}
+                sender={{ name: "あなた" }}
+                text={optimisticPrompt.text}
+                mentions={bots}
+                images={<BotMessageImages images={optimisticEchoPreviews.images} />}
+                files={<BotMessageFiles files={optimisticEchoPreviews.files} />}
+              />
             </div>
           )}
-          {(busy || working) && <div role="status" aria-live="polite" className="flex items-center gap-2 text-xs text-muted"><span className="h-2 w-2 animate-pulse rounded-full bg-accent" />{busy && !working ? "送信中…" : "応答中…"}</div>}
+          {roomStatusLabel && <div role="status" aria-live="polite" className="flex items-center gap-2 text-xs text-muted"><span className="h-2 w-2 animate-pulse rounded-full bg-accent" />{roomStatusLabel}</div>}
           {outcome && <p className="text-xs text-muted">{outcome}</p>}
         </div>
       </BotMessageList>
@@ -741,14 +835,17 @@ export function RoomView({ id, active = true }: { id: string; active?: boolean }
         onKeyDown={handlePromptKeyDown}
         placeholder={broadcast ? `${room.name}の全員に個別回答を依頼（Ctrl+Enterで送信、Enterで改行）` : `${room.name}にメッセージ（@で相手、/でスキル、Ctrl+Enterで送信、Enterで改行）`}
         sendDisabled={!prompt.trim() && attachments.length === 0}
-        busy={busy || reverting}
+        busy={composerBlocked}
         onSend={() => void send()}
+        onAbort={() => void stopRoom()}
+        aborting={stopping}
+        showAbort={(working || (busy && !optimisticVisible) || stopping) && !prompt.trim() && attachments.length === 0}
         references={{ skills, prompts: promptPresetReferences }}
         onValueChange={setPrompt}
         attachments={attachments}
         onRemoveAttachment={(index) => setAttachments((current) => current.filter((_, position) => position !== index))}
         onFilesSelected={addFiles}
-        attachmentDisabled={!canAttachComposerImages({ submitting: busy || reverting })}
+        attachmentDisabled={!canAttachComposerImages({ submitting: composerBlocked })}
         onPaste={(event) => { if (pasteImage(addFiles, event)) event.preventDefault(); }}
         footer={<><button type="button" aria-pressed={broadcast} onClick={() => setBroadcast((value) => !value)} className={`rounded-full px-2 py-1 font-medium ${broadcast ? "bg-accent/10 text-accent" : "hover:bg-surface-2 hover:text-text"}`}>{broadcast ? "全員が個別回答" : "メンバーで対話"}</button><button type="button" onClick={() => setSettingsOpen(true)} className="shrink-0 hover:text-text">{`\u30e1\u30f3\u30d0\u30fc: ${room.members.length}`}</button></>}
         inputOverlay={mentionCandidates.length > 0 ? <div id="room-mention-options" role="listbox" aria-label={"\u30e1\u30f3\u30b7\u30e7\u30f3\u5148\u5019\u88dc"} className="absolute bottom-full left-0 z-20 mb-2 max-h-56 w-full overflow-y-auto rounded-xl border border-border bg-surface p-1 shadow-[0_8px_30px_rgba(0,0,0,0.12)]">{mentionCandidates.map((candidate, index) => <button key={candidate.key} type="button" role="option" aria-selected={index === mentionIndex} onMouseDown={(event) => event.preventDefault()} onClick={() => insertMention(candidate)} className={`flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left ${index === mentionIndex ? "bg-surface-2" : "hover:bg-surface-2"}`}>{candidate.bot ? <BotAvatar size={24} {...candidate.bot} /> : <span className="flex h-6 w-6 items-center justify-center rounded-full bg-accent/10 text-xs font-semibold text-accent">@</span>}<span className="min-w-0"><span className="block truncate text-sm font-medium">{candidate.label}</span><span className="block truncate text-[11px] text-muted">{candidate.description}</span></span></button>)}</div> : null}
