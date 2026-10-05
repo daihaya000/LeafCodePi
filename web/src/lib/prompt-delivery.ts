@@ -1,4 +1,4 @@
-﻿import type { UiMessage } from "@/lib/types";
+import type { UiMessage } from "@/lib/types";
 
 /** Only transport/response failures can be reconciled; explicit owner rejections stay errors. */
 export function isUnconfirmedPromptDelivery(error: unknown): boolean {
