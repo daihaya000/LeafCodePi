@@ -86,7 +86,9 @@ export function HostRestartPanel({ onRestarted }: { onRestarted?: () => void }) 
       // Host restart replaces the WebUI process too — show the reconnect overlay so the
       // page reloads onto the new build instead of sitting on a stale SPA after health returns.
       if (action === "webui" || action === "host") {
-        window.dispatchEvent(new Event("leafcode:webui-restart"));
+        window.dispatchEvent(
+          new CustomEvent("leafcode:webui-restart", { detail: { target: action } }),
+        );
       }
       if (action === "host") {
         // Overlay owns wait+reload; the dying page must not claim success via onRestarted.
@@ -149,7 +151,7 @@ export function HostRestartPanel({ onRestarted }: { onRestarted?: () => void }) 
           : HOST_RESTART_READY_HINT_ANY}
       </p>
       <p className="mt-1 text-xs text-muted">
-        WebUI はフロントエンドのみ、バックエンドはバックエンドのみ、トレイホストは両方を再ビルド・再起動します。ビルド失敗時は前回のビルドで起動します。
+        各再起動は最初に最新ソースを取得（git pull）してから再ビルド・再起動します。WebUI はフロントエンドのみ、バックエンドはバックエンドのみ、トレイホストは両方です。ビルド失敗時は前回のビルドで起動します。
       </p>
       <p className="mt-1 text-xs text-muted">
         WebUI の再起動ではセッションは継続します。バックエンド・トレイホストの再起動では実行中のセッションは終了します。

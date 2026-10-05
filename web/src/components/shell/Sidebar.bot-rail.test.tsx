@@ -161,7 +161,9 @@ describe("Bot mode list", () => {
       expect(confirm).toHaveBeenCalledWith(restartConfirmation("host"));
       await waitFor(() => expect(mocks.sendJson).toHaveBeenCalledWith("/api/host/restart", { target: "host" }));
       await waitFor(() => expect(restartEvent).toHaveBeenCalledOnce());
-      expect((button as HTMLButtonElement).disabled).toBe(true);
+      expect(restartEvent.mock.calls[0]?.[0]?.detail).toEqual({ target: "host" });
+      // Overlay owns wait+reload; busy must clear so a dismissed overlay does not leave buttons dead.
+      await waitFor(() => expect((button as HTMLButtonElement).disabled).toBe(false));
     } finally {
       window.removeEventListener("leafcode:webui-restart", restartEvent);
       confirm.mockRestore();

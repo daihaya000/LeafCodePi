@@ -125,6 +125,47 @@ describe("HostRestartPanel", () => {
     }
   });
 
+  it("Goal Loop 中の 409 はエラーとして表示しオーバーレイを出さない", async () => {
+    fetchMock
+      .mockResolvedValueOnce(jsonResponse({ running: true }))
+      .mockResolvedValueOnce(jsonResponse({ backend: { ready: true, startedAt: "before" } }))
+      .mockResolvedValueOnce(
+        jsonResponse(
+          { error: "Goal Loop が 1 件実行中のため Backend の再起動を拒否しました。ループを停止・完了してから再試行してください。", blocked: true },
+          409,
+        ),
+      );
+    const restartEvent = vi.fn();
+    window.addEventListener("leafcode:webui-restart", restartEvent);
+    try {
+      render(<HostRestartPanel />);
+      await waitFor(() => {
+        expect(
+          (screen.getByRole("button", { name: "バックエンド（Pi）を再起動" }) as HTMLButtonElement).disabled,
+        ).toBe(false);
+      });
+      fireEvent.click(screen.getByRole("button", { name: "バックエンド（Pi）を再起動" }));
+      fireEvent.click(screen.getByRole("button", { name: "再起動する" }));
+      await waitFor(() => expect(screen.getByRole("alert").textContent).toContain("Goal Loop"));
+      expect(restartEvent).not.toHaveBeenCalled();
+    } finally {
+      window.removeEventListener("leafcode:webui-restart", restartEvent);
+    }
+  });
+
+  it("確認文は最新ソース取得を案内する", async () => {
+    fetchMock.mockResolvedValueOnce(jsonResponse({ running: true }));
+    render(<HostRestartPanel />);
+    await waitFor(() => {
+      expect(
+        (screen.getByRole("button", { name: "WebUI を再起動" }) as HTMLButtonElement).disabled,
+      ).toBe(false);
+    });
+    expect(screen.getByText(/最初に最新ソースを取得/)).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "WebUI を再起動" }));
+    expect(screen.getByRole("dialog").textContent).toContain("最初に最新ソースを取得");
+  });
+
   it("WebUI再起動は更新確認付きの /api/host/restart を叩いて health 復帰を待つ", async () => {
     fetchMock
       .mockResolvedValueOnce(jsonResponse({ running: true }))

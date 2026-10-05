@@ -10,11 +10,15 @@ import {
   INITIAL_RESTART_PROBE,
   isRestartOverlayVisible,
   nextRestartProbe,
+  restartOverlayMessage,
+  WEBUI_RESTART_EVENT,
+  type RestartOverlayTarget,
 } from "@/lib/webui-restart";
 import type { HealthDto } from "@/lib/types";
 
 function WebUiRestartOverlay() {
   const [restarting, setRestarting] = useState(false);
+  const [target, setTarget] = useState<RestartOverlayTarget | null>(null);
   const probeRef = useRef(INITIAL_RESTART_PROBE);
 
   useEffect(() => {
@@ -39,21 +43,29 @@ function WebUiRestartOverlay() {
       const { state, reload } = nextRestartProbe(probeRef.current, sample);
       probeRef.current = state;
       setRestarting(isRestartOverlayVisible(state));
+      if (!state.requested) setTarget(null);
       // リロードが効かなかった場合に取り残されないよう、ポーリングは止めない。
       if (reload) window.location.reload();
       timer = setTimeout(() => void check(), 1_500);
     };
 
-    const handleRestartRequested = () => {
-      probeRef.current = { ...probeRef.current, requested: true };
+    const handleRestartRequested = (event: Event) => {
+      const detail = (event as CustomEvent<{ target?: RestartOverlayTarget }>).detail;
+      const nextTarget = detail?.target === "host" ? "host" : "webui";
+      setTarget(nextTarget);
+      probeRef.current = {
+        ...probeRef.current,
+        requested: true,
+        requestedAt: Date.now(),
+      };
       setRestarting(true);
     };
-    window.addEventListener("leafcode:webui-restart", handleRestartRequested);
+    window.addEventListener(WEBUI_RESTART_EVENT, handleRestartRequested);
     void check();
     return () => {
       cancelled = true;
       if (timer) clearTimeout(timer);
-      window.removeEventListener("leafcode:webui-restart", handleRestartRequested);
+      window.removeEventListener(WEBUI_RESTART_EVENT, handleRestartRequested);
     };
   }, []);
 
@@ -67,7 +79,7 @@ function WebUiRestartOverlay() {
     >
       <div className="flex min-w-64 flex-col items-center gap-3 rounded-2xl border border-border bg-surface/95 px-8 py-7 text-center shadow-[0_8px_30px_rgba(0,0,0,0.12)]">
         <Loader2 className="h-8 w-8 animate-spin text-accent" aria-hidden="true" />
-        <p className="text-sm font-semibold">WebUIを再起動しています…</p>
+        <p className="text-sm font-semibold">{restartOverlayMessage(target)}</p>
         <p className="text-xs text-muted">再接続されると自動的にページを更新します。</p>
       </div>
     </div>

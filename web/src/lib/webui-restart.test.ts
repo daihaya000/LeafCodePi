@@ -5,6 +5,8 @@ import {
   isRestartOverlayVisible,
   nextRestartProbe,
   OFFLINE_STREAK,
+  RESTART_REQUEST_GIVE_UP_MS,
+  restartOverlayMessage,
   type RestartProbeState,
 } from "./webui-restart";
 
@@ -72,6 +74,7 @@ describe("nextRestartProbe", () => {
       ...INITIAL_RESTART_PROBE,
       connected: true,
       requested: true,
+      requestedAt: 1,
       startedAt: 100,
     };
     const { state } = nextRestartProbe(requested, null);
@@ -79,7 +82,7 @@ describe("nextRestartProbe", () => {
   });
 
   it("reloads when a requested restart happens before the first health check", () => {
-    const requested = { ...INITIAL_RESTART_PROBE, requested: true };
+    const requested = { ...INITIAL_RESTART_PROBE, requested: true, requestedAt: 1 };
     const down = nextRestartProbe(requested, null).state;
     assert.equal(down.offline, true);
     assert.equal(nextRestartProbe(down, { startedAt: 200 }).reload, true);
@@ -90,10 +93,35 @@ describe("nextRestartProbe", () => {
       ...INITIAL_RESTART_PROBE,
       connected: true,
       requested: true,
+      requestedAt: 1_000,
       startedAt: 100,
     };
-    const { state, reload } = nextRestartProbe(requested, { startedAt: 100 });
+    const { state, reload } = nextRestartProbe(requested, { startedAt: 100 }, 1_000);
     assert.equal(reload, false);
     assert.equal(isRestartOverlayVisible(state), true);
+  });
+
+  it("dismisses a requested overlay when the same process never goes down", () => {
+    const requested: RestartProbeState = {
+      ...INITIAL_RESTART_PROBE,
+      connected: true,
+      requested: true,
+      requestedAt: 1_000,
+      startedAt: 100,
+    };
+    const { state, reload } = nextRestartProbe(
+      requested,
+      { startedAt: 100 },
+      1_000 + RESTART_REQUEST_GIVE_UP_MS,
+    );
+    assert.equal(reload, false);
+    assert.equal(isRestartOverlayVisible(state), false);
+    assert.equal(state.requestedAt, null);
+  });
+
+  it("labels host restarts differently from WebUI restarts", () => {
+    assert.match(restartOverlayMessage("host"), /トレイホスト/);
+    assert.match(restartOverlayMessage("webui"), /WebUI/);
+    assert.match(restartOverlayMessage(null), /WebUI/);
   });
 });

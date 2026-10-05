@@ -286,8 +286,13 @@ function SidebarFooter({ health, onSettings }: { health: HealthDto | null; onSet
       await sendJson("/api/host/restart", { target });
       if (target === "webui" || target === "host") {
         // ホスト再起動はWebUIも入れ替えるため、再接続オーバーレイに新しいプロセスを
-        // 検知させて自動再読み込みさせる。
-        window.dispatchEvent(new Event("leafcode:webui-restart"));
+        // 検知させて自動再読み込みさせる。busy はハンドオフ後に解放し、オーバーレイが
+        // 畳まれたあともボタンが死んだまま残らないようにする。
+        window.dispatchEvent(
+          new CustomEvent("leafcode:webui-restart", { detail: { target } }),
+        );
+        restartBusyRef.current = false;
+        if (mountedRef.current) setRestartBusy(null);
         return;
       }
       const deadline = Date.now() + 300_000;

@@ -7,6 +7,12 @@
 /** 連続でこの回数失敗するまではダウンとみなさない。 */
 export const OFFLINE_STREAK = 3;
 
+/**
+ * 明示再起動後、プロセスが一度も落ちず startedAt も変わらないままこの時間を超えたら
+ * オーバーレイを畳む（202 受理後に Host 側が黙って中断したケースの取り残し防止）。
+ */
+export const RESTART_REQUEST_GIVE_UP_MS = 90_000;
+
 export type RestartProbeState = {
   /** health に一度でも成功したか。初回接続前の失敗は無視する。 */
   connected: boolean;
@@ -16,6 +22,8 @@ export type RestartProbeState = {
   offline: boolean;
   /** UI から明示的に再起動を要求したか。 */
   requested: boolean;
+  /** 明示再起動を要求した時刻（ms）。未要求なら null。 */
+  requestedAt: number | null;
   /** 直近に観測したサーバプロセスの起動時刻（未提供なら null）。 */
   startedAt: number | null;
 };
@@ -25,8 +33,20 @@ export const INITIAL_RESTART_PROBE: RestartProbeState = {
   failures: 0,
   offline: false,
   requested: false,
+  requestedAt: null,
   startedAt: null,
 };
+
+export type RestartOverlayTarget = "webui" | "host";
+
+/** Settings / Sidebar がオーバーレイへ渡す CustomEvent 名。 */
+export const WEBUI_RESTART_EVENT = "leafcode:webui-restart";
+
+export function restartOverlayMessage(target: RestartOverlayTarget | null | undefined): string {
+  return target === "host"
+    ? "トレイホストを再起動しています…"
+    : "WebUIを再起動しています…";
+}
 
 /**
  * 接続断だけでは再起動と断定できない。明示的な再起動要求だけを覆い、
@@ -43,6 +63,7 @@ export function isRestartOverlayVisible(state: RestartProbeState): boolean {
 export function nextRestartProbe(
   prev: RestartProbeState,
   sample: { startedAt: number | null } | null,
+  now = Date.now(),
 ): { state: RestartProbeState; reload: boolean } {
   if (!sample) {
     const failures = prev.failures + 1;
@@ -58,17 +79,33 @@ export function nextRestartProbe(
   // 短い再起動はプローブ間に完了し、オフラインを検知できないことがある。
   if (changedProcess || (prev.offline && restarted)) {
     return {
-      state: { ...prev, connected: true, failures: 0, startedAt: sample.startedAt },
+      state: {
+        ...prev,
+        connected: true,
+        failures: 0,
+        offline: false,
+        requested: false,
+        requestedAt: null,
+        startedAt: sample.startedAt,
+      },
       reload: true,
     };
   }
+  // 202 を受けたあと Host が黙って中断し、同じプロセスが生き続けている場合は畳む。
+  const giveUp =
+    prev.requested &&
+    !prev.offline &&
+    prev.requestedAt != null &&
+    now - prev.requestedAt >= RESTART_REQUEST_GIVE_UP_MS;
+  // ダウン検知後に同一プロセスへ戻った = 誤検知。オーバーレイを畳む。
+  const clearRequest = giveUp || prev.offline;
   return {
     state: {
       connected: true,
       failures: 0,
       offline: false,
-      // ダウン検知後に同一プロセスへ戻った = 誤検知。オーバーレイを畳む。
-      requested: prev.offline ? false : prev.requested,
+      requested: clearRequest ? false : prev.requested,
+      requestedAt: clearRequest ? null : prev.requestedAt,
       startedAt: sample.startedAt,
     },
     reload: false,

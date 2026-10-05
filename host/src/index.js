@@ -776,25 +776,13 @@ async function restartWeb() {
     log("Service restart is already in progress");
     return;
   }
+  // Backend readiness / Goal Loop / busy refusals are decided in webUiRestartBlockReason
+  // before the control plane answers 202. Do not re-check here: a silent return after 202
+  // leaves the WebUI reconnect overlay stuck on the still-live SPA.
   const blocked = await webUiRestartBlockReason();
   if (blocked) {
     error(blocked);
     return;
-  }
-  // The WebUI is the Backend's client, so it may only come back while that Backend is genuinely
-  // ready: starting one against a stopped or unready Backend would serve a UI that cannot own
-  // anything.
-  if (backendService) {
-    const clientEnv = backendService.clientEnv();
-    const health = await readBackendHealth({
-      baseUrl: clientEnv.LEAFCODE_PI_BACKEND_URL ?? `http://127.0.0.1:${DEFAULT_BACKEND_PORT}`,
-      token: clientEnv.LEAFCODE_PI_BACKEND_TOKEN,
-      expectedGeneration: backendService.status().generation ?? "",
-    });
-    if (health.ok !== true || health.ready !== true) {
-      error("Refusing to restart the WebUI as a Backend client while the Backend is not ready");
-      return;
-    }
   }
   restarting = true;
   log("Restarting LeafCodePi WebUI...");
@@ -1406,6 +1394,7 @@ async function main() {
   // or every tick while a build is running so progress still reads live.
   let maintenanceTick = 0;
   let backendHangStrikes = 0;
+  let backendHangProbeInFlight = false;
   setInterval(() => {
     maintenanceTick += 1;
     reconcileWebUiBinding().then(
@@ -1415,19 +1404,35 @@ async function main() {
     // Every 15s: if the Backend listens but stops answering health, kill and relaunch it.
     // A hung Backend left CLOSE_WAIT sockets and a live PID that served nothing; exit-only
     // restart never fired. Three timed-out probes (~45s) is enough to call it hung.
-    if (maintenanceTick % 3 === 0 && backendService?.status().state === "running" && !restarting && !quitting) {
+    // Skip while a probe is already in flight so slow health timeouts cannot stack restarts.
+    if (
+      maintenanceTick % 3 === 0 &&
+      backendService?.status().state === "running" &&
+      !restarting &&
+      !quitting &&
+      !backendHangProbeInFlight
+    ) {
       const clientEnv = backendService.clientEnv();
+      backendHangProbeInFlight = true;
       void readBackendHealth({
         baseUrl: clientEnv.LEAFCODE_PI_BACKEND_URL ?? `http://127.0.0.1:${DEFAULT_BACKEND_PORT}`,
         token: clientEnv.LEAFCODE_PI_BACKEND_TOKEN,
         expectedGeneration: backendService.status().generation ?? "",
       }).then((health) => {
+        // Another restart claimed the lock while we probed — discard strikes from that window.
+        if (restarting || quitting) {
+          backendHangStrikes = 0;
+          return;
+        }
         backendHangStrikes = nextBackendHangStrikes(backendHangStrikes, health);
         if (!backendHangShouldRestart(backendHangStrikes, BACKEND_HANG_STRIKE_LIMIT)) return;
         backendHangStrikes = 0;
         log("Backend health timed out repeatedly; restarting hung Backend...");
         void restartBackend();
-      }).catch((err) => maintenanceFailures.failure("Backend hang probe", err));
+      }).catch((err) => maintenanceFailures.failure("Backend hang probe", err))
+        .finally(() => {
+          backendHangProbeInFlight = false;
+        });
     }
     if (maintenanceTick % 3 !== 0 && !procRunning(webBuildProc)) return;
     refreshStatusMenu().then(

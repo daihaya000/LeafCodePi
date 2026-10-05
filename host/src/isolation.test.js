@@ -288,11 +288,22 @@ test("the WebUI is always the Backend's client", () => {
   assert.doesNotMatch(index, /webOwnership|LEAFCODE_PI_BACKEND_OWNS_RUNTIME/);
   const launch = index.slice(index.indexOf("async function spawnWeb("), index.indexOf("function scheduleWebRestart("));
   assert.match(launch, /async function spawnWeb\(\{ pull = true, forceBuild = false \} = \{\}\)/);
+  const block = index.slice(index.indexOf("async function webUiRestartBlockReason("), index.indexOf("async function backendRestartBlockReason("));
+  // Readiness is refused before 202 — never silently inside restartWeb after accept.
+  assert.match(block, /Backend が準備できていないため WebUI の再起動を拒否/);
+  assert.match(block, /health\.ok !== true \|\| health\.ready !== true/);
   const restart = index.slice(index.indexOf("async function restartWeb("), index.indexOf("async function restartHost("));
-  // A client WebUI only comes back when the Backend it depends on is genuinely ready.
-  assert.match(restart, /The WebUI is the Backend's client/);
-  assert.match(restart, /health\.ok !== true \|\| health\.ready !== true/);
-  assert.match(restart, /Refusing to restart the WebUI as a Backend client/);
+  assert.doesNotMatch(restart, /Refusing to restart the WebUI as a Backend client/);
+  assert.match(restart, /Do not re-check here/);
+});
+
+test("Backend hang-watch avoids overlapping probes and race restarts", () => {
+  const index = readFileSync(join(repoRoot, "host", "src", "index.js"), "utf8");
+  assert.match(index, /let backendHangProbeInFlight = false/);
+  assert.match(index, /!backendHangProbeInFlight/);
+  assert.match(index, /backendHangProbeInFlight = true/);
+  assert.match(index, /\.finally\(\(\) => \{\s*backendHangProbeInFlight = false/);
+  assert.match(index, /if \(restarting \|\| quitting\) \{\s*backendHangStrikes = 0/);
 });
 
 test("every service restart pulls latest sources first", () => {
