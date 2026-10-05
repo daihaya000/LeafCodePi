@@ -67,8 +67,42 @@ function useHashEntryBudget(budget: HashBudget): boolean {
 	return true;
 }
 
+/**
+ * Content hashes keyed by path and reused while the file's size, mtime (ns) and inode are unchanged,
+ * so a turn-end signature over a large dirty tree re-reads only files that actually changed.
+ * Bounded: the oldest entry is dropped first.
+ */
+const HASH_CACHE_LIMIT = 4_096;
+const hashCache = new Map<string, { stamp: string; hash: string }>();
+
+function fileStamp(filePath: string): string | undefined {
+	try {
+		const stat = fs.lstatSync(filePath, { bigint: true });
+		return `${stat.size}:${stat.mtimeNs}:${stat.ino}`;
+	} catch {
+		return undefined;
+	}
+}
+
 function hashFile(filePath: string): string {
-	return createHash("sha256").update(fs.readFileSync(filePath)).digest("hex");
+	const stamp = fileStamp(filePath);
+	const cached = stamp === undefined ? undefined : hashCache.get(filePath);
+	if (cached && cached.stamp === stamp) {
+		hashCache.delete(filePath);
+		hashCache.set(filePath, cached);
+		return cached.hash;
+	}
+	const hash = createHash("sha256").update(fs.readFileSync(filePath)).digest("hex");
+	// Stamp again after reading: a write that raced the read must not be cached under the old stamp.
+	if (stamp !== undefined && fileStamp(filePath) === stamp) {
+		hashCache.delete(filePath);
+		hashCache.set(filePath, { stamp, hash });
+		if (hashCache.size > HASH_CACHE_LIMIT) {
+			const oldest = hashCache.keys().next().value;
+			if (oldest !== undefined) hashCache.delete(oldest);
+		}
+	}
+	return hash;
 }
 
 function largeFileHash(stat: fs.Stats): string {
