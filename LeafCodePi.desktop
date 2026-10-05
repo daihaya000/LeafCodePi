@@ -4,7 +4,9 @@ Type=Application
 Name=LeafCodePi
 Comment=LeafCodePi Pi Coding Agent
 # Resolve the checkout from %k so clones and moved directories keep working.
-Exec=/bin/sh -c "exec \"$(dirname -- \"$1\")/scripts/launch-linux.sh\"" sh %k
+# Inside a quoted Exec argument `"` and `$` must be written as `\\"` and `\\$`
+# (desktop-entry spec); GLib otherwise cannot read the key and GNOME refuses the entry.
+Exec=/bin/sh -c "exec \\"\\$(dirname -- \\"\\$1\\")/scripts/launch-linux.sh\\"" sh %k
 Terminal=false
 StartupNotify=false
 Categories=Development;

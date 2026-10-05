@@ -1,4 +1,5 @@
 import { spawn } from "node:child_process";
+import * as fs from "node:fs";
 import { existsSync, writeFileSync } from "node:fs";
 
 const [timeoutValue, cancellationPath, command, ...args] = process.argv.slice(2);
@@ -26,24 +27,89 @@ if (cancellationPath !== "-" && child.pid) {
 }
 
 /**
+ * Linux: every live descendant of `roots` as pid -> start ticks (from /proc). A process that
+ * calls setsid (Node `detached: true`, Pi's own bash tool, `setsid`, daemons) leaves the child's
+ * process group, so `kill(-group)` alone never reaches it. Start ticks guard against PID reuse.
+ * Kept self-contained so it can be serialized into the reaper program below.
+ */
+function linuxDescendants(fsModule, roots) {
+  const out = new Map();
+  if (process.platform !== "linux") return out;
+  const children = new Map();
+  let names;
+  try { names = fsModule.readdirSync("/proc"); } catch { return out; }
+  const starts = new Map();
+  for (const name of names) {
+    if (!/^[0-9]+$/.test(name)) continue;
+    try {
+      const stat = fsModule.readFileSync("/proc/" + name + "/stat", "utf8");
+      const fields = stat.slice(stat.lastIndexOf(")") + 2).split(" ");
+      const pid = Number(name), ppid = Number(fields[1]);
+      starts.set(pid, fields[19]);
+      if (!children.has(ppid)) children.set(ppid, []);
+      children.get(ppid).push(pid);
+    } catch { /* exited while scanning */ }
+  }
+  const queue = [...roots];
+  while (queue.length > 0) {
+    const parent = queue.shift();
+    for (const pid of children.get(parent) ?? []) {
+      if (out.has(pid)) continue;
+      out.set(pid, starts.get(pid));
+      queue.push(pid);
+    }
+  }
+  return out;
+}
+
+/** Linux start ticks of one pid, or undefined once it is gone. Serialized with the helper above. */
+function linuxStartTicks(fsModule, pid) {
+  try {
+    const stat = fsModule.readFileSync("/proc/" + pid + "/stat", "utf8");
+    return stat.slice(stat.lastIndexOf(")") + 2).split(" ")[19];
+  } catch {
+    return undefined;
+  }
+}
+
+/**
  * Orphan guarantee when the caller and this watchdog are both SIGKILLed (127).
  * - Windows: the child is spawned non-detached, so libuv places it in its
  *   KILL_ON_JOB_CLOSE job object; killing this watchdog kills the child, and the
  *   child's own libuv job kills its non-detached descendants.
  * - POSIX: the child leads its own process group (detached), which outlives a
  *   SIGKILLed watchdog. A tiny detached reaper polls this watchdog and, once it
- *   is gone, SIGTERM→SIGKILLs the child's group. On a normal close the watchdog
- *   stops the reaper so previous semantics are unchanged.
+ *   is gone, SIGTERM→SIGKILLs the child's group. On Linux it also remembers every
+ *   descendant it has seen, so one that escaped into its own session (and was
+ *   reparented to init when the child died) is still killed. On a normal close the
+ *   watchdog stops the reaper so previous semantics are unchanged.
  */
 const REAPER_PROGRAM = [
+  "const fs = require('node:fs');",
+  `const linuxDescendants = ${linuxDescendants.toString()};`,
+  `const linuxStartTicks = ${linuxStartTicks.toString()};`,
   "const [watchdogPid, groupId] = process.argv.slice(1).map(Number);",
   "const alive = (pid) => { try { process.kill(pid, 0); return true; } catch (error) { return error.code === 'EPERM'; } };",
+  "const known = new Map();",
+  "const track = () => {",
+  "  for (const [pid, start] of linuxDescendants(fs, [groupId, ...known.keys()])) if (!known.has(pid)) known.set(pid, start);",
+  "  for (const [pid, start] of known) if (linuxStartTicks(fs, pid) !== start) known.delete(pid);",
+  "};",
+  "const signalAll = (signal) => {",
+  "  try { process.kill(-groupId, signal); } catch {}",
+  "  for (const [pid, start] of known) {",
+  "    if (linuxStartTicks(fs, pid) !== start) continue;",
+  "    try { process.kill(-pid, signal); } catch {}",
+  "    try { process.kill(pid, signal); } catch {}",
+  "  }",
+  "};",
   "const timer = setInterval(() => {",
-  "  if (!alive(-groupId)) { clearInterval(timer); process.exit(0); }",
+  "  track();",
+  "  if (!alive(-groupId) && known.size === 0) { clearInterval(timer); process.exit(0); }",
   "  if (alive(watchdogPid)) return;",
   "  clearInterval(timer);",
-  "  try { process.kill(-groupId, 'SIGTERM'); } catch {}",
-  "  setTimeout(() => { try { process.kill(-groupId, 'SIGKILL'); } catch {} process.exit(0); }, 500);",
+  "  signalAll('SIGTERM');",
+  "  setTimeout(() => { track(); signalAll('SIGKILL'); process.exit(0); }, 500);",
   "}, 200);",
 ].join("\n");
 
@@ -77,6 +143,9 @@ let cancelled = false;
 let terminating = false;
 let forceTimer;
 
+/** Descendants seen at termination time (Linux); they may have left the child's group via setsid. */
+let escapedDescendants = new Map();
+
 function signalTree(signal) {
   if (!child.pid) return;
   if (process.platform === "win32") {
@@ -87,10 +156,18 @@ function signalTree(signal) {
     killer.unref();
     return;
   }
+  for (const [pid, start] of linuxDescendants(fs, [child.pid, ...escapedDescendants.keys()])) {
+    if (!escapedDescendants.has(pid)) escapedDescendants.set(pid, start);
+  }
   try {
     process.kill(-child.pid, signal);
   } catch {
     try { child.kill(signal); } catch {}
+  }
+  for (const [pid, start] of escapedDescendants) {
+    if (linuxStartTicks(fs, pid) !== start) continue;
+    try { process.kill(-pid, signal); } catch {}
+    try { process.kill(pid, signal); } catch {}
   }
 }
 

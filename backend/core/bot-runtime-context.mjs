@@ -1,4 +1,4 @@
-import { basename, dirname } from "node:path";
+import { win32 } from "node:path";
 
 /**
  * Extension identity and the Bot's runtime context. `basenameKey` collapses an
@@ -7,8 +7,10 @@ import { basename, dirname } from "node:path";
  * application's own bundled extensions.
  */
 export function basenameKey(entryPath) {
-  const base = basename(entryPath);
-  if (/^index\.(ts|js|mjs|cjs)$/i.test(base)) return basename(dirname(entryPath));
+  // win32 parsing accepts both separators, so a Windows-form path (settings carried over from a
+  // Windows machine) collapses the same way on Linux instead of becoming "C:\\…\\index".
+  const base = win32.basename(entryPath);
+  if (/^index\.(ts|js|mjs|cjs)$/i.test(base)) return win32.basename(win32.dirname(entryPath));
   return base.replace(/\.(ts|js|mjs|cjs)$/i, "");
 }
 

@@ -49,7 +49,11 @@ test("POSIX tray helpers also isolate TMPDIR and restore it", async () => {
 test("Linux desktop launcher resolves its checkout from %k", () => {
   const desktop = readFileSync(join(repoRoot, "LeafCodePi.desktop"), "utf8");
   assert.match(desktop, /Exec=\/bin\/sh -c .* sh %k$/m);
-  assert.ok(desktop.includes('dirname -- \\\"$1\\\"'));
+  // Desktop-entry escaping: inside the quoted -c argument `"` and `$` are `\\"` / `\\$` in the file.
+  // The previous single-backslash form was unreadable to GLib (no command line at all).
+  assert.ok(desktop.includes('exec \\\\"\\\\$(dirname -- \\\\"\\\\$1\\\\")/scripts/launch-linux.sh\\\\"'));
+  const exec = desktop.split(/\r?\n/).find((line) => line.startsWith("Exec="));
+  assert.doesNotMatch(exec, /(?<!\\)\\[$"]/, "a lone backslash before $ or \" is an invalid desktop-entry escape");
   assert.doesNotMatch(desktop, /\/home\/daichi\//);
 });
 
@@ -208,8 +212,8 @@ test("tray menu offers Backend and Host restart beside WebUI", () => {
   assert.match(index, /title: "Restart WebUI"/);
   assert.match(index, /title: "Restart Backend"/);
   assert.match(index, /title: "Restart Host"/);
-  assert.match(index, /trayRequestRestart\("backend"\)/);
-  assert.match(index, /trayRequestRestart\("host"\)/);
+  assert.match(index, /trayRequestRestartSafely\("backend"\)/);
+  assert.match(index, /trayRequestRestartSafely\("host"\)/);
 });
 
 test("host restart relaunches through LeafCodePi.exe when available", () => {

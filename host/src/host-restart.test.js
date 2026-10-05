@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { spawnSync } from "node:child_process";
 import { setTimeout } from "node:timers/promises";
 import test from "node:test";
-import { buildHostRestartScript, buildHostRestartWaitProgram, consumeHostRestartBuild } from "./host-restart.js";
+import { buildHostRestartScript, buildHostRestartWaitProgram, consumeHostRestartBuild, hostStdoutLogFile } from "./host-restart.js";
 
 const lines = buildHostRestartScript({
   lockFile: "C:\\data\\host.lock",
@@ -52,6 +52,25 @@ test("the non-Windows waiter bounds the lock wait and relaunches once", () => {
   assert.match(program, /process\.argv\.slice\(1\)/);
   assert.doesNotMatch(program, /\/tmp\/host\.lock/);
   assert.doesNotMatch(program, /\/app\/host\/src/);
+});
+
+test("the non-Windows waiter builds with its defaults (index.js calls it without options)", () => {
+  // A required options object made every Linux Host restart throw before the waiter spawned.
+  const program = buildHostRestartWaitProgram();
+  assert.match(program, /const limit = 1200;/);
+  assert.match(program, /const grace = 15000;/);
+  assert.match(program, /stdio: 'inherit'/);
+});
+
+test("only a Linux stdout redirected to a regular file is reused for the replacement's log", () => {
+  const file = { isFile: () => true };
+  const tty = { isFile: () => false };
+  assert.equal(hostStdoutLogFile({ platform: "linux", readlink: () => "/home/u/.local/state/leafcode-pi/launcher.log", stat: () => file }), "/home/u/.local/state/leafcode-pi/launcher.log");
+  assert.equal(hostStdoutLogFile({ platform: "linux", readlink: () => "/dev/pts/0", stat: () => tty }), null);
+  assert.equal(hostStdoutLogFile({ platform: "linux", readlink: () => "pipe:[1234]", stat: () => file }), null);
+  assert.equal(hostStdoutLogFile({ platform: "linux", readlink: () => { throw new Error("no /proc"); } }), null);
+  assert.equal(hostStdoutLogFile({ platform: "linux", readlink: () => "/gone.log (deleted)", stat: () => { throw new Error("ENOENT"); } }), null);
+  assert.equal(hostStdoutLogFile({ platform: "darwin", readlink: () => "/x.log", stat: () => file }), null);
 });
 
 test("the non-Windows waiter launches once, and relaunches only when nobody owns the lock", async () => {

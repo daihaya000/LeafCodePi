@@ -5,6 +5,7 @@ import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { afterEach, test } from "node:test";
+import { fileURLToPath } from "node:url";
 import { readFile } from "node:fs/promises";
 import { createBackendMcpCredentialOwner } from "./mcp-native-credential-owner.mjs";
 import { createBackendMcpCredentials } from "./mcp-native-credentials.mjs";
@@ -14,7 +15,9 @@ import { resolveBackendMcpNativeSession, setBackendMcpNativeSessionProvider } fr
 afterEach(() => setBackendMcpNativeSessionProvider(undefined));
 
 const safe = (e) => e instanceof Error && e.message === "MCP native runtime unavailable" && e.cause === undefined;
-const realBundle = resolve("backend/core/mcp-defaults.json");
+// Resolve beside this file: `npm --prefix backend test` runs with cwd=backend, where a cwd-relative
+// "backend/core/…" path does not exist.
+const realBundle = fileURLToPath(new URL("./mcp-defaults.json", import.meta.url));
 
 // node:test runs after-hooks in registration order: remove the directory only after child cleanup hooks.
 const removeRoot = (t, root) => t.after(() => rm(root, { recursive: true, force: true, maxRetries: 30, retryDelay: 100 }));
