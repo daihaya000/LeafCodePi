@@ -1610,6 +1610,45 @@ describe("TaskView draft submission", () => {
     expect(screen.queryByText(/セッションを準備しています/)).toBeNull();
   });
 
+  it("clears session hydration after repeated transport SSE failures", async () => {
+    class TestEventSource extends EventTarget {
+      static instances: TestEventSource[] = [];
+      constructor() {
+        super();
+        TestEventSource.instances.push(this);
+      }
+      close() {}
+    }
+    vi.stubGlobal("EventSource", TestEventSource);
+    render(<TaskView taskId={task.id} mdUp />);
+    await waitFor(() => {
+      expect(screen.getByText(/セッションを準備しています/)).toBeTruthy();
+    });
+    vi.useFakeTimers();
+    try {
+      const failAndReconnect = async (index: number, delayMs: number) => {
+        const current = TestEventSource.instances[index];
+        if (!current) throw new Error(`EventSource ${index} was not created`);
+        await act(async () => {
+          current.dispatchEvent(new Event("error"));
+        });
+        await act(async () => {
+          vi.advanceTimersByTime(delayMs);
+        });
+      };
+      await failAndReconnect(0, 1_000);
+      await failAndReconnect(1, 2_000);
+      const third = TestEventSource.instances[2];
+      if (!third) throw new Error("Third EventSource was not created");
+      await act(async () => {
+        third.dispatchEvent(new Event("error"));
+      });
+      expect(screen.queryByText(/セッションを準備しています/)).toBeNull();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("auto-resumes a silent turn only after its agent_settled snapshot", async () => {
     class TestEventSource extends EventTarget {
       static latest: TestEventSource | null = null;
@@ -2760,6 +2799,64 @@ describe("TaskView draft submission", () => {
         data: JSON.stringify({
           eventType: "remote_poll",
           task: { ...task, sessionId: "session-1", status: "working" },
+          permissionRequest: permission,
+        }),
+      }));
+    });
+    expect(screen.queryByRole("button", { name: "許可" })).toBeNull();
+  });
+
+  it("clears permission UI on Stop and does not revive it from a stale SSE snapshot", async () => {
+    class TestEventSource extends EventTarget {
+      static latest: TestEventSource | null = null;
+      constructor() {
+        super();
+        TestEventSource.latest = this;
+      }
+      close() {}
+    }
+    vi.stubGlobal("EventSource", TestEventSource);
+    mocks.sendJson.mockImplementation(async (url: string) => {
+      if (String(url).includes("/abort")) {
+        return { task: { ...task, status: "idle", isStreaming: false } };
+      }
+      return {};
+    });
+    render(<TaskView taskId={task.id} mdUp />);
+    const source = TestEventSource.latest;
+    if (!source) throw new Error("EventSource was not created");
+
+    const permission = {
+      id: "request-stop-1",
+      sessionId: "session-1",
+      command: "echo test",
+      labels: [],
+      message: "許可が必要です",
+    };
+    await act(async () => {
+      source.dispatchEvent(new MessageEvent("snapshot", {
+        data: JSON.stringify({
+          eventType: "ready",
+          task: { ...task, sessionId: "session-1", status: "working", messages: [], isStreaming: true },
+          messages: [],
+          permissionRequest: permission,
+        }),
+      }));
+    });
+    expect(await screen.findByRole("button", { name: "許可" })).toBeTruthy();
+    fireEvent.click(await screen.findByRole("button", { name: "停止" }));
+    await waitFor(() => {
+      expect(mocks.sendJson).toHaveBeenCalledWith(`/api/tasks/${task.id}/abort`, {});
+    });
+    await waitFor(() => {
+      expect(screen.queryByRole("button", { name: "許可" })).toBeNull();
+    });
+
+    await act(async () => {
+      source.dispatchEvent(new MessageEvent("snapshot", {
+        data: JSON.stringify({
+          eventType: "remote_poll",
+          task: { ...task, sessionId: "session-1", status: "idle", isStreaming: false },
           permissionRequest: permission,
         }),
       }));

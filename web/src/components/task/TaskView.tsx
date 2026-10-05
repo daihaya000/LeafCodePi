@@ -189,6 +189,8 @@ import {
 import { applyGoalLoopSummaryToDetail } from "@/lib/goal-loop-detail-sync";
 
 const MODEL_KEY = "leafcodepi.defaultModel";
+/** Match BotView: release hydration after this many transport reconnect failures. */
+const TASK_SSE_DISCONNECTED_AFTER_ATTEMPTS = 3;
 const USER_OWNERSHIP_OPTION = "__user_ownership__";
 /** Safety-net poll for the worktree change count; task mutations also refresh it immediately. */
 const WORKTREE_STATUS_POLL_MS = 10_000;
@@ -1574,6 +1576,12 @@ export const TaskView = memo(function TaskView({
         source = closeSseSource(nextSource);
         retryTimer = cancelPendingSseReconnect(retryTimer);
         retryCount += 1;
+        // cache_ready / bootstrap keep hydrating=true until ready. If the Backend
+        // never answers, release the gate so drain / resume / composer are not
+        // blocked forever behind "セッションを準備しています".
+        if (retryCount >= TASK_SSE_DISCONNECTED_AFTER_ATTEMPTS) {
+          setSessionHydrating(false);
+        }
         const delay = sseReconnectDelayMs(retryCount);
         retryTimer = setTimeout(connect, delay);
       });
@@ -2689,6 +2697,18 @@ export const TaskView = memo(function TaskView({
           ...(goalLoop !== current.goalLoop ? { goalLoop } : {}),
         };
       });
+      // Abort clears server attention; if SSE is down the permission/question
+      // cards would otherwise stick until a later snapshot. Latch ids so a
+      // stale reconnect snapshot cannot revive the same cards.
+      setPermissionRequest((current) => {
+        if (current) clearedPermissionIdsRef.current.add(current.id);
+        return null;
+      });
+      setQuestionRequest((current) => {
+        if (current) clearedQuestionIdsRef.current.add(current.id);
+        return null;
+      });
+      setPermissionBusy(false);
       notifyTasksChanged();
     } catch (err) {
       stopRequestedRef.current = false;
