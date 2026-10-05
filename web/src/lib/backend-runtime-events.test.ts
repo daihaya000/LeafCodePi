@@ -1,5 +1,5 @@
 import { expect, it, vi } from "vitest";
-import { endOnUpstreamError, forwardRuntimeEventStream } from "./backend-runtime-events";
+import { endOnUpstreamError, forwardRuntimeEventStream, runtimeEventsDispatcher } from "./backend-runtime-events";
 const env = { LEAFCODE_PI_BACKEND_URL: "http://owner.invalid", LEAFCODE_PI_BACKEND_TOKEN: "private-test-token" };
 it("proxies the owner stream without exposing private headers", async () => {
   const fetchImpl = vi.fn(async () => new Response('event: routine\ndata: {"ok":true}\n\n', { headers: { "content-type": "text/event-stream", "x-leafcode-backend-protocol": "1", authorization: "private-test-token" } }));
@@ -38,4 +38,13 @@ it("browser cancel releases the Backend stream", async () => {
   const reader = endOnUpstreamError(upstream).getReader();
   await reader.cancel("browser closed");
   expect(cancel).toHaveBeenCalledWith("browser closed");
+});
+it("SSE fetch disables undici bodyTimeout so quiet heartbeats are not killed", async () => {
+  const fetchImpl = vi.fn(async (_url, init) => {
+    expect((init as { dispatcher?: unknown }).dispatcher).toBe(runtimeEventsDispatcher);
+    return new Response(": connected\n\n", { headers: { "content-type": "text/event-stream", "x-leafcode-backend-protocol": "1" } });
+  });
+  expect((await forwardRuntimeEventStream(new AbortController().signal, { env, fetchImpl })).status).toBe(200);
+  // bodyTimeout: 0 disables the 300s inter-chunk kill that stormed reconnects against a hung Backend.
+  expect((runtimeEventsDispatcher as unknown as { closed?: boolean }).closed).not.toBe(true);
 });

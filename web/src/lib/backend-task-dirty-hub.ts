@@ -1,4 +1,5 @@
 import { backendBaseUrl, type BackendEnv } from "@/lib/backend-client";
+import { runtimeEventsDispatcher } from "@/lib/backend-runtime-events";
 import {
   BACKEND_PROTOCOL_HEADER,
   BACKEND_PROTOCOL_VERSION,
@@ -78,7 +79,8 @@ async function runPump(signal: AbortSignal, env: BackendEnv, fetchImpl: typeof f
       },
       signal: AbortSignal.any([signal, deadline.signal]),
       cache: "no-store",
-    });
+      dispatcher: runtimeEventsDispatcher,
+    } as RequestInit);
   } finally {
     clearTimeout(timer);
   }
