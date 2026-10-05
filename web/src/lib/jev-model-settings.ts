@@ -56,7 +56,9 @@ export function normalizeJevModelSettings(value: unknown): JevModelSettings {
         (item) => typeof item !== "string" || !item || item.length > 256 || /[\s\u0000-\u001f\u007f]/u.test(item),
       )) throw new Error("検出済みJevモデルの指定が不正です");
     return {
-      providerId: ref.providerId as string, modelId: ref.modelId as string,
+      providerId: ref.providerId as string,
+      // Normalize the old LeafCodeCloud selection without rewriting saved settings.
+      modelId: ref.providerId === "leafcodecloud" && ref.modelId === "jev-latest" ? "LeafJev" : ref.modelId as string,
       ...(ref.accountId === undefined ? {} : { accountId: ref.accountId as string }),
     };
   };

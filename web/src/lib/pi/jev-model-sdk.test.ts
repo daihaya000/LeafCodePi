@@ -56,25 +56,28 @@ describe("Jev discovery against the installed SDK contract", () => {
     // A live runtime may still contain the previous, wrongly registered chat rows.
     rt.registerProvider("leafcodecloud", {
       baseUrl: "https://leaf.example/v1", apiKey: "leaf-test-key",
-      models: ["LeafJev", "LeafJevSub"].map((id) => ({
-        ...classifier(id, "https://leaf.example/v1"), type: "chat" as const,
-        api: "openai-completions" as const, reasoning: false, maxTokens: 32_768,
-      })),
+      models: [
+        ...["LeafJev", "LeafJevSub"].map((id) => ({
+          ...classifier(id, "https://leaf.example/v1"), type: "chat" as const,
+          api: "openai-completions" as const, reasoning: false, maxTokens: 32_768,
+        })),
+        classifier("jev-latest", "https://leaf.example/v1"),
+      ],
     });
     await syncRemoteProvider(rt);
     expect(rt.getModels("leafcodecloud").map((model) => model.id)).toEqual(["LeafModel", "LeafModelSub"]);
     expect(rt.getModelsOfType("classifier", "leafcodecloud")).toMatchObject([
-      { id: "jev-latest", name: "LeafJev", api: "typesafe-system-one", baseUrl: "https://leaf.example/v1" },
+      { id: "LeafJev", name: "LeafJev", api: "typesafe-system-one", baseUrl: "https://leaf.example/v1" },
       { id: "LeafJevSub", name: "LeafJevSub", api: "typesafe-system-one", baseUrl: "https://leaf.example/v1" },
     ]);
     const noCatalog = noNetwork();
     const models = await discoverJevModels(rt, { providerIds: ["leafcodecloud"] }, noCatalog);
     expect(models).toMatchObject([
-      { providerId: "leafcodecloud", modelId: "jev-latest", name: "LeafJev", baseUrl: "https://leaf.example/v1" },
+      { providerId: "leafcodecloud", modelId: "LeafJev", name: "LeafJev", baseUrl: "https://leaf.example/v1" },
       { providerId: "leafcodecloud", modelId: "LeafJevSub", name: "LeafJevSub", baseUrl: "https://leaf.example/v1" },
     ]);
     expect(await resolveRegisteredJevConnection(rt, models[0], noCatalog)).toEqual({
-      baseUrl: "https://leaf.example/v1", model: "jev-latest", apiKey: "leaf-test-key", headers: {},
+      baseUrl: "https://leaf.example/v1", model: "LeafJev", apiKey: "leaf-test-key", headers: {},
     });
     expect(await resolveRegisteredJevConnection(rt, models[1], noCatalog)).toMatchObject({
       baseUrl: "https://leaf.example/v1", model: "LeafJevSub", apiKey: "leaf-test-key",
@@ -90,7 +93,7 @@ describe("Jev discovery against the installed SDK contract", () => {
     await syncRemoteProvider(rt);
     expect(rt.getModels("leafcodecloud")).toEqual([]);
     expect(await discoverJevModels(rt, { providerIds: ["leafcodecloud"] }, noCatalog)).toMatchObject([
-      { modelId: "jev-latest", baseUrl: "https://leaf.example/v1" },
+      { modelId: "LeafJev", baseUrl: "https://leaf.example/v1" },
     ]);
   });
 

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { DEFAULT_JEV_MODEL_SETTINGS, enabledJevModelKeys, hasUsableJevModel } from "./jev-model-settings";
+import { DEFAULT_JEV_MODEL_SETTINGS, enabledJevModelKeys, hasUsableJevModel, normalizeJevModelSettings } from "./jev-model-settings";
 import { jevModelKey, type JevCatalogModel } from "./jev-model-catalog";
 
 const row = (patch: Partial<JevCatalogModel>): JevCatalogModel => ({
@@ -15,6 +15,18 @@ describe("enabledJevModelKeys", () => {
     expect(enabledJevModelKeys(settings, [row({}), row({ modelId: "jev-other" })])).toEqual(new Set([jevModelKey(detected)]));
     expect(enabledJevModelKeys(settings, [])).toEqual(new Set());
     expect(settings.enabledModels).toEqual([missing, detected]);
+  });
+
+  it("matches normalized LeafCodeCloud selections without enabling Sub as a replacement", () => {
+    const settings = normalizeJevModelSettings({
+      ...DEFAULT_JEV_MODEL_SETTINGS, provider: "registered",
+      registeredModel: { providerId: "leafcodecloud", modelId: "jev-latest" },
+    });
+    const main = row({ providerId: "leafcodecloud", modelId: "LeafJev", name: "LeafJev" });
+    const sub = row({ providerId: "leafcodecloud", modelId: "LeafJevSub", name: "LeafJevSub" });
+    expect(enabledJevModelKeys(settings, [main, sub])).toEqual(new Set([jevModelKey(main)]));
+    expect(enabledJevModelKeys(settings, [sub])).toEqual(new Set());
+    expect(hasUsableJevModel({ settings, models: [{ ...main, providerEnabled: false }, sub] })).toBe(false);
   });
 
   it("matches account-specific keys and retains detected selections under disabled providers", () => {

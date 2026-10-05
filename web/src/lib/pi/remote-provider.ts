@@ -11,7 +11,7 @@ export { REMOTE_PROVIDER_BASE } from "@/lib/provider-endpoints";
 export const REMOTE_PROVIDER_ID = "leafcodecloud";
 export const REMOTE_PROVIDER_API_KEY_ENV = "LEAFCODECLOUD_API_KEY";
 const REMOTE_CONTEXT_WINDOW = 131_072;
-const REMOTE_JEV_MODEL_ID = "jev-latest";
+const REMOTE_JEV_MODEL_ID = "LeafJev";
 
 /** Resolve the LeafCodeCloud API key: `~/.pi/agent/auth.json` takes precedence over the env var. */
 function remoteProviderApiKey(): string | undefined {
@@ -84,10 +84,9 @@ export function classifierRows(body: unknown, baseUrl = REMOTE_PROVIDER_BASE): C
   for (const row of rows) {
     if (!isRecord(row) || !validModelId(row.id) || !hasSystemOneEndpoint(row)) continue;
     if (row.type !== undefined && !["classifier", "jev", "chat", "model"].includes(String(row.type))) continue;
-    // Keep the existing GPU1 setting usable without rewriting user selections.
-    const mainAlias = row.gpu === 1 && Array.isArray(row.aliases) && row.aliases.includes(REMOTE_JEV_MODEL_ID);
-    const id = mainAlias || row.id === "LeafJev" ? REMOTE_JEV_MODEL_ID : row.id;
-    const name = typeof row.name === "string" && row.name.trim() ? row.name.slice(0, 256) : row.id;
+    // Keep public IDs for both GPUs; the old catalog alias has a named fallback.
+    const id = row.id === "jev-latest" ? REMOTE_JEV_MODEL_ID : row.id;
+    const name = typeof row.name === "string" && row.name.trim() ? row.name.slice(0, 256) : id;
     found.set(id, classifierRow(id, name, baseUrl));
   }
   return [...found.values()];

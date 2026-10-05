@@ -38,6 +38,27 @@ describe("Jev model configuration", () => {
     expect(() => readJevModelSettings()).toThrow();
   });
 
+  it.each([false, true])("reads old LeafCodeCloud selections by public ID without rewriting the store (multiple=%s)", (multiple) => {
+    const main = { providerId: "leafcodecloud", modelId: "jev-latest", accountId: "one" };
+    const sub = { providerId: "leafcodecloud", modelId: "LeafJevSub" };
+    const raw = JSON.stringify({
+      ...DEFAULT_JEV_MODEL_SETTINGS, provider: "registered", registeredModel: main,
+      ...(multiple ? { enabledModels: [main, sub] } : {}),
+    });
+    store.set(JEV_MODEL_SETTING_KEY, raw);
+    const settings = readJevModelSettings();
+    expect(settings.registeredModel).toEqual({ ...main, modelId: "LeafJev" });
+    expect(settings.enabledModels).toEqual(multiple ? [{ ...main, modelId: "LeafJev" }, sub] : undefined);
+    expect(settings.typesafeModel).toBe("jev-latest");
+    expect(settings.compatibleModel).toBe("jev-latest");
+    expect(store.get(JEV_MODEL_SETTING_KEY)).toBe(raw);
+  });
+
+  it.each(["typesafe", "openrouter", "commandcode", "custom-systemone"])("does not rename another provider's jev-latest reference (%s)", (providerId) => {
+    const registeredModel = { providerId, modelId: "jev-latest" };
+    expect(normalizeJevModelSettings({ ...DEFAULT_JEV_MODEL_SETTINGS, provider: "registered", registeredModel }).registeredModel).toEqual(registeredModel);
+  });
+
   it("normalizes a base URL and drops unrecognized fields", () => {
     expect(normalizeJevModelSettings({ ...compatible, compatibleBaseUrl: " http://LOCALHOST:8080/v1/ ", extra: "ignored" })).toEqual(compatible);
   });

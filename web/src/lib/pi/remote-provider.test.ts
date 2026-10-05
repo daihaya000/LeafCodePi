@@ -14,7 +14,13 @@ import {
 
 const dirs: string[] = [];
 
-beforeEach(() => vi.stubEnv(REMOTE_PROVIDER_API_KEY_ENV, "test-api-key"));
+beforeEach(() => {
+  const dir = mkdtempSync(join(tmpdir(), "leafcode-pi-rp-"));
+  dirs.push(dir);
+  vi.stubEnv("PI_CODING_AGENT_DIR", dir);
+  vi.stubEnv("LEAFCODE_PI_DATA_DIR", dir);
+  vi.stubEnv(REMOTE_PROVIDER_API_KEY_ENV, "test-api-key");
+});
 afterEach(() => {
   vi.unstubAllGlobals();
   vi.unstubAllEnvs();
@@ -72,7 +78,7 @@ describe("remote-provider", () => {
     ] }).map(({ id }) => id)).toEqual(["LeafModel", "LeafModelSub"]);
   });
 
-  it("discovers both classifiers and preserves the main alias and trusted endpoint", () => {
+  it("discovers both classifiers by public ID and preserves the trusted endpoint", () => {
     const rows = classifierRows({ classifiers: [
       { id: "MainJudge", name: "MainJudge", gpu: 1, aliases: ["jev-latest"], api: "typesafe-system-one", type: "classifier", baseUrl: "https://untrusted.example/v1" },
       { id: "LeafJevSub", name: "LeafJevSub", gpu: 2, api: "typesafe-system-one", type: "classifier" },
@@ -80,10 +86,11 @@ describe("remote-provider", () => {
       { id: "image", type: "image", api: "systemone" }, { id: "has space", api: "systemone" },
     ] }, "https://trusted.example/v1");
     expect(rows).toMatchObject([
-      { id: "jev-latest", name: "MainJudge", type: "classifier", api: "typesafe-system-one", baseUrl: "https://trusted.example/v1" },
+      { id: "MainJudge", name: "MainJudge", type: "classifier", api: "typesafe-system-one", baseUrl: "https://trusted.example/v1" },
       { id: "LeafJevSub", name: "LeafJevSub", type: "classifier", api: "typesafe-system-one", baseUrl: "https://trusted.example/v1" },
     ]);
-    expect(classifierRows({ data: [{ id: "LeafJev", type: "jev", api: "systemone" }] })[0].id).toBe("jev-latest");
+    expect(classifierRows({ data: [{ id: "LeafJev", type: "jev", api: "systemone" }] })[0].id).toBe("LeafJev");
+    expect(classifierRows({ data: [{ id: "jev-latest", type: "jev", api: "systemone" }] })[0]).toMatchObject({ id: "LeafJev", name: "LeafJev" });
   });
 
   it("registers split server catalogs without a duplicate legacy classifier", async () => {
@@ -98,7 +105,7 @@ describe("remote-provider", () => {
     await syncRemoteProvider({ getProvider: () => undefined, registerProvider });
     expect(registerProvider.mock.calls[0][1].models).toMatchObject([
       { id: "LeafModel", api: "openai-completions" }, { id: "LeafModelSub", api: "openai-completions" },
-      { id: "jev-latest", name: "LeafJev", type: "classifier" },
+      { id: "LeafJev", name: "LeafJev", type: "classifier" },
       { id: "LeafJevSub", name: "LeafJevSub", type: "classifier" },
     ]);
     expect(registerProvider.mock.calls[0][1].models).toHaveLength(4);
@@ -118,7 +125,7 @@ describe("remote-provider", () => {
     await syncRemoteProvider({ getProvider: () => undefined, registerProvider });
     expect(registerProvider).toHaveBeenCalledWith("leafcodecloud", expect.objectContaining({
       models: [expect.objectContaining({
-        id: "jev-latest", name: "LeafJev", type: "classifier", api: "typesafe-system-one",
+        id: "LeafJev", name: "LeafJev", type: "classifier", api: "typesafe-system-one",
         baseUrl: REMOTE_PROVIDER_BASE,
       })],
     }));
@@ -143,7 +150,7 @@ describe("remote-provider", () => {
       expect.objectContaining({
         models: [
           expect.objectContaining({ id: "updated-model" }),
-          expect.objectContaining({ id: "jev-latest", name: "LeafJev", type: "classifier", api: "typesafe-system-one" }),
+          expect.objectContaining({ id: "LeafJev", name: "LeafJev", type: "classifier", api: "typesafe-system-one" }),
         ],
       }),
     );
@@ -170,7 +177,7 @@ describe("remote-provider", () => {
         baseUrl: REMOTE_PROVIDER_BASE,
         models: [
           expect.objectContaining({ id: "remote-model" }),
-          expect.objectContaining({ id: "jev-latest", type: "classifier", baseUrl: REMOTE_PROVIDER_BASE }),
+          expect.objectContaining({ id: "LeafJev", type: "classifier", baseUrl: REMOTE_PROVIDER_BASE }),
         ],
       }),
     );
@@ -216,7 +223,7 @@ describe("remote-provider", () => {
       expect.objectContaining({
         models: [
           expect.objectContaining({ id: "auth-model" }),
-          expect.objectContaining({ id: "jev-latest", type: "classifier" }),
+          expect.objectContaining({ id: "LeafJev", type: "classifier" }),
         ],
       }),
     );
@@ -242,7 +249,7 @@ describe("remote-provider", () => {
 
     expect(fetch).toHaveBeenCalledWith(
       "https://custom.example/v1/models",
-      expect.any(Object),
+      expect.objectContaining({ headers: { Authorization: "Bearer test-api-key" } }),
     );
     expect(registerProvider).toHaveBeenCalledWith(
       "leafcodecloud",
@@ -250,7 +257,7 @@ describe("remote-provider", () => {
         baseUrl: "https://custom.example/v1",
         models: [
           expect.objectContaining({ id: "custom-model" }),
-          expect.objectContaining({ id: "jev-latest", type: "classifier", baseUrl: "https://custom.example/v1" }),
+          expect.objectContaining({ id: "LeafJev", type: "classifier", baseUrl: "https://custom.example/v1" }),
         ],
       }),
     );
