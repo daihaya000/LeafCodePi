@@ -179,7 +179,7 @@ import {
   shouldQueueFollowUp,
   shouldRestoreQueuedFollowUpOnFailure,
 } from "@/lib/queued-follow-up";
-import { isHangRetryUserMessage } from "@/lib/hang-retry";
+import { hangRetryNoticeCount, isHangRetryUserMessage } from "@/lib/hang-retry";
 import { mergeTaskDelta, type TaskDeltaState } from "@/lib/task-delta";
 import {
   cancelPendingSseReconnect,
@@ -2699,6 +2699,8 @@ export const TaskView = memo(function TaskView({
 
   const resumeTurn = useCallback(async (target: ResumableTurn, manual = false) => {
     if (working || resumingTurn || archived) return false;
+    // Auto-resume must not defeat a latched User Stop; manual Resume clears it below.
+    if (!manual && stopRequestedRef.current) return false;
     const wasStopped = stopRequestedRef.current;
     if (manual) {
       stopRequestedRef.current = false;
@@ -2897,7 +2899,6 @@ export const TaskView = memo(function TaskView({
   // 表示用フィルタとヘッダー統計はこの memo でまとめて集計し、履歴を走査する memo を増やさない。
   const {
     visibleMessages,
-    detectedHangRetryCount,
     userMessageIds,
     navigationMessageIds,
     stats,
@@ -2905,15 +2906,12 @@ export const TaskView = memo(function TaskView({
     const visible: UiMessage[] = [];
     const userIds: string[] = [];
     const fallbackIds: string[] = [];
-    let detectedHangRetryCount = 0;
     let durationMs = 0;
     let prevCreatedAt: number | null = null;
     for (const message of messages) {
-      const hangRetry = isHangRetryUserMessage(message);
-      if (hangRetry) {
-        detectedHangRetryCount += 1;
-        continue;
-      }
+      // Hang-retry prompts are hidden from the timeline; the notice uses the
+      // live server counter (see hangRetryNoticeCount), not a transcript tally.
+      if (isHangRetryUserMessage(message)) continue;
       visible.push(message);
       if (message.role === "user") userIds.push(message.id);
       else if (message.role !== "compaction") fallbackIds.push(message.id);
@@ -2927,7 +2925,6 @@ export const TaskView = memo(function TaskView({
     const { outputTokens: totalOutputTokens, avgRate } = summarizeThroughput(visible);
     return {
       visibleMessages: visible,
-      detectedHangRetryCount,
       userMessageIds: userIds,
       navigationMessageIds: userIds.length > 0 ? userIds : fallbackIds,
       stats: {
@@ -2956,7 +2953,9 @@ export const TaskView = memo(function TaskView({
     !sseReconnecting &&
     !working &&
     !archived &&
-    !goalLoopVisible;
+    !goalLoopVisible &&
+    // User Stop latches stopRequested to block silent auto-resume / drain.
+    !stopRequested;
   useEffect(() => {
     if (
       !settledSilentMessageId ||
@@ -3037,7 +3036,9 @@ export const TaskView = memo(function TaskView({
         {resumingTurn ? "再開中…" : "再開"}
       </Button>
     ) : null;
-  const autoHangRetryCount = Math.max(hangRetryCount, detectedHangRetryCount);
+  // Prefer the live server counter (reset on the next real turn). Do not use the
+  // transcript-wide hang-retry tally — that kept the banner up forever.
+  const autoHangRetryCount = hangRetryNoticeCount(hangRetryCount, messages);
   const hangRetryNotice =
     autoHangRetryCount > 0
       ? `応答が${formatHangTimeout(readHangTimeoutMs())}間止まったため自動的に停止し、設定した方法で再開しました${
