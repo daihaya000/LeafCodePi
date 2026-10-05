@@ -53,6 +53,47 @@ const LARGE_FILE_SCAN_MAX_BYTES = 16_000_000;
 /** 末尾窓に会話が無い時（巨大な1行で窓が埋まる等）の再試行サイズ。 */
 const LARGE_TAIL_RETRY_BYTES = 16_000_000;
 
+/**
+ * Sidebar poll budget (BUGS-PERF 114). One GET /api/bots/sidebar may touch every
+ * Bot session file; without a hard cap a changed-poll of many large sessions can
+ * read ~N × 4MB. Cap total bytes and files per poll; skip remaining previews.
+ */
+export const SESSION_PREVIEW_POLL_BUDGET_BYTES = 8_000_000;
+export const SESSION_PREVIEW_POLL_MAX_FILES = 24;
+
+export type SessionPreviewBudget = {
+  remainingBytes: number;
+  remainingFiles: number;
+  tryConsume(bytes: number): boolean;
+};
+
+export function createSessionPreviewBudget(
+  maxBytes = SESSION_PREVIEW_POLL_BUDGET_BYTES,
+  maxFiles = SESSION_PREVIEW_POLL_MAX_FILES,
+): SessionPreviewBudget {
+  return {
+    remainingBytes: maxBytes,
+    remainingFiles: maxFiles,
+    tryConsume(bytes: number): boolean {
+      if (this.remainingFiles <= 0) return false;
+      const cost = Math.max(0, Math.floor(bytes));
+      if (cost > this.remainingBytes) return false;
+      this.remainingBytes -= cost;
+      this.remainingFiles -= 1;
+      return true;
+    },
+  };
+}
+
+/** Bytes a last-message preview would read for a file of the given size. */
+export function sessionPreviewReadCost(size: number): number {
+  if (size <= LAST_MESSAGE_FULL_READ_BYTES) return size;
+  // Prefer the 1MB tail; only the rare widen path charges the 4MB window.
+  // Budget accounting uses the common-case cost so a single huge line cannot
+  // alone exhaust the poll (the widen still happens when we do read).
+  return Math.min(size, LAST_MESSAGE_TAIL_BYTES);
+}
+
 /** 末尾 maxBytes だけを読む。先頭の部分行は捨てる。失敗時は null。 */
 function readTailText(sessionFile: string, maxBytes: number): string | null {
   let fd = -1;
@@ -409,8 +450,12 @@ function readLastMessageContent(sessionFile: string, size: number): string | nul
  * 最後の発言をセッションファイルから読む（サイドバープレビュー用）。
  * ランタイム初期化・Piセッション生成を伴わないため、Bot一覧の初回表示が
  * getTaskDetail（ensureLive）の 17 秒級のコールドを踏まない。
+ * `budget` があるとき、残量不足ならキャッシュヒット以外は読まず null。
  */
-export function readSessionLastMessage(sessionFile: string | null | undefined): SessionLastMessage | null {
+export function readSessionLastMessage(
+  sessionFile: string | null | undefined,
+  budget?: SessionPreviewBudget,
+): SessionLastMessage | null {
   if (!sessionFile || !existsSync(sessionFile)) return null;
   try {
     const stats = statSync(sessionFile);
@@ -418,6 +463,9 @@ export function readSessionLastMessage(sessionFile: string | null | undefined): 
     const cached = lastMessageCache.get(sessionFile);
     if (cached && cached.mtimeMs === stats.mtimeMs && cached.size === stats.size) {
       return cached.value;
+    }
+    if (budget && !budget.tryConsume(sessionPreviewReadCost(stats.size))) {
+      return null;
     }
     const content = readLastMessageContent(sessionFile, stats.size);
     if (content === null) {

@@ -1510,6 +1510,33 @@ test("a newer snapshot cancels an older asynchronous rename retry", async () => 
   }
 });
 
+test("rename retry after a transient lock commits through the async rename path", async () => {
+  const cwd = mkdtempSync(join(tmpdir(), "leafcode-goal-loop-async-retry-"));
+  process.env.LEAFCODE_PI_DATA_DIR = cwd;
+  const goalsDir = join(cwd, "goals-loop");
+  const loop = baseWriteLoop(cwd, "async-retry-session");
+  try {
+    let attempts = 0;
+    goalLoopTestSeams.setRenameSync(() => {
+      attempts += 1;
+      // Drop the seam so the retry runs the real fs.promises.rename (BUGS-PERF 109).
+      goalLoopTestSeams.setRenameSync();
+      const error = new Error("temporarily locked");
+      error.code = "EBUSY";
+      throw error;
+    });
+    const pending = applyResult(loop, { time: new Date().toISOString(), status: "progress", summary: "async retry" });
+    assert.equal(typeof pending.then, "function");
+    assert.equal(await pending, true);
+    assert.equal(attempts, 1);
+    assert.equal(JSON.parse(readFileSync(join(goalsDir, "async-retry-session.json"), "utf8")).summary, "async retry");
+    assert.equal(readdirSync(goalsDir).some((name) => name.endsWith(".tmp")), false);
+  } finally {
+    goalLoopTestSeams.setRenameSync();
+    rmSync(cwd, { recursive: true, force: true });
+  }
+});
+
 test("successful writeLoop removes orphan temp snapshots for the same state file", () => {
   const cwd = mkdtempSync(join(tmpdir(), "leafcode-goal-loop-orphan-tmp-"));
   process.env.LEAFCODE_PI_DATA_DIR = cwd;

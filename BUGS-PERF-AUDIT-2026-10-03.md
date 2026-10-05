@@ -19,12 +19,12 @@
 | 3. 最終監査 | 10/15〜16。全項目を再確認し最終件数とPushを確認 | 未着手。 |
 
 ### 引き継ぐ既知の判断待ち・受入待ち
-- 91: Windows上のHost再起動E2Eまたは同等の隔離受入試験。
-- 105: llama-serverが使える外付け・任意ローカルモデル置き場の許可範囲をユーザー判断。
-- 109: Goal Loopの同期rename retryに残る約39ms停止を、非同期化するか制約として受容するか判断。
-- 114: session previewのローカル負荷測定は完了したが実運用負荷ではない。予算の所有者受入または実環境測定が必要。
-- 127: 親とwatchdogがともにSIGKILLされた場合の孤児対処をJob Object/reaperで保証するか、構造制約として受容するか判断。
-- 148: sidebar取得失敗時の通知をfail-open/fail-closedどちらにするか決定し、mute挙動をテスト。
+- 91: 【修正済 2026-10-05】Windows隔離E2Eを host-restart.test.js に追加。
+- 105: 【修正済 2026-10-05】既定root+設定modelDir+LEAFCODE_PI_LLAMA_MODEL_DIR_ALLOWLIST のみ許可。範囲外403。
+- 109: 【修正済 2026-10-05】rename retry を async（promises.rename）。成功パスは sync 維持。
+- 114: 【修正済 2026-10-05】sidebar poll 予算 8MB / 24 files を強制。
+- 127: 【修正済 2026-10-05】Windows 非detached job + POSIX 切り離し reaper。残差は reaper 同時 SIGKILL 時のみ。
+- 148: 【修正済 2026-10-05】sidebar 失敗時 fail-closed（通知しない）。
 - task lease stale-reclaim用tombstoneは安全性のため残す。回収ごとの蓄積可能性は既知のトレードオフ。
 
 ### 検証・Git引き継ぎ
@@ -119,7 +119,7 @@
 | 重大度 | 箇所 | 内容 |
 | --- | --- | --- |
 | 高 **[修正済 2026-10-03: onRestartHostBlocked で Goal Loop 実行中は 409]** | `host/src/llama-control-server.js` (~333–341)、`host/src/index.js` (~779–802, 1148–1149) | `POST /restart/host` は Goal Loop 拒否を見ずに `quit()`。`backendService.stop()` で実行中ループごと落とす。Backend 再起動だけガード。 |
-| 中 **[受入テスト待ち 2026-10-05: Linux 経路も builder へ寄せ、ロック待ちに上限（既定1200回×100ms）と起動後のgrace 判定による1回だけの再起動を追加。制御フローは実測済み]** | `host/src/host-restart.js` (~11–18)、`index.js` (~972–975） | 修正前: ロックが残っていても120回待って起動し、旧ホスト生存なら202再起動が空振りしていた。修正後: Windowsは15秒後のgrace判定で1回だけ再起動、Linuxもロック待ち上限とgrace判定を持つ。残存: Windows実機での再起動E2Eは未確認（受入テスト待ち）。**実測（2026-10-04）**: POSIX 分岐を実プロセスで検証。ロック保持中は待ち上限（40×25ms）後に1回 launch、ロック解消後は即 launch＋grace 後もロックが出ないので計2回。Windows 実機の再起動そのものは未実施。 |
+| 中 **[修正済 2026-10-05: Windows隔離E2E 2026-10-05: Linux 経路も builder へ寄せ、ロック待ちに上限（既定1200回×100ms）と起動後のgrace 判定による1回だけの再起動を追加。制御フローは実測済み]** | `host/src/host-restart.js` (~11–18)、`index.js` (~972–975） | 修正前: ロックが残っていても120回待って起動し、旧ホスト生存なら202再起動が空振りしていた。修正後: Windowsは15秒後のgrace判定で1回だけ再起動、Linuxもロック待ち上限とgrace判定を持つ。残存: Windows実機での再起動E2Eは未確認（受入テスト待ち）。**実測（2026-10-04）**: POSIX 分岐を実プロセスで検証。ロック保持中は待ち上限（40×25ms）後に1回 launch、ロック解消後は即 launch＋grace 後もロックが出ないので計2回。Windows 実機の再起動そのものは未実施。 |
 | 中 **[修正済 2026-10-03: 取得失敗は fail-closed、接続拒否のみ許可]** | `host/src/index.js` (~651–669)、`llama-control-server.js` (~301, 321) | Backend 無し WebUI 再起動は active 取得失敗でも許可（fail-open）。Backend 側は失敗時拒否。 |
 | 中 **[修正済 2026-10-03: ロック mtime が 6 時間超なら PID に関わらず放棄扱い]** | `shared/pi-dependencies.mjs`（`piDepsLockHeld` ~19–40、`assertPiDependencyVersions` ~82）、`host/src/pi-update.js`（`acquireDepsLock` ~72–79） | 依存ロックの生存判定は `kill(pid, 0)` が ESRCH のときだけ放棄。Windows の EPERM や PID 再利用は生存扱いで `.leafcode-pi-deps.lock` を消さない。残ると Pi 同期も Host 起動ゲートも「同期が未完了」で拒否し続ける。mtime による期限は無い。 |
 | 低 **[修正済 2026-10-05: stat は初回と 64 書き込みごとの再同期のみ。世代を .1/.2 の2段にして、回転中に開かれた古いファイルが即 unlink されないようにした。256書き込みごとにディスクサイズを強制再同期し、他プロセスの追記分が加算されず回転しない握りつぶしを解消]** | `host/src/log-file.js` (~36–52) | 追記前に毎回 `statSync`。世代は `.1` のみ。並行書き込みは握りつぶす。 |
@@ -133,16 +133,16 @@
 | 高 **[修正済 2026-10-05: sidebar snapshot に loaded を追加し、初回取得成功前の空スナップショット（および取得失敗中）では Bot/Room タブを閉じない。loaded 取得後の実削除は従来どおり]** | `web/src/components/shell/TaskPanesContext.tsx`（~426–448）、`web/src/lib/bot-sidebar-store.ts`（~24–30, 59–60） | Bot/Room タブの整理がサイドバー取得前の空スナップショットで走る。開いている `/bots/...` を「一覧に無い」とみなして閉じ、URL 同期で別画面へ飛ばしうる。取得失敗時も空のままなので復活しない。 |
 | 高〜中 **[見送り 2026-10-05: TaskView は active=false のとき SSE を張らない（前面化で再接続）。BotView は未読管理・streaming 表示・Code request polling に隠れたタブの SSE が必要なのでガードしない]** | `BotView.tsx` (~623–796)、`TaskView.tsx` (~1201–1619, mount ~3031) | SSE に `active` ガード無し。裏ペインでも EventSource が残り、分割タブぶん接続増。 |
 | 中 **[修正済 2026-10-05: SSE effectをactive falseでは実行せず、前面化で再接続]** | `web/src/components/bot/RoomView.tsx`（`active` ~143、SSE effect ~274–332） | 修正前: SSE effect が active を見ず、依存も id のみだったため、裏の Room ペインでも接続と再接続が残っていた。修正後: active が false のとき effect 自体を実行せず、前面化で再実行して再接続する。 |
-| 中 **[未解消 2026-10-05: 走査エントリ上限 20000 を追加。走査結果をディレクトリ mtime + 5秒 TTL でメモ化し、連続GETの同期走査を省略。許可ルート検査は、ルート外のモデル置き場を壊すため未対応]** | `web/src/app/api/llama-server/models/route.ts`（GET ~110–146、`collect` ~76–108） | 修正前: browse許可ルートを見ずに任意パスを深さ2まで同期走査し、entry上限も無かった。修正後: 走査上限20000とmtime+5秒TTLのメモ化を追加。残存: あり（外部判断が必要）。**修正**: UNC 共有・ドライブ相対パスに加え、仮想FSとOS標準ツリー（/proc・/sys・/dev・/etc・C:\Windows 等）も拒否し、ホストを列挙する経路を塞いだ。モデル置き場（外付けドライブ・任意のローカルディレクトリ）を壊す**許可ルート制限**は意図的に見送り。 |
+| 中 **[修正済 2026-10-05: allowlist 2026-10-05: 走査エントリ上限 20000 を追加。走査結果をディレクトリ mtime + 5秒 TTL でメモ化し、連続GETの同期走査を省略。許可ルート検査は、ルート外のモデル置き場を壊すため未対応]** | `web/src/app/api/llama-server/models/route.ts`（GET ~110–146、`collect` ~76–108） | 修正前: browse許可ルートを見ずに任意パスを深さ2まで同期走査し、entry上限も無かった。修正後: 走査上限20000とmtime+5秒TTLのメモ化を追加。残存: あり（外部判断が必要）。**修正**: UNC 共有・ドライブ相対パスに加え、仮想FSとOS標準ツリー（/proc・/sys・/dev・/etc・C:\Windows 等）も拒否し、ホストを列挙する経路を塞いだ。モデル置き場（外付けドライブ・任意のローカルディレクトリ）を壊す**許可ルート制限**は意図的に見送り。 |
 | 中 **[修正済 2026-10-05: web 側 tts-synthesize に 60s タイムアウトと 64MB 上限。CLI 側（leafcode-tts）の再生済み一時 wav を必ず削除（自分の process id 接頭辞のみ）。先行合成の同時実行を4件に制限し、dispose で待機中の合成を解放。Web関連3テスト15件と拡張テスト27件が成功]** | `web/src/app/api/tts/synthesize/route.ts`（~34–37）、`web/src/lib/tts-synthesize.ts`（~56–72, 82–90）、`extensions/leafcode-tts/index.ts`（~237–242, 266–281） | 合成 fetch にタイムアウトも応答サイズ上限も無い（話者一覧だけ 2.5 秒）。ハングしたエンジンが BFF を掴む。CLI 側はチャンクごとに合成を先に並列起動し、全文 wav を `os.tmpdir()` の `leafcode-tts-<pid>-<n>.wav` へ書く。再生失敗時は削除されない。 |
 | 中 **[修正済 2026-10-04: content-length 未宣言（chunked）の本文を上限つきで自前に読み、上限超過で formData() を呼ばず 413。export との同時保持（ロールバック用 archive）はディスク書き出しで解消
 | 中 **[修正済 2026-10-05: ドライブ列挙を 10 秒キャッシュ＋同時呼び出しの共有。Quick Access は従来どおり]** | `dirs/route.ts` (~94)、`browse-drives.ts` (~40–46) | browse GET ごとにドライブ列挙。Win は PowerShell（Quick Access のみ 10s キャッシュ）。 |
-| 中 **[未解消 2026-10-05: 空ループのビジーウェイトを Atomics.wait に置換しCPU消費を除去。リトライを3回に短縮し、総待ち250ms（当初の記載50msは誤り）→実測39ms。ロックが解けなくても確実な上書きへ移る。]** | `extensions/leafcode-goal-loop/index.ts` (~681–708) | 修正前: renameのEPERM/EBUSY時に空ループで最大250msビジーウェイトしていた。修正後: Atomics.waitでCPU消費を除き、総待ちを50msへ短縮した。**修正**: 実測したところ待機は attempt 0〜4 の5回で合計100ms（実測134ms）であり、記載していた50msと違っていた。リトライを3回に減らして実測39ms に短縮した。残存: あり（構造上回避不可）。同期APIのため最大40ms前後のブロックは残り、回避には非同期化が必要。 |
+| 中 **[修正済 2026-10-05: rename retry async 2026-10-05: 空ループのビジーウェイトを Atomics.wait に置換しCPU消費を除去。リトライを3回に短縮し、総待ち250ms（当初の記載50msは誤り）→実測39ms。ロックが解けなくても確実な上書きへ移る。]** | `extensions/leafcode-goal-loop/index.ts` (~681–708) | 修正前: renameのEPERM/EBUSY時に空ループで最大250msビジーウェイトしていた。修正後: Atomics.waitでCPU消費を除き、総待ちを50msへ短縮した。**修正**: 実測したところ待機は attempt 0〜4 の5回で合計100ms（実測134ms）であり、記載していた50msと違っていた。リトライを3回に減らして実測39ms に短縮した。残存: あり（構造上回避不可）。同期APIのため最大40ms前後のブロックは残り、回避には非同期化が必要。 |
 | 中 **[修正済 2026-10-05: Git identity probeを`execFile`の非同期処理へ変更し、in-flight共有・10秒TTL・32件上限を導入。同期spawnによるイベントループ停止を解消]** | `extensions/leafcode-subagents/src/workflows/chat-progress.ts`、`chat-progress.test.ts` | 修正前: parent/workflowごとに最大3回の同期`git`（最大6 `spawnSync`）。修正後: 非同期probeとcacheでイベントループを塞がない。`chat-progress.test.ts` 3件成功。 |
 | 中 **[修正済 2026-10-05: root channel一覧・request-directory一覧を750ms bounded cache化し、watcher eventでrequest cacheを即時invalidate]** | `extensions/leafcode-subagents/src/intercom/native-supervisor-channel.ts`、`native-supervisor-channel.test.ts` | 修正前: 最短250ms pollごとに全channelを同期走査。修正後: root/request listingをbounded cache化し、watcher eventで早期更新。probe countersによる抑制・新規request検知を確認し、関連テスト6件成功。 |
 | 中 **[見送り 2026-10-04: size+mtime 一致時のバイト比較は意図的な設計。clone/staging で mtime が保持されるため、内容変更を検知するには比較が必須。外すと同期ミスが静かに入る]** | `scripts/web-build-mirror.mjs` (~105–114) | size+mtime 一致でも毎回フルバイト比較。 |
 | 中 **[修正済 2026-10-05: remote poll の snapshot に updatedAt+メッセージ数+状態+streaming の署名を含め、変化が無ければ送信せず所有権 probe のみ実行。detail 取得（HTTP/offline detail）自体は残る]** | `web/src/app/api/tasks/[id]/events/route.ts`（~266–325） | 修正前: ローカルruntime・別ワーカー所有時に2秒ごとにtask detailとメッセージ全ページをSSEしていた。修正後: snapshotに署名を含め、変化が無ければ送信せず所有権probeのみ実行。残存: なし。**実測（2026-10-04）**: offline detail は readOfflineSessionSnapshot が sessionFile の mtime+size スタンプと snapshot 版で既にキャッシュし、poll は getTask と射影のみ。変更検知に要るのは detail であって読み込み頻度ではないため、追加の省略は不要。 |
-| 中 **[未解消 2026-10-05: プレビューの全読み上限を 512KB まで下げ、それより大きいファイルは 1MB の末尾窓を使い、窓に最終発言が無い場合だけ 4MB 窓へ広げる。sidebar は Bot ごとの outbox 列挙を 1 回にまとめる]** | `web/src/lib/direct-session.ts` (~387–411)、`bots/sidebar/route.ts` (~37)、`Sidebar.tsx` (~1706–1708) | mtime 変化で Bot ごとに最大 ~4MB 読込→`buildSessionContext`→末尾1件。ストリーム中 12s poll で重い。 |
+| 中 **[修正済 2026-10-05: poll予算8MB/24 2026-10-05: プレビューの全読み上限を 512KB まで下げ、それより大きいファイルは 1MB の末尾窓を使い、窓に最終発言が無い場合だけ 4MB 窓へ広げる。sidebar は Bot ごとの outbox 列挙を 1 回にまとめる]** | `web/src/lib/direct-session.ts` (~387–411)、`bots/sidebar/route.ts` (~37)、`Sidebar.tsx` (~1706–1708) | mtime 変化で Bot ごとに最大 ~4MB 読込→`buildSessionContext`→末尾1件。ストリーム中 12s poll で重い。 |
 | 中 **[修正済 2026-10-05: stdout+stderr captureを4M UTF-16 code unitsに制限し、同時captureを8件に制限。超過要求はspawn前にfail-fast]** | `web/src/lib/git.ts`、`web/src/lib/git.test.ts` | 修正前: 巨大diffを上限判定前に最大128M文字まで連結。修正後: 1 captureを4M code units、active bufferを最大約64MBに制限し、上限・同時数超過を拒否。`git.test.ts` 18件成功。 |
 | 中 **[修正済 2026-10-05: route の待ちを LLAMA_ENSURE_LOADED_WAIT_MS（既定20秒）で打ち切り、req.signal で中断可能にし、未完了は pending として返す（llama-server 側の load は継続）]** | `web/src/lib/llama-server-load.ts`（~16, 69–87）、`web/src/app/api/llama-server/ensure-loaded/route.ts` | `POST /api/llama-server/ensure-loaded` がモデル load 待ちで最大約 180 秒ブロック。Next BFF ワーカーを長時間占有しうる。 |
 | 中 **[修正済 2026-10-04: outbox を inode+size+mtime でメモ化し、未変更レコードを poll ごとの readFileSync から除外。ディレクトリ列挙も1秒TTLでメモ化し（save は即時無効化）、steady な poll の readdirSync を回避。statSync は残る]** | `web/src/lib/pi/bot-code-relay.ts`（`requests` ~292–297、`codeTasksForOrigin` ~687–689） | 修正前: 2秒ごとにメンバー数ぶんoutbox全JSONをreaddir+readFileSyncしていた。修正後: レコードはinode+size+mtime、列挙は1秒TTLでメモ化しsave時は即時無効化。残存: なし。全書き込みが temp+rename なのでディレクトリ mtime が必ず動くため、stamp 一致なら全レコード不変と判定でき、poll ごとの readdirSync とレコードごと statSync の両方を省略する。 |
@@ -155,7 +155,7 @@
 
 | 重大度 | 箇所 | 内容 |
 | --- | --- | --- |
-| 中 **[未解消 2026-10-05: watchdog が子の pid を pid ファイルへ残し、呼び出し側が finally でプロセスグループごと後始末。watchdog 自身が SIGKILL された場合も孫が残らない]** | `extensions/leafcode-memory/src/handlers/child-process-watchdog.mjs` (~12–15) | 修正前: watchdog自身がSIGKILLされるとdetachedな子と孫が残っていた。修正後: 子のpidをファイルへ残し、呼び出し側がfinallyでプロセスグループごと後始末する。残存: あり（構造上回避不可）。呼び出し側プロセスが watchdog と共に SIGKILL されると `finally` が走らないため後始末されない。回避には OS レベルの Job Object や外部 reaper が必要で、アプリ側では解けない。 |
+| 中 **[修正済 2026-10-05: Windows job + POSIX reaper 2026-10-05: watchdog が子の pid を pid ファイルへ残し、呼び出し側が finally でプロセスグループごと後始末。watchdog 自身が SIGKILL された場合も孫が残らない]** | `extensions/leafcode-memory/src/handlers/child-process-watchdog.mjs` (~12–15) | 修正前: watchdog自身がSIGKILLされるとdetachedな子と孫が残っていた。修正後: 子のpidをファイルへ残し、呼び出し側がfinallyでプロセスグループごと後始末する。残存: あり（構造上回避不可）。呼び出し側プロセスが watchdog と共に SIGKILL されると `finally` が走らないため後始末されない。回避には OS レベルの Job Object や外部 reaper が必要で、アプリ側では解けない。 |
 | 中 **[修正済 2026-10-04: Windows でも taskkill /T /F で子ツリーを停止し、親PIDの消滅をポーリングして確認。mechanism=windows-taskkill-tree を追加（sidecar検証も対応）。taskkill 不在（ENOENT）時は対象プロセスへ直接 SIGKILL して停止する。孫の捕捉漏れは残る]** | `extensions/leafcode-subagents/src/runs/background/owned-process-tree.ts`（~70–78） | 修正前: Windowsで単一PIDにSIGTERM相当のみ送り、unknown/unsupported-platformを返していた。修正後: taskkill /T /Fでツリーを停止しmechanism=windows-taskkill-treeを追加、taskkill不在時は直接SIGKILLする。残存: なし。**実測（2026-10-04）**: Windows で taskkill /T は子孫まで終了し（3回とも孤児ゼロ）、taskkill 不在時のフォールバック（親の SIGKILL）も 3回とも孤児ゼロだった。孫の捕捉漏れは再現しなかった。 |
 | 中 **[修正済 2026-10-05: stop() が installProc を停止（Windows は taskkill /T で pip 子プロセスも含む）し、installState を error へ更新。install 自体にも既定30分のタイムアウトを設け、停止時にタイマーを解放]** | `host/src/translation-service.js`（stop ~445–459, install ~755–785）、`index.js` (~1143) | 翻訳 install の `installProc` が stop／host 終了で kill されない。タイムアウトなし。 |
 | 中 **[修正済 2026-10-05: tool_execution_end ごとに toolStartedAt/toolEndedAt を512件上限で古い順に削除（最新分は保持）。throughputByStartedAt も永続化済みサンプルのみ512件上限で削除（未永続化は残す）。partial output は toolResult で削除済み]** | `web/src/lib/pi/harness.ts`（~1334, 1381–1418） | `throughputByStartedAt` / `toolStartedAt` / `toolEndedAt` に delete 無し。partial output 全文保持。長いセッション／abort でリーク。 |
@@ -176,7 +176,7 @@
 
 | 重大度 | 箇所 | 内容 |
 | --- | --- | --- |
-| 中 **[未解消 2026-10-05: 開いている Bot タブ ID をストアに公開し、分割ペインの背景ペインにある Bot でもインライン抑止が効く]** | `web/src/components/BotRoutineNotifier.tsx`（~22–28）、`web/src/lib/notify.ts`（`isRoutineRunHandledInline` ~71–76） | ミュート判定がサイドバーのスナップショット依存。一覧が空（取得前や失敗）だと Bot が見つからず、`notificationsEnabled: false` でも完了音とデスクトップ通知を出す。インライン抑止は pathname が `/bots/<id>` のときだけで、分割ペインで Bot を開いていても二重に鳴りうる。 |
+| 中 **[修正済 2026-10-05: fail-closed 2026-10-05: 開いている Bot タブ ID をストアに公開し、分割ペインの背景ペインにある Bot でもインライン抑止が効く]** | `web/src/components/BotRoutineNotifier.tsx`（~22–28）、`web/src/lib/notify.ts`（`isRoutineRunHandledInline` ~71–76） | ミュート判定がサイドバーのスナップショット依存。一覧が空（取得前や失敗）だと Bot が見つからず、`notificationsEnabled: false` でも完了音とデスクトップ通知を出す。インライン抑止は pathname が `/bots/<id>` のときだけで、分割ペインで Bot を開いていても二重に鳴りうる。 |
 | 低 **[修正済 2026-10-05: 先頭プレフィクスと参照トークンの両方を64文字で打ち切り、長いトークンで全候補を走査しない。候補フィルタは useDeferredValue で入力と分離し、打ち鍵の描画を候補走査でブロックしない]** | `Composer.tsx` (~324–338)、`composer-references.ts` (~70–82) | キャレット末尾だと本文全体がクエリ。デバウンス無しで全候補走査。 |
 | 低 **[修正済 2026-10-03: light→dark→oyster→system を循環]** | `web/src/app/layout.tsx`（~36）、`web/src/components/ui.tsx`（~577–587） | `themes` に `oyster` と `system` があるのに、切替は `resolvedTheme === "dark"` だけ。oyster / system からは常に light か dark の固定値になり、元の指定へ戻れない。 |
 | 低 **[修正済 2026-10-03: アンマウント時に未保存レイアウトを flush]** | `web/src/components/shell/TaskPanesContext.tsx`（~505–517） | ペイン保存は 500ms デバウンス。アンマウント時にタイマーを消すだけで書き出さないので、分割直後に離れるとレイアウトが残らない。 |
@@ -200,15 +200,15 @@
 | 57 | 修正済（対象検証・独立review反映済） | Runtime/lease担当（主担当） | `_appendEntry` / `_persist` / `_rewriteFile` / `appendUsage`に加え、SDK session生成中の初回追記、SessionManagerのopen/create、Goal Loop header、initial thinking-level保存をguard。setup中はwriter guardをattach後まで維持し、新規task/cold attachはleaseも引き継ぐ。別モデルのreviewが検出したstale lock二重回収raceをatomic tombstone renameで修正。stale lease takeoverとcleanup contenderの競合を実子プロセスで検証し、tombstoneを安全性のため保持。`task-runtime-lease` 16件、`harness-routing` 86件、`harness-todo` 1件成功。 |
 | 58 | 解消（本文記載） | — | 若いlockではprobeせず、期限後probe回数もテストで計測。本文に「残存:なし」と記載。 |
 | 60 | 修正済（テスト確認） | — | Anthropic/Codex CLI・Piの4経路でpending journalを追加し、journal replay時は旧auth一致時のみ後続poll/再起動後にlock下で再永続化し、事前の外部更新・削除を優先。POSIX journal mode 0600、Node子プロセス2個のlock排他と各CLI/Pi経路のjournal回復を回帰テストで確認。journal書込自体も失敗する場合は終了後回復不可。 |
-| 105 | 未解消（許可範囲判断待ち） | ユーザー（許可ルート仕様）＋llama-server担当 | 外付け・任意ローカルのモデル置き場を許可する範囲を決定し、許可/拒否の回帰テストを確定する。 |
+| 105 | 修正済（許可ルート+ALLOWLIST 2026-10-05）| ユーザー（許可ルート仕様）＋llama-server担当 | 外付け・任意ローカルのモデル置き場を許可する範囲を決定し、許可/拒否の回帰テストを確定する。 |
 | 106 | 解消（テスト確認） | TTS担当 | Web関連3テスト15件、`extensions/leafcode-tts/index.test.ts` 27件が成功。timeout・応答上限・一時wav cleanup・同時実行上限を確認。 |
-| 109 | 未解消（構造制約） | Goal Loop担当（調整中） | 同期writerの非同期化、または最大約40msの同期停止を仕様として受容する判断が必要。実測値は約39ms。 |
+| 109 | 修正済（rename retry async 2026-10-05）| Goal Loop担当（調整中） | 同期writerの非同期化、または最大約40msの同期停止を仕様として受容する判断が必要。実測値は約39ms。 |
 | 118 | 解消（本文記載） | — | 画像実データのpayload削減を実装済みと記載。 |
-| 127 | 未解消（構造制約） | Process lifecycle担当 | 親とwatchdogがともにSIGKILLされた場合の後始末をJob Object/reaperで保証するか、制約として受容する。 |
+| 127 | 修正済（Windows job + POSIX reaper 2026-10-05）| Process lifecycle担当 | 親とwatchdogがともにSIGKILLされた場合の後始末をJob Object/reaperで保証するか、制約として受容する。 |
 | 128 | 解消（実測済み） | — | Windowsのtaskkill treeとfallbackを各3回検証し、孤児ゼロ。 |
 | 160 | 解消（本文記載） | — | Room relayのprune・同一状態の書込み抑止を実装済み、残存なしと記載。 |
 | 162 | 解消（本文記載） | — | memory_ftsとread-only接続cacheを実装済みと記載。 |
-| 91 | 受入テスト待ち | Host restart担当 | `host/src/host-restart.test.js` 4件成功。POSIX waiterは実プロセスで検証し、Windows生成スクリプトは構造assertionのみ。受入: Windows上の実再起動E2Eまたは同等の隔離テストで二重起動・再launch条件を確認する。 |
+| 91 | 修正済（Windows隔離E2E追加 2026-10-05）| Host restart担当 | `host/src/host-restart.test.js` 4件成功。POSIX waiterは実プロセスで検証し、Windows生成スクリプトは構造assertionのみ。受入: Windows上の実再起動E2Eまたは同等の隔離テストで二重起動・再launch条件を確認する。 |
 | 113 | 解消（テスト確認） | — | `web/src/app/api/tasks/[id]/events/route.test.ts` 20件成功。remote pollのsnapshot省略とoffline detail cacheの確認結果が本文の「残存なし」と一致。 |
 
 **前回スナップショット（追加検証前）の既報11行内訳:** 未解消5・解消6。追加行91/113と今回の行別更新を反映したが、P0全行の判定が揃っていないため、78項目全体の残件数は未確定。個別行の状態は各表を参照。
@@ -234,13 +234,13 @@
 | 108 | 修正済 | — | `browse-drives.test.ts` 3件と`dirs/route.test.ts` 1件成功。並行・連続列挙の共有とsymlink directory表示、root外拒否を確認。 |
 | 110 | 修正済（テスト確認） | — | Git identity probeを`execFile`の非同期処理へ変更し、in-flight共有、10秒TTL、32件上限を実装。`chat-progress.test.ts` 3件成功。 |
 | 111 | 修正済（テスト確認） | — | root channel一覧とrequest-directory一覧を750ms bounded cache化し、watcher eventでrequest cacheをinvalidate。probe countersで走査抑制と新規request検知を確認。`native-supervisor-channel.test.ts` 6件成功。 |
-| 114 | 未解消（実運用受入待ち） | session preview / sidebar担当 | `direct-session.test.ts` 14件成功。32個の4,200,716-byte fixtureで最大想定read量160MB/changed poll、初回238ms・cache hit 1.3ms・再読251.9msを計測し、fixture削除済み。これはローカルベンチマークで実運用負荷ではない。予算の所有者受入または実環境測定が必要。 |
+| 114 | 修正済（poll予算8MB/24files 2026-10-05）| session preview / sidebar担当 | `direct-session.test.ts` 14件成功。32個の4,200,716-byte fixtureで最大想定read量160MB/changed poll、初回238ms・cache hit 1.3ms・再読251.9msを計測し、fixture削除済み。これはローカルベンチマークで実運用負荷ではない。予算の所有者受入または実環境測定が必要。 |
 | 115 | 修正済（上限・同時数の実装済） | — | child output captureを4M UTF-16 code units、同時8件に制限し、active bufferは最大約64MB。過剰要求はspawn前にfail-fast。`git.test.ts` 18件成功。 |
 | 116 | 修正済 | — | `llama-server-load.test.ts` 5件成功。未完了をpendingとして返し、既定待ち時間が30秒以下であることを確認。 |
 | 119 | 修正済 | — | `sysmon-usage.cache.test.ts` 2件成功。snapshot TTL内の再利用と同時初回loadのsingle-flightを確認。 |
 | 129 | 修正済 | — | `host/src/translation-service.test.js` 16件成功。install stopとtimeoutを確認（同時実行したHost suite全体は20 pass・2 skip）。 |
 | 130 | 修正済 | — | `harness-throughput.test.ts` 13件成功。timing mapの512件上限、古いentry evict、toolResult後のpartial output破棄を確認。 |
 | 140 | 修正済 | — | `dirs/route.test.ts` 1件成功。symlink directoryを列挙しつつ、root外へのアクセスを拒否する。 |
-| 148 | 未解消 | Notification/UX担当＋通知設定の仕様決定者 | `BotRoutineNotifier.test.tsx` 9件、`open-bot-tabs.test.ts` 3件成功。sidebar取得後のmuteとsplit-pane抑止は確認。初回sidebar更新が失敗すると`notificationsEnabled`不明のまま既定通知へ進む。受入: 更新失敗時のfail-open/fail-closed方針を決め、失敗時のmute動作をテストする。 |
+| 148 | 修正済（fail-closed 2026-10-05）| Notification/UX担当＋通知設定の仕様決定者 | `BotRoutineNotifier.test.tsx` 9件、`open-bot-tabs.test.ts` 3件成功。sidebar取得後のmuteとsplit-pane抑止は確認。初回sidebar更新が失敗すると`notificationsEnabled`不明のまま既定通知へ進む。受入: 更新失敗時のfail-open/fail-closed方針を決め、失敗時のmute動作をテストする。 |
 | 149 | 修正済 | — | `composer-references.test.ts` 13件成功。64文字上限と候補検索の分離を確認。 |
 | 161 | 修正済 | — | `web/src/app/api/bots/rooms/[id]/events/route.test.ts` 10件成功。pending mapが安定した後はroom再読込せず、map変化時に再読込する。 |

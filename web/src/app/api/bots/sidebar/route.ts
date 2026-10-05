@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { botTaskId, listBots } from "@/lib/bots";
 import { listRooms } from "@/lib/rooms";
 import { getTask, listTasks } from "@/lib/store";
-import { readSessionLastMessage } from "@/lib/direct-session";
+import { createSessionPreviewBudget, readSessionLastMessage } from "@/lib/direct-session";
 import { listBotCodeRequestsForBots } from "@/lib/pi/bot-code-relay";
 
 export const runtime = "nodejs";
@@ -32,6 +32,8 @@ export async function GET() {
   // One outbox read for every Bot: each listBotCodeRequests() call would enumerate
   // the directory again, and the sidebar asks for all of them on every refresh.
   const requestsByBot = listBotCodeRequestsForBots(bots.map((bot) => bot.id));
+  // Hard poll budget (114): skip previews once bytes/files are exhausted.
+  const previewBudget = createSessionPreviewBudget();
   const botPreviews = bots.map((bot) => {
     const task = getTask(botTaskId(bot.id));
     let preview: Preview = { lastMessageSummary: null, lastMessageAt: null };
@@ -39,7 +41,7 @@ export async function GET() {
       // プレビューはセッションファイルのオフライン読取のみ。getTaskDetail
       // （ensureLive）は Pi ランタイムをBot数分初期化するため、初回表示が
       // 十数秒待たされる原因になる。ライブ詳細は Bot を開いた画面が担う。
-      const last = readSessionLastMessage(task.sessionFile);
+      const last = readSessionLastMessage(task.sessionFile, previewBudget);
       const at = safeIso(last?.timestamp);
       if (last && at !== null) {
         preview = {

@@ -207,7 +207,9 @@ describe("BotRoutineNotifier", () => {
     expect(FakeNotification.instances).toHaveLength(1);
   });
 
-  it("reopens the stream after a connection error", () => {
+  it("reopens the stream after a connection error", async () => {
+    mocks.getJson.mockResolvedValue({ bots: [{ id: "bot-1", notificationsEnabled: true }], rooms: [] });
+    await refreshBotSidebar();
     vi.useFakeTimers();
     try {
       render(<BotRoutineNotifier />);
@@ -228,5 +230,23 @@ describe("BotRoutineNotifier", () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  it("stays silent when sidebar refresh fails before the Bot is known (fail-closed)", async () => {
+    const { subscribeBotSidebar } = await import("@/lib/bot-sidebar-store");
+    subscribeBotSidebar(() => undefined)();
+    mocks.getJson.mockRejectedValue(new Error("sidebar unavailable"));
+    Object.defineProperty(document, "hidden", { configurable: true, value: true });
+
+    render(<BotRoutineNotifier />);
+    fireRoutine(RUN);
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(mocks.getJson).toHaveBeenCalled();
+    expect(mocks.playSessionCompleteSound).not.toHaveBeenCalled();
+    expect(FakeNotification.instances).toEqual([]);
   });
 });

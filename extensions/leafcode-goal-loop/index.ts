@@ -215,6 +215,20 @@ function renameGoalState(temp: string, file: string): void {
   (renameSyncForTests ?? fs.renameSync)(temp, file);
 }
 
+/**
+ * Retry-path rename (BUGS-PERF 109). The first attempt stays synchronous so a
+ * healthy write keeps its boolean fast path; retries after EPERM/EACCES/EBUSY
+ * use the async rename so an AV/indexer lock (~39ms measured on Windows) no
+ * longer stalls the event loop on every attempt.
+ */
+async function renameGoalStateAsync(temp: string, file: string): Promise<void> {
+  if (renameSyncForTests) {
+    renameSyncForTests(temp, file);
+    return;
+  }
+  await fs.promises.rename(temp, file);
+}
+
 type GoalLoopTurnRoutingHooks = {
   /** Returns false when routing replaced this session, or retry when not attached yet. */
   prepareGoalLoopTurn?: (prompt: string) => Promise<boolean | "retry">;
@@ -753,7 +767,7 @@ async function retryGoalStateRename(
         return false;
       }
       try {
-        renameGoalState(temp, file);
+        await renameGoalStateAsync(temp, file);
         if (goalStateWriteCoordinator.latestByFile.get(file) !== generation) return false;
         cleanupOrphanGoalTemps(file, committedMtimeMs);
         return true;

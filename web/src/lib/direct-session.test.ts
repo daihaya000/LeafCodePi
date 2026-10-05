@@ -2,7 +2,15 @@ import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { readSessionConversation, readSessionLastMessage, readSessionWorkSummary } from "./direct-session";
+import {
+  createSessionPreviewBudget,
+  readSessionConversation,
+  readSessionLastMessage,
+  readSessionWorkSummary,
+  SESSION_PREVIEW_POLL_BUDGET_BYTES,
+  SESSION_PREVIEW_POLL_MAX_FILES,
+  sessionPreviewReadCost,
+} from "./direct-session";
 import { BOT_PROMPT_PREFIX } from "./pi/messages";
 
 const dirs: string[] = [];
@@ -196,6 +204,60 @@ describe("large session files", () => {
     );
 
     expect(readSessionLastMessage(file)).toEqual({ role: "assistant", text: "その後の発言", timestamp: 3 });
+  });
+});
+
+describe("session preview poll budget", () => {
+  const entry = (value: Record<string, unknown>) => JSON.stringify(value);
+  const userMessage = (id: string, parentId: string, text: string, timestamp: number) =>
+    entry({
+      type: "message",
+      id,
+      parentId,
+      message: { role: "user", content: [{ type: "text", text }], timestamp },
+    });
+
+  it("documents the hard poll caps", () => {
+    expect(SESSION_PREVIEW_POLL_BUDGET_BYTES).toBe(8_000_000);
+    expect(SESSION_PREVIEW_POLL_MAX_FILES).toBe(24);
+  });
+
+  it("charges the common-case read cost, not the rare 4MB widen", () => {
+    expect(sessionPreviewReadCost(100_000)).toBe(100_000);
+    expect(sessionPreviewReadCost(800_000)).toBe(800_000);
+    expect(sessionPreviewReadCost(5_000_000)).toBe(1_000_000);
+  });
+
+  it("skips uncached reads once the byte budget is exhausted", () => {
+    const file = tempFile(
+      "budget.session",
+      [
+        entry({ type: "session", id: "s1", version: 1 }),
+        userMessage("m1", "s1", "hello budget", 1),
+      ].join("\n"),
+    );
+    const budget = createSessionPreviewBudget(1, 24);
+    expect(readSessionLastMessage(file, budget)).toBeNull();
+    expect(budget.remainingFiles).toBe(24);
+    // Without a budget the same file still resolves.
+    expect(readSessionLastMessage(file)?.text).toBe("hello budget");
+  });
+
+  it("skips further files once the file cap is hit", () => {
+    const mk = (name: string) =>
+      tempFile(
+        name,
+        [
+          entry({ type: "session", id: name, version: 1 }),
+          userMessage("m1", name, `msg-${name}`, 1),
+        ].join("\n"),
+      );
+    const first = mk("a.session");
+    const second = mk("b.session");
+    const budget = createSessionPreviewBudget(8_000_000, 1);
+    expect(readSessionLastMessage(first, budget)?.text).toBe("msg-a.session");
+    expect(readSessionLastMessage(second, budget)).toBeNull();
+    expect(budget.remainingFiles).toBe(0);
   });
 });
 

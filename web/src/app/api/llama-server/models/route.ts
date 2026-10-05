@@ -2,7 +2,12 @@ import { NextRequest, NextResponse } from "next/server";
 import fs from "node:fs";
 import { homedir } from "node:os";
 import path from "node:path";
-import { isSafeLlamaPathValue } from "@/lib/llama-server-settings";
+import { readSettingValue } from "@/lib/host-control";
+import {
+  isSafeLlamaPathValue,
+  LLAMA_SERVER_SETTINGS_KEY,
+  parseLlamaServerSettings,
+} from "@/lib/llama-server-settings";
 
 /**
  * Directories that can never hold a model directory: virtual filesystems and OS
@@ -81,6 +86,101 @@ export function defaultModelDir(
   if (configured) return configured;
   if (platform !== "win32") return path.join(homedir(), "models", "llm");
   return batDefaultModelDir(platform);
+}
+
+/**
+ * Extra model roots the operator opted into. Semicolon-separated absolute paths
+ * (`;` on every platform so Windows drive letters stay intact). Documented as
+ * LEAFCODE_PI_LLAMA_MODEL_DIR_ALLOWLIST.
+ */
+export function parseModelDirAllowlist(
+  raw: string | undefined,
+  platform: NodeJS.Platform = process.platform,
+): string[] {
+  if (!raw?.trim()) return [];
+  const resolvePath = platform === "win32" ? path.win32.resolve : path.posix.resolve;
+  const out: string[] = [];
+  for (const part of raw.split(";")) {
+    const trimmed = part.trim();
+    if (!trimmed) continue;
+    if (!isSafeLlamaPathValue(trimmed, platform)) continue;
+    if (!path.isAbsolute(trimmed) && !(platform === "win32" ? path.win32.isAbsolute(trimmed) : path.posix.isAbsolute(trimmed))) {
+      continue;
+    }
+    out.push(resolvePath(trimmed));
+  }
+  return out;
+}
+
+/**
+ * Directories the models listing may walk. Product rule (2026-10-05):
+ * only known LeafCodePi / configured llama model roots + allowlist extras.
+ * Arbitrary absolute paths outside these roots are refused.
+ */
+export function knownModelDirectoryRoots(
+  platform: NodeJS.Platform = process.platform,
+  env: NodeJS.ProcessEnv = process.env,
+  configuredModelDir?: string | null,
+): string[] {
+  const resolvePath = platform === "win32" ? path.win32.resolve : path.posix.resolve;
+  const roots: string[] = [];
+  const push = (value: string | null | undefined) => {
+    const trimmed = value?.trim();
+    if (!trimmed) return;
+    if (!isSafeLlamaPathValue(trimmed, platform)) return;
+    try {
+      roots.push(resolvePath(trimmed));
+    } catch {
+      /* ignore unresolvable */
+    }
+  };
+  push(defaultModelDir(platform, env));
+  // POSIX home default is always a known LeafCodePi root, even when env overrides defaultModelDir.
+  if (platform !== "win32") push(path.posix.join(homedir(), "models", "llm"));
+  push(configuredModelDir);
+  for (const extra of parseModelDirAllowlist(env.LEAFCODE_PI_LLAMA_MODEL_DIR_ALLOWLIST, platform)) {
+    push(extra);
+  }
+  // Dedupe case-insensitively on Windows.
+  const seen = new Set<string>();
+  const unique: string[] = [];
+  for (const root of roots) {
+    const key = platform === "win32" ? root.toLowerCase() : root;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    unique.push(root);
+  }
+  return unique;
+}
+
+export function isUnderAllowedModelRoot(
+  dir: string,
+  roots: string[],
+  platform: NodeJS.Platform = process.platform,
+): boolean {
+  const resolvePath = platform === "win32" ? path.win32.resolve : path.posix.resolve;
+  const sep = platform === "win32" ? path.win32.sep : path.posix.sep;
+  let resolved: string;
+  try {
+    resolved = resolvePath(dir);
+  } catch {
+    return false;
+  }
+  const normalized = platform === "win32" ? resolved.toLowerCase() : resolved;
+  return roots.some((root) => {
+    const base = platform === "win32" ? root.toLowerCase() : root;
+    return normalized === base || normalized.startsWith(`${base}${sep}`);
+  });
+}
+
+function configuredSettingsModelDir(): string | null {
+  try {
+    const settings = parseLlamaServerSettings(readSettingValue(LLAMA_SERVER_SETTINGS_KEY));
+    const dir = settings.modelDir?.trim();
+    return dir || null;
+  } catch {
+    return null;
+  }
 }
 
 const MAX_DEPTH = 2;
@@ -239,6 +339,20 @@ export async function GET(req: NextRequest) {
     return NextResponse.json(
       { error: "システムディレクトリはモデル保存先に指定できません" },
       { status: 400 },
+    );
+  }
+  const allowedRoots = knownModelDirectoryRoots(
+    process.platform,
+    process.env,
+    configuredSettingsModelDir(),
+  );
+  if (!isUnderAllowedModelRoot(dir, allowedRoots, process.platform)) {
+    return NextResponse.json(
+      {
+        error:
+          "許可されたモデル保存先の外です。LEAFCODE_PI_LLAMA_MODEL_DIR / 設定の modelDir / LEAFCODE_PI_LLAMA_MODEL_DIR_ALLOWLIST 配下を指定してください",
+      },
+      { status: 403 },
     );
   }
 

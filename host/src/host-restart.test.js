@@ -94,3 +94,66 @@ test("the non-Windows waiter launches once, and relaunches only when nobody owns
   // A stale lock must not wait forever, and the lock still present suppresses the relaunch.
   assert.equal(await run({ lockExists: true, launchedHostTakesLock: false }), 1);
 });
+
+
+test("Windows restart script launches once, and relaunches only when nobody owns the lock", async () => {
+  if (process.platform !== "win32") return;
+
+  // Structural contract from the real builder (beyond the earlier shape asserts).
+  const sample = buildHostRestartScript({
+    lockFile: "C:\\data\\host.lock",
+    launcherExe: "",
+    startBat: "C:\\app\\start.bat",
+    maxWaitAttempts: 2,
+    relaunchGraceSeconds: 1,
+  }).join("\n");
+  assert.match(sample, /set \/a WAIT=0/);
+  assert.match(sample, /if %WAIT% GEQ 2 goto :launch/);
+  assert.match(sample, /if defined RELAUNCHED goto :done/);
+  assert.match(sample, /goto :launch/);
+
+  const run = async ({ lockExists, launchedHostTakesLock }) => {
+    const dir = mkdtempSync(join(tmpdir(), "leafcode-restart-win-"));
+    try {
+      const lock = join(dir, "host.lock");
+      if (lockExists) writeFileSync(lock, "held\n", "utf8");
+      const log = join(dir, "launch.log");
+      const fakeLauncher = join(dir, "fake-launcher.bat");
+      const takeLock = launchedHostTakesLock ? `echo held>"${lock}"\r\n` : "";
+      writeFileSync(fakeLauncher, `@echo off\r\n${takeLock}>>"${log}" echo launch\r\n`, "utf8");
+
+      // Isolated equivalent of buildHostRestartScript's two-phase contract, using the
+      // same labels / RELAUNCHED / grace wait, so we exercise dual-launch on Windows
+      // without depending on the self-deleting temp copy's argv quoting.
+      const built = buildHostRestartScript({
+        lockFile: lock,
+        launcherExe: "",
+        startBat: fakeLauncher,
+        maxWaitAttempts: 2,
+        relaunchGraceSeconds: 1,
+      });
+      // Drop the self-delete line for the harness; keep every control-flow line.
+      const lines = built.filter((line) => !line.includes('del "%~f0"'));
+      const script = join(dir, "restart.cmd");
+      writeFileSync(script, `${lines.join("\r\n")}\r\n`, "utf8");
+      const result = spawnSync("cmd.exe", ["/c", "call", script], {
+        encoding: "utf8",
+        timeout: 30_000,
+        windowsHide: true,
+        cwd: dir,
+      });
+      assert.equal(result.status, 0, `status=${result.status} stderr=${result.stderr} stdout=${result.stdout}`);
+      await setTimeout(1500, undefined);
+      return existsSync(log)
+        ? readFileSync(log, "utf8").trim().split(/\r?\n/).filter(Boolean).length
+        : 0;
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  };
+
+  assert.equal(await run({ lockExists: false, launchedHostTakesLock: true }), 1);
+  assert.equal(await run({ lockExists: false, launchedHostTakesLock: false }), 2);
+  assert.equal(await run({ lockExists: true, launchedHostTakesLock: false }), 1);
+});
+

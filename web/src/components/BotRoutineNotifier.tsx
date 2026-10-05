@@ -24,17 +24,19 @@ export function notifyRoutineRun(run: RoutineRunEventDto): void {
   const findBot = () => getBotSidebarSnapshot().bots.find((item) => item.id === run.botId);
   const bot = findBot();
   if (bot) {
-    deliverRoutineRunNotification(run, bot.notificationsEnabled === false);
+    // fail-closed: 明示的に true のときだけ通知。未設定・不明はミュート扱い。
+    deliverRoutineRunNotification(run, bot.notificationsEnabled !== true);
     return;
   }
-  // サイドバー未取得（取得前・失敗）の間にミュート中の Bot が鳴らないよう、一度だけ取得してから判定する。
-  // 取得に失敗した場合のみ既定（通知あり）に従う。
+  // サイドバー未取得の間にミュート中の Bot が鳴らないよう、一度だけ取得してから判定する。
+  // 取得失敗時は fail-closed（通知しない）。不明な notificationsEnabled もミュート。
   void refreshBotSidebar()
-    .catch(() => undefined)
     .then(() => {
       if (isRoutineRunShownInline(window.location.pathname, run.botId)) return;
-      deliverRoutineRunNotification(run, findBot()?.notificationsEnabled === false);
-    });
+      const refreshed = findBot();
+      deliverRoutineRunNotification(run, refreshed?.notificationsEnabled !== true);
+    })
+    .catch(() => undefined);
 }
 
 function deliverRoutineRunNotification(run: RoutineRunEventDto, muted: boolean): void {

@@ -1,5 +1,5 @@
 import { fileURLToPath } from "node:url";
-import { spawn } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
@@ -942,5 +942,86 @@ describe("execChildPrompt", () => {
 
     assert.strictEqual(result.code, 1);
     assert.strictEqual(calls.length, 1);
+  });
+});
+
+describe("child-process-watchdog orphan reaper", () => {
+  it("records the watched child pid so the caller can finish cleanup after a SIGKILLed watchdog", () => {
+    const cancel = path.join(os.tmpdir(), "leafcode-cancel-probe");
+    assert.equal(childPidFileForCancellation(cancel), `${cancel}.pid`);
+  });
+
+  it("spawns the child non-detached on Windows so the OS job can reap the tree", async () => {
+    if (process.platform !== "win32") return;
+    // Structural contract: windows spawn must not set detached (libuv job object).
+    const source = await fs.readFile(
+      path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../src/handlers/child-process-watchdog.mjs"),
+      "utf8",
+    );
+    assert.match(source, /detached:\s*process\.platform\s*!==\s*"win32"/);
+    assert.match(source, /startPosixReaper/);
+  });
+
+  it("POSIX reaper kills a detached grandchild after the watchdog vanishes", async function () {
+    if (process.platform === "win32") {
+      this.skip();
+      return;
+    }
+    const dir = await fs.mkdtemp(path.join(os.tmpdir(), "watchdog-reaper-"));
+    const marker = path.join(dir, "alive.txt");
+    const cancel = path.join(dir, "cancel");
+    const childScript = path.join(dir, "child.mjs");
+    const gcScript = path.join(dir, "gc.mjs");
+    await fs.writeFile(
+      gcScript,
+      [
+        'import { writeFileSync } from "node:fs";',
+        `const marker = ${JSON.stringify(marker)};`,
+        "const tick = () => { try { writeFileSync(marker, String(Date.now())); } catch {} };",
+        "tick();",
+        "setInterval(tick, 200);",
+        "setTimeout(() => {}, 120000);",
+      ].join("\n"),
+      "utf8",
+    );
+    await fs.writeFile(
+      childScript,
+      [
+        'import { spawn } from "node:child_process";',
+        `spawn(process.execPath, [${JSON.stringify(gcScript)}], { detached: true, stdio: "ignore" }).unref();`,
+        "setTimeout(() => {}, 120000);",
+      ].join("\n"),
+      "utf8",
+    );
+    const watchdogPath = path.resolve(
+      path.dirname(fileURLToPath(import.meta.url)),
+      "../../src/handlers/child-process-watchdog.mjs",
+    );
+    const watchdog = spawn(
+      process.execPath,
+      [watchdogPath, "60000", cancel, process.execPath, childScript],
+      { stdio: "ignore" },
+    );
+    try {
+      const deadline = Date.now() + 15_000;
+      while (Date.now() < deadline) {
+        try {
+          await fs.access(marker);
+          break;
+        } catch {
+          await new Promise((r) => setTimeout(r, 100));
+        }
+      }
+      await fs.access(marker);
+      process.kill(watchdog.pid!, "SIGKILL");
+      await new Promise((r) => setTimeout(r, 2500));
+      const before = await fs.readFile(marker, "utf8");
+      await new Promise((r) => setTimeout(r, 800));
+      const after = await fs.readFile(marker, "utf8");
+      assert.equal(after, before, "orphan grandchild kept updating marker after watchdog kill");
+    } finally {
+      try { if (watchdog.pid) process.kill(watchdog.pid, "SIGKILL"); } catch {}
+      await fs.rm(dir, { recursive: true, force: true });
+    }
   });
 });

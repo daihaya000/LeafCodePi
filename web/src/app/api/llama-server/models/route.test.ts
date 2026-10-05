@@ -3,7 +3,17 @@ import { homedir, tmpdir } from "node:os";
 import path from "node:path";
 import { NextRequest } from "next/server";
 import { afterEach, describe, expect, it } from "vitest";
-import { defaultModelDir, GET, isForbiddenModelDirectory, isLora, isMmProj, resetLlamaModelScanCacheForTests } from "./route";
+import {
+  defaultModelDir,
+  GET,
+  isForbiddenModelDirectory,
+  isLora,
+  isMmProj,
+  isUnderAllowedModelRoot,
+  knownModelDirectoryRoots,
+  parseModelDirAllowlist,
+  resetLlamaModelScanCacheForTests,
+} from "./route";
 
 describe("model asset classification", () => {
   it("recognizes mmproj files even when the prefix is the model family", () => {
@@ -24,15 +34,22 @@ describe("model directory scan caching", () => {
     const dir = mkdtempSync(path.join(tmpdir(), "llama-models-"));
     dirs.push(dir);
     writeFileSync(path.join(dir, "a.gguf"), "a", "utf8");
-    const request = () => new NextRequest(`http://127.0.0.1:3010/api/llama-server/models?dir=${encodeURIComponent(dir)}`);
+    const previous = process.env.LEAFCODE_PI_LLAMA_MODEL_DIR_ALLOWLIST;
+    process.env.LEAFCODE_PI_LLAMA_MODEL_DIR_ALLOWLIST = dir;
+    try {
+      const request = () => new NextRequest(`http://127.0.0.1:3010/api/llama-server/models?dir=${encodeURIComponent(dir)}`);
 
-    const first = await (await GET(request())).json();
-    expect(first.models).toEqual(["a.gguf"]);
+      const first = await (await GET(request())).json();
+      expect(first.models).toEqual(["a.gguf"]);
 
-    // A new file changes the directory mtime, so the cached listing must not be served.
-    writeFileSync(path.join(dir, "b.gguf"), "b", "utf8");
-    const second = await (await GET(request())).json();
-    expect(second.models).toEqual(["a.gguf", "b.gguf"]);
+      // A new file changes the directory mtime, so the cached listing must not be served.
+      writeFileSync(path.join(dir, "b.gguf"), "b", "utf8");
+      const second = await (await GET(request())).json();
+      expect(second.models).toEqual(["a.gguf", "b.gguf"]);
+    } finally {
+      if (previous === undefined) delete process.env.LEAFCODE_PI_LLAMA_MODEL_DIR_ALLOWLIST;
+      else process.env.LEAFCODE_PI_LLAMA_MODEL_DIR_ALLOWLIST = previous;
+    }
   });
 });
 
@@ -76,14 +93,54 @@ describe("model directory target safety", () => {
     expect((await response.json()).error).toMatch(/ネットワーク/);
   });
 
-  it("still serves a local directory, so an external disk keeps working", async () => {
+  it("serves a local directory only when it is on the allowlist", async () => {
     const dir = mkdtempSync(path.join(tmpdir(), "llama-local-"));
     dirs.push(dir);
     writeFileSync(path.join(dir, "local.gguf"), "a", "utf8");
+    const previous = process.env.LEAFCODE_PI_LLAMA_MODEL_DIR_ALLOWLIST;
+    process.env.LEAFCODE_PI_LLAMA_MODEL_DIR_ALLOWLIST = dir;
+    try {
+      const response = await GET(request(dir));
+      expect(response.status).toBe(200);
+      expect((await response.json()).models).toEqual(["local.gguf"]);
+    } finally {
+      if (previous === undefined) delete process.env.LEAFCODE_PI_LLAMA_MODEL_DIR_ALLOWLIST;
+      else process.env.LEAFCODE_PI_LLAMA_MODEL_DIR_ALLOWLIST = previous;
+    }
+  });
 
-    const response = await GET(request(dir));
-    expect(response.status).toBe(200);
-    expect((await response.json()).models).toEqual(["local.gguf"]);
+  it("refuses an arbitrary local directory outside known roots and allowlist", async () => {
+    const dir = mkdtempSync(path.join(tmpdir(), "llama-denied-"));
+    dirs.push(dir);
+    writeFileSync(path.join(dir, "secret.gguf"), "a", "utf8");
+    const previous = process.env.LEAFCODE_PI_LLAMA_MODEL_DIR_ALLOWLIST;
+    delete process.env.LEAFCODE_PI_LLAMA_MODEL_DIR_ALLOWLIST;
+    try {
+      const response = await GET(request(dir));
+      expect(response.status).toBe(403);
+      expect((await response.json()).error).toMatch(/許可されたモデル保存先/);
+    } finally {
+      if (previous === undefined) delete process.env.LEAFCODE_PI_LLAMA_MODEL_DIR_ALLOWLIST;
+      else process.env.LEAFCODE_PI_LLAMA_MODEL_DIR_ALLOWLIST = previous;
+    }
+  });
+});
+
+describe("model directory allowlist roots", () => {
+  it("parses semicolon-separated absolute extras", () => {
+    expect(parseModelDirAllowlist("/srv/a;/srv/b", "linux")).toEqual(["/srv/a", "/srv/b"]);
+  });
+
+  it("treats configured and allowlisted roots as allowed", () => {
+    const roots = knownModelDirectoryRoots("linux", {
+      NODE_ENV: "test",
+      LEAFCODE_PI_LLAMA_MODEL_DIR: "/srv/models/llm",
+      LEAFCODE_PI_LLAMA_MODEL_DIR_ALLOWLIST: "/mnt/ext;/data/gguf",
+    }, "/opt/saved-models");
+    expect(isUnderAllowedModelRoot("/srv/models/llm/qwen", roots, "linux")).toBe(true);
+    expect(isUnderAllowedModelRoot("/mnt/ext/family", roots, "linux")).toBe(true);
+    expect(isUnderAllowedModelRoot("/opt/saved-models", roots, "linux")).toBe(true);
+    expect(isUnderAllowedModelRoot("/tmp/random", roots, "linux")).toBe(false);
   });
 });
 
