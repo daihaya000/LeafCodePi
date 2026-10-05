@@ -131,7 +131,7 @@ const MAX_TIMER_DELAY_MS = 2 ** 31 - 1;
  * it (the successor runtime already ran session_start), so a slow watchdog
  * re-arms one and the completion-verification turn still runs.
  */
-const SCHEDULE_WATCHDOG_MS = 5_000;
+const SCHEDULE_WATCHDOG_MS = 15_000;
 const TERMINAL = new Set<GoalLoopStatus>(["completed", "stopped"]);
 const UNSCHEDULABLE = new Set<GoalLoopStatus>(["paused", "blocked"]);
 const ABORTED_TURN_PAUSE_ERROR = "実行が中断されたため一時停止しました。";

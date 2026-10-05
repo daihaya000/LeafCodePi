@@ -6288,6 +6288,7 @@ for (const mode of ["missing-settlement", "write-failure", "manual-pause", "manu
     const cwd = mkdtempSync(join(tmpdir(), "leafcode-goal-loop-auto-timeout-"));
     process.env.LEAFCODE_PI_DATA_DIR = cwd;
     goalLoopTestSeams.setTurnTimeoutMs(1000);
+    goalLoopTestSeams.setScheduleWatchdogMs(5000);
     t.mock.timers.enable({ apis: ["setTimeout", "setInterval", "Date"] });
     const { sent, notices, readState, handlers, commands, ctx, pi, setBusy } = loopEndNoticeHarness(`auto-timeout-${mode}`);
     const turns = () => sent.filter((item) => item.message.customType === "leafcode-goal-turn");
@@ -6335,6 +6336,7 @@ for (const mode of ["missing-settlement", "write-failure", "manual-pause", "manu
       await handlers.get("session_shutdown")?.({}, ctx);
       t.mock.timers.reset();
       goalLoopTestSeams.setTurnTimeoutMs();
+      goalLoopTestSeams.setScheduleWatchdogMs(undefined);
       delete process.env.LEAFCODE_PI_DATA_DIR;
       rmSync(cwd, { recursive: true, force: true });
     }
