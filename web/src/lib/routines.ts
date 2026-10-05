@@ -82,7 +82,24 @@ function assertRoutineNameLength(name: string): void {
   }
 }
 function writeRoutine(routine: RoutineFile): RoutineDto { mkdirSync(routineDir(routine.botId), { recursive: true }); writeFileSync(routinePath(routine.botId, routine.id), `${JSON.stringify(routine, null, 2)}\n`, "utf8"); return routine; }
+/** Parsed routine per file, reused while its size, mtime (ns) and inode are unchanged (the scheduler lists every Bot each minute). */
+const routineParseCache = new Map<string, { stamp: string; routine: RoutineDto | null }>();
+const ROUTINE_PARSE_CACHE_LIMIT = 2_000;
 function parseRoutine(botId: string, file: string): RoutineDto | null {
+  const full = join(routineDir(botId), file);
+  let stamp: string | null = null;
+  try { const stat = statSync(full, { bigint: true }); stamp = `${botId}:${stat.size}:${stat.mtimeNs}:${stat.ino}`; } catch { /* unreadable: parse reports it */ }
+  const cached = stamp === null ? undefined : routineParseCache.get(full);
+  if (cached && cached.stamp === stamp) return cached.routine ? { ...cached.routine } : null;
+  const routine = parseRoutineFile(botId, file);
+  if (stamp !== null) {
+    routineParseCache.delete(full);
+    routineParseCache.set(full, { stamp, routine });
+    if (routineParseCache.size > ROUTINE_PARSE_CACHE_LIMIT) { const oldest = routineParseCache.keys().next().value; if (oldest !== undefined) routineParseCache.delete(oldest); }
+  }
+  return routine ? { ...routine } : null;
+}
+function parseRoutineFile(botId: string, file: string): RoutineDto | null {
   try { const value = JSON.parse(readFileSync(join(routineDir(botId), file), "utf8")) as Partial<RoutineDto>; if (value.botId !== botId || typeof value.id !== "string" || !validId(value.id) || typeof value.name !== "string" || typeof value.prompt !== "string" || typeof value.schedule !== "string") return null; return { id: value.id, botId, name: value.name, prompt: value.prompt, schedule: value.schedule, enabled: value.enabled !== false, createdAt: String(value.createdAt), updatedAt: String(value.updatedAt), failureCount: typeof value.failureCount === "number" && Number.isInteger(value.failureCount) && value.failureCount >= 0 ? value.failureCount : 0, lastRunAt: typeof value.lastRunAt === "string" ? value.lastRunAt : null }; } catch { return null; }
 }
 const MINUTES_PER_DAY = 24 * 60;
