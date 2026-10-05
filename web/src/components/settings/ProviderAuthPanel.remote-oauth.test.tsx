@@ -1,5 +1,5 @@
 // @vitest-environment happy-dom
-import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ProviderAuthPanel } from "./ProviderAuthPanel";
 
@@ -13,6 +13,7 @@ const callbackUrl = "http://127.0.0.1:1456/oauth/callback";
 const redirect = `${callbackUrl}?code=test-code&state=test-state`;
 const providers = [{ id: "openai-codex", name: "OpenAI Codex", authenticated: true, oauthAvailable: true, highlighted: true }];
 const account = { id: "account-1", label: "Remote", providers: ["openai-codex"], enabled: true, createdAt: "", updatedAt: "" };
+const otherAccount = { ...account, id: "account-2", label: "Other" };
 const response = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json" } });
 
 beforeEach(() => {
@@ -22,7 +23,7 @@ beforeEach(() => {
   vi.spyOn(window, "open").mockReturnValue(null);
   fetchMock.mockReset().mockImplementation((input: RequestInfo | URL, init?: RequestInit) => {
     const url = String(input);
-    if (url.endsWith("/api/accounts")) return Promise.resolve(response({ accounts: [account] }));
+    if (url.endsWith("/api/accounts")) return Promise.resolve(response({ accounts: [account, otherAccount] }));
     if (url.endsWith("/auth-status")) return Promise.resolve(response({ providers: ["openai-codex"] }));
     if (url.includes("/login") && !url.includes("/answer") && !url.includes("/callback") && init?.method === "POST") {
       return Promise.resolve(response({ sessionId: "session-1" }));
@@ -34,8 +35,10 @@ afterEach(() => { cleanup(); vi.restoreAllMocks(); vi.unstubAllGlobals(); });
 
 async function start() {
   render(<ProviderAuthPanel providers={providers} onChanged={() => {}} />);
-  fireEvent.click(await screen.findByRole("button", { name: "再ログイン" }));
+  const card = (await screen.findByText(account.label)).closest("li")!;
+  fireEvent.click(within(card).getByRole("button", { name: "再ログイン" }));
   await waitFor(() => expect(TestEventSource.instances).toHaveLength(1));
+  return card;
 }
 async function emit(type: string, payload: object) {
   await act(async () => {
@@ -47,6 +50,50 @@ async function auth() {
 }
 
 describe("remote provider OAuth", () => {
+  it("keeps method selection, callback input, errors and cancellation inside the selected account", async () => {
+    const card = await start();
+    const otherCard = screen.getByText(otherAccount.label).closest("li")!;
+    const panel = within(card).getByRole("region", { name: "OpenAI Codex のログイン" });
+    expect(screen.getAllByRole("region", { name: "OpenAI Codex のログイン" })).toHaveLength(1);
+    expect(within(otherCard).queryByRole("region", { name: "OpenAI Codex のログイン" })).toBeNull();
+    await emit("prompt", { id: "method", prompt: { type: "select", message: "Choose method", options: [
+      { id: "browser", label: "Browser login (default)" },
+      { id: "device", label: "Device code login (headless)" },
+    ] } });
+    fireEvent.click(within(panel).getByRole("button", { name: "Browser login (default)" }));
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledWith(
+      expect.stringContaining("/api/providers/openai-codex/login/answer"), expect.objectContaining({
+        body: JSON.stringify({ promptId: "method", value: "browser", sessionId: "session-1" }),
+      }),
+    ));
+    await auth();
+    expect(within(panel).getByRole("textbox", { name: "ログイン後の戻り先URL全体" })).toBeTruthy();
+    await emit("done", { ok: false, error: "Login failed" });
+    expect(within(panel).getByRole("alert").textContent).toBe("Login failed");
+    fireEvent.click(within(panel).getByRole("button", { name: "キャンセル" }));
+    await waitFor(() => expect(screen.queryByRole("region", { name: "OpenAI Codex のログイン" })).toBeNull());
+  });
+
+  it("keeps API-key prompts inside the selected account", async () => {
+    render(<ProviderAuthPanel providers={[{ ...providers[0], oauthAvailable: false, methods: ["api_key"] }]} onChanged={() => {}} />);
+    const card = (await screen.findByText(otherAccount.label)).closest("li")!;
+    fireEvent.click(within(card).getByRole("button", { name: "再ログイン" }));
+    await waitFor(() => expect(TestEventSource.instances).toHaveLength(1));
+    await emit("prompt", { id: "key", prompt: { type: "secret", message: "API key" } });
+    expect(within(card).getByLabelText("API key").getAttribute("type")).toBe("password");
+    expect(within(screen.getByText(account.label).closest("li")!).queryByLabelText("API key")).toBeNull();
+  });
+
+  it("keeps shared-provider login inside its provider card", async () => {
+    render(<ProviderAuthPanel providers={[{ id: "typesafe", name: "TypeSafe", authenticated: false, highlighted: true, methods: ["api_key"] }]} onChanged={() => {}} />);
+    const card = screen.getByText("TypeSafe", { selector: "span" }).closest("li")!;
+    fireEvent.click(within(card).getByRole("button", { name: "API キー" }));
+    await waitFor(() => expect(TestEventSource.instances).toHaveLength(1));
+    await emit("prompt", { id: "key", prompt: { type: "secret", message: "Shared API key" } });
+    expect(within(card).getByRole("region", { name: "TypeSafe のログイン" })).toBeTruthy();
+    expect(within(card).getByLabelText("Shared API key")).toBeTruthy();
+  });
+
   it("offers full callback URL paste for providers without a native manual prompt", async () => {
     await start();
     await auth();

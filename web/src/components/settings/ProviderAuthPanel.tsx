@@ -1395,6 +1395,133 @@ export const ProviderAuthPanel = memo(function ProviderAuthPanel({
     }
   }
 
+  const loginPanel = login && (
+    <section
+      aria-label={`${login.providerName} のログイン`}
+      className="mt-3 min-w-0 rounded-2xl border border-border bg-surface-2 p-4"
+    >
+      <div className="mb-2 flex items-center justify-between gap-2">
+        <h3 className="min-w-0 break-all text-sm font-semibold">
+          {login.providerName} —{" "}
+          {login.authType === "oauth" ? "サブスクログイン" : "API キー"}
+          {login.accountId && (
+            <span className="ml-1 text-xs font-normal text-muted">
+              （アカウント:{" "}
+              {accounts?.find((a) => a.id === login.accountId)?.label ??
+                login.accountId}
+              ）
+            </span>
+          )}
+        </h3>
+        <Button variant="ghost" className="shrink-0" onClick={() => void stopLogin()}>
+          キャンセル
+        </Button>
+      </div>
+      <p className="text-sm text-muted">{login.status}</p>
+      {login.authType === "oauth" && (
+        <p className="mt-2 text-xs text-muted">{REMOTE_OAUTH_HINT}</p>
+      )}
+      {login.authUrl && (
+        <p className="mt-2 break-all text-xs">
+          ブラウザが開かない場合:{" "}
+          <a
+            className="text-accent underline"
+            href={login.authUrl}
+            target="_blank"
+            rel="noreferrer"
+          >
+            {login.authUrl}
+          </a>
+        </p>
+      )}
+      {login.deviceCode && (
+        <div className="mt-3 rounded-xl border border-border bg-surface p-3 text-sm">
+          <p>
+            コード:{" "}
+            <span className="tabular-nums text-base font-semibold">
+              {login.deviceCode.userCode}
+            </span>
+          </p>
+          <a
+            className="mt-1 inline-block break-all text-accent underline"
+            href={login.deviceCode.verificationUri}
+            target="_blank"
+            rel="noreferrer"
+          >
+            {login.deviceCode.verificationUri}
+          </a>
+        </div>
+      )}
+      {login.prompt?.prompt.type === "select" && (
+        <div className="mt-3 flex flex-col gap-2">
+          {login.prompt.prompt.options.map((option) => (
+            <Button
+              key={option.id}
+              disabled={login.busy}
+              onClick={() => void submitAnswer(option.id)}
+              className="justify-start whitespace-normal text-left"
+            >
+              <span>
+                {option.label}
+                {option.description ? (
+                  <span className="ml-2 text-xs text-muted">
+                    {option.description}
+                  </span>
+                ) : null}
+              </span>
+            </Button>
+          ))}
+        </div>
+      )}
+      {loginPrompt && loginPrompt.prompt.type !== "select" && !login.finished && (
+        <form
+          className="mt-3 flex flex-col gap-2"
+          onSubmit={(event) => {
+            event.preventDefault();
+            void submitAnswer(login.input);
+          }}
+        >
+          <label htmlFor="provider-login-input" className="text-xs text-muted">
+            {loginPrompt.prompt.type === "manual_code"
+              ? (login.prompt ? REMOTE_OAUTH_MANUAL_LABEL : loginPrompt.prompt.message)
+              : loginPrompt.prompt.message}
+          </label>
+          <input
+            id="provider-login-input"
+            autoComplete="off"
+            autoCapitalize="none"
+            spellCheck={false}
+            className="rounded-xl border border-border bg-surface px-3 py-2 text-sm outline-none focus:border-accent"
+            type={
+              loginPrompt.prompt.type === "secret" ? "password" : "text"
+            }
+            value={login.input}
+            placeholder={loginPrompt.prompt.placeholder}
+            disabled={login.busy}
+            onChange={(event) =>
+              setLogin((prev) =>
+                prev ? { ...prev, input: event.target.value } : prev,
+              )
+            }
+            autoFocus
+          />
+          <Button
+            type="submit"
+            disabled={login.busy || !login.input.trim()}
+          >
+            送信
+          </Button>
+        </form>
+      )}
+      {login.warning && (
+        <p className="mt-2 text-sm text-warning">{login.warning}</p>
+      )}
+      {login.error && (
+        <p role="alert" className="mt-2 text-sm text-danger">{login.error}</p>
+      )}
+    </section>
+  );
+
   function renderAccountControls(provider: ProviderAuthDto): ReactNode {
     if (!isAccountProviderId(provider.id)) return null;
     const providerId = provider.id;
@@ -1976,6 +2103,8 @@ export const ProviderAuthPanel = memo(function ProviderAuthPanel({
                           )}
                         </div>
                       )}
+                      {login?.providerId === providerId &&
+                        login.accountId === account.id && loginPanel}
                     </li>
                   );
                 })}
@@ -2095,6 +2224,11 @@ export const ProviderAuthPanel = memo(function ProviderAuthPanel({
                 }
                 onLogout={() => void logout(provider)}
                 accountControls={renderAccountControls(provider)}
+                loginControls={
+                  login?.providerId === provider.id && !login.accountId
+                    ? loginPanel
+                    : undefined
+                }
                 cookieControls={
                   provider.id === "typesafe" ? (
                     <TypeSafeCookieControl
@@ -2114,130 +2248,6 @@ export const ProviderAuthPanel = memo(function ProviderAuthPanel({
         </ul>
         <LegacyJevCredentialControl onChanged={onChanged} />
       </div>
-
-      {login && (
-        <div className="rounded-2xl border border-border bg-surface-2 p-4">
-          <div className="mb-2 flex items-center justify-between gap-2">
-            <h3 className="text-sm font-semibold">
-              {login.providerName} —{" "}
-              {login.authType === "oauth" ? "サブスクログイン" : "API キー"}
-              {login.accountId && (
-                <span className="ml-1 text-xs font-normal text-muted">
-                  （アカウント:{" "}
-                  {accounts?.find((a) => a.id === login.accountId)?.label ??
-                    login.accountId}
-                  ）
-                </span>
-              )}
-            </h3>
-            <Button variant="ghost" onClick={() => void stopLogin()}>
-              キャンセル
-            </Button>
-          </div>
-          <p className="text-sm text-muted">{login.status}</p>
-          {login.authType === "oauth" && (
-            <p className="mt-2 text-xs text-muted">{REMOTE_OAUTH_HINT}</p>
-          )}
-          {login.authUrl && (
-            <p className="mt-2 break-all text-xs">
-              ブラウザが開かない場合:{" "}
-              <a
-                className="text-accent underline"
-                href={login.authUrl}
-                target="_blank"
-                rel="noreferrer"
-              >
-                {login.authUrl}
-              </a>
-            </p>
-          )}
-          {login.deviceCode && (
-            <div className="mt-3 rounded-xl border border-border bg-surface p-3 text-sm">
-              <p>
-                コード:{" "}
-                <span className="tabular-nums text-base font-semibold">
-                  {login.deviceCode.userCode}
-                </span>
-              </p>
-              <a
-                className="mt-1 inline-block text-accent underline"
-                href={login.deviceCode.verificationUri}
-                target="_blank"
-                rel="noreferrer"
-              >
-                {login.deviceCode.verificationUri}
-              </a>
-            </div>
-          )}
-          {login.prompt?.prompt.type === "select" && (
-            <div className="mt-3 flex flex-col gap-2">
-              {login.prompt.prompt.options.map((option) => (
-                <Button
-                  key={option.id}
-                  disabled={login.busy}
-                  onClick={() => void submitAnswer(option.id)}
-                  className="justify-start"
-                >
-                  <span>
-                    {option.label}
-                    {option.description ? (
-                      <span className="ml-2 text-xs text-muted">
-                        {option.description}
-                      </span>
-                    ) : null}
-                  </span>
-                </Button>
-              ))}
-            </div>
-          )}
-          {loginPrompt && loginPrompt.prompt.type !== "select" && !login.finished && (
-            <form
-              className="mt-3 flex flex-col gap-2"
-              onSubmit={(event) => {
-                event.preventDefault();
-                void submitAnswer(login.input);
-              }}
-            >
-              <label htmlFor="provider-login-input" className="text-xs text-muted">
-                {loginPrompt.prompt.type === "manual_code"
-                  ? (login.prompt ? REMOTE_OAUTH_MANUAL_LABEL : loginPrompt.prompt.message)
-                  : loginPrompt.prompt.message}
-              </label>
-              <input
-                id="provider-login-input"
-                autoComplete="off"
-                autoCapitalize="none"
-                spellCheck={false}
-                className="rounded-xl border border-border bg-surface px-3 py-2 text-sm outline-none focus:border-accent"
-                type={
-                  loginPrompt.prompt.type === "secret" ? "password" : "text"
-                }
-                value={login.input}
-                placeholder={loginPrompt.prompt.placeholder}
-                disabled={login.busy}
-                onChange={(event) =>
-                  setLogin((prev) =>
-                    prev ? { ...prev, input: event.target.value } : prev,
-                  )
-                }
-                autoFocus
-              />
-              <Button
-                type="submit"
-                disabled={login.busy || !login.input.trim()}
-              >
-                送信
-              </Button>
-            </form>
-          )}
-          {login.warning && (
-            <p className="mt-2 text-sm text-warning">{login.warning}</p>
-          )}
-          {login.error && (
-            <p role="alert" className="mt-2 text-sm text-danger">{login.error}</p>
-          )}
-        </div>
-      )}
     </div>
   );
 });
@@ -2334,6 +2344,7 @@ function ProviderRow({
   onLogout,
   cookieControls,
   accountControls,
+  loginControls,
   usage,
   resetBusy = false,
   resetStatus = null,
@@ -2347,6 +2358,7 @@ function ProviderRow({
   onLogout?: () => void;
   accountControls?: ReactNode;
   cookieControls?: ReactNode;
+  loginControls?: ReactNode;
   usage?: CodexBarProvider | null;
   resetBusy?: boolean;
   resetStatus?: string | null;
@@ -2406,6 +2418,7 @@ function ProviderRow({
         />
       )}
       {accountControls}
+      {loginControls}
       {cookieControls}
       {provider.baseUrl != null && (
         <BaseUrlEditor
