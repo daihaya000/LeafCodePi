@@ -1384,6 +1384,15 @@ function trimLiveThroughputMap(live: LiveRuntime): void {
 }
 
 function trimLiveTimingMaps(live: LiveRuntime): void {
+  // Partial outputs normally leave on the tool result message_end; a missed one would stay forever
+  // (up to MAX_UI_TOOL_OUTPUT_CHARS each), so cap the map and never evict a still-running call.
+  if (live.toolPartialOutputByCallId.size > LIVE_TOOL_TIMING_LIMIT) {
+    for (const callId of live.toolPartialOutputByCallId.keys()) {
+      if (live.activeToolNames?.has(callId)) continue;
+      live.toolPartialOutputByCallId.delete(callId);
+      if (live.toolPartialOutputByCallId.size <= LIVE_TOOL_TIMING_LIMIT) break;
+    }
+  }
   const excess = live.toolStartedAt.size - LIVE_TOOL_TIMING_LIMIT;
   if (excess <= 0) return;
   for (const callId of live.toolStartedAt.keys()) {
