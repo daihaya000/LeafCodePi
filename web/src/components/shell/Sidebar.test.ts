@@ -8,6 +8,7 @@ import {
   reorderProjectIds,
   tasksForSidebar,
   latestWorkingTask,
+  taskAppearsActive,
 } from "./Sidebar";
 import type { GoalLoopSummaryDto, HealthDto, ProjectDto, TaskSummary } from "@/lib/types";
 
@@ -122,8 +123,13 @@ describe("sameTaskList", () => {
 });
 
 describe("countRunningTasks", () => {
-  it("counts only tasks with working status", () => {
-    expect(countRunningTasks([task("idle", "idle", "待機中"), task("working", "working", "進行中")])).toBe(1);
+  it("counts working tasks and live Goal Loops between turns", () => {
+    expect(countRunningTasks([task("idle", "idle", "idle-task"), task("working", "working", "running-task")])).toBe(1);
+    expect(
+      countRunningTasks([
+        { ...task("queued", "idle", "cooldown"), goalLoopSummary: { status: "queued", maxTurns: 10, turnCount: 2 } },
+      ]),
+    ).toBe(1);
   });
 });
 
@@ -182,6 +188,19 @@ describe("tasksForSidebar", () => {
   });
 });
 
+describe("taskAppearsActive", () => {
+  it("treats queued Goal Loops as active even when task status is idle", () => {
+    expect(taskAppearsActive(task("t1", "idle", "idle"))).toBe(false);
+    expect(taskAppearsActive(task("t2", "working", "working"))).toBe(true);
+    expect(
+      taskAppearsActive({
+        ...task("t3", "idle", "cooldown"),
+        goalLoopSummary: { status: "queued", maxTurns: 5, turnCount: 1 },
+      }),
+    ).toBe(true);
+  });
+});
+
 describe("latestWorkingTask", () => {
   it("returns the newest working task for the requested project", () => {
     const newest = task("t2", "working", "進行中の最新タスク");
@@ -209,7 +228,15 @@ describe("latestWorkingTask", () => {
   });
 
   it("returns null when the project has no working task", () => {
-    expect(latestWorkingTask([task("t1", "idle", "完了済み")], "p1")).toBeNull();
+    expect(latestWorkingTask([task("t1", "idle", "done")], "p1")).toBeNull();
+  });
+
+  it("returns an idle task that still owns a live Goal Loop cooldown", () => {
+    const cooldown = {
+      ...task("t1", "idle", "cooldown"),
+      goalLoopSummary: { status: "queued" as const, maxTurns: 10, turnCount: 2 },
+    };
+    expect(latestWorkingTask([cooldown], "p1")).toEqual(cooldown);
   });
 });
 

@@ -753,16 +753,23 @@ function isCodeTask(task: TaskSummary): boolean {
   return task.kind !== "bot";
 }
 
+/** Working now, or a live Goal Loop between turns (queued / verifying). */
+export function taskAppearsActive(
+  task: Pick<TaskSummary, "status" | "goalLoopSummary">,
+): boolean {
+  return task.status === "working" || isGoalLoopLiveStatus(task.goalLoopSummary?.status);
+}
+
 export function countRunningTasks(tasks: TaskSummary[]): number {
   let count = 0;
   for (const task of tasks) {
-    if (task.status === "working") count += 1;
+    if (taskAppearsActive(task)) count += 1;
   }
   return count;
 }
 
 function hasUnreadTask(task: TaskSummary, activeTaskId: string | null): boolean {
-  return task.status !== "working" && task.id !== activeTaskId
+  return !taskAppearsActive(task) && task.id !== activeTaskId
     && hasUnread(task.updatedAt, getLastReadAt("task", task.id));
 }
 
@@ -778,7 +785,7 @@ function sortTasksForSidebarInPlace(
   const sorted = tasks.map((task, index) => ({
     task,
     index,
-    rank: (pinnedTaskIds?.has(task.id) ? 2 : 0) + (task.status === "working" ? 1 : 0),
+    rank: (pinnedTaskIds?.has(task.id) ? 2 : 0) + (taskAppearsActive(task) ? 1 : 0),
   }));
   sorted.sort((a, b) =>
     b.rank - a.rank ||
@@ -804,14 +811,14 @@ export function tasksForSidebar(
 export function latestWorkingTask(tasks: TaskSummary[], projectId: string): TaskSummary | null {
   let latest: TaskSummary | null = null;
   for (const task of tasks) {
-    if (task.projectId !== projectId || task.status !== "working") continue;
+    if (task.projectId !== projectId || !taskAppearsActive(task)) continue;
     if (!latest || task.updatedAt.localeCompare(latest.updatedAt) > 0) latest = task;
   }
   return latest;
 }
 
 function promotionBlocked(task: TaskSummary): boolean {
-  return task.status === "working" || isGoalLoopLiveStatus(task.goalLoopSummary?.status);
+  return taskAppearsActive(task);
 }
 
 function TodoProgressBar({
@@ -1586,14 +1593,14 @@ const SidebarView = memo(function SidebarView({
 
   const workingTaskIds = useMemo(
     () => paneTabIdsForWorkingTasks(
-      tasksForSidebar(tasks.filter((task) => task.status === "working"), pinnedTaskIds),
+      tasksForSidebar(tasks.filter((task) => taskAppearsActive(task)), pinnedTaskIds),
       botSidebar.bots.filter((bot) => bot.codeInProgress === true).map((bot) => bot.id),
     ),
     [botSidebar.bots, pinnedTaskIds, tasks],
   );
   const hasWorking = workingTaskIds.length > 0;
   const workingCounts = useMemo<WorkingCounts>(() => {
-    const workingBotTasks = tasks.filter((task) => task.status === "working" && task.kind === "bot");
+    const workingBotTasks = tasks.filter((task) => taskAppearsActive(task) && task.kind === "bot");
     const primaryWorkingBotIds = new Set(
       workingBotTasks.flatMap((task) => task.botId && task.id === `bot:${task.botId}` ? [task.botId] : []),
     );
@@ -1603,7 +1610,7 @@ const SidebarView = memo(function SidebarView({
     ).length;
     return {
       bot: workingBotTasks.length + activeBotTabs,
-      code: tasks.filter((task) => task.status === "working" && task.kind !== "bot").length,
+      code: tasks.filter((task) => taskAppearsActive(task) && task.kind !== "bot").length,
     };
   }, [botSidebar.bots, botStatusFor, tasks]);
   useEffect(() => {
