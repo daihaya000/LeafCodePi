@@ -234,7 +234,18 @@ export function estimateWatchBodyBytes(input: {
 }
 
 export function progressFingerprint(messages: UiMessage[]): string {
-  const contentKey = (text: string) => `${text.length}:${createHash("sha256").update(text).digest("hex").slice(0, 16)}`;
+  // OPTIMIZATION #58: full-text SHA-256 per part every 15s dominated hang-watch
+  // CPU on long transcripts. Sample head+tail (plus length) so appends and
+  // rewritten progress lines still move the fingerprint without hashing MiBs.
+  const CONTENT_SAMPLE_CHARS = 1_024;
+  const contentKey = (text: string) => {
+    const len = text.length;
+    if (len <= CONTENT_SAMPLE_CHARS * 2) {
+      return `${len}:${createHash("sha256").update(text).digest("hex").slice(0, 16)}`;
+    }
+    const sample = `${text.slice(0, CONTENT_SAMPLE_CHARS)}\0${text.slice(-CONTENT_SAMPLE_CHARS)}`;
+    return `${len}:${createHash("sha256").update(sample).digest("hex").slice(0, 16)}`;
+  };
   return messages
     .map((message) => {
       const parts = message.parts

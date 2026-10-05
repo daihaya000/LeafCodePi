@@ -199,6 +199,14 @@ describe("hang-watchdog helpers", () => {
     expect(progressFingerprint(running("abc"))).toContain("o:running:3");
     expect(progressFingerprint(running("abcd"))).not.toBe(progressFingerprint(running("abc")));
     expect(progressFingerprint(running("abd"))).not.toBe(progressFingerprint(running("abc")));
+    const head = "a".repeat(3_000);
+    const tail = "b".repeat(3_000);
+    expect(progressFingerprint(running(`${head}${tail}1`))).not.toBe(progressFingerprint(running(`${head}${tail}2`)));
+    expect(progressFingerprint(running(`x${head}${tail}`))).not.toBe(progressFingerprint(running(`y${head}${tail}`)));
+    // Middle-only edits outside the head/tail sample intentionally collide.
+    const left = `${"a".repeat(1_500)}MID1${"b".repeat(1_500)}`;
+    const right = `${"a".repeat(1_500)}MID2${"b".repeat(1_500)}`;
+    expect(progressFingerprint(running(left))).toBe(progressFingerprint(running(right)));
     expect(progressFingerprint([{ ...messages[0]!, parts: [{ id: "t1", type: "text", text: "ok" }] }]))
       .not.toBe(progressFingerprint(messages));
   });
