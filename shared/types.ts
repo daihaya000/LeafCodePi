@@ -408,6 +408,8 @@ export type GoalLoopDto = {
   turnCount: number;
   /** 直前のターンがエラー等で中断されたため、再開時に同じターン番号を再送する。 */
   retryInterruptedTurn?: boolean;
+  /** Durable: a mid-turn interrupted by session lifecycle still needs transcript recovery. */
+  pendingTurnRecovery?: boolean;
   turnKind: "goal" | "verification";
   pauseReason: string;
   error: string;

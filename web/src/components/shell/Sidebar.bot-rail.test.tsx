@@ -158,7 +158,8 @@ describe("Bot mode list", () => {
       const button = await screen.findByRole("button", { name: "トレイホストを再起動" });
       expect(button.getAttribute("title")).toContain("フロントエンドとバックエンド");
       fireEvent.click(button);
-      expect(confirm).toHaveBeenCalledWith(restartConfirmation("host"));
+      // The live Goal Loop probe runs first, so the confirm arrives a tick later.
+      await waitFor(() => expect(confirm).toHaveBeenCalledWith(restartConfirmation("host")));
       await waitFor(() => expect(mocks.sendJson).toHaveBeenCalledWith("/api/host/restart", { target: "host" }));
       await waitFor(() => expect(restartEvent).toHaveBeenCalledOnce());
       expect(restartEvent.mock.calls[0]?.[0]?.detail).toEqual({ target: "host" });
@@ -181,7 +182,8 @@ describe("Bot mode list", () => {
       render(<Sidebar mobileOpen={false} onClose={vi.fn()} />);
       const button = await screen.findByRole("button", { name: "バックエンドを再起動" });
       fireEvent.click(button);
-      expect(confirm).toHaveBeenCalledWith(restartConfirmation("backend"));
+      // The live Goal Loop probe runs first, so the confirm arrives a tick later.
+      await waitFor(() => expect(confirm).toHaveBeenCalledWith(restartConfirmation("backend")));
       await waitFor(() => expect(mocks.sendJson).toHaveBeenCalledWith("/api/host/restart", { target: "backend" }));
       expect((screen.getByRole("button", { name: "WebUIを再起動" }) as HTMLButtonElement).disabled).toBe(true);
       await waitFor(() => expect((button as HTMLButtonElement).disabled).toBe(false), { timeout: 3000 });
@@ -202,6 +204,8 @@ describe("Bot mode list", () => {
       render(<Sidebar mobileOpen={false} onClose={vi.fn()} />);
       const button = await screen.findByRole("button", { name: "バックエンドを再起動" });
       fireEvent.click(button);
+      await waitFor(() => expect(confirm).toHaveBeenCalledTimes(1));
+      await waitFor(() => expect((button as HTMLButtonElement).disabled).toBe(false));
       expect(mocks.sendJson).not.toHaveBeenCalledWith("/api/host/restart", { target: "backend" });
       confirm.mockReturnValue(true);
       mocks.sendJson.mockRejectedValueOnce(new Error("restart refused"));
@@ -209,6 +213,22 @@ describe("Bot mode list", () => {
       expect(await screen.findByRole("alert")).toHaveProperty("textContent", "restart refused");
       expect((button as HTMLButtonElement).disabled).toBe(false);
     } finally { confirm.mockRestore(); fetchStatus.mockRestore(); }
+  });
+
+  it("実行中の Goal Loop があるとバックエンド再起動は確認前に理由を表示して止める", async () => {
+    localStorage.setItem("webui.sidebar.collapsed", "0");
+    const confirm = vi.spyOn(window, "confirm").mockReturnValue(true);
+    const fetchActive = vi.spyOn(globalThis, "fetch").mockImplementation(async (url) =>
+      new Response(JSON.stringify(String(url).includes("/api/goal-loop/active") ? { active: 1, taskIds: ["t1"] } : {}), { status: 200 }));
+    try {
+      render(<Sidebar mobileOpen={false} onClose={vi.fn()} />);
+      const button = await screen.findByRole("button", { name: "バックエンドを再起動" });
+      fireEvent.click(button);
+      expect((await screen.findByRole("alert")).textContent).toContain("Goal Loop が 1 件実行中");
+      expect(confirm).not.toHaveBeenCalled();
+      expect(mocks.sendJson).not.toHaveBeenCalledWith("/api/host/restart", { target: "backend" });
+      expect((button as HTMLButtonElement).disabled).toBe(false);
+    } finally { confirm.mockRestore(); fetchActive.mockRestore(); }
   });
 
   it("defaults to Code when no mode is saved", async () => {

@@ -339,3 +339,25 @@ describe("GoalLoopPanel progress", () => {
     expect(onAction).toHaveBeenCalledWith("stop");
   });
 });
+
+describe("GoalLoopPanel awaiting input", () => {
+  afterEach(() => cleanup());
+
+  it("says a live loop is waiting on the permission card", () => {
+    render(<GoalLoopPanel loop={loopFixture()} busy={false} awaitingInput="permission" onAction={() => {}} onResume={() => {}} />);
+    expect(screen.getByText(/許可待ちです/)).toBeTruthy();
+  });
+
+  it("stays quiet when the loop is not live", () => {
+    render(
+      <GoalLoopPanel
+        loop={loopFixture({ status: "paused", pauseReason: "user" })}
+        busy={false}
+        awaitingInput="question"
+        onAction={() => {}}
+        onResume={() => {}}
+      />,
+    );
+    expect(screen.queryByText(/回答待ちです/)).toBeNull();
+  });
+});

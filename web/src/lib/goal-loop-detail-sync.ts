@@ -36,3 +36,39 @@ export function applyGoalLoopSummaryToDetail(
         : {}),
   };
 }
+
+export type GoalLoopControlAction = "pause" | "resume" | "stop" | "complete";
+
+/**
+ * A control can race the loop's own transition (Pause pressed as the loop completes, Stop while
+ * a composer Stop already ended it, Resume from a second tab). When the refreshed state already
+ * delivers what the user asked for, the failed request is not an error worth a red banner.
+ */
+export function goalLoopActionSatisfied(
+  action: GoalLoopControlAction,
+  loop: GoalLoopDto | null | undefined,
+): boolean {
+  const status = loop?.status;
+  const terminal = !loop || status === "stopped" || status === "completed";
+  switch (action) {
+    case "stop":
+      return terminal;
+    case "pause":
+      return status === "paused" || status === "blocked";
+    case "complete":
+      return status === "completed";
+    case "resume":
+      return status === "queued" || status === "running" || status === "verifying_completed";
+  }
+}
+
+/** Friendlier text for a control that lost the race to the loop ending on its own. */
+export function goalLoopActionConflictMessage(
+  action: GoalLoopControlAction,
+  loop: GoalLoopDto | null | undefined,
+): string | null {
+  if (goalLoopActionSatisfied(action, loop)) return null;
+  if (!loop || loop.status === "stopped") return "Goal Loop は既に停止しています";
+  if (loop.status === "completed") return "Goal Loop は既に完了しています";
+  return null;
+}

@@ -248,3 +248,29 @@ describe("findResumableTurn", () => {
     expect(shouldAttachResumeImages("continue", "", 0)).toBe(false);
   });
 });
+
+describe("findResumableTurn – Goal Loop turns", () => {
+  const turn = { goalId: "g1", turn: 2, kind: "goal" as const };
+
+  it("does not offer chat resume for an aborted Goal Loop turn prompt", () => {
+    const prompt = { ...userMessage("u1", "Goal Loop ターン2"), goalLoopTurn: turn };
+    const aborted = { ...abortedAssistant("a1"), goalLoopTurn: turn };
+    expect(findResumableTurn([prompt, aborted])).toBeNull();
+    expect(findResumableTurn([prompt, aborted], { manualAbortedAssistantId: "a1" })).toBeNull();
+  });
+
+  it("does not re-send an older manual prompt when the loop marker is hidden", () => {
+    // Hidden loop prompt: the last user row is the manual one, but replies belong to the loop.
+    const aborted = { ...abortedAssistant("a2"), goalLoopTurn: turn };
+    expect(findResumableTurn([userMessage("u1", "古い手動プロンプト"), aborted])).toBeNull();
+    const silent = { ...emptyAssistant("a3"), goalLoopTurn: turn };
+    expect(findResumableTurn([userMessage("u1"), silent])).toBeNull();
+  });
+
+  it("still offers resume for a manual turn sent after the loop", () => {
+    const loopReply = { ...reply("a1"), goalLoopTurn: turn };
+    const result = findResumableTurn([userMessage("u0"), loopReply, userMessage("u2", "手動"), abortedAssistant("a2")]);
+    expect(result?.reason).toBe("aborted");
+    expect(result?.text).toBe("手動");
+  });
+});

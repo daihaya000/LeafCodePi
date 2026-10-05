@@ -7,6 +7,7 @@ import type { HealthDto } from "@/lib/types";
 import { createBackendRestartCheck, type BackendRestartStatus } from "@/lib/host-restart-state";
 
 import { RESTART_LABELS as LABELS, restartConfirmation, type RestartTarget } from "@/lib/host-restart-copy";
+import { liveGoalLoopRestartBlock } from "@/lib/goal-loop-restart-guard";
 
 const HEALTH_BUDGET_MS = 300_000;
 const HEALTH_INTERVAL_MS = 1_500;
@@ -26,6 +27,10 @@ export function HostRestartPanel({ onRestarted }: { onRestarted?: () => void }) 
   const [restarting, setRestarting] = useState<RestartTarget | null>(null);
   const [remaining, setRemaining] = useState(HEALTH_BUDGET_MS / 1000);
   const [error, setError] = useState<string | null>(null);
+  /** A live Goal Loop the Host would refuse to kill: known before the operator confirms. */
+  const [pendingBlock, setPendingBlock] = useState<string | null>(null);
+  const [pendingChecking, setPendingChecking] = useState(false);
+  const pendingProbeRef = useRef(0);
   const restartingRef = useRef(false);
   const mountedRef = useRef(true);
 
@@ -51,6 +56,30 @@ export function HostRestartPanel({ onRestarted }: { onRestarted?: () => void }) 
       mountedRef.current = false;
     };
   }, []);
+
+  const openConfirm = (action: RestartTarget) => {
+    const probe = ++pendingProbeRef.current;
+    setPending(action);
+    setPendingBlock(null);
+    setError(null);
+    if (action === "webui") {
+      setPendingChecking(false);
+      return;
+    }
+    setPendingChecking(true);
+    void liveGoalLoopRestartBlock(action).then((block) => {
+      if (!mountedRef.current || probe !== pendingProbeRef.current) return;
+      setPendingBlock(block);
+      setPendingChecking(false);
+    });
+  };
+
+  const cancelConfirm = () => {
+    pendingProbeRef.current += 1;
+    setPending(null);
+    setPendingBlock(null);
+    setPendingChecking(false);
+  };
 
   const restartService = async (action: RestartTarget) => {
     if (restartingRef.current) return;
@@ -160,7 +189,7 @@ export function HostRestartPanel({ onRestarted }: { onRestarted?: () => void }) 
           variant="secondary"
           busy={restarting === "webui"}
           disabled={hostOk !== true || restarting !== null}
-          onClick={() => setPending("webui")}
+          onClick={() => openConfirm("webui")}
         >
           WebUI を再起動
         </Button>
@@ -170,7 +199,7 @@ export function HostRestartPanel({ onRestarted }: { onRestarted?: () => void }) 
           variant="secondary"
           busy={restarting === "backend"}
           disabled={hostOk !== true || restarting !== null}
-          onClick={() => setPending("backend")}
+          onClick={() => openConfirm("backend")}
         >
           バックエンド（Pi）を再起動
         </Button>
@@ -180,7 +209,7 @@ export function HostRestartPanel({ onRestarted }: { onRestarted?: () => void }) 
           variant="secondary"
           busy={restarting === "host"}
           disabled={hostOk !== true || restarting !== null}
-          onClick={() => setPending("host")}
+          onClick={() => openConfirm("host")}
         >
           トレイホストを再起動
         </Button>
@@ -204,11 +233,23 @@ export function HostRestartPanel({ onRestarted }: { onRestarted?: () => void }) 
           <p className="font-medium">
             {restartConfirmation(pending)}
           </p>
+          {pendingBlock && (
+            <p role="alert" className="mt-1 text-danger" data-restart-goal-loop-block>
+              {pendingBlock}
+            </p>
+          )}
           <div className="mt-2 flex flex-wrap gap-2">
-            <Button type="button" size="sm" variant="primary" onClick={() => void restartService(pending)}>
-              再起動する
+            <Button
+              type="button"
+              size="sm"
+              variant="primary"
+              busy={pendingChecking}
+              disabled={pendingChecking || pendingBlock !== null}
+              onClick={() => void restartService(pending)}
+            >
+              {pendingChecking ? "Goal Loop を確認中…" : "再起動する"}
             </Button>
-            <Button type="button" size="sm" variant="secondary" onClick={() => setPending(null)}>
+            <Button type="button" size="sm" variant="secondary" onClick={cancelConfirm}>
               キャンセル
             </Button>
           </div>

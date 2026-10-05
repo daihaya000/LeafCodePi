@@ -68,6 +68,7 @@ import {
 import { compareIsoUpdatedAtDescending, orderPaneTabIdsForSidebar, projectsForSidebar, sidebarTaskComparator } from "@/lib/sidebar-order";
 import { isGoalLoopLiveStatus } from "@/lib/goal-loop-settings";
 import { restartConfirmation } from "@/lib/host-restart-copy";
+import { liveGoalLoopRestartBlock } from "@/lib/goal-loop-restart-guard";
 import { WEBUI_RESTART_ABORTED_EVENT } from "@/lib/webui-restart";
 import { createBackendRestartCheck, type BackendRestartStatus } from "@/lib/host-restart-state";
 import { NO_PROJECT_NAME, type BotDto, type HealthDto, type RoomDto, type ProjectDto, type ProjectIconColor, type TaskSummary } from "@/lib/types";
@@ -282,8 +283,17 @@ function SidebarFooter({ health, onSettings }: { health: HealthDto | null; onSet
   }, []);
 
   const restartService = async (target: "webui" | "backend" | "host") => {
-    if (restartBusyRef.current || !window.confirm(restartConfirmation(target))) return;
+    if (restartBusyRef.current) return;
+    // Latch before the probe so a double click cannot stack two confirms.
     restartBusyRef.current = true;
+    // The Host refuses to kill a live Goal Loop: say so before the confirm, not after a 409.
+    // WebUI restarts keep sessions on the Backend: no probe, keep the confirm synchronous.
+    const goalLoopBlock = target === "webui" ? null : await liveGoalLoopRestartBlock(target);
+    if (goalLoopBlock || !window.confirm(restartConfirmation(target))) {
+      restartBusyRef.current = false;
+      if (goalLoopBlock && mountedRef.current) setRestartError(goalLoopBlock);
+      return;
+    }
     setRestartBusy(target);
     setRestartError(null);
     try {

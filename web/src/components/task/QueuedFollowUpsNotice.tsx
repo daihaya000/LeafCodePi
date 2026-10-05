@@ -14,11 +14,14 @@ export function QueuedFollowUpsNotice({
   onRemove,
   onSendNow,
   sendNowDisabled = false,
+  hint,
 }: {
   items: QueuedFollowUp[];
   onRemove: (id: number) => void;
   onSendNow: (id: number) => void;
   sendNowDisabled?: boolean;
+  /** Why the queue is not draining (e.g. a Goal Loop owns the session). */
+  hint?: string;
 }) {
   if (items.length === 0) return null;
 
@@ -61,6 +64,11 @@ export function QueuedFollowUpsNotice({
           </div>
         );
       })}
+      {hint && (
+        <p className="w-full text-xs text-faint" data-queue-hint>
+          {hint}
+        </p>
+      )}
     </div>
   );
 }

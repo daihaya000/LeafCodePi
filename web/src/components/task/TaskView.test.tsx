@@ -7,11 +7,11 @@ import { COMPACTION_ACTION_SETTING_KEY } from "@/lib/compaction-settings";
 import { DEFAULT_SESSION_LABELS } from "@/lib/session-label-settings";
 import { setNotificationDeliveryEnabled } from "@/lib/notification-delivery-client";
 
-const mocks = vi.hoisted(() => ({ getJson: vi.fn(), sendJson: vi.fn(), apiUrl: (path: string) => path, partView: vi.fn(), toolCard: vi.fn(), messageMetaHeader: vi.fn(), markRead: vi.fn(), botFor: vi.fn(), iconFor: vi.fn() }));
+const mocks = vi.hoisted(() => ({ getJson: vi.fn(), sendJson: vi.fn(), apiUrl: (path: string) => path, partView: vi.fn(), toolCard: vi.fn(), messageMetaHeader: vi.fn(), workingRow: vi.fn(() => null), markRead: vi.fn(), botFor: vi.fn(), iconFor: vi.fn() }));
 vi.mock("@/lib/client", () => mocks);
 vi.mock("@/lib/bot-unread", () => ({ markRead: mocks.markRead }));
 vi.mock("@/components/shell/MobileMenuHeader", () => ({ MobileMenuButton: () => null }));
-vi.mock("@/components/task/PartView", () => ({ PartView: mocks.partView, ToolCard: mocks.toolCard, MessageMetaHeader: mocks.messageMetaHeader, WorkingRow: () => null }));
+vi.mock("@/components/task/PartView", () => ({ PartView: mocks.partView, ToolCard: mocks.toolCard, MessageMetaHeader: mocks.messageMetaHeader, WorkingRow: mocks.workingRow }));
 vi.mock("@/components/task/ProjectExplorerButton", () => ({ ProjectExplorerButton: () => null }));
 vi.mock("@/components/shell/TaskPanesContext", () => ({ useBotFor: () => mocks.botFor, useIconFor: () => mocks.iconFor }));
 
@@ -505,6 +505,77 @@ it("drops queued follow-ups when a Goal loop is stopped", async () => {
   await waitFor(() => expect(screen.queryByRole("button", { name: "即時送信: do not send" })).toBeNull());
   expect(mocks.sendJson).toHaveBeenCalledWith(`/api/tasks/${task.id}/goal-loop`, { action: "stop" }, "PATCH");
   expect(mocks.sendJson).toHaveBeenCalledTimes(1);
+});
+
+describe("Goal Loop halt feedback", () => {
+  class TestEventSource extends EventTarget {
+    static latest: TestEventSource;
+    constructor() { super(); TestEventSource.latest = this; }
+    close() {}
+  }
+  const streamingTail: UiMessage[] = [
+    { id: "u1", role: "user", createdAt: 1, parts: [{ id: "u1-t", type: "text", text: "go" }] },
+    { id: "a1", role: "assistant", createdAt: 2, parts: [{ id: "a1-t", type: "text", text: "書いています" }] },
+  ];
+  const lastWorkingRowLabel = () => {
+    const calls = mocks.workingRow.mock.calls as unknown as [{ label?: string }][];
+    return calls.at(-1)?.[0]?.label;
+  };
+  const workingSnapshot = async (extra: Record<string, unknown> = {}) => {
+    await act(async () => {
+      TestEventSource.latest.dispatchEvent(new MessageEvent("snapshot", {
+        data: JSON.stringify({
+          eventType: "ready",
+          task: { ...task, status: "working", isStreaming: true },
+          goalLoop: { id: "loop-1", status: "running", goal: "goal", acceptance: [], maxTurns: 5, turnCount: 1, progress: [] },
+          messages: streamingTail,
+          ...extra,
+        }),
+      }));
+    });
+  };
+
+  it("keeps the WorkingRow up with a pause label while streaming text, and drops the permission card", async () => {
+    vi.stubGlobal("EventSource", TestEventSource);
+    let resolvePause!: (value: unknown) => void;
+    mocks.sendJson.mockImplementation(() => new Promise((resolve) => { resolvePause = resolve; }));
+    render(<TaskView taskId={task.id} mdUp />);
+    await workingSnapshot({
+      permissionRequest: { id: "perm-1", sessionId: "session-1", command: "rm x", labels: [], message: "許可が必要です" },
+    });
+    // Streaming text tail hides the row before any halt.
+    mocks.workingRow.mockClear();
+    expect(await screen.findByText(/許可待ちです/)).toBeTruthy();
+    const pause = within(screen.getByRole("region", { name: "Goal loop" })).getByRole("button", { name: "一時停止" });
+    fireEvent.click(pause);
+    await waitFor(() => expect(lastWorkingRowLabel()).toBe("Goal Loop を一時停止しています…"));
+    await act(async () => { resolvePause({ loop: { id: "loop-1", status: "paused", goal: "goal", acceptance: [], maxTurns: 5, turnCount: 1, progress: [], pauseReason: "user" } }); });
+    await waitFor(() => expect(screen.queryByRole("button", { name: "許可" })).toBeNull());
+  });
+
+  it("shows composer Stop feedback even while text streams", async () => {
+    vi.stubGlobal("EventSource", TestEventSource);
+    mocks.sendJson.mockImplementation(() => new Promise(() => {}));
+    render(<TaskView taskId={task.id} mdUp />);
+    await workingSnapshot({ goalLoop: null });
+    fireEvent.click(screen.getByRole("button", { name: "停止" }));
+    await waitFor(() => expect(lastWorkingRowLabel()).toBe("停止しています…"));
+  });
+
+  it("resyncs the panel and stays quiet when a Pause loses the race to the loop completing", async () => {
+    vi.stubGlobal("EventSource", TestEventSource);
+    mocks.sendJson.mockRejectedValue(new Error("Goal Loop の操作が反映されませんでした"));
+    const fallbackGetJson = mocks.getJson.getMockImplementation();
+    mocks.getJson.mockImplementation((path: string, ...rest: unknown[]) => path === `/api/tasks/${task.id}/goal-loop`
+      ? Promise.resolve({ loop: { id: "loop-1", status: "completed", goal: "goal", acceptance: [], maxTurns: 5, turnCount: 5, progress: [] } })
+      : fallbackGetJson?.(path, ...rest));
+    render(<TaskView taskId={task.id} mdUp />);
+    await workingSnapshot();
+    fireEvent.click(within(screen.getByRole("region", { name: "Goal loop" })).getByRole("button", { name: "一時停止" }));
+    expect(await screen.findByRole("alert")).toHaveProperty("textContent", "Goal Loop は既に完了しています");
+    // completed is not session-owned: the stale running panel is gone.
+    await waitFor(() => expect(screen.queryByRole("region", { name: "Goal loop" })).toBeNull());
+  });
 });
 
 it("does not render a user message twice when SSE reprojects its ids", async () => {
@@ -2594,6 +2665,39 @@ describe("TaskView draft submission", () => {
     fireEvent.submit(screen.getByRole("form", { name: "フォローアップ" }));
     expect(mocks.sendJson).toHaveBeenCalledTimes(2);
     await act(async () => { resolveStart({ loop }); });
+  });
+
+  it("does not let a slower start reply revive a loop stopped from the panel", async () => {
+    class TestEventSource extends EventTarget {
+      static latest: TestEventSource;
+      constructor() { super(); TestEventSource.latest = this; }
+      close() {}
+    }
+    vi.stubGlobal("EventSource", TestEventSource);
+    const loop = {
+      id: "loop-1", sessionId: "session-1", cwd: "C:/work", status: "queued" as const,
+      goal: "goal", acceptance: [], maxTurns: 0, cooldownSeconds: 0, nextTurnAt: null,
+      forceFullRun: false, turnCount: 0, turnKind: "goal" as const, pauseReason: "" as const,
+      error: "", progress: [], summary: "", evidence: "", blockedReason: "",
+      rejectedClaims: 0, unreadableStreak: 0, createdAt: "2026-01-01", updatedAt: "2026-01-01",
+    };
+    let resolveStart!: (value: unknown) => void;
+    mocks.sendJson.mockImplementation((_path: string, body: { action?: string }) => body.action === "start"
+      ? new Promise((resolve) => { resolveStart = resolve; })
+      : Promise.resolve({ loop: { ...loop, status: "stopped" } }));
+    render(<TaskView taskId={task.id} mdUp />);
+    fireEvent.click(screen.getByRole("button", { name: "ループで継続実行" }));
+    fireEvent.change(screen.getByRole("textbox", { name: "フォローアップ" }), { target: { value: "goal" } });
+    fireEvent.submit(screen.getByRole("form", { name: "フォローアップ" }));
+    await act(async () => {
+      TestEventSource.latest.dispatchEvent(new MessageEvent("snapshot", {
+        data: JSON.stringify({ eventType: "ready", task: { ...task, status: "idle" }, goalLoop: loop, messages: [] }),
+      }));
+    });
+    fireEvent.click(within(screen.getByRole("region", { name: "Goal loop" })).getByRole("button", { name: "停止" }));
+    await waitFor(() => expect(screen.queryByRole("region", { name: "Goal loop" })).toBeNull());
+    await act(async () => { resolveStart({ loop }); });
+    expect(screen.queryByRole("region", { name: "Goal loop" })).toBeNull();
   });
 
   it("preserves a new draft while starting a goal loop", async () => {

@@ -153,6 +153,10 @@ export function findResumableTurn(
   const turnStart = promptIndex + 1;
   const turnLength = messages.length - turnStart;
   if (!prompt) return null;
+  // Goal Loop turns are driven (and recovered) by the loop itself. Offering chat "再開" after a
+  // loop Stop/Complete would re-send the loop's UI prompt — or, when its marker is hidden, an
+  // older manual prompt — as a plain chat turn. The panel's Resume is the only recovery path.
+  if (isGoalLoopOwnedTurn(messages, promptIndex)) return null;
 
   const text = promptTextOf(prompt);
   const files = promptFilesOf(prompt);
@@ -235,6 +239,14 @@ export function findResumableTurn(
     if (message && (hasTurnOutput(message) || hasPendingTool(message))) return null;
   }
   return build(messages[messages.length - 1]!, "silent");
+}
+
+/** True when the current turn's prompt or any of its replies belongs to a Goal Loop turn. */
+export function isGoalLoopOwnedTurn(messages: readonly UiMessage[], promptIndex: number): boolean {
+  for (let i = Math.max(0, promptIndex); i < messages.length; i += 1) {
+    if (messages[i]?.goalLoopTurn) return true;
+  }
+  return false;
 }
 
 /** Attachment-only turns still need attachments on resume, even in continue mode. */

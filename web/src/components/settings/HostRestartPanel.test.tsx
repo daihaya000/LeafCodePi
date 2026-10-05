@@ -23,6 +23,12 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
+async function waitForConfirmEnabled() {
+  await waitFor(() => {
+    expect((screen.getByRole("button", { name: "再起動する" }) as HTMLButtonElement).disabled).toBe(false);
+  });
+}
+
 describe("HostRestartPanel", () => {
   it("接続確認中は再起動ボタンを無効化し、確認完了後に有効化する", async () => {
     let resolveStatus!: (value: Response) => void;
@@ -67,6 +73,7 @@ describe("HostRestartPanel", () => {
   it("トレイホストの再起動ではWebUI再起動イベントを発火してオーバーレイに任せる", async () => {
     fetchMock
       .mockResolvedValueOnce(jsonResponse({ running: true }))
+      .mockResolvedValueOnce(jsonResponse({ active: 0, taskIds: [] }))
       .mockResolvedValueOnce(jsonResponse({ ok: true, target: "host", accepted: true }, 202))
       .mockResolvedValueOnce(jsonResponse({ engineOk: true, startedAt: 1 }));
     const restartEvent = vi.fn();
@@ -82,6 +89,7 @@ describe("HostRestartPanel", () => {
 
       fireEvent.click(screen.getByRole("button", { name: "トレイホストを再起動" }));
       expect(screen.getByRole("dialog").textContent).toContain("フロントエンドとバックエンドを再ビルド・再起動");
+      await waitForConfirmEnabled();
       fireEvent.click(screen.getByRole("button", { name: "再起動する" }));
 
       await waitFor(() => expect(restartEvent).toHaveBeenCalled(), { timeout: 3_000 });
@@ -94,6 +102,7 @@ describe("HostRestartPanel", () => {
   it("バックエンド再起動は /api/backend/status の ready を待ち、WebUI再起動イベントは発火しない", async () => {
     fetchMock
       .mockResolvedValueOnce(jsonResponse({ running: true }))
+      .mockResolvedValueOnce(jsonResponse({ active: 0, taskIds: [] }))
       .mockResolvedValueOnce(jsonResponse({ backend: { ready: true, startedAt: "before" } }))
       .mockResolvedValueOnce(jsonResponse({ ok: true, target: "backend", accepted: true }, 202))
       .mockResolvedValueOnce(jsonResponse({ backend: { ready: true, startedAt: "before" } }))
@@ -113,11 +122,13 @@ describe("HostRestartPanel", () => {
       expect(screen.getByRole("dialog").textContent).toContain("実行中のセッションはすべて終了");
       expect(screen.getByRole("dialog").textContent).toContain("バックエンドを再ビルド・再起動");
       expect(screen.getByRole("dialog").textContent).toContain("ビルド失敗時は前回のビルドで起動");
+      await waitForConfirmEnabled();
       fireEvent.click(screen.getByRole("button", { name: "再起動する" }));
 
       await waitFor(() => expect(onRestarted).toHaveBeenCalled(), { timeout: 5_000 });
-      expect(JSON.parse(fetchMock.mock.calls[2]?.[1]?.body as string)).toEqual({ target: "backend" });
-      const polled = fetchMock.mock.calls.slice(3).map((call) => String(call[0]));
+      expect(String(fetchMock.mock.calls[1]?.[0])).toBe("/api/goal-loop/active");
+      expect(JSON.parse(fetchMock.mock.calls[3]?.[1]?.body as string)).toEqual({ target: "backend" });
+      const polled = fetchMock.mock.calls.slice(4).map((call) => String(call[0]));
       expect(polled.every((url) => url.startsWith("/api/backend/status"))).toBe(true);
       expect(restartEvent).not.toHaveBeenCalled();
     } finally {
@@ -128,6 +139,8 @@ describe("HostRestartPanel", () => {
   it("Goal Loop 中の 409 はエラーとして表示しオーバーレイを出さない", async () => {
     fetchMock
       .mockResolvedValueOnce(jsonResponse({ running: true }))
+      // Probe raced the loop start (0 then); the Host's own guard still answers 409.
+      .mockResolvedValueOnce(jsonResponse({ active: 0, taskIds: [] }))
       .mockResolvedValueOnce(jsonResponse({ backend: { ready: true, startedAt: "before" } }))
       .mockResolvedValueOnce(
         jsonResponse(
@@ -145,12 +158,29 @@ describe("HostRestartPanel", () => {
         ).toBe(false);
       });
       fireEvent.click(screen.getByRole("button", { name: "バックエンド（Pi）を再起動" }));
+      await waitForConfirmEnabled();
       fireEvent.click(screen.getByRole("button", { name: "再起動する" }));
       await waitFor(() => expect(screen.getByRole("alert").textContent).toContain("Goal Loop"));
       expect(restartEvent).not.toHaveBeenCalled();
     } finally {
       window.removeEventListener("leafcode:webui-restart", restartEvent);
     }
+  });
+
+  it("実行中の Goal Loop は確認ダイアログで先に知らせ、再起動を押せなくする", async () => {
+    fetchMock
+      .mockResolvedValueOnce(jsonResponse({ running: true }))
+      .mockResolvedValueOnce(jsonResponse({ active: 1, taskIds: ["t1"] }));
+    render(<HostRestartPanel />);
+    await waitFor(() => {
+      expect(
+        (screen.getByRole("button", { name: "トレイホストを再起動" }) as HTMLButtonElement).disabled,
+      ).toBe(false);
+    });
+    fireEvent.click(screen.getByRole("button", { name: "トレイホストを再起動" }));
+    await waitFor(() => expect(screen.getByRole("alert").textContent).toContain("Goal Loop が 1 件実行中"));
+    expect((screen.getByRole("button", { name: "再起動する" }) as HTMLButtonElement).disabled).toBe(true);
+    expect(fetchMock.mock.calls.some((call) => String(call[0]) === "/api/host/restart")).toBe(false);
   });
 
   it("確認文は最新ソース取得を案内する", async () => {

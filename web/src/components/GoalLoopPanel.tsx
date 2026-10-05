@@ -51,11 +51,14 @@ export function formatCooldownRemaining(ms: number): string {
 export function GoalLoopPanel({
   loop,
   busy,
+  awaitingInput,
   onAction,
   onResume,
 }: {
   loop: GoalLoopDto | null | undefined;
   busy: boolean;
+  /** The live loop turn is blocked on the user (permission / question card below). */
+  awaitingInput?: "permission" | "question";
   onAction: (action: "pause" | "stop" | "complete") => void;
   onResume: (maxTurns?: number) => void;
 }) {
@@ -253,6 +256,14 @@ export function GoalLoopPanel({
           <p>クールタイム: {formatGoalLoopCooldownSeconds(loop.cooldownSeconds)}</p>
         )}
       </div>
+      {live && awaitingInput && (
+        <p role="status" data-goal-loop-awaiting className="mt-1 flex items-center gap-1 text-xs text-warning">
+          <CircleAlert className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+          {awaitingInput === "permission"
+            ? "許可待ちです。下のカードで応答するまでループは進みません。"
+            : "質問への回答待ちです。下のカードで応答するまでループは進みません。"}
+        </p>
+      )}
       {pauseHint && <p className={cx("mt-1 text-xs text-muted", !expanded && "line-clamp-2")}>{pauseHint}</p>}
       {(progress || loop.error || loop.blockedReason) && (
         <div className="mt-1 flex gap-1 text-xs text-muted">

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { applyGoalLoopSummaryToDetail } from "./goal-loop-detail-sync";
+import { applyGoalLoopSummaryToDetail, goalLoopActionConflictMessage, goalLoopActionSatisfied } from "./goal-loop-detail-sync";
 import type { GoalLoopDto } from "./types";
 
 function loop(overrides: Partial<GoalLoopDto> = {}): GoalLoopDto {
@@ -76,5 +76,27 @@ describe("applyGoalLoopSummaryToDetail", () => {
       pendingTurnRecovery: false,
       goal: "finish tests",
     });
+  });
+});
+
+describe("goalLoopActionSatisfied / goalLoopActionConflictMessage", () => {
+  const loop = (status: GoalLoopDto["status"]) => ({ status } as GoalLoopDto);
+
+  it("treats an already-applied outcome as success", () => {
+    expect(goalLoopActionSatisfied("stop", null)).toBe(true);
+    expect(goalLoopActionSatisfied("stop", loop("completed"))).toBe(true);
+    expect(goalLoopActionSatisfied("pause", loop("paused"))).toBe(true);
+    expect(goalLoopActionSatisfied("pause", loop("blocked"))).toBe(true);
+    expect(goalLoopActionSatisfied("resume", loop("running"))).toBe(true);
+    expect(goalLoopActionSatisfied("complete", loop("completed"))).toBe(true);
+    expect(goalLoopActionSatisfied("pause", loop("running"))).toBe(false);
+  });
+
+  it("explains a control that lost the race to the loop ending", () => {
+    expect(goalLoopActionConflictMessage("pause", loop("completed"))).toBe("Goal Loop は既に完了しています");
+    expect(goalLoopActionConflictMessage("resume", loop("stopped"))).toBe("Goal Loop は既に停止しています");
+    expect(goalLoopActionConflictMessage("resume", null)).toBe("Goal Loop は既に停止しています");
+    expect(goalLoopActionConflictMessage("pause", loop("running"))).toBeNull();
+    expect(goalLoopActionConflictMessage("stop", loop("stopped"))).toBeNull();
   });
 });

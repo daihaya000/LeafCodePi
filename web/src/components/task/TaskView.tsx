@@ -194,7 +194,11 @@ import {
   sseReconnectDelayMs,
   subscribeSseReconnectWake,
 } from "@/lib/sse-reconnect";
-import { applyGoalLoopSummaryToDetail } from "@/lib/goal-loop-detail-sync";
+import {
+  applyGoalLoopSummaryToDetail,
+  goalLoopActionConflictMessage,
+  goalLoopActionSatisfied,
+} from "@/lib/goal-loop-detail-sync";
 
 const MODEL_KEY = "leafcodepi.defaultModel";
 /** Match BotView: release hydration after this many transport reconnect failures. */
@@ -801,6 +805,8 @@ export const TaskView = memo(function TaskView({
   const goalLoopStartAbortRef = useRef<AbortController | null>(null);
   /** Bumped on task switch so in-flight Goal Loop control responses cannot land on the next task. */
   const goalLoopActionEpochRef = useRef(0);
+  /** Bumped on task switch so a permission/question answer cannot paint its error on the next task. */
+  const attentionEpochRef = useRef(0);
   /**
    * A steer ("今すぐ送信" while working) leaves the queue at once but only reaches the transcript at
    * the next tool boundary; without this notice the instruction seems to vanish in between.
@@ -875,13 +881,34 @@ export const TaskView = memo(function TaskView({
   const sendingQueuedIdRef = useRef<number | null>(null);
   const submitRef = useRef<(queued?: QueuedFollowUp) => Promise<void>>(async () => undefined);
   const [promptSubmitting, setSubmitting] = useState(false);
+  /** Panel control (pause/resume/stop/complete) in flight. */
   const [goalLoopSubmitting, setGoalLoopSubmitting] = useState(false);
-  const submitting = promptSubmitting || goalLoopSubmitting;
+  /**
+   * Start POST in flight. Kept apart from goalLoopSubmitting: the owner may already run the loop
+   * (SSE shows it) while the start reply is pending, and Pause/Stop must stay usable then.
+   */
+  const [goalLoopStarting, setGoalLoopStarting] = useState(false);
+  /** Bumped by every applied panel control so a slower start reply cannot repaint a stale loop. */
+  const goalLoopControlSeqRef = useRef(0);
+  /**
+   * Panel Pause/Stop while a loop turn is working aborts that turn on the owner, but the session
+   * only settles a moment later. Without this the WorkingRow kept saying 作業中 (or was hidden
+   * behind streaming text) as if the press did nothing.
+   */
+  const [goalLoopHalting, setGoalLoopHalting] = useState<"pause" | "stop" | null>(null);
+  const submitting = promptSubmitting || goalLoopSubmitting || goalLoopStarting;
   const [resumingTurn, setResumingTurn] = useState(false);
   const [resumeTurnError, setResumeTurnError] = useState<string | null>(null);
   const [manualAbortedAssistantId, setManualAbortedAssistantId] = useState<string | null>(null);
   const [stopRequested, setStopRequested] = useState(false);
   const stopRequestedRef = useRef(false);
+  /**
+   * The composer Stop POST itself is in flight. Unlike the stopRequested latch (which outlives a
+   * successful abort), this only fences racing Goal Loop panel controls for the request's duration
+   * — a loop left paused by the abort must stay resumable.
+   */
+  const [abortInFlight, setAbortInFlight] = useState(false);
+  const abortInFlightRef = useRef(false);
   const prevStatusWorkingRef = useRef(false);
   const [hangRetryCount, setHangRetryCount] = useState(0);
   const [error, setError] = useState<string | null>(null);
@@ -1863,12 +1890,17 @@ export const TaskView = memo(function TaskView({
     goalLoopStartAbortRef.current?.abort();
     goalLoopStartAbortRef.current = null;
     goalLoopActionEpochRef.current += 1;
+    attentionEpochRef.current += 1;
     setGoalLoopSubmitting(false);
+    setGoalLoopStarting(false);
+    setGoalLoopHalting(null);
     setResumingTurn(false);
     setResumeTurnError(null);
     setManualAbortedAssistantId(null);
     stopRequestedRef.current = false;
     setStopRequested(false);
+    abortInFlightRef.current = false;
+    setAbortInFlight(false);
     prevStatusWorkingRef.current = false;
     setHangRetryCount(0);
     setError(null);
@@ -2047,6 +2079,11 @@ export const TaskView = memo(function TaskView({
       setStopRequested(false);
     }
   }, [statusWorking]);
+
+  // The halting label lives only until the aborted loop turn actually settles.
+  useEffect(() => {
+    if (!working) setGoalLoopHalting(null);
+  }, [working]);
 
   // PartView は memo 化されており onRevert の参照比較でスキップ判定する。
   // 判定対象は ref から読むことで、status 遷移時も callback を再生成せず、
@@ -2346,6 +2383,8 @@ export const TaskView = memo(function TaskView({
       return;
     }
     let draftCleared = false;
+    /** Control sequence at Goal Loop start; a panel Pause/Stop meanwhile supersedes the start. */
+    let goalStartControlSeq: number | null = null;
     if (
       !queued &&
       shouldQueueFollowUp({ working, goalLoopEnabled })
@@ -2391,11 +2430,13 @@ export const TaskView = memo(function TaskView({
         setPrompt("");
         setAttachments([]);
         draftCleared = true;
-        setGoalLoopSubmitting(true);
+        setGoalLoopStarting(true);
         const startAbort = new AbortController();
         goalLoopStartAbortRef.current = startAbort;
         const startTaskId = taskId;
         const startEpoch = goalLoopActionEpochRef.current;
+        const startControlSeq = goalLoopControlSeqRef.current;
+        goalStartControlSeq = startControlSeq;
         try {
           const result = await sendJson<{
             loop: GoalLoopDto | null;
@@ -2426,11 +2467,14 @@ export const TaskView = memo(function TaskView({
           if (startTaskId !== taskId || startEpoch !== goalLoopActionEpochRef.current) return;
           resolvedAgent = result.agent;
           resolvedAutoDecision = result.autoDecision;
-          setTask((current) => (current ? { ...current, goalLoop: result.loop } : current));
+          // Paused/stopped from the panel while the start reply was pending: that newer state wins.
+          if (startControlSeq === goalLoopControlSeqRef.current) {
+            setTask((current) => (current ? { ...current, goalLoop: result.loop } : current));
+          }
           setGoalLoopEnabled(false);
         } finally {
           if (goalLoopStartAbortRef.current === startAbort) goalLoopStartAbortRef.current = null;
-          setGoalLoopSubmitting(false);
+          if (startEpoch === goalLoopActionEpochRef.current) setGoalLoopStarting(false);
         }
       } else {
         // Only the explicit action on an already queued pill injects into the
@@ -2567,6 +2611,17 @@ export const TaskView = memo(function TaskView({
       // A reconciled delivery returned above and keeps it until the real row replaces it.
       setOptimisticPrompt(null);
       setPendingSteer(null);
+      // The user already paused/stopped this loop from the panel while its start reply was
+      // pending: the start's late failure is not news, and restoring the goal would re-arm it.
+      if (
+        goalLoopEnabled &&
+        goalStartControlSeq !== null &&
+        goalStartControlSeq !== goalLoopControlSeqRef.current
+      ) {
+        setGoalLoopEnabled(false);
+        setError(null);
+        return;
+      }
       if (queued && shouldRestoreQueuedFollowUpOnFailure(sentQueueEpoch, queueClearEpochRef.current)) {
         setFailedQueuedId(queued.id);
         setQueuedFollowUps((current) => [queued, ...current]);
@@ -2759,10 +2814,14 @@ export const TaskView = memo(function TaskView({
   ]);
 
   async function goalLoopAction(action: "pause" | "resume" | "stop" | "complete", maxTurns?: number) {
-    if (archived || goalLoopSubmitting) return;
+    // A composer Stop in flight already ends the loop; a racing panel action would only 409.
+    if (archived || goalLoopSubmitting || abortInFlightRef.current) return;
     const actionTaskId = taskId;
     const actionEpoch = goalLoopActionEpochRef.current;
+    const halting = (action === "pause" || action === "stop") && working ? action : null;
     setGoalLoopSubmitting(true);
+    // Immediate feedback in the WorkingRow while the owner aborts the running loop turn.
+    if (halting) setGoalLoopHalting(halting);
     setError(null);
     try {
       const result = await sendJson<{ loop: GoalLoopDto | null }>(
@@ -2771,10 +2830,12 @@ export const TaskView = memo(function TaskView({
         "PATCH",
       );
       if (actionTaskId !== taskId || actionEpoch !== goalLoopActionEpochRef.current) return;
+      goalLoopControlSeqRef.current += 1;
       if (action === "resume") {
         // Prior Stop left stopRequested latched; resume starts a new run.
         stopRequestedRef.current = false;
         setStopRequested(false);
+        setGoalLoopHalting(null);
       }
       if (action === "stop") {
         // Stopping the loop must not start the queued next prompt when it goes idle.
@@ -2783,11 +2844,52 @@ export const TaskView = memo(function TaskView({
         queuedSendRef.current = null;
         setQueuedAutoSend(false);
       }
+      if (action === "pause" || action === "stop") {
+        // Pause/Stop abort the loop turn on the owner, which settles its permission/question
+        // prompts. Drop the cards now (latched, like composer Stop) so a lagging or dropped SSE
+        // cannot leave an answerable card for a turn that no longer exists.
+        setPermissionRequest((current) => {
+          if (current) clearedPermissionIdsRef.current.add(current.id);
+          return null;
+        });
+        setQuestionRequest((current) => {
+          if (current) clearedQuestionIdsRef.current.add(current.id);
+          return null;
+        });
+        setPermissionBusy(false);
+      }
       setTask((current) => (current ? { ...current, goalLoop: result.loop } : current));
       notifyTasksChanged();
     } catch (err) {
       if (actionTaskId !== taskId || actionEpoch !== goalLoopActionEpochRef.current) return;
-      setError(err instanceof Error ? err.message : "Goal loop の操作に失敗しました");
+      setGoalLoopHalting(null);
+      // A composer Stop pressed meanwhile ended the loop; its 409 is not news.
+      if (stopRequestedRef.current && action !== "resume") return;
+      const fallback = err instanceof Error ? err.message : "Goal loop の操作に失敗しました";
+      // The loop may have moved on by itself (completed / paused by the owner / another tab).
+      // Resync the panel instead of leaving a stale state with a raw 409 under it.
+      let refreshed: GoalLoopDto | null | undefined;
+      try {
+        refreshed = (await getJson<{ loop: GoalLoopDto | null }>(
+          `/api/tasks/${actionTaskId}/goal-loop`,
+          undefined,
+          { coalesce: false },
+        )).loop;
+      } catch {
+        refreshed = undefined;
+      }
+      if (actionTaskId !== taskId || actionEpoch !== goalLoopActionEpochRef.current) return;
+      if (refreshed !== undefined) {
+        goalLoopControlSeqRef.current += 1;
+        setTask((current) => (current ? { ...current, goalLoop: refreshed } : current));
+        if (goalLoopActionSatisfied(action, refreshed)) {
+          notifyTasksChanged();
+          return;
+        }
+        setError(goalLoopActionConflictMessage(action, refreshed) ?? fallback);
+        return;
+      }
+      setError(fallback);
     } finally {
       if (actionEpoch === goalLoopActionEpochRef.current) setGoalLoopSubmitting(false);
     }
@@ -2837,6 +2939,8 @@ export const TaskView = memo(function TaskView({
     if (archived || stopRequestedRef.current) return;
     stopRequestedRef.current = true;
     setStopRequested(true);
+    abortInFlightRef.current = true;
+    setAbortInFlight(true);
     // stopRequested already blocks drain/auto-send. Clear client-only queues only
     // after abort succeeds so a failed stop does not drop queued follow-ups.
     try {
@@ -2888,6 +2992,9 @@ export const TaskView = memo(function TaskView({
       stopRequestedRef.current = false;
       setStopRequested(false);
       setError(err instanceof Error ? err.message : "停止に失敗しました");
+    } finally {
+      abortInFlightRef.current = false;
+      setAbortInFlight(false);
     }
   }
 
@@ -3132,15 +3239,26 @@ export const TaskView = memo(function TaskView({
   // Pending send chrome (echo / POST in flight) without touching `working` sound/TTS gates.
   const pendingTurn = Boolean(promptSubmitting || optimisticVisible);
   const showWorkingChrome = working || pendingTurn;
-  const showWorkingRow = shouldShowWorkingRow(showWorkingChrome, renderedMessages, optimisticVisible);
+  // A Stop (composer or Goal Loop panel) must stay visible even while text streams: the row is
+  // hidden behind a streaming tail otherwise, and the press looked like it did nothing.
+  const haltPending = working && (stopRequested || goalLoopHalting !== null);
+  const showWorkingRow = shouldShowWorkingRow(
+    showWorkingChrome,
+    renderedMessages,
+    optimisticVisible || haltPending,
+  );
   // While the echo stands in for this turn the transcript tail is the previous turn: time the row
   // from the send, not from an old message (which painted a red multi-minute clock at once).
   const workingRowStartedAt = optimisticVisible ? optimisticPrompt?.message.createdAt : undefined;
   const workingRowLabel = stopRequested
     ? "停止しています…"
-    : pendingTurn && !working
-      ? "送信しています…"
-      : undefined;
+    : working && goalLoopHalting === "stop"
+      ? "Goal Loop を停止しています…"
+      : working && goalLoopHalting === "pause"
+        ? "Goal Loop を一時停止しています…"
+        : pendingTurn && !working
+          ? "送信しています…"
+          : undefined;
   const resumeTarget = useMemo(
     () =>
       working
@@ -3831,7 +3949,9 @@ export const TaskView = memo(function TaskView({
             {goalLoopVisible && !archived && (
               <GoalLoopPanel
                 loop={task?.goalLoop}
-                busy={goalLoopSubmitting}
+                // Composer Stop in flight already ends the loop: no racing panel controls.
+                busy={goalLoopSubmitting || abortInFlight}
+                awaitingInput={permissionRequest ? "permission" : questionRequest ? "question" : undefined}
                 onAction={(action) => void goalLoopAction(action)}
                 onResume={(maxTurns) => void goalLoopAction("resume", maxTurns)}
               />
@@ -4005,6 +4125,7 @@ export const TaskView = memo(function TaskView({
                 disabled={permissionBusy}
                 onClick={() => {
                   const answeredId = permissionRequest.id;
+                  const answerEpoch = attentionEpochRef.current;
                   void (async () => {
                     try {
                       setPermissionBusy(true);
@@ -4016,6 +4137,8 @@ export const TaskView = memo(function TaskView({
                       clearedPermissionIdsRef.current.add(answeredId);
                       setPermissionRequest((cur) => (cur?.id === answeredId ? null : cur));
                     } catch (err) {
+                      // Switched tasks meanwhile: this answer's error belongs to the old task.
+                      if (answerEpoch !== attentionEpochRef.current) return;
                       const message = err instanceof Error ? err.message : "許可の送信に失敗しました";
                       setError(message);
                       if (/not found|見つかりません/i.test(message)) {
@@ -4023,7 +4146,7 @@ export const TaskView = memo(function TaskView({
                         setPermissionRequest((cur) => (cur?.id === answeredId ? null : cur));
                       }
                     } finally {
-                      setPermissionBusy(false);
+                      if (answerEpoch === attentionEpochRef.current) setPermissionBusy(false);
                     }
                   })();
                 }}
@@ -4037,6 +4160,7 @@ export const TaskView = memo(function TaskView({
                 disabled={permissionBusy}
                 onClick={() => {
                   const answeredId = permissionRequest.id;
+                  const answerEpoch = attentionEpochRef.current;
                   void (async () => {
                     try {
                       setPermissionBusy(true);
@@ -4048,6 +4172,8 @@ export const TaskView = memo(function TaskView({
                       clearedPermissionIdsRef.current.add(answeredId);
                       setPermissionRequest((cur) => (cur?.id === answeredId ? null : cur));
                     } catch (err) {
+                      // Switched tasks meanwhile: this answer's error belongs to the old task.
+                      if (answerEpoch !== attentionEpochRef.current) return;
                       const message = err instanceof Error ? err.message : "拒否の送信に失敗しました";
                       setError(message);
                       if (/not found|見つかりません/i.test(message)) {
@@ -4055,7 +4181,7 @@ export const TaskView = memo(function TaskView({
                         setPermissionRequest((cur) => (cur?.id === answeredId ? null : cur));
                       }
                     } finally {
-                      setPermissionBusy(false);
+                      if (answerEpoch === attentionEpochRef.current) setPermissionBusy(false);
                     }
                   })();
                 }}
@@ -4170,14 +4296,14 @@ export const TaskView = memo(function TaskView({
             </Button>
           </div>
         )}
-        {goalLoopSubmitting && !working && (
+        {(goalLoopStarting || goalLoopSubmitting) && !working && (
           <div role="status" className="mx-auto mb-2 flex max-w-5xl items-center gap-3 rounded-card border border-border bg-surface-2 px-3 py-2 text-sm text-muted">
             <span className="min-w-0 flex-1">
-              {goalLoopEnabled
+              {goalLoopStarting
                 ? "Goal Loop を開始しています…"
                 : "Goal Loop を操作しています…"}
             </span>
-            {goalLoopEnabled && (
+            {goalLoopStarting && (
               <Button
                 variant="secondary"
                 size="sm"
@@ -4190,7 +4316,7 @@ export const TaskView = memo(function TaskView({
             )}
           </div>
         )}
-        {task?.goalLoop?.status === "queued" && !working && !goalLoopSubmitting && (
+        {task?.goalLoop?.status === "queued" && !working && !goalLoopSubmitting && !goalLoopStarting && (
           <p role="status" className="mx-auto mb-2 max-w-5xl rounded-card border border-border bg-surface-2 px-3 py-2 text-sm text-muted">
             クールタイム中です。送信すると Goal Loop が一時停止します。
           </p>
@@ -4241,6 +4367,13 @@ export const TaskView = memo(function TaskView({
               setQueuedFollowUps((current) => current.filter((item) => item.id !== id))
             }
             sendNowDisabled={queuedSendNowDisabled}
+            hint={
+              goalLoopVisible
+                ? working
+                  ? "Goal Loop 中は自動送信されません。即時送信で割り込むか、ループを一時停止・停止すると送信できます"
+                  : "Goal Loop 中は自動送信されません。ループを一時停止・停止すると送信できます"
+                : undefined
+            }
             onSendNow={(id) => {
               if (
                 queuedSendNowDisabled || sendingQueuedIdRef.current !== null ||
@@ -4483,7 +4616,8 @@ export const TaskView = memo(function TaskView({
                 variant="danger"
                 size="icon"
                 aria-label="停止"
-                title="停止"
+                // Composer Stop aborts the run and ends a live Goal Loop too; the panel offers Pause.
+                title={goalLoopVisible ? "停止（Goal Loop も停止します。一時停止はループパネルから）" : "停止"}
                 className={`${COMPOSER_ACTION_BUTTON_CLASS} !bg-danger !text-white hover:!opacity-90`}
                 busy={stopRequested}
                 disabled={stopRequested}

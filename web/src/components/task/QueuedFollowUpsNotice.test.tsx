@@ -44,4 +44,16 @@ describe("QueuedFollowUpsNotice", () => {
     fireEvent.click(screen.getByRole("button", { name: "キューから削除: 画像" }));
     expect(onRemove).toHaveBeenCalledWith(2);
   });
+
+  it("explains why the queue is not draining", () => {
+    render(
+      <QueuedFollowUpsNotice
+        items={[{ id: 3, text: "後で", attachments: [] }]}
+        onSendNow={vi.fn()}
+        onRemove={vi.fn()}
+        hint="Goal Loop 中は自動送信されません"
+      />,
+    );
+    expect(screen.getByText("Goal Loop 中は自動送信されません")).toBeTruthy();
+  });
 });
