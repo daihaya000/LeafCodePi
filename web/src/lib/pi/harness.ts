@@ -164,7 +164,7 @@ import { activeToolLabel } from "@/lib/tool-labels";
 import type { TaskProgressSnapshot } from "@/lib/task-progress";
 import { AUTO_ARCHIVE_DAYS_SETTING_KEY, parseAutoArchiveDays } from "@/lib/auto-archive-settings";
 import { PINNED_TASKS_SETTING_KEY, parsePinnedTaskIds } from "@/lib/sidebar-settings";
-import { acquireTaskLease, hasActiveTaskLease, ownsTaskLease, releaseTaskLease, reconcileOrphanedWorkingTasks } from "@/lib/task-runtime-lease";
+import { acquireTaskLease, hasActiveTaskLease, ownsTaskLease, releaseTaskLease, reconcileOrphanedWorkingTasks, runWithTaskLeaseOwnership } from "@/lib/task-runtime-lease";
 import {
   todoProgressFromTodos,
   todosFromPiMessages,
@@ -594,6 +594,12 @@ type SessionSetup = {
   skillPermissionRef: { current: SkillPermission };
 };
 
+type SessionManagerWriteGuard = {
+  attach: (live: LiveRuntime) => void;
+  invalidate: () => void;
+};
+
+const sessionManagerWriteGuards = new WeakMap<object, SessionManagerWriteGuard>();
 
 type HarnessState = {
   pi: PiModule | null;
@@ -2743,6 +2749,60 @@ async function attachSession(
     }
   };
 
+  const setupWriteGuard = sessionManagerWriteGuards.get(session.sessionManager);
+  if (setupWriteGuard) {
+    setupWriteGuard.attach(live);
+  } else {
+    // Fallback for session managers created outside createSession.
+    const sessionWriteManager = session.sessionManager as unknown as {
+      _appendEntry?: (entry: unknown) => void;
+      _persist?: (entry: unknown) => void;
+      _rewriteFile?: () => void;
+    };
+    let sessionWriteGuardDepth = 0;
+    const runGuardedSessionWrite = <T>(write: () => T): T => {
+      if (live.leaseLost) throw new Error("Task runtime lease ownership was lost.");
+      const task = getTask(taskId);
+      if (!task || task.status === "archived") throw new Error("Task is no longer writable.");
+      if (sessionWriteGuardDepth > 0) return write();
+      const alreadyOwned = ownsTaskLease(taskId);
+      const temporaryLease = !alreadyOwned && acquireTaskLease(taskId);
+      if (!alreadyOwned && !temporaryLease) {
+        abortTaskSessionsAfterLeaseLoss([taskId]);
+        throw new Error("Task runtime lease ownership changed.");
+      }
+      try {
+        const guarded = runWithTaskLeaseOwnership(taskId, () => {
+          sessionWriteGuardDepth += 1;
+          try {
+            return write();
+          } finally {
+            sessionWriteGuardDepth -= 1;
+          }
+        });
+        if (!guarded.acquired) {
+          abortTaskSessionsAfterLeaseLoss([taskId]);
+          throw new Error("Task runtime lease ownership changed.");
+        }
+        return guarded.value;
+      } finally {
+        if (temporaryLease) releaseTaskLease(taskId);
+      }
+    };
+    const appendSessionEntry = sessionWriteManager._appendEntry?.bind(session.sessionManager);
+    if (appendSessionEntry) {
+      sessionWriteManager._appendEntry = (entry) => runGuardedSessionWrite(() => appendSessionEntry(entry));
+    }
+    const persistSessionEntry = sessionWriteManager._persist?.bind(session.sessionManager);
+    if (persistSessionEntry) {
+      sessionWriteManager._persist = (entry) => runGuardedSessionWrite(() => persistSessionEntry(entry));
+    }
+    const rewriteSessionFile = sessionWriteManager._rewriteFile?.bind(session.sessionManager);
+    if (rewriteSessionFile) {
+      sessionWriteManager._rewriteFile = () => runGuardedSessionWrite(() => rewriteSessionFile());
+    }
+  }
+
   // appendUsage returns an entry object, not an id. Reject stale writes instead
   // of fabricating a successful entry; the SDK cache warmer catches this error.
   const appendUsage = session.sessionManager.appendUsage.bind(session.sessionManager);
@@ -3243,6 +3303,77 @@ export function syncSessionName(
 ): void {
   if (sessionName && sessionManager.getSessionName() !== sessionName)
     sessionManager.appendSessionInfo(sessionName);
+}
+
+/** Keep cold SessionManager opens and their synchronous writes fenced during initialization. */
+function withTaskSessionWriteLease<T>(
+  taskId: string,
+  write: () => T,
+  onOwnershipLost?: () => void,
+): T {
+  const task = getTask(taskId);
+  if (!task || task.status === "archived") throw new Error("Task is no longer writable.");
+  const alreadyOwned = ownsTaskLease(taskId);
+  const temporaryLease = !alreadyOwned && acquireTaskLease(taskId);
+  if (!alreadyOwned && !temporaryLease) {
+    onOwnershipLost?.();
+    throw Object.assign(new Error(TASK_LEASE_BUSY_ERROR), { status: 409 });
+  }
+  try {
+    const guarded = runWithTaskLeaseOwnership(taskId, write);
+    if (!guarded.acquired) {
+      onOwnershipLost?.();
+      throw Object.assign(new Error(TASK_LEASE_BUSY_ERROR), { status: 409 });
+    }
+    return guarded.value;
+  } finally {
+    if (temporaryLease) releaseTaskLease(taskId);
+  }
+}
+
+function guardTaskSessionManagerWrites(sessionManager: object, taskId: string): SessionManagerWriteGuard {
+  const manager = sessionManager as {
+    _appendEntry?: (entry: unknown) => void;
+    _persist?: (entry: unknown) => void;
+    _rewriteFile?: () => void;
+  };
+  let depth = 0;
+  let live: LiveRuntime | null = null;
+  let invalidated = false;
+  const guard = <T>(write: () => T): T => {
+    if (invalidated || live?.leaseLost) throw new Error("Task runtime lease ownership was lost.");
+    if (depth > 0) return write();
+    return withTaskSessionWriteLease(taskId, () => {
+      depth += 1;
+      try {
+        return write();
+      } finally {
+        depth -= 1;
+      }
+    }, () => {
+      if (live) abortTaskSessionsAfterLeaseLoss([taskId]);
+      throw Object.assign(new Error("Task runtime lease ownership changed."), { status: 409 });
+    });
+  };
+  const originalAppend = manager._appendEntry;
+  const append = originalAppend?.bind(sessionManager);
+  const guardedAppend = append ? (entry: unknown) => guard(() => append(entry)) : undefined;
+  if (guardedAppend) manager._appendEntry = guardedAppend;
+  const originalPersist = manager._persist;
+  const persist = originalPersist?.bind(sessionManager);
+  const guardedPersist = persist ? (entry: unknown) => guard(() => persist(entry)) : undefined;
+  if (guardedPersist) manager._persist = guardedPersist;
+  const originalRewrite = manager._rewriteFile;
+  const rewrite = originalRewrite?.bind(sessionManager);
+  const guardedRewrite = rewrite ? () => guard(() => rewrite()) : undefined;
+  if (guardedRewrite) manager._rewriteFile = guardedRewrite;
+
+  const guardObject: SessionManagerWriteGuard = {
+    attach: (attachedLive) => { live = attachedLive; },
+    invalidate: () => { invalidated = true; },
+  };
+  sessionManagerWriteGuards.set(sessionManager, guardObject);
+  return guardObject;
 }
 
 type PersistableSessionManager = {
@@ -4033,10 +4164,24 @@ async function createSession(options: {
   reportTaskDetailPhase(options.onTiming, "createSession.ensureRuntime", runtimeStartedAt);
   const agentDir = pi.getAgentDir();
   const sessionManagerStartedAt = options.onTiming ? performance.now() : 0;
-  const sessionManager = options.sessionFile
-    ? pi.SessionManager.open(options.sessionFile)
-    : pi.SessionManager.create(options.cwd);
-  syncSessionName(sessionManager, options.sessionName);
+  let sessionManager: ReturnType<typeof pi.SessionManager.create>;
+  const sessionFile = options.sessionFile;
+  const sessionTaskId = options.taskId;
+  if (sessionTaskId) {
+    sessionManager = withTaskSessionWriteLease(sessionTaskId, () => {
+      // Opening may rewrite legacy entries, and name sync may append immediately.
+      const created = sessionFile
+        ? pi.SessionManager.open(sessionFile)
+        : pi.SessionManager.create(options.cwd);
+      syncSessionName(created, options.sessionName);
+      return created;
+    });
+  } else {
+    sessionManager = sessionFile
+      ? pi.SessionManager.open(sessionFile)
+      : pi.SessionManager.create(options.cwd);
+    syncSessionName(sessionManager, options.sessionName);
+  }
   reportTaskDetailPhase(
     options.onTiming,
     "createSession.sessionManager",
@@ -4193,53 +4338,69 @@ async function createSession(options: {
     "createSession.modelRuntime",
     modelRuntimeStartedAt,
   );
-  const agentSessionStartedAt = options.onTiming ? performance.now() : 0;
-  const result = await sdkRuntimeFactory().createAgentSession({
-    cwd: options.cwd,
-    agentDir,
-    model: options.model,
-    thinkingLevel: options.thinkingLevel,
-    sessionManager,
-    resourceLoader,
-    modelRuntime,
-    ...("tools" in toolSelection ? { tools: toolSelection.tools } : { excludeTools: toolSelection.excludeTools }),
-  });
-  reportTaskDetailPhase(
-    options.onTiming,
-    "createSession.agentSession",
-    agentSessionStartedAt,
-  );
-  createdSession = result.session;
-  if (codeToolPolicy) attachCodeToolPolicy(result.session, codeToolPolicy);
-  // Restore the Code base loadout. default also retains newly registered extension defaults.
-  if ("initialActive" in toolSelection) {
-    result.session.setActiveToolsByName(toolSelection.preserveActive
-      ? [...new Set([...result.session.getActiveToolNames(), ...toolSelection.initialActive])]
-      : toolSelection.initialActive);
-  }
-  const configureStartedAt = options.onTiming ? performance.now() : 0;
-  await configureCreatedSession(result.session, {
-    botTools: options.botTools,
-    subagentPermission,
-    permissionMode,
-    persistPermission,
-    goalLoop: options.goalLoop === true,
-  });
-  reportTaskDetailPhase(
-    options.onTiming,
-    "createSession.configure",
-    configureStartedAt,
-  );
-  if (options.goalLoop) {
-    const persistStartedAt = options.onTiming ? performance.now() : 0;
-    ensureSessionFilePersisted(sessionManager);
+  const setupWriteGuard = sessionTaskId
+    ? guardTaskSessionManagerWrites(sessionManager, sessionTaskId)
+    : null;
+  try {
+    const agentSessionStartedAt = options.onTiming ? performance.now() : 0;
+    const result = await sdkRuntimeFactory().createAgentSession({
+      cwd: options.cwd,
+      agentDir,
+      model: options.model,
+      thinkingLevel: options.thinkingLevel,
+      sessionManager,
+      resourceLoader,
+      modelRuntime,
+      ...("tools" in toolSelection ? { tools: toolSelection.tools } : { excludeTools: toolSelection.excludeTools }),
+    });
     reportTaskDetailPhase(
       options.onTiming,
-      "createSession.persistSessionFile",
-      persistStartedAt,
+      "createSession.agentSession",
+      agentSessionStartedAt,
     );
+    createdSession = result.session;
+    if (codeToolPolicy) attachCodeToolPolicy(result.session, codeToolPolicy);
+    // Restore the Code base loadout. default also retains newly registered extension defaults.
+    if ("initialActive" in toolSelection) {
+      result.session.setActiveToolsByName(toolSelection.preserveActive
+        ? [...new Set([...result.session.getActiveToolNames(), ...toolSelection.initialActive])]
+        : toolSelection.initialActive);
+    }
+    const configureStartedAt = options.onTiming ? performance.now() : 0;
+    await configureCreatedSession(result.session, {
+      botTools: options.botTools,
+      subagentPermission,
+      permissionMode,
+      persistPermission,
+      goalLoop: options.goalLoop === true,
+    });
+    reportTaskDetailPhase(
+      options.onTiming,
+      "createSession.configure",
+      configureStartedAt,
+    );
+    if (options.goalLoop) {
+      const persistStartedAt = options.onTiming ? performance.now() : 0;
+      if (sessionTaskId) {
+        withTaskSessionWriteLease(sessionTaskId, () => ensureSessionFilePersisted(sessionManager));
+      } else {
+        ensureSessionFilePersisted(sessionManager);
+      }
+      reportTaskDetailPhase(
+        options.onTiming,
+        "createSession.persistSessionFile",
+        persistStartedAt,
+      );
+    }
+    return { session: result.session, skillPermissionRef };
+  } catch (error) {
+    setupWriteGuard?.invalidate();
+    if (createdSession) {
+      try { await disposeSessionBestEffort(createdSession); }
+      catch (cleanupError) { console.warn("[leafcode-pi] failed to dispose partial session:", cleanupError); }
+    }
+    throw error;
   }
-  return { session: result.session, skillPermissionRef };
 }
 
 type ConcreteModelRoute = {
@@ -5112,7 +5273,13 @@ async function resolveLiveSessionSettings(
  * intercom runtime would pause the loop or clobber the shared
  * process.env intercom session id. Failure paths clean session-owned resources without emitting shutdown.
  */
+function disposeUnattachedSessionNow(session: AgentSession): void {
+  sessionManagerWriteGuards.get(session.sessionManager)?.invalidate();
+  session.dispose();
+}
+
 async function disposeSessionBestEffort(session: AgentSession): Promise<void> {
+  sessionManagerWriteGuards.get(session.sessionManager)?.invalidate();
   const sessionId = session.sessionId;
   if (sessionId) {
     let timer: ReturnType<typeof setTimeout> | undefined;
@@ -5307,51 +5474,62 @@ async function ensureLive(
       "ensureLive.resolveSettings",
       resolveSettingsStartedAt,
     );
-    const createSessionStartedAt = options?.onTiming ? performance.now() : 0;
-    const setup = await createSession({
-      cwd,
-      sessionFile: task.sessionFile,
-      sessionName: liveSessionName({ isBot, title: task.title }),
-      ...botSessionOptions(task),
-      accountId: sessionAccountId,
-      model,
-      thinkingLevel: sessionThinkingLevel,
-      skillPermission: resolveSessionSkillPermission({
-        updatedSkillPermission: permissionUpdates.skillPermission,
-        taskSkillPermission: task.skillPermission,
-      }),
-      permissionMode: resolveSessionPermissionMode({
-        isBot,
-        botPermissionMode: bot?.permissionMode,
-        updatedPermissionMode: permissionUpdates.permissionMode,
-        taskPermissionMode: task.permissionMode,
-      }),
-      agentName: task.agent ?? null,
-      taskId,
-      goalLoop: isGoalLoopSessionOwned(persistedGoalLoop),
-      onTiming: options?.onTiming,
-    });
-    reportTaskDetailPhase(
-      options?.onTiming,
-      "ensureLive.createSession",
-      createSessionStartedAt,
-    );
-    const attachSessionStartedAt = options?.onTiming ? performance.now() : 0;
-    const attached = await attachCreatedLiveSession(
-      taskId,
-      epoch,
-      setup,
-      sessionThinkingLevel,
-      sessionAccountId,
-      accountIdExplicit,
-      { ...options, preserveTaskModel },
-    );
-    reportTaskDetailPhase(
-      options?.onTiming,
-      "ensureLive.attachSession",
-      attachSessionStartedAt,
-    );
-    return attached;
+    // Keep a short-lived lease through SDK creation and extension startup; SessionManager's
+    // first model/settings appends happen before the attached-session write wrappers are installed.
+    const alreadyOwned = ownsTaskLease(taskId);
+    const initializationLease = !alreadyOwned && acquireTaskLease(taskId);
+    if (!alreadyOwned && !initializationLease) {
+      throw Object.assign(new Error(TASK_LEASE_BUSY_ERROR), { status: 409 });
+    }
+    try {
+      const createSessionStartedAt = options?.onTiming ? performance.now() : 0;
+      const setup = await createSession({
+        cwd,
+        sessionFile: task.sessionFile,
+        sessionName: liveSessionName({ isBot, title: task.title }),
+        ...botSessionOptions(task),
+        accountId: sessionAccountId,
+        model,
+        thinkingLevel: sessionThinkingLevel,
+        skillPermission: resolveSessionSkillPermission({
+          updatedSkillPermission: permissionUpdates.skillPermission,
+          taskSkillPermission: task.skillPermission,
+        }),
+        permissionMode: resolveSessionPermissionMode({
+          isBot,
+          botPermissionMode: bot?.permissionMode,
+          updatedPermissionMode: permissionUpdates.permissionMode,
+          taskPermissionMode: task.permissionMode,
+        }),
+        agentName: task.agent ?? null,
+        taskId,
+        goalLoop: isGoalLoopSessionOwned(persistedGoalLoop),
+        onTiming: options?.onTiming,
+      });
+      reportTaskDetailPhase(
+        options?.onTiming,
+        "ensureLive.createSession",
+        createSessionStartedAt,
+      );
+      const attachSessionStartedAt = options?.onTiming ? performance.now() : 0;
+      const attached = await attachCreatedLiveSession(
+        taskId,
+        epoch,
+        setup,
+        sessionThinkingLevel,
+        sessionAccountId,
+        accountIdExplicit,
+        { ...options, preserveTaskModel },
+      );
+      reportTaskDetailPhase(
+        options?.onTiming,
+        "ensureLive.attachSession",
+        attachSessionStartedAt,
+      );
+      return attached;
+    } finally {
+      if (initializationLease) releaseTaskLease(taskId);
+    }
     })(),
   });
   return promise;
@@ -7687,16 +7865,21 @@ export function readTodoProgress(
     ) {
       return cached.value;
     }
-    const sessionManager = pi.SessionManager.open(sessionFile);
-    const progress = todoProgressFromTodos(
-      todosFromPiMessages(sessionManager.buildSessionContext().messages),
-    );
+    const readProgress = () => {
+      const sessionManager = pi.SessionManager.open(sessionFile);
+      return todoProgressFromTodos(
+        todosFromPiMessages(sessionManager.buildSessionContext().messages),
+      );
+    };
+    if (!ownsTaskLease(task.id)) return readDiskTodoProgress(sessionFile);
+    const guarded = runWithTaskLeaseOwnership(task.id, readProgress);
+    if (!guarded.acquired) return readDiskTodoProgress(sessionFile);
     cacheTodoProgress(sessionFile, {
       mtimeMs: stat.mtimeMs,
       size: stat.size,
-      value: progress,
+      value: guarded.value,
     });
-    return progress;
+    return guarded.value;
   } catch {
     todoProgressCache.delete(sessionFile);
     return undefined;
@@ -8161,7 +8344,10 @@ export async function goalLoopCommand(
   if (live.leaseLost) throw Object.assign(new Error(TASK_LEASE_BUSY_ERROR), { status: 409 });
   preparation?.assertCurrent();
   if (input.action === "start") {
-    ensureSessionFilePersisted(live.session.sessionManager);
+    withTaskSessionWriteLease(taskId, () => {
+      if (live.leaseLost) throw Object.assign(new Error(TASK_LEASE_BUSY_ERROR), { status: 409 });
+      ensureSessionFilePersisted(live.session.sessionManager);
+    });
   }
   // start/resume は queuePrompt を通らない直 prompt。通常チャット実行中に投げると
   // 二重 session.prompt になる。pause/stop/complete はループ中断のため busy でも通す。
@@ -8429,13 +8615,32 @@ async function createTaskSession(
   options: Parameters<typeof createSession>[0],
   thinkingLevel: ThinkingLevel,
 ): Promise<SessionSetup> {
-  const setup = await createSession(options);
-  // createAgentSession may normalize the level from its model metadata. Keep
-  // the user's Auto effort in the session; the provider clamps at request time.
-  if (setup.session.thinkingLevel !== thinkingLevel) {
-    setup.session.setThinkingLevel(thinkingLevel);
+  const taskId = options.taskId;
+  const alreadyOwned = taskId ? ownsTaskLease(taskId) : false;
+  const initializationLease = Boolean(taskId && !alreadyOwned && acquireTaskLease(taskId));
+  if (taskId && !alreadyOwned && !initializationLease) {
+    throw Object.assign(new Error(TASK_LEASE_BUSY_ERROR), { status: 409 });
   }
-  return setup;
+  let setup: SessionSetup | undefined;
+  try {
+    const createdSetup = await createSession(options);
+    setup = createdSetup;
+    // createAgentSession may normalize the level from its model metadata. Keep
+    // the user's Auto effort in the session; the provider clamps at request time.
+    if (createdSetup.session.thinkingLevel !== thinkingLevel) {
+      if (taskId) {
+        withTaskSessionWriteLease(taskId, () => createdSetup.session.setThinkingLevel(thinkingLevel));
+      } else {
+        createdSetup.session.setThinkingLevel(thinkingLevel);
+      }
+    }
+    // attachCreatedTaskSession adopts this lease; it is released on attach failure or turn end.
+    return createdSetup;
+  } catch (error) {
+    if (setup) await disposeSessionBestEffort(setup.session);
+    if (initializationLease && taskId) releaseTaskLease(taskId);
+    throw error;
+  }
 }
 
 async function attachCreatedTaskSession(
@@ -8444,7 +8649,7 @@ async function attachCreatedTaskSession(
   thinkingLevel: ThinkingLevel,
 ): Promise<LiveRuntime> {
   if (!acquireTaskLease(task.id)) {
-    setup.session.dispose();
+    await disposeSessionBestEffort(setup.session);
     throw Object.assign(new Error("タスクは別のワーカーで実行中です"), {
       status: 409,
     });
@@ -8466,7 +8671,7 @@ async function attachCreatedTaskSession(
     // Do not leave a fresh task leased when session attachment fails. The
     // next Bot/Code request would otherwise report another worker forever.
     releaseTaskLease(task.id);
-    setup.session.dispose();
+    disposeUnattachedSessionNow(setup.session);
     setTaskStatus(
       task.id,
       "error",
@@ -8854,7 +9059,7 @@ async function replaceLiveForRoute(
       attachSession(task.id, setup.session, setup.skillPermissionRef, {
         preserveTaskModel: false,
       }),
-    disposeSession: () => setup.session.dispose(),
+    disposeSession: () => disposeUnattachedSessionNow(setup.session),
     // attachSession acquires the new runtime before replacing the old live
     // session. Restore the persisted identity if acquisition failed.
     restoreIdentity: () => {
@@ -8923,7 +9128,7 @@ async function replaceLiveForAgent(
   return attachReplacementSession({
     persistIdentity: () => patchTask(task.id, { agent: agentName }),
     attach: () => attachSession(task.id, setup.session, setup.skillPermissionRef),
-    disposeSession: () => setup.session.dispose(),
+    disposeSession: () => disposeUnattachedSessionNow(setup.session),
     restoreIdentity: () => {
       patchTask(task.id, { agent: task.agent ?? null });
     },
@@ -8964,7 +9169,7 @@ async function replaceLiveForSoul(live: LiveRuntime): Promise<LiveRuntime> {
   });
   return attachReplacementSession({
     attach: () => attachSession(task.id, setup.session, setup.skillPermissionRef),
-    disposeSession: () => setup.session.dispose(),
+    disposeSession: () => disposeUnattachedSessionNow(setup.session),
   });
 }
 

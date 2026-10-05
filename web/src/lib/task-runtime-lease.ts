@@ -23,6 +23,9 @@ const service = new TaskLeaseService({
 });
 
 export function acquireTaskLease(taskId: string): boolean { return service.acquireTaskLease(taskId); }
+export function runWithTaskLeaseOwnership<T>(taskId: string, action: () => T): { acquired: true; value: T } | { acquired: false } {
+  return service.runWithTaskLeaseOwnership(taskId, action);
+}
 export function releaseTaskLease(taskId: string): void { service.releaseTaskLease(taskId); }
 export function ownsTaskLease(taskId: string): boolean { return service.ownsTaskLease(taskId); }
 export function hasActiveTaskLease(taskId: string): boolean { return service.hasActiveTaskLease(taskId); }

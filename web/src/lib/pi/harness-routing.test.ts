@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { EventEmitter } from "node:events";
@@ -25,6 +25,10 @@ const fakePi = vi.hoisted(() => {
   const histories = new Map<string, unknown[]>();
   const sessionIds = new Map<string, string>();
   const promptGate: { current: Promise<unknown> | null } = { current: null };
+  const sessionStartHook: {
+    current: ((sessionManager: { appendModelChange: (provider: string, modelId: string) => unknown }) => void) | null;
+  } = { current: null };
+  const persistenceHook: { current: (() => void) | null } = { current: null };
   const sessions: {
     accountId: string | null;
     file: string;
@@ -48,13 +52,29 @@ const fakePi = vi.hoisted(() => {
     histories.set(file, history);
     const sessionId = sessionIds.get(file) ?? `session-${sessionIds.size + 1}`;
     sessionIds.set(file, sessionId);
-    return {
+    let appendEntry: (entry: unknown) => void = (entry) => { history.push(entry); };
+    let persistEntry: (entry: unknown) => void = () => undefined;
+    let rewriteFile: () => void = () => undefined;
+    const persistedEntries: unknown[] = [];
+    const rewriteCalls: number[] = [];
+    const manager = {
       __file: file,
       __sessionId: sessionId,
+      _appendEntry: (entry: unknown) => {
+        history.push(entry);
+        persistEntry(entry);
+      },
+      _persist: (entry: unknown) => {
+        persistenceHook.current?.();
+        persistedEntries.push(entry);
+      },
+      _rewriteFile: () => { rewriteCalls.push(1); },
+      persistedEntries,
+      rewriteCalls,
       getSessionName: () => name,
       appendSessionInfo: (next: string) => {
         name = next;
-        if (next.startsWith("lease-test")) history.push({ type: "session_info", name: next });
+        if (next.startsWith("lease-test")) appendEntry({ type: "session_info", name: next });
         return `session-info-${history.length}`;
       },
       getCwd: () => cwd,
@@ -66,68 +86,77 @@ const fakePi = vi.hoisted(() => {
       getLeafId: () => null,
       getBranch: () => [],
       appendMessage: (message: unknown) => {
-        history.push(message);
+        appendEntry(message);
         return `message-${history.length}`;
       },
       appendModelChange: (provider: string, modelId: string) => {
-        history.push({ type: "model_change", provider, modelId });
+        appendEntry({ type: "model_change", provider, modelId });
         return `model-change-${history.length}`;
       },
       appendThinkingLevelChange: (thinkingLevel: string) => {
-        history.push({ type: "thinking_level_change", thinkingLevel });
+        appendEntry({ type: "thinking_level_change", thinkingLevel });
         return `thinking-level-change-${history.length}`;
       },
       appendUsage: (kind: string, provider: string, model: string, usage: unknown, note?: string) => {
         const entry = { type: "usage", kind, provider, model, usage, note };
-        history.push(entry);
+        appendEntry(entry);
         return entry;
       },
       appendCustomMessageEntry: (customType: string, content: unknown, display: boolean, details?: unknown) => {
-        history.push({ type: "custom_message", customType, content, display, details });
+        appendEntry({ type: "custom_message", customType, content, display, details });
         return `custom-message-${history.length}`;
       },
       appendCustomEntry: (customType: string, data?: unknown) => {
         if (customType !== "lease-test") return undefined;
-        history.push({ type: "custom", customType, data });
+        appendEntry({ type: "custom", customType, data });
         return `custom-${history.length}`;
       },
       appendCompaction: (summary: string, firstKeptEntryId: string | null, tokensBefore: number) => {
         if (!summary.startsWith("lease-test")) return "";
-        history.push({ type: "compaction", summary, firstKeptEntryId, tokensBefore });
+        appendEntry({ type: "compaction", summary, firstKeptEntryId, tokensBefore });
         return `compaction-${history.length}`;
       },
       appendContextEdit: (targetId: string, replacement: unknown) => {
         if (targetId !== "lease-test") return "";
-        history.push({ type: "context_edit", targetId, replacement });
+        appendEntry({ type: "context_edit", targetId, replacement });
         return `context-edit-${history.length}`;
       },
       appendLabelChange: (targetId: string, label: string | undefined) => {
         if (targetId !== "lease-test") return "";
-        history.push({ type: "label", targetId, label });
+        appendEntry({ type: "label", targetId, label });
         return `label-${history.length}`;
       },
       branchWithSummary: (branchFromId: string | null, summary: string) => {
         if (!summary.startsWith("lease-test")) return "";
-        history.push({ type: "branch_summary", branchFromId, summary });
+        appendEntry({ type: "branch_summary", branchFromId, summary });
         return `branch-summary-${history.length}`;
       },
       createBranchedSession: (leafId: string) => {
         if (leafId !== "lease-test") return undefined;
+        rewriteFile();
         history.push({ type: "branched_session", leafId });
         return `branched-session-${history.length}.jsonl`;
       },
       history,
     };
+    appendEntry = (entry) => manager._appendEntry(entry);
+    persistEntry = (entry) => manager._persist(entry);
+    rewriteFile = () => manager._rewriteFile();
+    return manager;
   }
 
   return {
     sessions,
     promptGate,
+    sessionStartHook,
+    persistenceHook,
     reset: () => {
       sessions.length = 0;
       histories.clear();
       sessionIds.clear();
       promptGate.current = null;
+      sessionStartHook.current = null;
+      persistenceHook.current = null;
     },
     getAgentDir: () => process.env.PI_CODING_AGENT_DIR ?? "",
     createCodemodeExtension: () => () => undefined,
@@ -152,6 +181,7 @@ const fakePi = vi.hoisted(() => {
       modelRuntime?: { accountId?: string };
       resourceLoader?: { extensionFactories?: FakeInlineExtension[] };
     }) => {
+      sessionStartHook.current?.(options.sessionManager);
       const manager = options.sessionManager;
       const entry: {
         accountId: string | null;
@@ -425,6 +455,7 @@ import {
   listModelsForAccounts,
   mergeBundledSkills,
   promptTask,
+  resetTaskSession,
   requestBotSoulReload,
   resolveProviderFallbackModels,
   setTaskModel,
@@ -2089,6 +2120,117 @@ describe("integrated session routing", () => {
     expect(harness.live.has(task.id)).toBe(false);
     expect(getTask(task.id)?.status).toBe("working");
     expect(JSON.parse(readFileSync(taskRuntimeLeasePath(task.id), "utf8")).token).toBe("other-worker");
+  });
+
+  it("keeps initialization ownership through SDK setup before write wrappers attach", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "leafcode-pi-session-init-lease-"));
+    tempDirs.push(dir);
+    process.env.LEAFCODE_PI_DATA_DIR = dir;
+    process.env.PI_CODING_AGENT_DIR = join(dir, "agent");
+    __resetPiAgentDirCacheForTests();
+    installHarness(new Map());
+    const project = upsertProject({ name: "demo", rootPath: dir });
+    const task = await createTask({ projectId: project.id, prompt: "initial" });
+    await waitFor(() => getTask(task.id)?.status === "idle");
+    resetTaskSession(task.id);
+    const { ownsTaskLease } = await import("@/lib/task-runtime-lease");
+    let ownedDuringSdkSetup = false;
+    const persistenceLockStates: boolean[] = [];
+    fakePi.sessionStartHook.current = (sessionManager) => {
+      ownedDuringSdkSetup = ownsTaskLease(task.id);
+      sessionManager.appendModelChange("pre-attach", "model");
+    };
+    fakePi.persistenceHook.current = () => {
+      persistenceLockStates.push(existsSync(`${taskRuntimeLeasePath(task.id)}.reclaim`));
+    };
+
+    await getTaskDetail(task.id);
+
+    expect(fakePi.sessions).toHaveLength(2);
+    expect(ownedDuringSdkSetup).toBe(true);
+    expect(persistenceLockStates.length).toBeGreaterThan(0);
+    expect(persistenceLockStates.every(Boolean)).toBe(true);
+    expect(ownsTaskLease(task.id)).toBe(false);
+  });
+
+  it("uses a temporary task lease for idle SessionManager writes", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "leafcode-pi-idle-session-write-lease-"));
+    tempDirs.push(dir);
+    process.env.LEAFCODE_PI_DATA_DIR = dir;
+    process.env.PI_CODING_AGENT_DIR = join(dir, "agent");
+    __resetPiAgentDirCacheForTests();
+    installHarness(new Map());
+    const project = upsertProject({ name: "demo", rootPath: dir });
+    const task = await createTask({ projectId: project.id, prompt: "initial" });
+    const harness = (globalThis as Record<string, unknown>)[GLOBAL_KEY] as {
+      live: Map<string, {
+        promptChain: Promise<void>;
+        session: { sessionManager: { _persist: (entry: unknown) => void; persistedEntries: unknown[] } };
+      }>;
+    };
+    const live = harness.live.get(task.id)!;
+    await live.promptChain;
+    const { ownsTaskLease } = await import("@/lib/task-runtime-lease");
+    expect(ownsTaskLease(task.id)).toBe(false);
+    const manager = live.session.sessionManager;
+    const persistedCount = manager.persistedEntries.length;
+    const status = getTask(task.id)?.status;
+
+    manager._persist({ type: "custom", customType: "idle-write", data: true });
+
+    expect(manager.persistedEntries).toHaveLength(persistedCount + 1);
+    expect(ownsTaskLease(task.id)).toBe(false);
+    expect(getTask(task.id)?.status).toBe(status);
+  });
+
+  it("fences direct SessionManager persistence internals after lease ownership changes", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "leafcode-pi-session-write-internals-lease-"));
+    tempDirs.push(dir);
+    process.env.LEAFCODE_PI_DATA_DIR = dir;
+    process.env.PI_CODING_AGENT_DIR = join(dir, "agent");
+    __resetPiAgentDirCacheForTests();
+    installHarness(new Map());
+    const project = upsertProject({ name: "demo", rootPath: dir });
+    const task = await createTask({ projectId: project.id, prompt: "initial" });
+    const harness = (globalThis as Record<string, unknown>)[GLOBAL_KEY] as {
+      live: Map<string, {
+        promptChain: Promise<void>;
+        session: {
+          sessionManager: {
+            _persist: (entry: unknown) => void;
+            _rewriteFile: () => void;
+            persistedEntries: unknown[];
+            rewriteCalls: number[];
+            history: unknown[];
+          };
+          abort?: () => Promise<void>;
+        };
+      }>;
+    };
+    const live = harness.live.get(task.id)!;
+    await live.promptChain;
+    const { acquireTaskLease } = await import("@/lib/task-runtime-lease");
+    expect(acquireTaskLease(task.id)).toBe(true);
+    patchTask(task.id, { status: "working" });
+
+    const sessionEntry = fakePi.sessions.at(-1)!;
+    live.session.abort = async () => { sessionEntry.events.push("abort-requested"); };
+    const manager = live.session.sessionManager;
+    const persistedCount = manager.persistedEntries.length;
+    const rewriteCount = manager.rewriteCalls.length;
+    const leasePath = taskRuntimeLeasePath(task.id);
+    mkdirSync(dirname(leasePath), { recursive: true });
+    writeFileSync(leasePath, JSON.stringify({ token: "other-worker", pid: process.pid, acquiredAt: Date.now(), heartbeatAt: Date.now() }), "utf8");
+
+    expect(() => manager._persist({ type: "custom", customType: "late", data: true })).toThrow(/ownership changed/);
+    expect(() => manager._rewriteFile()).toThrow(/ownership was lost/);
+    await waitFor(() => sessionEntry.disposed);
+
+    expect(manager.persistedEntries).toHaveLength(persistedCount);
+    expect(manager.rewriteCalls).toHaveLength(rewriteCount);
+    expect(harness.live.has(task.id)).toBe(false);
+    expect(getTask(task.id)?.status).toBe("working");
+    expect(JSON.parse(readFileSync(leasePath, "utf8")).token).toBe("other-worker");
   });
 
   it("exposes a task-lease assertion to fork-context extensions", async () => {

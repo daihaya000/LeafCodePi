@@ -43,6 +43,8 @@ export class TaskLeaseService<T extends TaskLeaseTask = TaskLeaseTask> {
   });
   taskRuntimeLeasePath(taskId: string): string;
   acquireTaskLease(taskId: string): boolean;
+  /** Run a synchronous critical section only while this process owns the task lease. */
+  runWithTaskLeaseOwnership<T>(taskId: string, action: () => T): { acquired: true; value: T } | { acquired: false };
   releaseTaskLease(taskId: string): void;
   ownsTaskLease(taskId: string): boolean;
   hasActiveTaskLease(taskId: string): boolean;
