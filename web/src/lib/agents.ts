@@ -5,9 +5,8 @@
  * - User:   ~/.pi/agent/agents（再帰検索 .md）
  * - Package: agents/ dir inside each installed pi package (e.g. pi-subagents builtins)
  *
- * ON/OFF is persisted in ~/.pi/agent/settings.json under
- * `subagents.agentOverrides.<name>` (user scope), which pi-subagents reads
- * and applies for disabled state and package agent model / thinking / tool overrides.
+ * Web-managed overrides are persisted in ~/.pi/agent/agent-overrides.json so Pi core's
+ * whole-file settings.json writes cannot overwrite them. Legacy settings.json overrides remain readable.
  */
 
 import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
@@ -88,7 +87,7 @@ export function agentsDir(agentDir = resolvePiAgentDir()): string {
   return join(agentDir, "agents");
 }
 
-type AgentOverride = { disabled?: boolean; model?: string; thinking?: AgentThinking; tools?: string[] | false | "inherit" };
+type AgentOverride = { disabled?: boolean; model?: string | null; thinking?: AgentThinking | null; tools?: string[] | false | "inherit" };
 
 type PiSettings = {
   subagents?: { agentOverrides?: Record<string, AgentOverride>; [key: string]: unknown };
@@ -104,29 +103,49 @@ function readSettings(agentDir: string): PiSettings {
   }
 }
 
-/**
- * Read settings.json for a read-modify-write. A missing file starts from `{}`, but an existing
- * file that cannot be parsed must not be treated as empty: the write would erase every other Pi
- * setting stored there.
- */
-function readSettingsForWrite(agentDir: string): PiSettings {
+type AgentOverridesFile = { version: 1; overrides: Record<string, AgentOverride> };
+
+function agentOverridesPath(agentDir: string): string {
+  return join(agentDir, "agent-overrides.json");
+}
+
+function readAgentOverridesFile(agentDir: string): AgentOverridesFile {
   let text: string;
   try {
-    text = readFileSync(join(agentDir, "settings.json"), "utf8");
+    text = readFileSync(agentOverridesPath(agentDir), "utf8");
   } catch (error) {
-    if ((error as NodeJS.ErrnoException)?.code === "ENOENT") return {};
-    throw Object.assign(new Error("settings.json を読み取れないため更新を中止しました"), { status: 500, cause: error });
+    if ((error as NodeJS.ErrnoException)?.code === "ENOENT") return { version: 1, overrides: {} };
+    throw Object.assign(new Error("agent-overrides.json を読み取れないため更新を中止しました"), { status: 500, cause: error });
   }
   let parsed: unknown;
   try {
     parsed = JSON.parse(text);
   } catch (error) {
-    throw Object.assign(new Error("settings.json が壊れているため更新を中止しました"), { status: 500, cause: error });
+    throw Object.assign(new Error("agent-overrides.json が壊れているため更新を中止しました"), { status: 500, cause: error });
   }
   if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
-    throw Object.assign(new Error("settings.json の形式が不正なため更新を中止しました"), { status: 500 });
+    throw Object.assign(new Error("agent-overrides.json の形式が不正なため更新を中止しました"), { status: 500 });
   }
-  return parsed as PiSettings;
+  const root = parsed as Record<string, unknown>;
+  const overrides = root.overrides;
+  if (root.version !== 1 || !overrides || typeof overrides !== "object" || Array.isArray(overrides)) {
+    throw Object.assign(new Error("agent-overrides.json の形式が不正なため更新を中止しました"), { status: 500 });
+  }
+  return { version: 1, overrides: overrides as Record<string, AgentOverride> };
+}
+
+function mergeAgentOverrides(
+  legacy: Record<string, AgentOverride>,
+  stored: Record<string, AgentOverride>,
+): Record<string, AgentOverride> {
+  const merged = { ...legacy };
+  for (const [name, patch] of Object.entries(stored)) {
+    const previous = merged[name];
+    merged[name] = previous && typeof previous === "object" && !Array.isArray(previous)
+      ? { ...previous, ...patch }
+      : patch;
+  }
+  return merged;
 }
 
 function atomicWrite(filePath: string, content: string): void {
@@ -301,7 +320,10 @@ function bundledForkAgentsDir(): string | null {
 export function listAgents(agentDir = resolvePiAgentDir()): AgentListResult {
   const userDir = agentsDir(agentDir);
   const settings = readSettings(agentDir);
-  const overrides = settings.subagents?.agentOverrides ?? {};
+  const overrides = mergeAgentOverrides(
+    settings.subagents?.agentOverrides ?? {},
+    readAgentOverridesFile(agentDir).overrides,
+  );
 
   const byName = new Map<string, AgentDto>();
   const push = (source: AgentDto["source"], dir: string) => {
@@ -314,7 +336,7 @@ export function listAgents(agentDir = resolvePiAgentDir()): AgentListResult {
         const model = source === "user"
           ? entry.model ?? overrideModel
           : overrideModel ?? entry.model;
-        const overrideThinking = override?.thinking;
+        const overrideThinking = override?.thinking ?? undefined;
         const thinking = source === "user"
           ? entry.thinking ?? overrideThinking
           : overrideThinking ?? entry.thinking;
@@ -386,37 +408,21 @@ function updateAgentOverride(
   agentDir: string,
 ): AgentListResult {
   const { name: trimmed } = assertListedAgent(name, agentDir);
-  const settingsPath = join(agentDir, "settings.json");
-  // Read-modify-write under a cross-process lock so concurrent overrides cannot drop each other's keys.
+  const overridesPath = agentOverridesPath(agentDir);
   withDirectoryLock({
-    lockPath: `${settingsPath}.lock`,
+    lockPath: `${overridesPath}.lock`,
     parentDir: agentDir,
     staleMs: 30_000,
-    busyMessage: "agent settings are busy",
+    busyMessage: "agent overrides are busy",
   }, () => {
-  const settings = readSettingsForWrite(agentDir);
-  const subagents = settings.subagents && typeof settings.subagents === "object"
-    ? { ...settings.subagents }
-    : {};
-  const agentOverrides = subagents.agentOverrides && typeof subagents.agentOverrides === "object"
-    ? { ...subagents.agentOverrides }
-    : {};
-
-  const current = agentOverrides[trimmed];
-  const next: AgentOverride = current && typeof current === "object" && !Array.isArray(current)
-    ? { ...current }
-    : {};
-  update(next);
-  if (Object.keys(next).length > 0) agentOverrides[trimmed] = next;
-  else delete agentOverrides[trimmed];
-
-  if (Object.keys(agentOverrides).length > 0) subagents.agentOverrides = agentOverrides;
-  else delete subagents.agentOverrides;
-
-  if (Object.keys(subagents).length > 0) settings.subagents = subagents;
-  else delete settings.subagents;
-
-  atomicWrite(settingsPath, `${JSON.stringify(settings, null, 2)}\n`);
+    const agentOverrides = readAgentOverridesFile(agentDir).overrides;
+    const current = agentOverrides[trimmed];
+    const next: AgentOverride = current && typeof current === "object" && !Array.isArray(current)
+      ? { ...current }
+      : {};
+    update(next);
+    agentOverrides[trimmed] = next;
+    atomicWrite(overridesPath, `${JSON.stringify({ version: 1, overrides: agentOverrides }, null, 2)}\n`);
   });
   return listAgents(agentDir);
 }
@@ -429,8 +435,7 @@ export function setAgentEnabled(name: string, enabled: boolean, agentDir = resol
     name,
     (override) => {
       if (enabled) {
-        if (name.trim() === DEFAULT_AGENT) delete override.disabled;
-        else override.disabled = false;
+        override.disabled = false;
       } else {
         override.disabled = true;
       }
@@ -454,8 +459,7 @@ export function setAgentModel(
   return updateAgentOverride(
     trimmed,
     (override) => {
-      if (nextModel) override.model = nextModel;
-      else delete override.model;
+      override.model = nextModel;
     },
     agentDir,
   );
@@ -478,8 +482,7 @@ export function setAgentThinking(
   return updateAgentOverride(
     trimmed,
     (override) => {
-      if (thinking === null) delete override.thinking;
-      else override.thinking = thinking;
+      override.thinking = thinking;
     },
     agentDir,
   );

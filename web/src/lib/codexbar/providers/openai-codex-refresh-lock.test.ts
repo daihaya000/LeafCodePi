@@ -48,49 +48,77 @@ afterEach(() => {
   rmSync(dir, { recursive: true, force: true });
 });
 
+async function failAuthWriteOnce(path: string): Promise<void> {
+  const actual = await vi.importActual<typeof import("@/lib/codexbar/utils")>("@/lib/codexbar/utils");
+  let failed = false;
+  atomicWrite.mockImplementation((target: string, content: string, mode?: number) => {
+    if (target === path && !failed) {
+      failed = true;
+      throw new Error("simulated disk failure");
+    }
+    actual.atomicWriteText(target, content, mode);
+  });
+}
+
 describe("Codex refresh lock paths", () => {
-  it("does not retry stale auth when persisting a rotated token fails", async () => {
+  it("recovers rotated CLI credentials from the journal on a later poll", async () => {
     const path = join(dir, "cli", "auth.json");
     mkdirSync(dirname(path), { recursive: true });
     storeCodexAuth(path, "old-access-fixture", "old-refresh-fixture", "cli");
-    atomicWrite.mockImplementationOnce(() => { throw new Error("simulated disk failure"); });
+    await failAuthWriteOnce(path);
     let usageCalls = 0;
     let refreshCalls = 0;
-    vi.mocked(fetchText).mockImplementation(async (url) => {
+    vi.mocked(fetchText).mockImplementation(async (url, init) => {
       if (url === tokenUrl) {
         refreshCalls += 1;
         return { ok: true, status: 200, body: JSON.stringify({ access_token: "new-access-fixture", refresh_token: "new-refresh-fixture" }) };
       }
       usageCalls += 1;
-      return { ok: false, status: 401, body: "unauthorized" };
+      if (new Headers(init?.headers).get("Authorization") === "Bearer old-access-fixture") {
+        return { ok: false, status: 401, body: "unauthorized" };
+      }
+      return { ok: true, status: 200, body: JSON.stringify({ rate_limit: { primary_window: { used_percent: 10 } } }) };
     });
 
-    await expect(providerFor("cli", path).fetch()).rejects.toThrow("OAuth");
-    expect(refreshCalls).toBe(1);
-    expect(usageCalls).toBe(1);
+    const provider = providerFor("cli", path);
+    await expect(provider.fetch()).rejects.toThrow("OAuth");
     expect(JSON.parse(readFileSync(path, "utf8")).tokens).toMatchObject({
       access_token: "old-access-fixture",
       refresh_token: "old-refresh-fixture",
     });
+    expect(existsSync(`${path}.leafcode-oauth-pending-openai-codex-cli.json`)).toBe(true);
+
+    expect((await provider.fetch()).windows[0]?.usedPercent).toBe(10);
+    expect(refreshCalls).toBe(1);
+    expect(usageCalls).toBeGreaterThanOrEqual(2);
+    expect(JSON.parse(readFileSync(path, "utf8")).tokens).toMatchObject({
+      access_token: "new-access-fixture",
+      refresh_token: "new-refresh-fixture",
+    });
+    expect(existsSync(`${path}.leafcode-oauth-pending-openai-codex-cli.json`)).toBe(false);
   });
 
-  it("does not retry old Pi auth when persisting a rotated token fails", async () => {
+  it("recovers rotated Pi credentials from the journal on a later poll", async () => {
     const path = join(dir, "pi", "auth.json");
     mkdirSync(dirname(path), { recursive: true });
     storeCodexAuth(path, "old-access-fixture", "old-refresh-fixture", "pi");
     writeBackPi.mockImplementationOnce(async () => { throw new Error("simulated disk failure"); });
     let usageCalls = 0;
     let refreshCalls = 0;
-    vi.mocked(fetchText).mockImplementation(async (url) => {
+    vi.mocked(fetchText).mockImplementation(async (url, init) => {
       if (url === tokenUrl) {
         refreshCalls += 1;
         return { ok: true, status: 200, body: JSON.stringify({ access_token: "new-access-fixture", refresh_token: "new-refresh-fixture" }) };
       }
       usageCalls += 1;
-      return { ok: false, status: 401, body: "unauthorized" };
+      if (new Headers(init?.headers).get("Authorization") === "Bearer old-access-fixture") {
+        return { ok: false, status: 401, body: "unauthorized" };
+      }
+      return { ok: true, status: 200, body: JSON.stringify({ rate_limit: { primary_window: { used_percent: 10 } } }) };
     });
 
-    await expect(providerFor("pi", path).fetch()).rejects.toThrow("OAuth");
+    const provider = providerFor("pi", path);
+    await expect(provider.fetch()).rejects.toThrow("OAuth");
     expect(refreshCalls).toBe(1);
     expect(usageCalls).toBe(1);
     expect(writeBackPi).toHaveBeenCalledOnce();
@@ -98,6 +126,16 @@ describe("Codex refresh lock paths", () => {
       access: "old-access-fixture",
       refresh: "old-refresh-fixture",
     });
+    expect(existsSync(`${path}.leafcode-oauth-pending-openai-codex-pi.json`)).toBe(true);
+
+    expect((await provider.fetch()).windows[0]?.usedPercent).toBe(10);
+    expect(refreshCalls).toBe(1);
+    expect(usageCalls).toBe(2);
+    expect(JSON.parse(readFileSync(path, "utf8"))["openai-codex"]).toMatchObject({
+      access: "new-access-fixture",
+      refresh: "new-refresh-fixture",
+    });
+    expect(existsSync(`${path}.leafcode-oauth-pending-openai-codex-pi.json`)).toBe(false);
   });
 
   it.each(["cli", "pi", "account"] as const)("refreshes %s auth under a real adjacent lock", async (store) => {

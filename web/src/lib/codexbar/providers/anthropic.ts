@@ -41,6 +41,13 @@ import {
   readPiOAuthTokens,
   writeBackPiOAuthTokens,
 } from "@/lib/codexbar/pi-auth";
+import {
+  clearOAuthRefreshJournal,
+  hasOAuthRefreshJournal,
+  readOAuthRefreshJournal,
+  recoverOAuthRefreshJournal,
+  writeOAuthRefreshJournal,
+} from "@/lib/codexbar/oauth-refresh-journal";
 
 const USAGE_URL = "https://api.anthropic.com/api/oauth/usage";
 const CONSOLE_ORIGIN = "https://platform.claude.com";
@@ -60,6 +67,45 @@ type PendingClaudeCredentials = {
   previous: ClaudeCredentials;
   refreshed: ClaudeCredentials;
 };
+
+type ClaudeJournalCredentials = {
+  accessToken: string;
+  refreshToken: string | null;
+  expiresAt: number | null;
+  subscriptionType: string | null;
+};
+
+const ANTHROPIC_CLI_JOURNAL = "anthropic-cli";
+const ANTHROPIC_PI_JOURNAL = "anthropic-pi";
+
+function toJournalCredentials(credentials: ClaudeCredentials): ClaudeJournalCredentials {
+  return {
+    accessToken: credentials.accessToken,
+    refreshToken: credentials.refreshToken,
+    expiresAt: credentials.expiresAt?.getTime() ?? null,
+    subscriptionType: credentials.subscriptionType,
+  };
+}
+
+function fromJournalCredentials(credentials: ClaudeJournalCredentials): ClaudeCredentials {
+  return {
+    accessToken: credentials.accessToken,
+    refreshToken: credentials.refreshToken,
+    expiresAt: credentials.expiresAt === null ? null : new Date(credentials.expiresAt),
+    subscriptionType: credentials.subscriptionType,
+  };
+}
+
+function sameJournalCredentials(left: ClaudeJournalCredentials, right: ClaudeJournalCredentials): boolean {
+  return left.accessToken === right.accessToken &&
+    left.refreshToken === right.refreshToken &&
+    left.expiresAt === right.expiresAt &&
+    left.subscriptionType === right.subscriptionType;
+}
+
+function clearAnthropicJournal(path: string, provider: string): void {
+  try { clearOAuthRefreshJournal(path, provider); } catch { /* a later recovery can clear it */ }
+}
 
 type DiskCredentialsRead = {
   readable: boolean;
@@ -133,23 +179,37 @@ function readCredentialsFromDisk(path: string): DiskCredentialsRead {
 
 function loadCredentials(path = credentialsPath()): ClaudeCredentials | null {
   const { readable, credentials: loaded } = readCredentialsFromDisk(path);
-  const pending = pendingRefreshCredentials.get(path);
+  let pending = pendingRefreshCredentials.get(path);
+  if (!pending) {
+    const journal = readOAuthRefreshJournal<ClaudeJournalCredentials>(path, ANTHROPIC_CLI_JOURNAL);
+    if (journal) {
+      pending = {
+        previous: fromJournalCredentials(journal.previous),
+        refreshed: fromJournalCredentials(journal.refreshed),
+      };
+      pendingRefreshCredentials.set(path, pending);
+    }
+  }
   if (!readable) {
     if (pending && existsSync(path)) return pending.refreshed;
     pendingRefreshCredentials.delete(path);
+    if (!existsSync(path)) clearAnthropicJournal(path, ANTHROPIC_CLI_JOURNAL);
     return null;
   }
   if (!loaded) {
     pendingRefreshCredentials.delete(path);
+    clearAnthropicJournal(path, ANTHROPIC_CLI_JOURNAL);
     return null;
   }
   if (!pending) return loaded;
   if (sameCredentials(loaded, pending.refreshed)) {
     pendingRefreshCredentials.delete(path);
+    clearAnthropicJournal(path, ANTHROPIC_CLI_JOURNAL);
     return loaded;
   }
   if (sameCredentials(loaded, pending.previous)) return pending.refreshed;
   pendingRefreshCredentials.delete(path);
+  clearAnthropicJournal(path, ANTHROPIC_CLI_JOURNAL);
   return loaded;
 }
 
@@ -173,6 +233,7 @@ function persistTokens(
 }
 
 function retryPendingCredentialPersistence(path: string): void {
+  loadCredentials(path); // Rehydrate process-local state from a durable journal after restart.
   const pending = pendingRefreshCredentials.get(path);
   if (!pending || pendingPersistenceRetries.has(path)) return;
 
@@ -185,6 +246,7 @@ function retryPendingCredentialPersistence(path: string): void {
     }
     if (!disk.credentials || !sameCredentials(disk.credentials, pending.previous)) {
       pendingRefreshCredentials.delete(path);
+      clearAnthropicJournal(path, ANTHROPIC_CLI_JOURNAL);
       return;
     }
     const { refreshed } = pending;
@@ -196,12 +258,12 @@ function retryPendingCredentialPersistence(path: string): void {
       if (!existsSync(path)) pendingRefreshCredentials.delete(path);
       return;
     }
-    if (
-      !written.credentials ||
-      sameCredentials(written.credentials, refreshed) ||
-      !sameCredentials(written.credentials, pending.previous)
-    ) {
+    if (written.credentials && sameCredentials(written.credentials, refreshed)) {
       pendingRefreshCredentials.delete(path);
+      clearAnthropicJournal(path, ANTHROPIC_CLI_JOURNAL);
+    } else if (!written.credentials || !sameCredentials(written.credentials, pending.previous)) {
+      pendingRefreshCredentials.delete(path);
+      clearAnthropicJournal(path, ANTHROPIC_CLI_JOURNAL);
     }
   }).catch(() => {
     // A failed best-effort retry leaves the in-memory credentials available for this process.
@@ -275,20 +337,34 @@ async function refreshTokensOnce(
       typeof root?.expires_in === "number" ? root.expires_in : 3600;
     const expiresAt = new Date(Date.now() + expiresIn * 1000);
     const path = credentialsPathOverride ?? credentialsPath();
-    persistTokens(accessToken, refreshToken, expiresAt, path);
     const refreshed = { accessToken, refreshToken, expiresAt, subscriptionType: creds.subscriptionType };
-    const loaded = loadCredentials(path);
-    if (loaded && sameCredentials(loaded, refreshed)) {
+    try {
+      writeOAuthRefreshJournal(
+        path,
+        ANTHROPIC_CLI_JOURNAL,
+        toJournalCredentials(creds),
+        toJournalCredentials(refreshed),
+      );
+    } catch {
+      // Main auth persistence is still attempted; only restart recovery is unavailable if both writes fail.
+    }
+    persistTokens(accessToken, refreshToken, expiresAt, path);
+    const disk = readCredentialsFromDisk(path);
+    if (disk.credentials && sameCredentials(disk.credentials, refreshed)) {
       pendingRefreshCredentials.delete(path);
-      return loaded;
+      clearAnthropicJournal(path, ANTHROPIC_CLI_JOURNAL);
+      return disk.credentials;
     }
     if (
-      (loaded && sameCredentials(loaded, creds)) ||
-      (!loaded && existsSync(path))
+      (disk.credentials && sameCredentials(disk.credentials, creds)) ||
+      (!disk.readable && existsSync(path))
     ) {
       pendingRefreshCredentials.set(path, { previous: creds, refreshed });
+      return refreshed;
     }
-    return refreshed;
+    pendingRefreshCredentials.delete(path);
+    clearAnthropicJournal(path, ANTHROPIC_CLI_JOURNAL);
+    return disk.credentials ?? refreshed;
   } catch {
     return null;
   }
@@ -529,6 +605,44 @@ function loadCredentialsFromPi(path?: string): ClaudeCredentials | null {
   };
 }
 
+function readAnthropicPiJournalCredentials(path: string): ClaudeJournalCredentials | null | undefined {
+  try {
+    readFileSync(path, "utf8");
+  } catch (error) {
+    return (error as NodeJS.ErrnoException)?.code === "ENOENT" ? null : undefined;
+  }
+  try {
+    const current = loadCredentialsFromPi(path);
+    return current ? toJournalCredentials(current) : null;
+  } catch {
+    return undefined;
+  }
+}
+
+async function recoverAnthropicPiRefresh(path: string): Promise<ClaudeCredentials | null> {
+  if (!hasOAuthRefreshJournal(path, ANTHROPIC_PI_JOURNAL)) return null;
+  try {
+    const recovered = await withRefreshFileLock(path, () => recoverOAuthRefreshJournal({
+      authPath: path,
+      provider: ANTHROPIC_PI_JOURNAL,
+      readCurrent: () => readAnthropicPiJournalCredentials(path),
+      same: sameJournalCredentials,
+      persist: async (credentials) => writeBackPiOAuthTokens(
+        "anthropic",
+        {
+          access: credentials.accessToken,
+          refresh: credentials.refreshToken,
+          expires: credentials.expiresAt,
+        },
+        { authPath: path },
+      ),
+    }));
+    return recovered ? fromJournalCredentials(recovered) : null;
+  } catch {
+    return null;
+  }
+}
+
 /** Pi auth.json refresh. Serialize processes and reuse credentials refreshed while waiting for the lock. */
 function tryRefreshTokensInPi(
   creds: ClaudeCredentials,
@@ -539,9 +653,24 @@ function tryRefreshTokensInPi(
   const path = authPathOverride ?? piAuthPathFor("anthropic");
   const pending = refreshInFlight.get(path);
   if (pending) return pending;
-  const run = withRefreshFileLock(path, () => {
-    const latest = loadCredentialsFromPi(path);
-    if (!latest) return Promise.resolve(null);
+  const run = withRefreshFileLock(path, async () => {
+    const recoveredJournal = await recoverOAuthRefreshJournal({
+      authPath: path,
+      provider: ANTHROPIC_PI_JOURNAL,
+      readCurrent: () => readAnthropicPiJournalCredentials(path),
+      same: sameJournalCredentials,
+      persist: async (credentials) => writeBackPiOAuthTokens(
+        "anthropic",
+        {
+          access: credentials.accessToken,
+          refresh: credentials.refreshToken,
+          expires: credentials.expiresAt,
+        },
+        { authPath: path },
+      ),
+    });
+    const latest = (recoveredJournal ? fromJournalCredentials(recoveredJournal) : null) ?? loadCredentialsFromPi(path);
+    if (!latest) return null;
     const accessChanged = latest.accessToken !== creds.accessToken;
     if (accessChanged && (!latest.expiresAt || latest.expiresAt.getTime() > Date.now() + 60_000)) {
       return Promise.resolve(latest);
@@ -579,21 +708,32 @@ async function refreshTokensInPiOnce(
       typeof root?.refresh_token === "string" ? root.refresh_token : creds.refreshToken;
     const expiresIn = typeof root?.expires_in === "number" ? root.expires_in : 3600;
     const expiresAt = new Date(Date.now() + expiresIn * 1000);
-    await writeBackPiOAuthTokens(
-      "anthropic",
-      {
-        access: accessToken,
-        refresh: refreshToken,
-        expires: expiresAt.getTime(),
-      },
-      { authPath },
-    );
-    return {
-      accessToken,
-      refreshToken,
-      expiresAt,
-      subscriptionType: null,
-    };
+    const refreshed = { accessToken, refreshToken, expiresAt, subscriptionType: null };
+    try {
+      writeOAuthRefreshJournal(
+        authPath,
+        ANTHROPIC_PI_JOURNAL,
+        toJournalCredentials(creds),
+        toJournalCredentials(refreshed),
+      );
+    } catch {
+      // Continue with the new access token; durable recovery is unavailable only if both writes fail.
+    }
+    try {
+      await writeBackPiOAuthTokens(
+        "anthropic",
+        {
+          access: accessToken,
+          refresh: refreshToken,
+          expires: expiresAt.getTime(),
+        },
+        { authPath },
+      );
+      clearAnthropicJournal(authPath, ANTHROPIC_PI_JOURNAL);
+    } catch {
+      // The journal retains the rotated pair for the next process/poll.
+    }
+    return refreshed;
   } catch {
     return null;
   }
@@ -813,7 +953,9 @@ export function createAnthropicProvider(scope: UsageScope): IUsageProvider {
     async fetch(signal) {
       // Account scope is deliberately Pi-only. Default scope preserves the
       // existing Pi → Claude CLI fallback for compatibility.
-      const piCreds = loadPiCredentials();
+      const recoveryPath = strictAccount ? piPath : piPath ?? piAuthPathFor("anthropic");
+      const recoveredPi = recoveryPath ? await recoverAnthropicPiRefresh(recoveryPath) : null;
+      const piCreds = recoveredPi ?? loadPiCredentials();
       const usingPi = piCreds !== null;
       if (!strictAccount && !usingPi) retryPendingCredentialPersistence(credentialsPath());
       let creds = strictAccount ? piCreds : piCreds ?? loadCredentials();
