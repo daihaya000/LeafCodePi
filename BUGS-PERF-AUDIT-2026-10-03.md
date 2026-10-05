@@ -80,7 +80,7 @@
 | --- | --- | --- |
 | 高 **[修正済 2026-10-03: factory の Promise を順序通り返してローダに await させる]** | `backend/core/mcp-native-session.mjs` (~29–32)、`mcp-native-extensions.mjs` (~233) | native MCP factory が `async` なのに `await` していない。登録失敗が未処理 rejection。`tool_search` / `excludeTools` より遅れて登録されうる。 |
 | 高 **[修正済 2026-10-03: 汎用キーワード一致時も SDK 検索を併走し結果を併記]** | `web/src/lib/pi/deferred-tools.ts`（当時 ~82–89） | `tool_search` の `query` に `search` / `web` / `fetch` / `bash` などが入ると MCP 検索へ委譲しない。`"search issues"` が `web_search` 扱いになる。 |
-| 中 **[受入テスト待ち 2026-10-05: handleRoomPrompt / runRoomConversation / prepareAutoAgentForGoalLoop が signal を渡し、POST /api/bots/rooms/[id]/prompt が req.signal を伝播。Goal Loop のルーターは routing owner 失効時に abort]** | `auto-agent.ts` (~55–64, 357–369)、`room-opener.ts` (~43–47, 144–157)、呼び出し `room-runtime.ts` (~425) | 修正前: 呼び出し元AbortSignalがなく、送信取消／Room停止でもrouter callが継続。修正後: caller signalはroute・Room runtime・routerへ伝播。残件: route切断／Room停止からRoom openerの実生成abortまでの回帰テストがない。 |
+| 中 **[修正済 2026-10-05: handleRoomPrompt / runRoomConversation / prepareAutoAgentForGoalLoop がsignalを伝播し、route abort・Room stop・新user turnでpending openerを停止]** | `auto-agent.ts`、`room-opener.ts`、`room-runtime.ts`、`/api/bots/rooms/[id]/prompt` | 修正前: 呼び出し元AbortSignalがなく、送信取消／Room停止でもrouter callが継続。修正後: cancel後のroutingを抑止。`room-opener.test.ts`、prompt route tests、`room-runtime.test.ts` 合計122件成功。 |
 | 中 **[修正済 2026-10-03: キャッシュキーに最終メッセージの usage 数値を追加]** | `web/src/lib/pi/harness.ts` (~1423–1449) | context 使用量キャッシュが「末尾同一参照のまま usage だけ増加」を見落とす。 |
 | 中 **[確認済・現状該当せず 2026-10-03: setActiveToolsByName は bindExtensions(session_start) より前に実行される（harness.ts 3894 → 3574）]** | `web/src/lib/pi/harness.ts` (~3872–3881) | `createAgentSession` 直後の `setActiveToolsByName(initialActive)` が、`session_start` で有効化した codemode / direct MCP を静的 loadout に戻して消しうる。 |
 | 中 **[修正済 2026-10-05: microtask 開始時に自分がまだ現行セッションか確認し、置換・取消済みなら run しない。専用テストを追加]** | `web/src/lib/pi/harness.ts` (~6732–6748) | ログインはプロセス全体で1本。次開始で前を cancel しても積済 microtask が `runtime.login` を呼び、同時ログインで loopback 衝突しうる。 |
@@ -198,7 +198,7 @@
 
 | 物理行 | 状態 | 担当 | 根拠・受入条件 |
 | --- | --- | --- | --- |
-| 79 | 受入テスト待ち | Bot auto-agent / Room runtime | `auto-agent.test.ts` 28件、`room-opener.test.ts` 8件は成功し、signalの受渡し実装も確認。request abortからRoom openerの生成停止までを結ぶ回帰テストがない。受入: `/api/bots/rooms/[id]/prompt` の切断またはRoom停止で実生成がabortされ、後続routingしないことを確認する。 |
+| 79 | 修正済（テスト確認） | — | Room stop・新user turn・request abortでpending openerをabortし、cancel後のroutingを抑止。`room-opener.test.ts`、prompt route tests、`room-runtime.test.ts` 合計122件成功。 |
 | 82 | 修正済 | — | `harness-login-callback.test.ts` 8件成功。積済microtaskの置換・取消後にloginしないケースを含む。 |
 | 94 | 修正済 | — | `host/src/log-file.test.js` 4件成功、POSIX専用2件はskip。stat頻度、2世代保持、他writer追記の再同期・rotationを確認。 |
 | 102 | 修正済 | — | `TaskPanesContext.test.tsx` 28件と`bot-sidebar-store.test.ts` 1件成功。sidebar未読込の間は開いたBotタブを維持する。 |

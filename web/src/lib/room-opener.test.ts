@@ -128,6 +128,31 @@ describe("resolveRoomOpener hybrid path", () => {
     expect(call?.system).toContain("最初の発言者");
   });
 
+  it("aborts the in-flight generation when the caller signal is cancelled", async () => {
+    const model = { providerID: "p", modelID: "m" };
+    mocks.getSetting.mockImplementation((key: string) =>
+      key.includes("generation-model") && !key.includes("fallback") ? "p/m" : undefined,
+    );
+    mocks.buildDirectGenerationCandidates.mockReturnValue([{ model }]);
+    const caller = new AbortController();
+    let generationSignal: AbortSignal | undefined;
+    mocks.generateDirectTextWithFallbackResult.mockImplementationOnce((options: { signal?: AbortSignal }) => {
+      generationSignal = options.signal;
+      return new Promise((_, reject) => {
+        const onAbort = () => reject(new Error("aborted"));
+        if (options.signal?.aborted) onAbort();
+        else options.signal?.addEventListener("abort", onAbort, { once: true });
+      });
+    });
+
+    const pending = resolveRoomOpener({ prompt: "残作業も進めて", bots: [designer, planner], signal: caller.signal });
+    await vi.waitFor(() => expect(mocks.generateDirectTextWithFallbackResult).toHaveBeenCalledTimes(1));
+    caller.abort();
+
+    await expect(pending).resolves.toBeUndefined();
+    expect(generationSignal?.aborted).toBe(true);
+  });
+
   it("pins accountId when the caller supplies one", async () => {
     const model = { providerID: "p", modelID: "m" };
     mocks.getSetting.mockImplementation((key: string) =>

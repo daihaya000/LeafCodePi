@@ -13,8 +13,41 @@ import { findStaleRoomTurns, runRoomReconcile } from "@backend-core/room-recover
 import type { BotDto, RoomDto, RoomHandoff, RoomMessage, RoomOutcome, UiMessage } from "./types";
 
 // Share queue ownership across Next route module instances in the same worker.
-const globalRef = globalThis as typeof globalThis & { __leafcodeRoomBotRuns?: Map<string, Promise<void>> };
+const globalRef = globalThis as typeof globalThis & {
+  __leafcodeRoomBotRuns?: Map<string, Promise<void>>;
+  __leafcodePendingRoomOpenerAborts?: Map<string, Set<AbortController>>;
+};
 const roomBotRuns = globalRef.__leafcodeRoomBotRuns ??= new Map<string, Promise<void>>();
+const pendingRoomOpenerAborts = globalRef.__leafcodePendingRoomOpenerAborts ??= new Map<string, Set<AbortController>>();
+
+export function registerRoomOpenerAbortController(roomId: string, parentSignal?: AbortSignal) {
+  const controller = new AbortController();
+  const controllers = pendingRoomOpenerAborts.get(roomId) ?? new Set<AbortController>();
+  controllers.add(controller);
+  pendingRoomOpenerAborts.set(roomId, controllers);
+  const abortFromParent = () => controller.abort();
+  if (parentSignal?.aborted) controller.abort();
+  else parentSignal?.addEventListener("abort", abortFromParent, { once: true });
+  let disposed = false;
+  return {
+    signal: controller.signal,
+    dispose() {
+      if (disposed) return;
+      disposed = true;
+      parentSignal?.removeEventListener("abort", abortFromParent);
+      const active = pendingRoomOpenerAborts.get(roomId);
+      active?.delete(controller);
+      if (active?.size === 0) pendingRoomOpenerAborts.delete(roomId);
+    },
+  };
+}
+
+export function abortPendingRoomOpeners(roomId: string): number {
+  const controllers = [...(pendingRoomOpenerAborts.get(roomId) ?? [])];
+  for (const controller of controllers) controller.abort();
+  return controllers.length;
+}
+
 function textOf(message: UiMessage): string { return message.parts.filter((part) => part.type === "text").map((part) => part.text).join(""); }
 
 /**
@@ -264,6 +297,7 @@ function workingTurns(roomId: string): { messageId: string; botId: string; taskI
  * 回帰テスト: rooms/[id]/prompt/route.test.ts "stops the conversation when a newer user message arrives"。
  */
 export async function stopRoomTurns(roomId: string): Promise<number> {
+  abortPendingRoomOpeners(roomId);
   const turns = workingTurns(roomId);
   // 先に placeholder を閉じ、キュー待ちの runRoomBot が await previous 後に再開しないようにする。
   for (const entry of turns) {
@@ -422,12 +456,18 @@ export async function runRoomConversation(room: RoomDto, bots: BotDto[], prompt:
   let openerReason: RoomOpenerReason | undefined;
   let nextBotId = resume?.nextBotId;
   if (!nextBotId) {
-    const opener = await resolveRoomOpener({ prompt, bots, signal });
-    if (opener) {
-      nextBotId = opener.bot.id;
-      openerReason = opener.reason;
-    } else {
-      nextBotId = bots.find((bot) => bot.id !== lastSpeaker)?.id ?? bots[0]?.id;
+    const openerAbort = registerRoomOpenerAbortController(room.id, signal);
+    try {
+      const opener = await resolveRoomOpener({ prompt, bots, signal: openerAbort.signal });
+      if (openerAbort.signal.aborted) return;
+      if (opener) {
+        nextBotId = opener.bot.id;
+        openerReason = opener.reason;
+      } else {
+        nextBotId = bots.find((bot) => bot.id !== lastSpeaker)?.id ?? bots[0]?.id;
+      }
+    } finally {
+      openerAbort.dispose();
     }
   }
   // A silent return reads as "finished"; record why the floor stopped moving instead.

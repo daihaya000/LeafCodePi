@@ -4,7 +4,7 @@ import { cancelRoomCodeRequests } from "@/lib/pi/bot-code-relay";
 import { isPromptFileList, isPromptImageList, isPromptTextWithinSize, MAX_PROMPT_ATTACHMENTS, type PromptFileInput } from "@/lib/prompt-images";
 import { isRoomConversationRequest, isRoomStopRequest, MAX_ROOM_CONVERSATION_PARTICIPANTS, latestRoomRequest } from "@/lib/room-conversation";
 import { resolveRoomOpener, type RoomOpenerReason } from "@/lib/room-opener";
-import { cancelPendingRoomHandoffs, deliverReadyRoomHandoffs, runRoomBot, runRoomConversation, runRoomFanOut, settleRoomHandoffs, settleStaleRoomTurns, steerRoomTurns, stopRoomTurns } from "@/lib/room-runtime";
+import { abortPendingRoomOpeners, cancelPendingRoomHandoffs, deliverReadyRoomHandoffs, registerRoomOpenerAbortController, runRoomBot, runRoomConversation, runRoomFanOut, settleRoomHandoffs, settleStaleRoomTurns, steerRoomTurns, stopRoomTurns } from "@/lib/room-runtime";
 import { appendRoomMessage, botsForRoomPrompt, consumeRoomRelayEnvelope, getRoom, roomFileRejection, roomImageRejection, saveRoomFiles, saveRoomImages, updateRoomMessage } from "@/lib/rooms";
 import type { BotDto, RoomMessage } from "@/lib/types";
 
@@ -72,6 +72,7 @@ export async function handleRoomPrompt(roomId: string, body: RoomPromptBody | nu
     const supersededRequestId = latestRoomRequest(getRoom(id) ?? room)?.id;
     const userMessage = appendRoomMessage(id, { role: "user", text: prompt });
     if (!userMessage) return { status: 404, body: { error: "Room not found" } };
+    abortPendingRoomOpeners(id);
     // A newer user turn supersedes prior Code outbox jobs (same finality as revert).
     if (supersededRequestId) {
       void cancelRoomCodeRequests(id, supersededRequestId).catch((error) =>
@@ -89,6 +90,9 @@ export async function handleRoomPrompt(roomId: string, body: RoomPromptBody | nu
     }
     // A new instruction redirects the turns already being written; those bots answer once, there.
     const steered = new Set(await steerRoomTurns(id, prompt, userMessage.id));
+    if (latestRoomRequest(getRoom(id) ?? room)?.id !== userMessage.id) {
+      return { status: 200, body: { room: getRoom(id), routedBotIds: [], steeredBotIds: [...steered], broadcast: body.broadcast === true } };
+    }
     // Everyday @-less work is single-bot (keyword first, else LLM). Open rotate is reserved for /discuss-like only.
     const conversation = isRoomConversationRequest(prompt);
     let routed = botsForRoomPrompt(room, prompt, body.broadcast === true);
@@ -98,7 +102,16 @@ export async function handleRoomPrompt(roomId: string, body: RoomPromptBody | nu
         routed = botsForRoomPrompt(room, prompt, true);
       } else {
         const members = [...botsForRoomPrompt(room, prompt, true).bots].sort((a, b) => room.members.indexOf(a.id) - room.members.indexOf(b.id));
-        const opener = await resolveRoomOpener({ prompt, bots: members, signal: options.signal });
+        const openerAbort = registerRoomOpenerAbortController(id, options.signal);
+        let opener: Awaited<ReturnType<typeof resolveRoomOpener>>;
+        try {
+          opener = await resolveRoomOpener({ prompt, bots: members, signal: openerAbort.signal });
+        } finally {
+          openerAbort.dispose();
+        }
+        if (openerAbort.signal.aborted || latestRoomRequest(getRoom(id) ?? room)?.id !== userMessage.id) {
+          return { status: 200, body: { room: getRoom(id), routedBotIds: [], steeredBotIds: [...steered], broadcast: routed.broadcast } };
+        }
         if (opener) {
           routed = { bots: [opener.bot], broadcast: false };
           singleOpenerReason = opener.reason;
