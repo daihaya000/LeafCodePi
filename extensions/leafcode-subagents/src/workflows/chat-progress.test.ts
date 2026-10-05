@@ -9,18 +9,18 @@ import {
 } from "./chat-progress.ts";
 
 describe("workflow chat progress git identity", () => {
-	it("resolves a repository identity and treats the same cwd as the same repo", () => {
+	it("resolves a repository identity and treats the same cwd as the same repo", async () => {
 		const cwd = process.cwd();
-		const identity = resolveGitRepositoryIdentity(cwd);
+		const identity = await resolveGitRepositoryIdentity(cwd);
 		expect(identity?.root).toBeTruthy();
-		const result = resolveWorkflowChatProgress({ requested: undefined, parentCwd: cwd, workflowCwd: cwd, background: false });
+		const result = await resolveWorkflowChatProgress({ requested: undefined, parentCwd: cwd, workflowCwd: cwd, background: false });
 		expect(result.projection).toMatchObject({ mode: "live-card", repoRelation: "same" });
 	});
 
-	it("returns undefined outside a git repository", () => {
+	it("returns undefined outside a git repository", async () => {
 		const dir = mkdtempSync(join(tmpdir(), "chat-progress-nogit-"));
 		try {
-			expect(resolveGitRepositoryIdentity(dir)).toBeUndefined();
+			expect(await resolveGitRepositoryIdentity(dir)).toBeUndefined();
 		} finally {
 			rmSync(dir, { recursive: true, force: true });
 		}
@@ -28,19 +28,17 @@ describe("workflow chat progress git identity", () => {
 });
 
 describe("workflow chat progress identity cache", () => {
-  it("resolves one repository identity per cwd inside the TTL", () => {
+  it("shares concurrent repository probes and caches the identity", async () => {
     resetGitRepositoryIdentityCacheForTests();
     const cwd = process.cwd();
-    // Every call resolves the same identity, and the second one is served from
-    // the cache instead of spawning `git rev-parse` again.
-    const first = resolveGitRepositoryIdentity(cwd);
-    const second = resolveGitRepositoryIdentity(cwd);
+    const [first, second] = await Promise.all([
+      resolveGitRepositoryIdentity(cwd),
+      resolveGitRepositoryIdentity(cwd),
+    ]);
     expect(first).toBeTruthy();
     expect(second).toBe(first);
 
-    // The workflow projection reaches the same answer for both cwds.
-    resetGitRepositoryIdentityCacheForTests();
-    const projection = resolveWorkflowChatProgress({
+    const projection = await resolveWorkflowChatProgress({
       requested: "auto",
       parentCwd: cwd,
       workflowCwd: cwd,

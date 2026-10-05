@@ -4018,7 +4018,7 @@ export function createSubagentExecutor(deps: ExecutorDeps): {
 				const warning = getProjectArtifactPackagingWarning(workflowCwd);
 				if (warning) console.warn(`[pi-subagents] ${warning}`);
 			}
-			const chatProgressResult = resolveWorkflowChatProgress({ requested: requestParams.chatProgress, parentCwd, workflowCwd, background: requestParams.async !== false });
+			const chatProgressResult = await resolveWorkflowChatProgress({ requested: requestParams.chatProgress, parentCwd, workflowCwd, background: requestParams.async !== false });
 			if (chatProgressResult.error) return { content: [{ type: "text", text: chatProgressResult.error }], isError: true, details: { mode: "workflow", results: [] } };
 			const chatProgress = chatProgressResult.projection!;
 			const explicitMission = requestParams.missionId !== undefined || requestParams.mission !== undefined;
