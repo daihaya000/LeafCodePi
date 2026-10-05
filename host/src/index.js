@@ -1338,11 +1338,16 @@ async function main() {
   // processes is otherwise invisible until a restart. Failures go to the host log, rate-limited.
   const maintenanceFailures = createRateLimitedReporter({ report: (line) => error(line) });
   const statusRefreshFailures = createConsecutiveFailureTracker(2);
+  // The binding check stays on the 5s tick; the tray text (an HTTP health probe) refreshes every 15s,
+  // or every tick while a build is running so progress still reads live.
+  let maintenanceTick = 0;
   setInterval(() => {
+    maintenanceTick += 1;
     reconcileWebUiBinding().then(
       () => maintenanceFailures.success("WebUI binding reconcile"),
       (err) => maintenanceFailures.failure("WebUI binding reconcile", err),
     );
+    if (maintenanceTick % 3 !== 0 && !procRunning(webBuildProc)) return;
     refreshStatusMenu().then(
       () => {
         statusRefreshFailures.success();
