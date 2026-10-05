@@ -1,5 +1,5 @@
 // @vitest-environment happy-dom
-import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ModelOption, ProjectDto } from "@/lib/types";
 
@@ -61,6 +61,82 @@ afterEach(() => {
   cleanup();
   localStorage.clear();
   clearCachedModels();
+});
+
+describe("HomeView project icons", () => {
+  const project: ProjectDto = {
+    id: "project-icon",
+    name: "Project with image",
+    rootPath: "/tmp/project-icon",
+    favorite: false,
+    archived: false,
+    createdAt: "2026-10-05T00:00:00.000Z",
+    lastOpenedAt: null,
+    icon: "/project-icon.png",
+    iconColor: "green",
+  };
+
+  it("shows project icons in the trigger and options without changing accessible names", async () => {
+    projectResponses.push(Promise.resolve({ projects: [project, {
+      ...project, id: "project-letter", name: "Alpha project", icon: null, iconColor: "purple",
+    }] }));
+    render(<HomeView />);
+    const trigger = await screen.findByRole("button", { name: "プロジェクト" });
+    await waitFor(() => expect(trigger.querySelector("img")?.getAttribute("src")).toBe(project.icon));
+
+    fireEvent.keyDown(trigger, { key: "ArrowDown" });
+    const imageOption = await screen.findByRole("option", { name: project.name });
+    expect(imageOption.querySelector("img")?.getAttribute("src")).toBe(project.icon);
+    expect(document.activeElement).toBe(imageOption);
+    const letterOption = screen.getByRole("option", { name: "Alpha project" });
+    expect(within(letterOption).getByText("A").className).toContain("text-purple-700");
+    expect(screen.getByRole("option", { name: "プロジェクトなし" }).querySelector("svg")).toBeTruthy();
+
+    fireEvent.click(letterOption);
+    expect(within(trigger).getByText("A").className).toContain("text-purple-700");
+    fireEvent.click(trigger);
+    fireEvent.click(screen.getByRole("option", { name: "プロジェクトなし" }));
+    expect(trigger.querySelector("img")).toBeNull();
+    expect(trigger.querySelector("svg.lucide-folder-git-2")).toBeTruthy();
+  });
+
+  it.each([
+    { icon: "/updated-icon.png", iconColor: "green" as const },
+    { icon: null, iconColor: "purple" as const },
+  ])("refreshes an icon-only change ($icon, $iconColor)", async (updated) => {
+    const initial = { ...project, icon: null };
+    projectResponses.push(Promise.resolve({ projects: [initial] }));
+    render(<HomeView />);
+    const trigger = await screen.findByRole("button", { name: "プロジェクト" });
+    await waitFor(() => expect(within(trigger).getByText("P").className).toContain("text-success"));
+
+    projectResponses.push(Promise.resolve({ projects: [{ ...initial, ...updated }] }));
+    await act(async () => {
+      window.dispatchEvent(new CustomEvent("webui:tasks-changed", { detail: { projectId: project.id } }));
+    });
+    await waitFor(() => {
+      if (updated.icon) expect(trigger.querySelector("img")?.getAttribute("src")).toBe(updated.icon);
+      else expect(within(trigger).getByText("P").className).toContain("text-purple-700");
+    });
+    fireEvent.click(trigger);
+    const option = screen.getByRole("option", { name: project.name });
+    if (updated.icon) expect(option.querySelector("img")?.getAttribute("src")).toBe(updated.icon);
+    else expect(within(option).getByText("P").className).toContain("text-purple-700");
+  });
+
+  it("falls back to a colored initial when an icon fails to load", async () => {
+    projectResponses.push(Promise.resolve({ projects: [project] }));
+    render(<HomeView />);
+    const trigger = await screen.findByRole("button", { name: "プロジェクト" });
+    await waitFor(() => expect(trigger.querySelector("img")).toBeTruthy());
+    fireEvent.error(trigger.querySelector("img")!);
+    expect(within(trigger).getByText("P").className).toContain("text-success");
+
+    fireEvent.click(trigger);
+    const option = screen.getByRole("option", { name: project.name });
+    fireEvent.error(option.querySelector("img")!);
+    expect(within(option).getByText("P").className).toContain("text-success");
+  });
 });
 
 describe("HomeView project panels", () => {
