@@ -5,6 +5,7 @@
 
 import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
 import { homedir } from "node:os";
+import { getAccount } from "@/lib/accounts";
 import { join } from "node:path";
 import {
   ProviderError,
@@ -484,8 +485,12 @@ async function maybeAutoConsumeResetCredits(
   // The dedicated credits endpoint is authoritative when usage omits the count.
   if (available !== null && available !== undefined && available <= 0) return snapshot;
 
+  // Re-read account preferences for both background and widget-triggered usage checks.
+  if (scope.accountId) {
+    const account = getAccount(scope.accountId);
+    if (!account || account.enabled === false || account.codexResetAutoConsume === false) return snapshot;
+  }
   const windowMs = codexResetAutoConsumeWindowMs(loadCodexBarConfig());
-  if (windowMs === null) return snapshot;
 
   const key = autoResetInstanceId(scope);
   const now = Date.now();

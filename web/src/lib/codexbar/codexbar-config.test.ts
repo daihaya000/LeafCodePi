@@ -18,17 +18,13 @@ afterEach(() => {
 });
 
 describe("codexResetAutoConsumeWindowMs", () => {
-  it.each([undefined, true, null, "false"])("defaults to enabled for missing or malformed flag %s", (flag) => {
+  it.each([undefined, false, true, null, "false"])("ignores the obsolete global flag %s", (flag) => {
     expect(codexResetAutoConsumeWindowMs({ codexResetAutoConsume: flag } as CodexBarConfig)).toBe(defaultWindowMs);
-  });
-
-  it("respects an explicit boolean false", () => {
-    expect(codexResetAutoConsumeWindowMs({ codexResetAutoConsume: false })).toBeNull();
   });
 
   it("accepts a bounded positive custom window without an enable flag", () => {
     expect(codexResetAutoConsumeWindowMs({ codexResetAutoConsumeWindowHours: 12 })).toBe(12 * 60 * 60 * 1000);
-    expect(codexResetAutoConsumeWindowMs({ codexResetAutoConsume: false, codexResetAutoConsumeWindowHours: 12 })).toBeNull();
+    expect(codexResetAutoConsumeWindowMs({ codexResetAutoConsume: false, codexResetAutoConsumeWindowHours: 12 })).toBe(12 * 60 * 60 * 1000);
     expect(codexResetAutoConsumeWindowMs({ codexResetAutoConsumeWindowHours: MAX_CODEX_RESET_AUTO_CONSUME_WINDOW_HOURS })).toBe(7 * 24 * 60 * 60 * 1000);
   });
 

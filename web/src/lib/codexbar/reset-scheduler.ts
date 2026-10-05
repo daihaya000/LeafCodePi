@@ -9,7 +9,6 @@ import {
 } from "@/lib/accounts";
 import { readPeerConfig } from "@backend-core/peer-auth-config.mjs";
 import { createOpenaiCodexProvider } from "./providers/openai-codex";
-import { isCodexResetAutoConsumeEnabled, loadCodexBarConfig } from "./codexbar-config";
 import type { UsageScope } from "./types";
 
 // Successful checks are throttled by the provider (5 min); failed checks retry here (1 min).
@@ -20,10 +19,9 @@ const globals = globalThis as typeof globalThis & {
 };
 
 async function checkAccounts(): Promise<void> {
-  if (!isCodexResetAutoConsumeEnabled(loadCodexBarConfig())) return;
   const registered = listAccounts();
   const accounts = registered.filter((account) =>
-    isAccountEnabled(account) && accountHasProvider(account, "openai-codex"),
+    isAccountEnabled(account) && accountHasProvider(account, "openai-codex") && account.codexResetAutoConsume !== false,
   );
   const agentDir = accounts.length > 0 ? await resolvePiAgentDir() : null;
   const scopes: UsageScope[] = accounts.flatMap((account) => {

@@ -366,33 +366,52 @@ function ResetCreditsControl({
   busy,
   status,
   onRedeem,
+  autoConsume,
 }: {
-  provider: CodexBarProvider;
+  provider: CodexBarProvider | null;
   busy: boolean;
   status: string | null;
   onRedeem: (provider: CodexBarProvider) => void;
+  autoConsume?: { enabled: boolean; busy: boolean; disabled: boolean; label: string; onChange: () => void };
 }) {
-  const available = provider.resetCreditsAvailable ?? 0;
-  const providerName = RESET_CREDIT_PROVIDERS[provider.id];
-  if (!providerName || available <= 0) return null;
+  const available = provider?.resetCreditsAvailable ?? 0;
+  const providerName = provider ? RESET_CREDIT_PROVIDERS[provider.id] : "Codex";
+  if (!providerName || (available <= 0 && !autoConsume)) return null;
   return (
     <div className="mt-1.5 flex flex-col gap-1 border-t border-border pt-1.5">
-      <div className="flex items-center justify-between gap-2 text-xs">
+      <div className="flex flex-wrap items-center justify-between gap-2 text-xs">
         <span className="text-muted">
           リセット権 <span className="tabular-nums text-text">{available}</span>
         </span>
-        <Button
-          size="sm"
-          variant="outline"
-          busy={busy}
-          disabled={busy}
-          onClick={() => onRedeem(provider)}
-          aria-label={`${providerName} の使用量リセット権を使う`}
-        >
-          {busy ? "処理中…" : "使う"}
-        </Button>
+        <div className="flex items-center gap-3">
+          {autoConsume && (
+            <label className="flex items-center gap-2 text-muted">
+              自動使用
+              <Switch
+                checked={autoConsume.enabled}
+                busy={autoConsume.busy}
+                disabled={autoConsume.disabled}
+                label={`${autoConsume.label}のリセット権を自動使用`}
+                title="期限まで24時間以内のリセット権を自動使用（既定ON）。保存後の次回確認から反映"
+                onChange={autoConsume.onChange}
+              />
+            </label>
+          )}
+          {provider && available > 0 && (
+            <Button
+              size="sm"
+              variant="outline"
+              busy={busy}
+              disabled={busy}
+              onClick={() => onRedeem(provider)}
+              aria-label={`${providerName} の使用量リセット権を使う`}
+            >
+              {busy ? "処理中…" : "使う"}
+            </Button>
+          )}
+        </div>
       </div>
-      <ResetCreditExpiry providerId={provider.id} accountId={provider.accountId} />
+      {provider && available > 0 && <ResetCreditExpiry providerId={provider.id} accountId={provider.accountId} />}
       {status && (
         <p role="status" className="text-xs text-muted">
           {status}
@@ -1098,6 +1117,24 @@ export const ProviderAuthPanel = memo(function ProviderAuthPanel({
     }
   }
 
+  async function toggleAccountAutoReset(account: AccountRecord) {
+    if (accountBusy) return;
+    setAccountBusy(true);
+    try {
+      const result = await sendJson<{ account: AccountRecord }>(
+        `/api/accounts/${encodeURIComponent(account.id)}`,
+        { codexResetAutoConsume: account.codexResetAutoConsume === false },
+        "PATCH",
+      );
+      setAccounts((current) => current?.map((entry) => entry.id === account.id ? result.account : entry) ?? null);
+      onChanged();
+    } catch (error) {
+      window.alert(error instanceof ApiError ? error.message : String(error));
+    } finally {
+      setAccountBusy(false);
+    }
+  }
+
   async function removeAccount(account: AccountRecord) {
     if (!window.confirm(`アカウント「${account.label}」を削除しますか？`))
       return;
@@ -1705,14 +1742,21 @@ export const ProviderAuthPanel = memo(function ProviderAuthPanel({
                         <UsageBar percent={usage.usedPercent} />
                       )}
                       {usage?.credits && <CreditsLine credits={usage.credits} />}
-                      {usage && (
+                      {(usage || providerId === "openai-codex") && (
                         <ResetCreditsControl
                           provider={usage}
-                          busy={resetBusyKey === resetCreditKey(usage)}
+                          busy={usage ? resetBusyKey === resetCreditKey(usage) : false}
                           status={
-                            resetStatusByKey[resetCreditKey(usage)] ?? null
+                            usage ? resetStatusByKey[resetCreditKey(usage)] ?? null : null
                           }
                           onRedeem={redeemResetCredit}
+                          autoConsume={providerId === "openai-codex" && !peerManaged ? {
+                            enabled: account.codexResetAutoConsume !== false,
+                            busy: accountBusy,
+                            disabled: Boolean(login) || authStatuses[account.id] === undefined,
+                            label: account.label,
+                            onChange: () => void toggleAccountAutoReset(account),
+                          } : undefined}
                         />
                       )}
                       {showCookieUi && cookieUi && (

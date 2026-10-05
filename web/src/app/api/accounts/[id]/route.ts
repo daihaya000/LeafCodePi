@@ -24,12 +24,13 @@ export async function PATCH(req: NextRequest, context: Context) {
       );
     }
     // 未指定のキーは未変更扱い（note の意図しない消去を防ぐため "in" で判定）
-    const patch: { label?: unknown; note?: unknown; enabled?: unknown } = {};
+    const patch: { label?: unknown; note?: unknown; enabled?: unknown; codexResetAutoConsume?: unknown } = {};
     if ("label" in body) patch.label = body.label;
     if ("note" in body) patch.note = body.note;
     if ("enabled" in body) patch.enabled = body.enabled;
-    if (!("label" in patch) && !("note" in patch) && !("enabled" in patch)) {
-      return NextResponse.json({ error: "label、note、enabled のいずれかを指定してください" }, { status: 400 });
+    if ("codexResetAutoConsume" in body) patch.codexResetAutoConsume = body.codexResetAutoConsume;
+    if (!("label" in patch) && !("note" in patch) && !("enabled" in patch) && !("codexResetAutoConsume" in patch)) {
+      return NextResponse.json({ error: "label、note、enabled、codexResetAutoConsume のいずれかを指定してください" }, { status: 400 });
     }
     const account = patchAccount(id, patch);
     if ("enabled" in patch) {

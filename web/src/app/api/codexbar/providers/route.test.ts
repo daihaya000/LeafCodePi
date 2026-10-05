@@ -126,52 +126,9 @@ describe("CodexBar provider settings API", () => {
         expect.objectContaining({ id: "anthropic", enabled: true }),
         expect.objectContaining({ id: "synthetic", enabled: false }),
       ]),
-      codexResetAutoConsume: true,
       version: expect.any(String),
     });
     expect(JSON.stringify(body)).not.toContain("not-returned");
-  });
-
-  it("saves automatic reset OFF/ON while preserving credentials and provider settings", async () => {
-    const file = path.join(appData, "CodexBar", "config.json");
-    const initial = await responseJson(await GET());
-    expect(initial.codexResetAutoConsume).toBe(true);
-    const off = await PUT(request({ codexResetAutoConsume: false, version: initial.version }));
-    expect(off.status).toBe(200);
-    const disabled = await responseJson(off);
-    expect(disabled.codexResetAutoConsume).toBe(false);
-    expect(JSON.stringify(disabled)).not.toContain("not-returned");
-    const saved = JSON.parse(await fs.readFile(file, "utf8"));
-    expect(saved.syntheticApiKey).toBe("not-returned");
-    expect(saved.enabledProviders).toEqual(["openai-codex", "anthropic", "openai-codex"]);
-    expect((await responseJson(await GET())).codexResetAutoConsume).toBe(false);
-    const on = await PUT(request({ codexResetAutoConsume: true, version: disabled.version }));
-    expect(on.status).toBe(200);
-    expect((await responseJson(on)).codexResetAutoConsume).toBe(true);
-    expect((await responseJson(await GET())).codexResetAutoConsume).toBe(true);
-  });
-
-  it("creates a missing config and rejects stale reset updates", async () => {
-    await fs.rm(path.join(appData, "CodexBar"), { recursive: true, force: true });
-    const initial = await responseJson(await GET());
-    expect(initial.codexResetAutoConsume).toBe(true);
-    const response = await PUT(request({ codexResetAutoConsume: false, version: initial.version }));
-    expect(response.status).toBe(200);
-    expect((await responseJson(response)).codexResetAutoConsume).toBe(false);
-    const stale = await PUT(request({ codexResetAutoConsume: true, version: initial.version }));
-    expect(stale.status).toBe(409);
-    expect((await responseJson(await GET())).codexResetAutoConsume).toBe(false);
-  });
-
-  it("rejects invalid reset flags and extra keys without changing config", async () => {
-    const initial = await responseJson(await GET());
-    for (const invalid of ["false", null, 0]) {
-      expect((await PUT(request({ codexResetAutoConsume: invalid, version: initial.version }))).status).toBe(400);
-    }
-    expect((await PUT(request({ codexResetAutoConsume: false, version: initial.version, secret: "ignored" }))).status).toBe(400);
-    const unchanged = await responseJson(await GET());
-    expect(unchanged.version).toBe(initial.version);
-    expect(unchanged.codexResetAutoConsume).toBe(true);
   });
 
   it("returns defaults with version of '{}' when config is missing", async () => {

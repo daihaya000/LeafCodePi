@@ -5,6 +5,8 @@ const readPiOAuthTokens = vi.hoisted(() =>
   vi.fn(() => ({ access: "token", refresh: null, accountId: null })),
 );
 const loadCodexBarConfig = vi.hoisted(() => vi.fn(() => ({})));
+const getAccount = vi.hoisted(() => vi.fn((): { enabled: boolean; codexResetAutoConsume?: boolean } | undefined => ({ enabled: true })));
+vi.mock("@/lib/accounts", () => ({ getAccount }));
 
 vi.mock("undici", async (importOriginal) => ({
   ...(await importOriginal<typeof import("undici")>()),
@@ -78,10 +80,11 @@ beforeEach(() => {
   readPiOAuthTokens.mockClear();
   loadCodexBarConfig.mockReset();
   loadCodexBarConfig.mockReturnValue({});
+  getAccount.mockReset().mockReturnValue({ enabled: true });
 });
 
 describe("Codex automatic reset redemption", () => {
-  it.each([{}, { codexResetAutoConsume: null }, { codexResetAutoConsumeWindowHours: 0 }])("redeems by default with missing or invalid config %j", async (config) => {
+  it.each([{}, { codexResetAutoConsume: false }, { codexResetAutoConsumeWindowHours: 0 }])("redeems by default with missing or invalid config %j", async (config) => {
     loadCodexBarConfig.mockReturnValue(config);
     undiciFetch
       .mockResolvedValueOnce(usageResponse(1))
@@ -93,9 +96,28 @@ describe("Codex automatic reset redemption", () => {
   });
 
   it("does not consume when explicitly disabled in settings", async () => {
-    loadCodexBarConfig.mockReturnValue({ codexResetAutoConsume: false });
+    getAccount.mockReturnValue({ enabled: true, codexResetAutoConsume: false });
     undiciFetch.mockResolvedValueOnce(usageResponse(1));
     expect((await createOpenaiCodexProvider(accountScope("disabled")).fetch()).rateLimitResetCreditsAvailable).toBe(1);
+    expect(undiciFetch).toHaveBeenCalledOnce();
+  });
+
+  it("an OFF account does not disable automatic redemption for another account", async () => {
+    getAccount.mockImplementation((...args: unknown[]) => ({ enabled: true, codexResetAutoConsume: args[0] !== "off" }));
+    undiciFetch
+      .mockResolvedValueOnce(usageResponse(1))
+      .mockResolvedValueOnce(usageResponse(1))
+      .mockResolvedValueOnce(creditListResponse())
+      .mockResolvedValueOnce(new Response(JSON.stringify({ code: "reset" }), { status: 200 }));
+    await createOpenaiCodexProvider(accountScope("off")).fetch();
+    await createOpenaiCodexProvider(accountScope("on")).fetch();
+    expect(undiciFetch).toHaveBeenCalledTimes(4);
+  });
+
+  it.each([undefined, { enabled: false }])("does not consume for missing or paused accounts %j", async (account) => {
+    getAccount.mockReturnValue(account);
+    undiciFetch.mockResolvedValueOnce(usageResponse(1));
+    await createOpenaiCodexProvider(accountScope("unavailable")).fetch();
     expect(undiciFetch).toHaveBeenCalledOnce();
   });
 

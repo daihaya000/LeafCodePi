@@ -14,7 +14,7 @@ vi.mock("@/lib/pi/harness", () => ({
   }),
 }));
 
-import { DELETE } from "./route";
+import { DELETE, PATCH } from "./route";
 
 let root: string;
 const agentDir = () => join(root, "agent");
@@ -56,5 +56,38 @@ describe("DELETE /api/accounts/[id]", () => {
     const response = await DELETE(request(), { params: Promise.resolve({ id: account.id }) });
     expect(response.status).toBe(200);
     expect(existsSync(authPath)).toBe(true);
+  });
+});
+
+describe("PATCH per-account Codex automatic resets", () => {
+  it("saves OFF/ON without changing another account or account enablement", async () => {
+    const a = createAccount({ label: "A", providers: ["openai-codex"], note: "keep" });
+    const b = createAccount({ label: "B", providers: ["openai-codex"] });
+    for (const enabled of [false, true]) {
+      const req = new NextRequest("http://lcp.test/api/accounts/" + a.id, {
+        method: "PATCH", body: JSON.stringify({ codexResetAutoConsume: enabled }),
+      });
+      const result = await PATCH(req, { params: Promise.resolve({ id: a.id }) });
+      expect(result.status).toBe(200);
+      expect((await result.json()).account.codexResetAutoConsume).toBe(enabled);
+      expect(getAccount(a.id)).toMatchObject({ enabled: true, note: "keep", codexResetAutoConsume: enabled });
+      expect(getAccount(b.id)?.codexResetAutoConsume).toBeUndefined();
+    }
+  });
+  it.each(["false", null, 0])("rejects invalid flags %j without updating the account", async (flag) => {
+    const a = createAccount({ label: "A", providers: ["openai-codex"] });
+    const req = new NextRequest("http://lcp.test/api/accounts/" + a.id, {
+      method: "PATCH", body: JSON.stringify({ codexResetAutoConsume: flag }),
+    });
+    expect((await PATCH(req, { params: Promise.resolve({ id: a.id }) })).status).toBe(400);
+    expect(getAccount(a.id)?.codexResetAutoConsume).toBeUndefined();
+  });
+  it("refuses the preference for a non-Codex account", async () => {
+    const a = createAccount({ label: "Claude", providers: ["anthropic"] });
+    const req = new NextRequest("http://lcp.test/api/accounts/" + a.id, {
+      method: "PATCH", body: JSON.stringify({ codexResetAutoConsume: false }),
+    });
+    expect((await PATCH(req, { params: Promise.resolve({ id: a.id }) })).status).toBe(400);
+    expect(getAccount(a.id)?.codexResetAutoConsume).toBeUndefined();
   });
 });
