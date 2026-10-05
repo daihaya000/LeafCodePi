@@ -1,5 +1,5 @@
 // @vitest-environment happy-dom
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { GoalLoopPanel } from "./GoalLoopPanel";
 import type { GoalLoopDto } from "@/lib/types";
@@ -271,5 +271,37 @@ describe("GoalLoopPanel progress", () => {
     expect(screen.queryByRole("spinbutton", { name: "再開後の最大ターン数" })).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "再開" }));
     expect(onResume).toHaveBeenCalledWith();
+  });
+
+  it("shows a hang pause hint", () => {
+    render(
+      <GoalLoopPanel
+        loop={loopFixture({ status: "paused", pauseReason: "hang", error: "hung" })}
+        busy={false}
+        onAction={() => {}}
+        onResume={() => {}}
+      />,
+    );
+    expect(screen.getByText(/ハング検知で一時停止しました/)).toBeTruthy();
+  });
+
+  it("clears the waiting label when nextTurnAt expires", () => {
+    vi.useFakeTimers();
+    try {
+      const nextTurnAt = new Date(Date.now() + 1_000).toISOString();
+      render(
+        <GoalLoopPanel
+          loop={loopFixture({ status: "queued", nextTurnAt, cooldownSeconds: 1, turnCount: 1 })}
+          busy={false}
+          onAction={() => {}}
+          onResume={() => {}}
+        />,
+      );
+      expect(screen.getByText(/待機中/)).toBeTruthy();
+      act(() => { vi.advanceTimersByTime(1_100); });
+      expect(screen.queryByText(/待機中/)).toBeNull();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

@@ -36,6 +36,7 @@ const pauseHints: Record<string, string> = {
   boundary_lost: "基準メッセージが見つからないため誤読を防止して一時停止しました。",
   verification_rejected: "完了宣言が検証で繰り返し拒否されました。",
   scheduler_error: "スケジューラーでエラーが発生しました。",
+  hang: "ハング検知で一時停止しました。再開すると中断したターンを再送します。",
   blocked: "要対応のため停止しました。対応後に再開するか、ここで完了できます。",
 };
 
@@ -54,6 +55,16 @@ export function GoalLoopPanel({
   const detailsId = useId();
   const [maxTurns, setMaxTurns] = useState(String(loop?.maxTurns ?? 10));
   useEffect(() => setMaxTurns(String(loop?.maxTurns ?? 10)), [loop?.maxTurns]);
+  // nextTurnAt is absolute; without a timer the waiting label sticks after the
+  // cooldown ends until an unrelated re-render (SSE/status) arrives.
+  const cooldownUntilMs = loop?.nextTurnAt ? Date.parse(loop.nextTurnAt) : NaN;
+  const [nowMs, setNowMs] = useState(() => Date.now());
+  useEffect(() => {
+    if (!Number.isFinite(cooldownUntilMs) || cooldownUntilMs <= Date.now()) return;
+    const delay = Math.max(16, cooldownUntilMs - Date.now());
+    const timer = setTimeout(() => setNowMs(Date.now()), delay);
+    return () => clearTimeout(timer);
+  }, [cooldownUntilMs]);
 
   if (!loop) return null;
   const live = isGoalLoopLiveStatus(loop.status);
@@ -103,7 +114,7 @@ export function GoalLoopPanel({
     ? `中断したターン（${turn}）を再送します。ターン枠は消費しません。`
     : basePauseHint;
   const cooldownActive = Boolean(
-    loop.nextTurnAt && Date.parse(loop.nextTurnAt) > Date.now(),
+    Number.isFinite(cooldownUntilMs) && cooldownUntilMs > nowMs,
   );
 
   return (
