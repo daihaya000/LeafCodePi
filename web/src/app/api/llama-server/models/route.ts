@@ -85,7 +85,7 @@ export function defaultModelDir(
 
 const MAX_DEPTH = 2;
 const MAX_MODELS = 300;
-// Bound the synchronous walk (slow shares / huge trees must not stall the BFF worker).
+// Bound the walk (slow shares / huge trees must not stall the BFF worker).
 const MAX_SCANNED_ENTRIES = 20_000;
 
 function isNonFirstShard(name: string): boolean {
@@ -104,7 +104,7 @@ export function isLora(name: string): boolean {
   return /lora/i.test(name);
 }
 
-function collect(
+async function collect(
   root: string,
   rel: string,
   depth: number,
@@ -112,11 +112,11 @@ function collect(
   mmprojs: string[],
   loras: string[],
   budget: { remaining: number } = { remaining: MAX_SCANNED_ENTRIES },
-): void {
+): Promise<void> {
   if (budget.remaining <= 0) return;
   let entries: fs.Dirent[];
   try {
-    entries = fs.readdirSync(path.join(root, rel), { withFileTypes: true });
+    entries = await fs.promises.readdir(path.join(root, rel), { withFileTypes: true });
   } catch {
     return;
   }
@@ -125,7 +125,7 @@ function collect(
     budget.remaining -= 1;
     const next = rel ? path.join(rel, entry.name) : entry.name;
     if (entry.isDirectory()) {
-      if (depth < MAX_DEPTH) collect(root, next, depth + 1, models, mmprojs, loras, budget);
+      if (depth < MAX_DEPTH) await collect(root, next, depth + 1, models, mmprojs, loras, budget);
     } else if (
       entry.isFile() &&
       entry.name.toLowerCase().endsWith(".gguf") &&
@@ -155,10 +155,23 @@ const SCAN_CACHE_LIMIT = 8;
 type ScanCacheEntry = { scannedAt: number; dirMtimeMs: number; result: CollectedModels };
 const scanCache = new Map<string, ScanCacheEntry>();
 
-function scanModelsDirectory(resolved: string): CollectedModels {
+const scansInFlight = new Map<string, Promise<CollectedModels>>();
+
+/** Concurrent requests for one directory share a single walk. */
+function scanModelsDirectory(resolved: string): Promise<CollectedModels> {
+  const running = scansInFlight.get(resolved);
+  if (running) return running;
+  const scan = scanModelsDirectoryUncoalesced(resolved).finally(() => {
+    if (scansInFlight.get(resolved) === scan) scansInFlight.delete(resolved);
+  });
+  scansInFlight.set(resolved, scan);
+  return scan;
+}
+
+async function scanModelsDirectoryUncoalesced(resolved: string): Promise<CollectedModels> {
   let dirMtimeMs = 0;
   try {
-    dirMtimeMs = fs.statSync(/* turbopackIgnore: true */ resolved).mtimeMs;
+    dirMtimeMs = (await fs.promises.stat(/* turbopackIgnore: true */ resolved)).mtimeMs;
   } catch {
     // An unreadable directory scans to empty; the caller already reported 404/400.
   }
@@ -170,7 +183,7 @@ function scanModelsDirectory(resolved: string): CollectedModels {
   const models: string[] = [];
   const mmprojs: string[] = [];
   const loras: string[] = [];
-  collect(resolved, "", 0, models, mmprojs, loras);
+  await collect(resolved, "", 0, models, mmprojs, loras);
   const byName = (a: string, b: string) =>
     a.localeCompare(b, undefined, { sensitivity: "base" });
   models.sort(byName);
@@ -240,6 +253,6 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: "モデル保存先がフォルダではありません" }, { status: 400 });
   }
 
-  const { models, mmprojs, loras } = scanModelsDirectory(resolved);
+  const { models, mmprojs, loras } = await scanModelsDirectory(resolved);
   return NextResponse.json({ dir: resolved, models, mmprojs, loras, defaultModel });
 }
