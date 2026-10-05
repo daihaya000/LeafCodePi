@@ -836,6 +836,35 @@ it("ignores callbacks from an SSE source replaced after a transport error", asyn
   }
 });
 
+it("clears the loading state after repeated transport errors on an empty Bot", async () => {
+  class TestSource {
+    static instances: TestSource[] = [];
+    onerror: (() => void) | null = null;
+    constructor() { TestSource.instances.push(this); }
+    addEventListener() {}
+    close() {}
+  }
+  vi.stubGlobal("EventSource", TestSource);
+  render(<ShellProvider><BotView id="one" active /></ShellProvider>);
+  expect(await screen.findByText("会話を読み込み中…")).toBeTruthy();
+  vi.useFakeTimers();
+  try {
+    const failAndReconnect = async (index: number, delayMs: number) => {
+      const current = TestSource.instances[index];
+      if (!current) throw new Error(`EventSource ${index} was not created`);
+      act(() => current.onerror?.());
+      await act(async () => { vi.advanceTimersByTime(delayMs); });
+    };
+    await failAndReconnect(0, 1_000);
+    await failAndReconnect(1, 2_000);
+    act(() => TestSource.instances[2]?.onerror?.());
+    expect(screen.queryByText("会話を読み込み中…")).toBeNull();
+    expect(screen.getByRole("alert").textContent).toContain("イベント接続が切断されています");
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
 it("clears a stranded send after repeated transport errors and restores it on snapshot", async () => {
   let unmount: (() => void) | undefined;
   try {

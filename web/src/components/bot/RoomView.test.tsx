@@ -221,19 +221,29 @@ describe("RoomView loading", () => {
   });
 });
 
-it("reports an SSE transport error while retrying the connection", async () => {
+it("reports an SSE transport error after repeated reconnect failures", async () => {
   class TestSource {
-    static last: TestSource | undefined;
+    static instances: TestSource[] = [];
     onerror: (() => void) | null = null;
-    constructor() { TestSource.last = this; }
+    constructor() { TestSource.instances.push(this); }
     addEventListener() {}
     close() {}
   }
   vi.stubGlobal("EventSource", TestSource);
   render(<RoomView id="room-1" />);
   await screen.findByRole("heading", { name: "Team" });
-  act(() => TestSource.last?.onerror?.());
-  expect(screen.getByRole("alert").textContent).toContain("イベント接続を再試行しています");
+  vi.useFakeTimers();
+  try {
+    act(() => TestSource.instances[0]?.onerror?.());
+    expect(screen.queryByRole("alert")).toBeNull();
+    await act(async () => { vi.advanceTimersByTime(1_000); });
+    act(() => TestSource.instances[1]?.onerror?.());
+    await act(async () => { vi.advanceTimersByTime(2_000); });
+    act(() => TestSource.instances[2]?.onerror?.());
+    expect(screen.getByRole("alert").textContent).toContain("イベント接続を再試行しています");
+  } finally {
+    vi.useRealTimers();
+  }
 });
 
 it("ignores callbacks from an SSE source replaced after a transport error", async () => {

@@ -320,10 +320,14 @@ export function RoomView({ id, active = true }: { id: string; active?: boolean }
       });
       nextSource.onerror = () => {
         if (!isCurrentSource()) return;
-        setSseError("イベント接続を再試行しています");
         source = closeSseSource(nextSource);
         retry = cancelPendingSseReconnect(retry);
         retryCount += 1;
+        // Brief transport blips are common on Backend restart; wait a few
+        // attempts before painting the reconnect banner (same threshold as BotView).
+        if (retryCount >= 3) {
+          setSseError("イベント接続を再試行しています");
+        }
         retry = setTimeout(connect, sseReconnectDelayMs(retryCount));
       };
     };

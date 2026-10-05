@@ -799,6 +799,9 @@ export const BotView = memo(function BotView({ id, active = true }: { id: string
         if (retryCount >= BOT_SSE_DISCONNECTED_AFTER_ATTEMPTS && !disconnectedShown) {
           disconnectedShown = true;
           setSending(false);
+          // Empty bots otherwise keep "会話を読み込み中…" forever while only the
+          // reconnect alert updates — ready never arrives on a dead Backend.
+          setTimelineLoading(false);
           setError(BOT_SSE_DISCONNECTED_MESSAGE);
         }
         retry = setTimeout(connect, sseReconnectDelayMs(retryCount));
