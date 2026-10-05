@@ -420,6 +420,30 @@ export function readMission(location: MissionStoreLocation, missionId: string): 
 	}
 }
 
+/** Parsed records reused while the file keeps the same size, mtime (ns) and inode; writers replace files atomically. */
+const missionParseCache = new Map<string, { stamp: string; record: MissionRecord }>();
+const MISSION_PARSE_CACHE_LIMIT = 1_000;
+
+function readMissionRecordCached(filePath: string): MissionRecord {
+	let stamp: string | undefined;
+	try {
+		const stat = fs.statSync(filePath, { bigint: true });
+		stamp = `${stat.size}:${stat.mtimeNs}:${stat.ino}`;
+	} catch { /* the read below reports it */ }
+	const cached = stamp === undefined ? undefined : missionParseCache.get(filePath);
+	if (cached && cached.stamp === stamp) return structuredClone(cached.record);
+	const record = parseMissionRecord(JSON.parse(fs.readFileSync(filePath, "utf-8")), filePath);
+	if (stamp !== undefined) {
+		missionParseCache.delete(filePath);
+		missionParseCache.set(filePath, { stamp, record: structuredClone(record) });
+		if (missionParseCache.size > MISSION_PARSE_CACHE_LIMIT) {
+			const oldest = missionParseCache.keys().next().value;
+			if (oldest !== undefined) missionParseCache.delete(oldest);
+		}
+	}
+	return record;
+}
+
 export function listMissions(location: MissionStoreLocation): MissionListResult {
 	if (!fs.existsSync(location.missionDir)) return { records: [], warnings: [] };
 	const records: MissionRecord[] = [];
@@ -427,7 +451,7 @@ export function listMissions(location: MissionStoreLocation): MissionListResult 
 	for (const name of fs.readdirSync(location.missionDir).filter((item) => item.endsWith(".json")).sort()) {
 		const filePath = path.join(location.missionDir, name);
 		try {
-			records.push(parseMissionRecord(JSON.parse(fs.readFileSync(filePath, "utf-8")), filePath));
+			records.push(readMissionRecordCached(filePath));
 		} catch (error) {
 			warnings.push(`Skipped corrupt mission '${filePath}': ${error instanceof Error ? error.message : String(error)}`);
 		}
@@ -560,7 +584,7 @@ export function listGlobalMissions(globalIndexDir: string): GlobalMissionListRes
 		try {
 			const entry = parseIndexEntry(JSON.parse(fs.readFileSync(filePath, "utf-8")), filePath);
 			try {
-				const record = parseMissionRecord(JSON.parse(fs.readFileSync(entry.recordPath, "utf-8")), entry.recordPath);
+				const record = readMissionRecordCached(entry.recordPath);
 				if (record.id !== entry.missionId) throw new Error(`record id '${record.id}' does not match index id '${entry.missionId}'`);
 				entries.push({ ...entry, stale: false });
 			} catch (error) {
