@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const undiciFetch = vi.hoisted(() => vi.fn());
 const readPiOAuthTokens = vi.hoisted(() =>
@@ -41,7 +41,7 @@ const failureScope = {
   authPath: "C:/test/auth.json",
 };
 
-function usageResponse(availableCount: number): Response {
+function usageResponse(availableCount?: number): Response {
   return new Response(
     JSON.stringify({
       rate_limit: {
@@ -51,13 +51,31 @@ function usageResponse(availableCount: number): Response {
           limit_window_seconds: 18000,
         },
       },
-      rate_limit_reset_credits: { available_count: availableCount },
+      ...(availableCount === undefined ? {} : { rate_limit_reset_credits: { available_count: availableCount } }),
     }),
     { status: 200 },
   );
 }
 
+function creditListResponse(minutes = 60): Response {
+  return new Response(JSON.stringify({
+    available_count: 1,
+    credits: [{ id: "expiring", status: "available", expires_at: new Date(Date.now() + minutes * 60_000).toISOString() }],
+  }), { status: 200 });
+}
+
+function accountScope(id: string) {
+  return { ...failureScope, key: `account:${id}`, accountId: id };
+}
+
+afterEach(() => {
+  vi.useRealTimers();
+  vi.restoreAllMocks();
+});
+
 beforeEach(() => {
+  vi.spyOn(console, "warn").mockImplementation(() => undefined);
+  vi.spyOn(console, "info").mockImplementation(() => undefined);
   undiciFetch.mockReset();
   readPiOAuthTokens.mockClear();
   loadCodexBarConfig.mockReset();
@@ -87,6 +105,76 @@ describe("Codex automatic reset redemption", () => {
 
     expect(snapshot.rateLimitResetCreditsAvailable).toBe(1);
     expect(undiciFetch).toHaveBeenCalledTimes(2);
+  });
+
+  it("retries a temporary failure on the next poll instead of suppressing it for an hour", async () => {
+    codexResetAutoConsumeWindowMs.mockReturnValue(24 * 60 * 60 * 1000);
+    undiciFetch
+      .mockResolvedValueOnce(usageResponse(1))
+      .mockResolvedValueOnce(new Response("temporary failure", { status: 503 }))
+      .mockResolvedValueOnce(usageResponse(1))
+      .mockResolvedValueOnce(creditListResponse(2))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ code: "reset" }), { status: 200 }));
+    const provider = createOpenaiCodexProvider(accountScope("retry"));
+    expect((await provider.fetch()).rateLimitResetCreditsAvailable).toBe(1);
+    expect((await provider.fetch()).rateLimitResetCreditsAvailable).toBe(0);
+    expect(undiciFetch).toHaveBeenCalledTimes(5);
+  });
+
+  it("retries when usage becomes resettable after nothing_to_reset", async () => {
+    codexResetAutoConsumeWindowMs.mockReturnValue(24 * 60 * 60 * 1000);
+    undiciFetch
+      .mockResolvedValueOnce(usageResponse(1))
+      .mockResolvedValueOnce(creditListResponse(2))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ code: "nothing_to_reset" }), { status: 200 }))
+      .mockResolvedValueOnce(usageResponse(1))
+      .mockResolvedValueOnce(creditListResponse(1))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ code: "reset" }), { status: 200 }));
+    const provider = createOpenaiCodexProvider(accountScope("retry-business"));
+    expect((await provider.fetch()).rateLimitResetCreditsAvailable).toBe(1);
+    expect((await provider.fetch()).rateLimitResetCreditsAvailable).toBe(0);
+    expect(undiciFetch).toHaveBeenCalledTimes(6);
+  });
+
+  it("uses the credits endpoint when usage omits the available count", async () => {
+    codexResetAutoConsumeWindowMs.mockReturnValue(24 * 60 * 60 * 1000);
+    undiciFetch
+      .mockResolvedValueOnce(usageResponse())
+      .mockResolvedValueOnce(creditListResponse(2))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ code: "reset" }), { status: 200 }));
+    expect((await createOpenaiCodexProvider(accountScope("unknown-count")).fetch()).rateLimitResetCreditsAvailable).toBeNull();
+    expect(undiciFetch).toHaveBeenCalledTimes(3);
+  });
+
+  it("checks a short expiry window again after five minutes", async () => {
+    vi.useFakeTimers();
+    codexResetAutoConsumeWindowMs.mockReturnValue(10 * 60_000);
+    undiciFetch
+      .mockResolvedValueOnce(usageResponse(1))
+      .mockResolvedValueOnce(creditListResponse(11))
+      .mockResolvedValueOnce(usageResponse(1))
+      .mockResolvedValueOnce(creditListResponse(6))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ code: "reset" }), { status: 200 }));
+    const provider = createOpenaiCodexProvider(accountScope("short-window"));
+    expect((await provider.fetch()).rateLimitResetCreditsAvailable).toBe(1);
+    await vi.advanceTimersByTimeAsync(5 * 60_000);
+    expect((await provider.fetch()).rateLimitResetCreditsAvailable).toBe(0);
+    expect(undiciFetch).toHaveBeenCalledTimes(5);
+  });
+
+  it("does not throttle beyond a two-minute expiry window", async () => {
+    vi.useFakeTimers();
+    codexResetAutoConsumeWindowMs.mockReturnValue(2 * 60_000);
+    undiciFetch
+      .mockResolvedValueOnce(usageResponse(1))
+      .mockResolvedValueOnce(creditListResponse(2.5))
+      .mockResolvedValueOnce(usageResponse(1))
+      .mockResolvedValueOnce(creditListResponse(1.5))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ code: "reset" }), { status: 200 }));
+    const provider = createOpenaiCodexProvider(accountScope("two-minute-window"));
+    expect((await provider.fetch()).rateLimitResetCreditsAvailable).toBe(1);
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect((await provider.fetch()).rateLimitResetCreditsAvailable).toBe(0);
   });
 
   it("redeems one expiring credit only after explicit opt-in", async () => {

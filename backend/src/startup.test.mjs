@@ -343,6 +343,7 @@ test("every owner-only service starts, in order, once a runtime is attached", as
       runtime: {
         startBotCodeRelay: () => calls.push("relay"),
         ensureRoutineScheduler: () => calls.push("routines"),
+        ensureCodexResetScheduler: () => calls.push("codex-resets"),
         reconcileRoomRuntime: () => calls.push("rooms"),
       },
       generation: "gen-1",
@@ -350,7 +351,7 @@ test("every owner-only service starts, in order, once a runtime is attached", as
   });
   attached.store.storePath = () => file;
   await attached.startup.start();
-  assert.deepEqual(calls, ["relay", "routines", "rooms"]);
+  assert.deepEqual(calls, ["relay", "routines", "codex-resets", "rooms"]);
   // Nothing is missing or failed: this is a complete startup as far as the steps are concerned.
   assert.deepEqual(attached.unavailable(), []);
 
@@ -361,7 +362,7 @@ test("every owner-only service starts, in order, once a runtime is attached", as
   });
   failed.store.storePath = () => file;
   await failed.startup.start();
-  assert.deepEqual(calls, ["relay", "routines", "rooms"], "a bundle that never attached starts no owner work");
+  assert.deepEqual(calls, ["relay", "routines", "codex-resets", "rooms"], "a bundle that never attached starts no owner work");
   assert.deepEqual(failed.unavailable(), [], "a detached Backend reports no failed step");
   assert.equal(failed.runtimeStatus().ok, false);
 });
@@ -376,6 +377,7 @@ test("owner-only services that cannot start are reported instead of stopping the
       runtime: {
         startBotCodeRelay: () => { throw new Error("outbox unavailable"); },
         ensureRoutineScheduler: () => { throw new Error("lock unavailable"); },
+        ensureCodexResetScheduler: () => { throw new Error("reset scheduler unavailable"); },
         reconcileRoomRuntime: () => { throw new Error("rooms unavailable"); },
       },
       generation: "gen-1",
@@ -383,7 +385,7 @@ test("owner-only services that cannot start are reported instead of stopping the
   });
   started.store.storePath = () => file;
   await started.startup.start();
-  assert.deepEqual(started.unavailable(), ["startBotCodeRelay", "ensureRoutineScheduler", "reconcileRoomRuntime"]);
+  assert.deepEqual(started.unavailable(), ["startBotCodeRelay", "ensureRoutineScheduler", "ensureCodexResetScheduler", "reconcileRoomRuntime"]);
 });
 
 test("a restart-resume listener that fails does not stop the sequence", async (t) => {

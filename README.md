@@ -23,6 +23,12 @@
 - 設定: Pi のヘルス、**llama-server 起動**、再起動。**エージェントタブでグローバル AGENTS.md / SOUL.md / USER.md**。モデルタブで **Claude / ChatGPT / Cursor サブスク**、**Ollama Cloud / OrcaRouter**、有効・無効・並び替え、有効モデル一覧
 - プロジェクト追加: ホスト PC ではクリック時にエクスプローラー（ネイティブフォルダ選択）を直接開き、選択で即追加。リモートはパス入力 / アプリ内フォルダ一覧
 
+## Codex リセット権の自動使用
+
+CodexBar の `config.json`（Windows: `%APPDATA%\CodexBar\config.json`）に `"codexResetAutoConsume": true` を保存すると、期限まで24時間以内の利用可能なリセット権を、期限が近い順に1回の確認につき1件だけ自動使用します。既定は無効。`codexResetAutoConsumeWindowHours` で対象期間を変更できます（0より大きく168時間以下）。
+
+Backend 起動時と1分ごとに確認し、成功した確認は最大5分間抑制、失敗・リセット対象なしの場合は次回再試行します。画面を閉じても動作しますが、LeafCodePi の停止中・PC のスリープ中は動作しません。停止中に失効した権利は復元できません。一時停止中・共有元が管理するアカウントは対象外。実行結果・失敗は `[codex-auto-reset]` のログに記録します。
+
 ## カスタム指示（AGENTS.md / SOUL.md / USER.md）
 
 設定 → エージェント → 「共通指示」から `~/.pi/agent/AGENTS.md`（作業手順・制約）、`SOUL.md`（Code専用の性格・口調）、`USER.md`（Bot/Code共通のユーザープロフィール）を編集できます（全プロジェクト共通）。保存時に開いているセッションへ即時反映します。プロジェクト単位の AGENTS.md 編集は未対応です。

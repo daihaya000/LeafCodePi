@@ -28,6 +28,7 @@ const RUNTIME_API = [
   "respondToQuestionPrompt",
   "clearPendingAttentionForTask",
   "startBotCodeRelay",
+  "ensureCodexResetScheduler",
   "applyCodePermissionSettingsToLiveTasks",
 ];
 

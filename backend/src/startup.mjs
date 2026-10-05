@@ -225,6 +225,7 @@ export function createBackendStartup({
       // Routines are run by prompting a session, so the scheduler belongs to the owner as well.
       ensureRoutineScheduler: () => {
         runRuntimeStep("ensureRoutineScheduler");
+        runRuntimeStep("ensureCodexResetScheduler");
       },
       // Room recovery settles abandoned turns and delivers ready handoffs, which prompts a session.
       reconcileRoomRuntime: () => {

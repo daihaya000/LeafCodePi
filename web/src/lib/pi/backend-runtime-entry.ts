@@ -65,6 +65,8 @@ export { botTaskId, getBot, patchBot } from "@/lib/bots";
 // The routine scheduler runs its routines by prompting a session, so only the runtime owner may
 // run it; the tick takes a cross-process lock, so two schedulers cannot double-run a routine.
 export { ensureRoutineScheduler, runRoutine, subscribeRoutineRuns } from "@/lib/routines";
+// Expiring reset credits must be checked even while every Web client is closed.
+export { ensureCodexResetScheduler } from "@/lib/codexbar/reset-scheduler";
 // Room recovery settles abandoned turns and delivers ready handoffs, which needs the runtime.
 export { reconcileRoomRuntime } from "@/lib/room-runtime";
 // Rewinding a Room conversation stops its turns and drops the owner's attention and Code jobs.

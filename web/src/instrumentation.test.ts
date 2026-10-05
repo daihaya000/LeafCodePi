@@ -11,10 +11,11 @@ afterEach(async () => {
   vi.restoreAllMocks();
 });
 
-const state = vi.hoisted(() => ({ relay: vi.fn(), scheduler: vi.fn(), reconcileTasks: vi.fn(), reconcileRooms: vi.fn(), prewarmTasks: vi.fn(() => Promise.resolve([])), warmModels: vi.fn(() => Promise.resolve([])), listAccounts: vi.fn(() => []), backfillLabels: vi.fn(() => Promise.resolve(0)), promptTask: vi.fn(() => Promise.resolve({})), goalLoopCommand: vi.fn(() => Promise.resolve({ status: "queued" })), setOrphanListener: vi.fn(), setLeaseLostListener: vi.fn(), abortAfterLeaseLoss: vi.fn(), handleOrphans: vi.fn(), order: [] as string[] }));
+const state = vi.hoisted(() => ({ resetScheduler: vi.fn(), relay: vi.fn(), scheduler: vi.fn(), reconcileTasks: vi.fn(), reconcileRooms: vi.fn(), prewarmTasks: vi.fn(() => Promise.resolve([])), warmModels: vi.fn(() => Promise.resolve([])), listAccounts: vi.fn(() => []), backfillLabels: vi.fn(() => Promise.resolve(0)), promptTask: vi.fn(() => Promise.resolve({})), goalLoopCommand: vi.fn(() => Promise.resolve({ status: "queued" })), setOrphanListener: vi.fn(), setLeaseLostListener: vi.fn(), abortAfterLeaseLoss: vi.fn(), handleOrphans: vi.fn(), order: [] as string[] }));
 vi.mock("@/lib/pi/harness", () => ({ startBotCodeRelay: state.relay, getTaskSummariesWithTodoProgress: state.prewarmTasks, listModelsForAccounts: state.warmModels, promptTask: state.promptTask, goalLoopCommand: state.goalLoopCommand, abortTaskSessionsAfterLeaseLoss: state.abortAfterLeaseLoss }));
 vi.mock("@/lib/accounts", () => ({ listAccounts: state.listAccounts }));
 vi.mock("@/lib/routines", () => ({ ensureRoutineScheduler: state.scheduler }));
+vi.mock("@/lib/codexbar/reset-scheduler", () => ({ ensureCodexResetScheduler: state.resetScheduler }));
 vi.mock("@/lib/task-runtime-lease", () => ({ reconcileOrphanedWorkingTasks: state.reconcileTasks, setOrphanedTaskListener: state.setOrphanListener, setLeaseLostListener: state.setLeaseLostListener }));
 vi.mock("@/lib/room-runtime", () => ({ reconcileRoomRuntime: state.reconcileRooms }));
 vi.mock("@/lib/direct-title", () => ({ backfillMissingTaskLabels: state.backfillLabels }));
@@ -32,6 +33,7 @@ describe("runtime startup", () => {
   beforeEach(() => {
     state.relay.mockReset();
     state.scheduler.mockReset();
+    state.resetScheduler.mockReset();
     state.reconcileTasks.mockReset();
     state.reconcileRooms.mockReset();
     state.prewarmTasks.mockClear();
@@ -55,6 +57,7 @@ describe("runtime startup", () => {
     expect(state.relay).toHaveBeenCalledOnce();
     expect(state.scheduler).toHaveBeenCalledOnce();
     expect(state.reconcileRooms).toHaveBeenCalledOnce();
+    expect(state.resetScheduler).toHaveBeenCalledOnce();
     expect(state.prewarmTasks).toHaveBeenCalledWith(true);
     await vi.waitFor(() => {
       expect(state.listAccounts).toHaveBeenCalledOnce();
@@ -123,6 +126,15 @@ describe("runtime startup", () => {
     expect(state.scheduler).toHaveBeenCalledOnce();
   });
 
+  it("does not start a second reset scheduler in production Web", async () => {
+    vi.stubEnv("NEXT_RUNTIME", "nodejs");
+    vi.stubEnv("NODE_ENV", "production");
+    vi.stubEnv("LEAFCODE_PI_BACKEND_RUNTIME", "");
+    await register();
+    expect(state.resetScheduler).not.toHaveBeenCalled();
+    expect(state.scheduler).not.toHaveBeenCalled();
+  });
+
   it("does not start server services in the Edge runtime", async () => {
     vi.stubEnv("NEXT_RUNTIME", "edge");
 
@@ -132,6 +144,7 @@ describe("runtime startup", () => {
     expect(state.relay).not.toHaveBeenCalled();
     expect(state.scheduler).not.toHaveBeenCalled();
     expect(state.reconcileRooms).not.toHaveBeenCalled();
+    expect(state.resetScheduler).not.toHaveBeenCalled();
     expect(state.prewarmTasks).not.toHaveBeenCalled();
     expect(state.warmModels).not.toHaveBeenCalled();
     expect(state.backfillLabels).not.toHaveBeenCalled();

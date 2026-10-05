@@ -37,7 +37,7 @@ import {
 const USAGE_URL = "https://chatgpt.com/backend-api/wham/usage";
 const TOKEN_URL = "https://auth.openai.com/oauth/token";
 const CLIENT_ID = "app_EMoamEEZ73f0CkXaXp7hrann";
-const AUTO_RESET_CHECK_INTERVAL_MS = 60 * 60 * 1000;
+const AUTO_RESET_CHECK_INTERVAL_MS = 5 * 60 * 1000;
 const lastAutoResetCheckAt = new Map<string, number>();
 
 type CodexAuth = {
@@ -481,7 +481,8 @@ async function maybeAutoConsumeResetCredits(
   signal?: AbortSignal,
 ): Promise<UsageSnapshot> {
   const available = snapshot.rateLimitResetCreditsAvailable;
-  if (available === null || available <= 0) return snapshot;
+  // The dedicated credits endpoint is authoritative when usage omits the count.
+  if (available !== null && available !== undefined && available <= 0) return snapshot;
 
   const windowMs = codexResetAutoConsumeWindowMs(loadCodexBarConfig());
   if (windowMs === null) return snapshot;
@@ -491,7 +492,7 @@ async function maybeAutoConsumeResetCredits(
   const lastChecked = lastAutoResetCheckAt.get(key);
   if (
     lastChecked !== undefined &&
-    now - lastChecked < AUTO_RESET_CHECK_INTERVAL_MS
+    now - lastChecked < Math.min(AUTO_RESET_CHECK_INTERVAL_MS, windowMs / 2)
   ) {
     return snapshot;
   }
@@ -507,12 +508,24 @@ async function maybeAutoConsumeResetCredits(
       },
       { windowMs, signal },
     );
-    if (result.consumed <= 0) return snapshot;
+    if (result.consumed <= 0) {
+      if (result.codes.length > 0) {
+        lastAutoResetCheckAt.delete(key);
+        console.warn("[codex-auto-reset] redemption not applied; retry on next check");
+      }
+      return snapshot;
+    }
+    console.info("[codex-auto-reset] expiring credit redeemed");
     return {
       ...snapshot,
-      rateLimitResetCreditsAvailable: Math.max(0, available - result.consumed),
+      rateLimitResetCreditsAvailable: available == null
+        ? null
+        : Math.max(0, available - result.consumed),
     };
   } catch {
+    // Do not suppress retries for an hour after a transient error or caller abort.
+    lastAutoResetCheckAt.delete(key);
+    console.warn("[codex-auto-reset] check failed; retry on next check");
     // Automatic redemption must never hide otherwise valid usage data.
     return snapshot;
   }

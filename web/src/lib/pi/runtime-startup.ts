@@ -13,6 +13,7 @@ const globals = globalThis as typeof globalThis & {
 async function loadServices(): Promise<RuntimeStartupServices> {
   const harness = await import("@/lib/pi/harness");
   const { ensureRoutineScheduler: startRoutineScheduler } = await import("@/lib/routines");
+  const { ensureCodexResetScheduler } = await import("@/lib/codexbar/reset-scheduler");
   const { reconcileOrphanedWorkingTasks: reconcileLeases, setOrphanedTaskListener, setLeaseLostListener } = await import("@/lib/task-runtime-lease");
   const { reconcileRoomRuntime: reconcileRooms } = await import("@/lib/room-runtime");
   return {
@@ -65,6 +66,7 @@ async function loadServices(): Promise<RuntimeStartupServices> {
     ensureRoutineScheduler: () => {
       if (localRuntimeBlocked()) return;
       startRoutineScheduler();
+      ensureCodexResetScheduler();
     },
     // Room recovery settles abandoned turns and delivers ready handoffs, which prompts a session.
     reconcileRoomRuntime: () => {

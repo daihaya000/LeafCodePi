@@ -32,6 +32,13 @@ test("a bundle built from an older entry lists what it lacks", async () => {
   assert.deepEqual(result.missing, ["promptTask"]);
 });
 
+test("a stale bundle without background Codex reset checks is refused", async () => {
+  const runtime = completeRuntime();
+  delete runtime.ensureCodexResetScheduler;
+  const result = await loadBackendRuntime({ exists: () => true, importModule: async () => runtime });
+  assert.deepEqual(result, { ok: false, reason: "incomplete", missing: ["ensureCodexResetScheduler"] });
+});
+
 test("a bundle that cannot be imported reports no exception text", async () => {
   const secret = "sk-secret-credential";
   const result = await loadBackendRuntime({
