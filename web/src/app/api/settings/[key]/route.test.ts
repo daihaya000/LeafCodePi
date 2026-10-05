@@ -175,6 +175,27 @@ describe("/api/settings/[key]", () => {
     expect(settings.setSetting).toHaveBeenCalledWith("generation-model", "ollama-cloud::qwen3");
   });
 
+  it("accepts and validates Git commit author templates", async () => {
+    const key = "git-commit-author";
+    const payload = JSON.stringify({
+      nameTemplate: "Agent ({agent})",
+      emailTemplate: "{agent}@leafcodepi.local",
+    });
+    const accepted = await PUT(request(key, { value: payload }), {
+      params: Promise.resolve({ key }),
+    });
+    const rejected = await PUT(request(key, {
+      value: JSON.stringify({ nameTemplate: "Bad\nName", emailTemplate: "bot@example.test" }),
+    }), { params: Promise.resolve({ key }) });
+
+    expect(accepted.status).toBe(200);
+    expect(settings.setSetting).toHaveBeenCalledWith(key, JSON.stringify({
+      nameTemplate: "Agent ({agent})",
+      emailTemplate: "{agent}@leafcodepi.local",
+    }));
+    expect(rejected.status).toBe(400);
+  });
+
   it("rejects malformed generation model keys", async () => {
     const response = await PUT(
       request("generation-model", { value: "not-a-model" }),
