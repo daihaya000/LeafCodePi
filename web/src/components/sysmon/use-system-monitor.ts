@@ -21,11 +21,13 @@ export function useSystemMonitor(options?: {
   const [refreshing, setRefreshing] = useState(false);
   const mounted = useRef(true);
   const inFlight = useRef<Promise<void> | null>(null);
+  const lastRequestAt = useRef(0);
 
   const refresh = useCallback(async (opts?: { quiet?: boolean }) => {
     if (inFlight.current) return inFlight.current;
     const quiet = opts?.quiet ?? false;
 
+    lastRequestAt.current = Date.now();
     const run = (async () => {
       if (!quiet) setRefreshing(true);
       try {
@@ -64,7 +66,10 @@ export function useSystemMonitor(options?: {
       if (document.visibilityState === "visible") void refresh({ quiet: true });
     }, intervalMs);
     const onVisible = () => {
-      if (document.visibilityState === "visible") void refresh({ quiet: true });
+      if (
+        document.visibilityState === "visible" &&
+        Date.now() - lastRequestAt.current >= 10_000
+      ) void refresh({ quiet: true });
     };
     document.addEventListener("visibilitychange", onVisible);
     return () => {
