@@ -75,6 +75,7 @@ export async function GET(
     req.nextUrl.searchParams.get("cachedSilentResumeCandidate") === "1";
   const perfRequested = req.nextUrl.searchParams.get("perf") === "1";
   const messageDelta = req.nextUrl.searchParams.get("delta") === "1";
+  const streamDeltas = req.nextUrl.searchParams.get("streamDeltas") !== "0";
   const serverTimings: { phase: string; durationMs: number }[] = [];
   const transportTimings: { phase: string; durationMs: number }[] = [];
   const reportTiming = perfRequested
@@ -115,7 +116,7 @@ export async function GET(
         // After the cutover the Backend owns the session: this process must not subscribe to (or open)
         // a session it does not own, so the stream is built from the Backend's detail and polled.
         if (localRuntimeBlocked()) {
-          const backendStream = await startBackendTaskStream({ id, sse, messageDelta });
+          const backendStream = await startBackendTaskStream({ id, sse, messageDelta, streamDeltas });
           if (!backendStream.ok) {
             sse.send("error", {
               error: backendStream.reason === "not-found" ? "タスクが見つかりません" : "Backendから取得できません",
@@ -134,6 +135,7 @@ export async function GET(
           : 0;
         unsubscribe = subscribeTask(id, (payload) => {
           const safePayload = pageTaskSnapshotPayload(payload, readHistoryPageSize());
+          if (!streamDeltas && safePayload.type === "delta") return;
           if (!ready) {
             // History snapshots still coalesce, but control events (permission,
             // hang retry, errors) must survive until the ready snapshot flushes.

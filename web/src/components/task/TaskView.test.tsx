@@ -667,7 +667,7 @@ it("skips hidden-page deltas and resyncs the latest snapshot when visible", asyn
   const originalHidden = Object.getOwnPropertyDescriptor(document, "hidden");
   class TestEventSource extends EventTarget {
     static sources: TestEventSource[] = [];
-    constructor() { super(); TestEventSource.sources.push(this); }
+    constructor(readonly url: string) { super(); TestEventSource.sources.push(this); }
     close() {}
   }
   const message: UiMessage = {
@@ -683,20 +683,24 @@ it("skips hidden-page deltas and resyncs the latest snapshot when visible", asyn
   try {
     render(<TaskView taskId={task.id} mdUp />);
     await waitFor(() => expect(TestEventSource.sources).toHaveLength(1));
-    const firstSource = TestEventSource.sources[0]!;
+    expect(TestEventSource.sources[0]!.url).toContain("streamDeltas=1");
     Object.defineProperty(document, "hidden", { configurable: true, value: true });
     act(() => document.dispatchEvent(new Event("visibilitychange")));
+    await waitFor(() => expect(TestEventSource.sources).toHaveLength(2));
+    const hiddenSource = TestEventSource.sources[1]!;
+    expect(hiddenSource.url).toContain("streamDeltas=0");
     await act(async () => {
-      firstSource.dispatchEvent(new MessageEvent("delta", { data: JSON.stringify({ message }) }));
+      hiddenSource.dispatchEvent(new MessageEvent("delta", { data: JSON.stringify({ message }) }));
       await Promise.resolve();
     });
     expect(screen.queryByText("latest hidden output")).toBeNull();
 
     Object.defineProperty(document, "hidden", { configurable: true, value: false });
     act(() => document.dispatchEvent(new Event("visibilitychange")));
-    await waitFor(() => expect(TestEventSource.sources).toHaveLength(2));
+    await waitFor(() => expect(TestEventSource.sources).toHaveLength(3));
+    expect(TestEventSource.sources[2]!.url).toContain("streamDeltas=1");
     await act(async () => {
-      TestEventSource.sources[1]!.dispatchEvent(new MessageEvent("snapshot", {
+      TestEventSource.sources[2]!.dispatchEvent(new MessageEvent("snapshot", {
         data: JSON.stringify({
           eventType: "ready",
           task: { ...task, status: "working", isStreaming: true },

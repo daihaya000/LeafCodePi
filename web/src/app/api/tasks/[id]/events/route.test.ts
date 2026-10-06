@@ -244,6 +244,32 @@ describe("/api/tasks/[id]/events", () => {
     await reader.cancel();
   });
 
+  it("suppresses high-frequency delta events when the client disables background streaming", async () => {
+    const bootstrap = task({ messages: [], status: "working", isStreaming: true });
+    let listener!: (payload: Record<string, unknown>) => void;
+    mocks.getTaskBootstrap.mockReturnValue(bootstrap);
+    mocks.getTaskDetail.mockResolvedValue(bootstrap);
+    mocks.subscribeTask.mockImplementation((_id: string, callback: typeof listener) => {
+      listener = callback;
+      return vi.fn();
+    });
+    const response = await GET(
+      new NextRequest("http://127.0.0.1:3010/api/tasks/task-1/events?streamDeltas=0"),
+      { params: Promise.resolve({ id: "task-1" }) },
+    );
+    const reader = response.body!.getReader();
+    await readChunk(reader); // bootstrap
+    await readChunk(reader); // ready
+
+    listener({ type: "delta", message: { id: "high-frequency", role: "assistant", createdAt: 2, parts: [] } });
+    listener({ type: "snapshot", eventType: "permission_request", permissionRequest: { requestId: "req-1" } });
+    const controlChunk = await readChunk(reader);
+    expect(controlChunk).toContain("event: snapshot\n");
+    expect(eventData(controlChunk).eventType).toBe("permission_request");
+    expect(eventData(controlChunk).permissionRequest).toEqual({ requestId: "req-1" });
+    await reader.cancel();
+  });
+
   it("omits ready history when the idle client cache revision matches", async () => {
     const bootstrap = task({ messages: [], isStreaming: false, status: "idle" });
     const detail = task({

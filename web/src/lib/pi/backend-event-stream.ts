@@ -222,6 +222,7 @@ export async function startBackendTaskStream({
   subscribeDirty = subscribeBackendTaskDirty,
   dirtyConnected = isBackendTaskDirtyConnected,
   messageDelta = false,
+  streamDeltas = true,
 }: {
   id: string;
   sse: BackendEventSink;
@@ -239,6 +240,8 @@ export async function startBackendTaskStream({
    * rows (`messagesDelta: true`). Streaming then costs one message per wake instead of a full page.
    */
   messageDelta?: boolean;
+  /** Whether the client accepts high-frequency direct stream wakes; snapshot polling remains active. */
+  streamDeltas?: boolean;
 }): Promise<{ ok: true; stop: () => void } | { ok: false; reason: string }> {
   const [detail, pending] = await readBackendSnapshot(id, "page");
   if (!detail.ok) return { ok: false, reason: detail.reason };
@@ -401,9 +404,9 @@ export async function startBackendTaskStream({
     wake = subscribeDirty(id, (payload) => {
       if (stopped || sse.closed) return;
       if (payload?.reason === BACKEND_TASK_STREAM_REASON && payload.delta) {
-        // The Backend already projected the newest message. Forward it directly instead of
-        // fetching the entire message page on every streaming wake.
-        sse.send("delta", payload.delta);
+        // The Backend already projected the newest message. Hidden clients can disable this
+        // high-frequency path and rely on the independent snapshot poll until they return.
+        if (streamDeltas) sse.send("delta", payload.delta);
         if (typeof payload.delta.isStreaming === "boolean" || typeof payload.delta.isCompacting === "boolean") {
           lastStreaming = payload.delta.isStreaming === true || payload.delta.isCompacting === true;
         }

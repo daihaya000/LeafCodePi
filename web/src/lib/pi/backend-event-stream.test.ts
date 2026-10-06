@@ -47,6 +47,7 @@ async function start(
     dirtyIdleIntervalMs?: number;
     subscribeDirty?: (taskId: string, listener: (payload?: { taskId: string; reason?: string; delta?: Record<string, unknown> }) => void) => () => void;
     dirtyConnected?: () => boolean;
+    streamDeltas?: boolean;
   } = {},
 ) {
   const stream = await startBackendTaskStream({
@@ -58,6 +59,7 @@ async function start(
     dirtyIdleIntervalMs: options.dirtyIdleIntervalMs ?? options.idleIntervalMs ?? 2_000,
     subscribeDirty: options.subscribeDirty ?? (() => () => {}),
     dirtyConnected: options.dirtyConnected ?? (() => true),
+    streamDeltas: options.streamDeltas,
   });
   if (!stream.ok) throw new Error(stream.reason);
   return stream;
@@ -295,6 +297,29 @@ describe("Backend task stream polling", () => {
 
     // The independent 2s fallback is still armed for missed or metadata-only events.
     await vi.advanceTimersByTimeAsync(2_000 - BACKEND_EVENT_DIRTY_COALESCE_MS);
+    expect(mocks.forwardTaskDetail).toHaveBeenCalledTimes(2);
+    stream.stop();
+  });
+
+  it("suppresses direct stream wakes for a background client while keeping the safety poll", async () => {
+    let wake: ((payload?: { taskId: string; reason?: string; delta?: Record<string, unknown> }) => void) | undefined;
+    const sse = sink();
+    mocks.forwardTaskDetail.mockResolvedValue(result(0, { status: "working", isStreaming: true }));
+    const stream = await start(sse, {
+      idleIntervalMs: 30_000,
+      dirtyIdleIntervalMs: 30_000,
+      streamDeltas: false,
+      subscribeDirty: (_id, listener) => { wake = listener; return () => {}; },
+    });
+    wake?.({
+      taskId: "task-1",
+      reason: "stream",
+      delta: { type: "delta", message: { id: "m1", role: "assistant", parts: [] }, isStreaming: true },
+    });
+    expect(sse.send).not.toHaveBeenCalledWith("delta", expect.anything());
+    expect(mocks.forwardTaskDetail).toHaveBeenCalledTimes(1);
+
+    await vi.advanceTimersByTimeAsync(2_000);
     expect(mocks.forwardTaskDetail).toHaveBeenCalledTimes(2);
     stream.stop();
   });

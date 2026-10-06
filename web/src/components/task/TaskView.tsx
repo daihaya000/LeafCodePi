@@ -1319,7 +1319,11 @@ export const TaskView = memo(function TaskView({
       // 安定したアイドル履歴は、キャッシュの revision が一致すれば ready
       // で再送しない。working/compacting のキャッシュは提示しない。
       // delta=1: Backend-owned streams send only changed rows (messagesDelta) after the first page.
-      const eventParams = new URLSearchParams({ epoch: String(Date.now()), delta: "1" });
+      const eventParams = new URLSearchParams({
+        epoch: String(Date.now()),
+        delta: "1",
+        streamDeltas: document.hidden ? "0" : "1",
+      });
       if (
         cachedSession &&
         cachedSession.sessionId &&
@@ -1668,8 +1672,7 @@ export const TaskView = memo(function TaskView({
     };
 
     const onVisibilityChange = () => {
-      if (document.hidden) return;
-      // Hidden-page deltas are intentionally skipped; bootstrap the latest snapshot on return.
+      // Reconnect with streamDeltas=0 while hidden and restore the fast path when visible.
       connect();
     };
     document.addEventListener("visibilitychange", onVisibilityChange);
