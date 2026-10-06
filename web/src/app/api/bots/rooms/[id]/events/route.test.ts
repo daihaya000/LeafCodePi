@@ -199,8 +199,8 @@ describe("GET /api/bots/rooms/[id]/events", () => {
     const reader = response.body!.getReader();
     await readEvent(reader);
     expect(dirtyListener).toBeTypeOf("function");
-    // Start a second snapshot via the dirty-tightened safety-net interval, then fire dirty while busy.
-    await vi.advanceTimersByTimeAsync(2_000);
+    // Start a second snapshot via the safety-net interval, then fire dirty while busy.
+    await vi.advanceTimersByTimeAsync(5_000);
     expect(mocks.forwardPendingRequestsByTask).toHaveBeenCalledTimes(2);
     dirtyListener!();
     // Without the queue the dirty wake would be dropped until the next interval.
@@ -261,7 +261,7 @@ describe("GET /api/bots/rooms/[id]/events", () => {
     // A slow owner read holds the poll: the next tick must not start a second read.
     const slow = deferred<{ ok: true; byTask: Record<string, never> }>();
     mocks.forwardPendingRequestsByTask.mockReturnValue(slow.promise);
-    await vi.advanceTimersByTimeAsync(2_000);
+    await vi.advanceTimersByTimeAsync(5_000);
     expect(mocks.forwardPendingRequestsByTask).toHaveBeenCalledTimes(2);
     slow.resolve({ ok: true, byTask: {} });
     await vi.advanceTimersByTimeAsync(0);
@@ -293,7 +293,7 @@ describe("GET /api/bots/rooms/[id]/events", () => {
     }
     expect(sawFirst).toBe(true);
     mocks.forwardPendingRequestsByTask.mockResolvedValueOnce({ ok: false, reason: "unreachable" });
-    await vi.advanceTimersByTimeAsync(2_000);
+    await vi.advanceTimersByTimeAsync(5_000);
     // Soft-fail must not clear attention; signature stays the same so no new snapshot is required.
     expect(mocks.forwardPendingRequestsByTask).toHaveBeenCalledTimes(2);
     mocks.forwardPendingRequestsByTask.mockResolvedValueOnce({
@@ -302,7 +302,7 @@ describe("GET /api/bots/rooms/[id]/events", () => {
         "bot:two:room:r1": { permissionRequest: { id: "p2" }, questionRequest: null },
       },
     });
-    await vi.advanceTimersByTimeAsync(2_000);
+    await vi.advanceTimersByTimeAsync(5_000);
     expect((await readEvent(reader)).data.attention).toEqual([
       { botId: "two", taskId: "bot:two:room:r1", permission: { id: "p2" }, question: null },
     ]);
@@ -322,7 +322,7 @@ describe("GET /api/bots/rooms/[id]/events", () => {
         "bot:two:room:r1": { permissionRequest: { id: "p2" }, questionRequest: null },
       },
     });
-    await vi.advanceTimersByTimeAsync(2_000);
+    await vi.advanceTimersByTimeAsync(5_000);
     expect((await readEvent(reader)).data.attention).toEqual([
       { botId: "two", taskId: "bot:two:room:r1", permission: { id: "p2" }, question: null },
     ]);
@@ -350,7 +350,7 @@ describe("GET /api/bots/rooms/[id]/events", () => {
     };
 
     for (let poll = 0; poll < 3; poll += 1) {
-      await vi.advanceTimersByTimeAsync(2_000);
+      await vi.advanceTimersByTimeAsync(5_000);
       await vi.advanceTimersByTimeAsync(0);
     }
 
@@ -378,7 +378,7 @@ describe("GET /api/bots/rooms/[id]/events", () => {
     await readEvent(reader);
     const readsBeforeChange = mocks.getRoom.mock.calls.length;
 
-    await vi.advanceTimersByTimeAsync(2_000);
+    await vi.advanceTimersByTimeAsync(5_000);
     await vi.advanceTimersByTimeAsync(0);
     let event = await readEvent(reader);
     while ((event.data.attention as unknown[]).length === 0) event = await readEvent(reader);
