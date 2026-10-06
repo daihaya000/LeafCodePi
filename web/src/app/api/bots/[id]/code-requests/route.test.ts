@@ -41,7 +41,7 @@ vi.mock("@/lib/backend-forward", () => ({
   forwardablePromptBody: vi.fn((body) => body),
 }));
 
-import { POST } from "./route";
+import { GET, POST } from "./route";
 
 function request(body: unknown): NextRequest {
   return new NextRequest("http://localhost/api/bots/bot-1/code-requests", {
@@ -52,6 +52,27 @@ function request(body: unknown): NextRequest {
 }
 
 const params = { params: Promise.resolve({ id: "bot-1" }) };
+
+describe("GET /api/bots/[id]/code-requests", () => {
+  it("returns 304 with no body when the polled request list is unchanged", async () => {
+    mocks.listBotCodeRequests.mockReturnValue([
+      { id: "req-1", codeTaskId: null, state: "running", prompt: "run" },
+    ]);
+    const url = "http://localhost/api/bots/bot-1/code-requests";
+    const first = await GET(new NextRequest(url), params);
+    expect(first.status).toBe(200);
+    expect(await first.json()).toEqual({
+      requests: [{ id: "req-1", codeTaskId: null, state: "running", prompt: "run" }],
+    });
+    const etag = first.headers.get("etag");
+    expect(etag?.startsWith("W/")).toBe(true);
+
+    const second = await GET(new NextRequest(url, { headers: { "if-none-match": etag! } }), params);
+    expect(second.status).toBe(304);
+    expect(await second.text()).toBe("");
+    expect(mocks.listBotCodeRequests).toHaveBeenCalledTimes(2);
+  });
+});
 
 describe("POST /api/bots/[id]/code-requests", () => {
   beforeEach(() => {

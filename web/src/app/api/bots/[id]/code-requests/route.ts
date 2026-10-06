@@ -4,11 +4,12 @@ import { listBotCodeRequests, stopBotCodeRequest } from "@/lib/pi/bot-code-relay
 import { abortTaskIncludingColdGoalLoop, completeBotCodeRequest, jsonError, peekCodeRequestProgress } from "@/lib/pi/harness";
 import { localRuntimeBlocked } from "@/lib/pi/runtime-ownership";
 import { forwardBotCodeRequestAbort } from "@/lib/backend-forward";
+import { etagJsonResponse } from "@/lib/etag-json";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-export async function GET(_request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+export async function GET(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const id = (await params).id;
   if (!getBot(id)) return NextResponse.json({ error: "ボットが見つかりません" }, { status: 404 });
   const listed = listBotCodeRequests(id);
@@ -20,7 +21,7 @@ export async function GET(_request: NextRequest, { params }: { params: Promise<{
       return { ...request, ...(await peekCodeRequestProgress(request.codeTaskId)) };
     }),
   );
-  return NextResponse.json({ requests });
+  return etagJsonResponse(request, { requests });
 }
 
 /** Stop one Code request from the Bot conversation. Finished work is not undone; the outbox still reports it. */
