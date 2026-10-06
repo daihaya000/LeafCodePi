@@ -1,11 +1,19 @@
 import assert from "node:assert/strict";
+import { EventEmitter } from "node:events";
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { spawnSync } from "node:child_process";
 import { setTimeout } from "node:timers/promises";
 import test from "node:test";
-import { buildHostRestartScript, buildHostRestartWaitProgram, consumeHostRestartBuild, hostStdoutLogFile } from "./host-restart.js";
+import {
+  buildHostRestartScript,
+  buildHostRestartWaitProgram,
+  consumeHostRestartBuild,
+  HOST_RESTART_SPAWN_TIMEOUT_MS,
+  hostStdoutLogFile,
+  waitForHostRestartChildSpawn,
+} from "./host-restart.js";
 
 const lines = buildHostRestartScript({
   lockFile: "C:\\data\\host.lock",
@@ -60,6 +68,44 @@ test("the non-Windows waiter builds with its defaults (index.js calls it without
   assert.match(program, /const limit = 1200;/);
   assert.match(program, /const grace = 15000;/);
   assert.match(program, /stdio: 'inherit'/);
+});
+
+test("Host restart waits for its replacement waiter to spawn", async () => {
+  const child = new EventEmitter();
+  const waiting = waitForHostRestartChildSpawn(child, 1000);
+  child.emit("spawn");
+  await waiting;
+  assert.equal(child.listenerCount("spawn"), 0);
+  assert.equal(child.listenerCount("error"), 0);
+});
+
+test("Host restart rejects a replacement waiter spawn error", async () => {
+  const child = new EventEmitter();
+  const waiting = waitForHostRestartChildSpawn(child, 1000);
+  child.emit("error", new Error("spawn failed"));
+  await assert.rejects(waiting, /spawn failed/);
+});
+
+test("Host restart times out and kills a waiter that never reports spawn", async () => {
+  const child = new EventEmitter();
+  let killCalls = 0;
+  child.kill = () => {
+    killCalls += 1;
+    return true;
+  };
+  await assert.rejects(
+    waitForHostRestartChildSpawn(child, 10),
+    /replacement host waiter did not spawn within 10ms/,
+  );
+  assert.equal(killCalls, 1);
+  assert.equal(child.listenerCount("spawn"), 0);
+  assert.equal(child.listenerCount("error"), 1);
+  child.emit("error", new Error("late spawn error"));
+  assert.equal(child.listenerCount("error"), 0);
+});
+
+test("the default replacement waiter spawn timeout is finite", () => {
+  assert.equal(HOST_RESTART_SPAWN_TIMEOUT_MS, 15_000);
 });
 
 test("only a Linux stdout redirected to a regular file is reused for the replacement's log", () => {

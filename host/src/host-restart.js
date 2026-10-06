@@ -1,5 +1,49 @@
 import { readlinkSync, statSync } from "node:fs";
 
+export const HOST_RESTART_SPAWN_TIMEOUT_MS = 15_000;
+
+/** Bound the handoff wait so a Host cannot retain its restart claim forever. */
+export function waitForHostRestartChildSpawn(child, timeoutMs = HOST_RESTART_SPAWN_TIMEOUT_MS) {
+  return new Promise((resolve, reject) => {
+    let settled = false;
+    let timer;
+    const cleanup = () => {
+      clearTimeout(timer);
+      child.removeListener("spawn", onSpawn);
+      child.removeListener("error", onError);
+    };
+    const finish = (err) => {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      if (err) reject(err);
+      else resolve();
+    };
+    const onSpawn = () => finish();
+    const onError = (err) => finish(err);
+    const cleanupLateError = () => {
+      child.removeListener("error", onLateError);
+      child.removeListener("close", cleanupLateError);
+    };
+    const onLateError = () => cleanupLateError();
+
+    child.once("spawn", onSpawn);
+    child.once("error", onError);
+    timer = setTimeout(() => {
+      try {
+        child.kill();
+      } catch {
+        /* ignore */
+      }
+      if (settled) return;
+      // Killing a child that never reported spawn can produce a late error event.
+      child.once("error", onLateError);
+      child.once("close", cleanupLateError);
+      finish(new Error(`replacement host waiter did not spawn within ${timeoutMs}ms`));
+    }, timeoutMs);
+  });
+}
+
 /** Replacement hosts rebuild both services once; do not leak the request to children. */
 export function consumeHostRestartBuild(env) {
   // Older running Hosts pass the skip flag when launching their replacement.
