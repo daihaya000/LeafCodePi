@@ -18,7 +18,11 @@ const SHELL_TOOLS = new Set(["bash", "powershell"]);
 /** Git subcommands that belong to the commit / confirm phase after every item is completed. */
 const CLOSING_GIT_SUBCOMMANDS = new Set([
   "status", "diff", "log", "show", "add", "commit", "push", "rev-parse", "ls-files", "check-ignore",
+  // A rejected push is resolved by fetching and merging the remote before pushing again.
+  "fetch", "pull", "merge",
 ]);
+/** Directory changes that commonly prefix a git call. */
+const DIRECTORY_CHANGE = /^(cd|set-location|pushd|sl)\s+\S/i;
 /** Pipe targets that only shape or filter output. */
 const OUTPUT_FILTER = /^(select-object|select|select-string|out-string|measure-object|sort-object|where-object|head|tail|findstr|grep|wc|sort|more)\b/i;
 const GIT_FORBIDDEN_FLAGS = /(^|\s)(--force|--force-with-lease|-f|--hard|--amend)(\s|$)/;
@@ -37,12 +41,17 @@ export function isShellTool(toolName: string): boolean {
 export function isClosingShellCommand(command: unknown): boolean {
   if (typeof command !== "string" || !command.trim()) return false;
   // Command substitution, redirection and subshells can hide work behind a git prefix.
-  const bare = command.replace(/2>&1/g, "");
-  if (/[`<>]|\$\(|\$\{/.test(bare)) return false;
+  if (/[`]|\$\(|\$\{/.test(command)) return false;
+  // Quoted text (commit messages, paths) is data: drop it before looking for operators.
+  const bare = command
+    .replace(/'[^'\r\n]*'|"[^"\r\n]*"/g, "''")
+    .replace(/2>&1/g, "");
+  if (/[<>]/.test(bare)) return false;
   const statements = bare.split(/\r?\n|;|&&|\|\|/).map((part) => part.trim()).filter(Boolean);
   if (statements.length === 0) return false;
   return statements.every((statement) => {
     // A pipe into Select-Object / head / findstr only shapes git output.
+    if (DIRECTORY_CHANGE.test(statement)) return true;
     const [head = "", ...filters] = statement.split("|").map((part) => part.trim());
     if (!filters.every((filter) => OUTPUT_FILTER.test(filter))) return false;
     const match = /^git(?:\s+-C\s+\S+)?\s+([a-z-]+)(.*)$/i.exec(head);

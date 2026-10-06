@@ -691,6 +691,12 @@ describe("todowrite enforcement core", () => {
     expect(run.callTool("powershell", { command: "git log --oneline -3 | Select-Object -First 1" })).toBeUndefined();
     expect(run.callTool("powershell", { command: "git status | Remove-Item a.ts" })?.block).toBe(true);
     expect(run.callTool("powershell", { command: "git branch -D main" })?.block).toBe(true);
+    expect(run.callTool("powershell", { command: "cd C:/repo; git status --short" })).toBeUndefined();
+    expect(run.callTool("powershell", { command: "git commit -m 'a; b && c' -q" })).toBeUndefined();
+    expect(run.callTool("powershell", { command: "git fetch origin; git merge --no-edit origin/master" })).toBeUndefined();
+    expect(run.callTool("powershell", { command: "cd C:/repo; Remove-Item x" })?.block).toBe(true);
+    expect(run.callTool("powershell", { command: "git status > out.txt" })?.block).toBe(true);
+    expect(run.callTool("powershell", { command: "git commit -m \"$(rm x)\"" })?.block).toBe(true);
     expect(run.callTool("bash", { command: "npm test" })?.block).toBe(true);
     await run.writeTodos([...done, { content: "次の作業", status: "in_progress", priority: "high" }]);
     expect(run.callTool("edit")).toBeUndefined();
