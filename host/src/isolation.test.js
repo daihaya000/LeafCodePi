@@ -282,6 +282,26 @@ test("WebUI restart always rebuilds and launches once without pulling twice", ()
   assert.match(launch, /const skipStaleBuild = consumeSkipStaleRebuild\(process\.env\)/);
 });
 
+test("index.js imports every lock.js helper it calls (stopWeb pidAlive regression)", async () => {
+  const index = readFileSync(join(repoRoot, "host", "src", "index.js"), "utf8");
+  const lock = await import("./lock.js");
+  const importLine = index.match(/import \{([^}]*)\} from "\.\/lock\.js";/);
+  assert.ok(importLine, "index.js must import from ./lock.js");
+  const imported = new Set(importLine[1].split(",").map((name) => name.trim()).filter(Boolean));
+  for (const name of Object.keys(lock)) {
+    const called = new RegExp(`(?<![\\w.])${name}\\(`).test(index);
+    const defined = new RegExp(`function ${name}\\(|(?:const|let) ${name}\\b`).test(index);
+    if (called && !defined) assert.ok(imported.has(name), `index.js calls ${name}() without importing it`);
+  }
+});
+
+test("a WebUI restart failure after 202 is logged and recovered, not swallowed", () => {
+  const index = readFileSync(join(repoRoot, "host", "src", "index.js"), "utf8");
+  const restart = index.slice(index.indexOf("async function restartWeb("), index.indexOf("async function restartHost("));
+  assert.match(restart, /catch \(err\) \{[\s\S]*error\(`WebUI restart failed:/);
+  assert.match(restart, /if \(failed && !quitting && !webProc\) scheduleWebRestart\(\)/);
+});
+
 test("the WebUI is always the Backend's client", () => {
   const index = readFileSync(join(repoRoot, "host", "src", "index.js"), "utf8");
   // There is no ownership bookkeeping left: the WebUI is the Backend's client in every start.
