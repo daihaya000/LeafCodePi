@@ -28,6 +28,31 @@ describe("createTaskStreamWake", () => {
     }
   });
 
+  it("trailing wakes carry only the latest coalesced payload", () => {
+    vi.useFakeTimers();
+    try {
+      const emit = vi.fn();
+      const publish = createTaskStreamWake({ emit });
+      const first = vi.fn(() => ({ revision: 1 }));
+      const skipped = vi.fn(() => ({ revision: 2 }));
+      const latest = vi.fn(() => ({ revision: 3 }));
+      publish("task-1", first);
+      publish("task-1", skipped);
+      publish("task-1", latest);
+      expect(first).toHaveBeenCalledTimes(1);
+      expect(skipped).not.toHaveBeenCalled();
+      expect(latest).not.toHaveBeenCalled();
+      vi.advanceTimersByTime(TASK_STREAM_WAKE_MS);
+      expect(latest).toHaveBeenCalledTimes(1);
+      expect(emit.mock.calls).toEqual([
+        ["task-1", { revision: 1 }],
+        ["task-1", { revision: 3 }],
+      ]);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("throttles tasks independently", () => {
     vi.useFakeTimers();
     try {

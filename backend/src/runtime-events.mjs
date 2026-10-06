@@ -6,7 +6,9 @@ export const RUNTIME_EVENTS_MAX_BUFFERED_BYTES = 1024 * 1024;
 export const RUNTIME_EVENTS_STALL_MS = 45_000;
 /** Task wakes remembered while the socket is above high-water, replayed once on drain. */
 export const RUNTIME_EVENTS_MAX_DEFERRED_TASK_WAKES = 256;
-/** Per-task notices that are tiny, idempotent, and worth replaying instead of dropping. */
+/** Maximum serialized bytes retained for deferred task wakes, including optional stream deltas. */
+export const RUNTIME_EVENTS_MAX_DEFERRED_TASK_WAKE_BYTES = 1024 * 1024;
+/** Per-task state wakes/deltas are idempotent and worth replaying instead of dropping. */
 const TASK_WAKE_EVENTS = new Set(["task_dirty", "task_stream"]);
 
 /**
@@ -37,6 +39,7 @@ export function streamRuntimeEvents(response, subscribe, {
   request = null,
   includeStream = false,
   maxDeferredTaskWakes = RUNTIME_EVENTS_MAX_DEFERRED_TASK_WAKES,
+  maxDeferredTaskWakeBytes = RUNTIME_EVENTS_MAX_DEFERRED_TASK_WAKE_BYTES,
 } = {}) {
   let unsubscribe = () => {};
   let heartbeat;
@@ -44,9 +47,12 @@ export function streamRuntimeEvents(response, subscribe, {
   let undrainedSince = null;
   /** `${event}:${taskId}` → frame, kept while undrained so the newest wake per task survives. */
   const deferredTaskWakes = new Map();
+  let deferredTaskWakeBytes = 0;
   const cleanup = () => {
     if (closed) return;
     closed = true;
+    deferredTaskWakes.clear();
+    deferredTaskWakeBytes = 0;
     clearInterval(heartbeat);
     if (request) {
       request.off?.("close", onRequestGone);
@@ -74,8 +80,9 @@ export function streamRuntimeEvents(response, subscribe, {
   response.once("error", cleanup);
   const flushDeferredTaskWakes = () => {
     if (deferredTaskWakes.size === 0 || closed) return;
-    const chunk = [...deferredTaskWakes.values()].join("");
+    const chunk = [...deferredTaskWakes.values()].map(({ frame }) => frame).join("");
     deferredTaskWakes.clear();
+    deferredTaskWakeBytes = 0;
     write(chunk);
   };
   response.on("drain", () => {
@@ -100,9 +107,19 @@ export function streamRuntimeEvents(response, subscribe, {
       if (TASK_WAKE_EVENTS.has(event) && undrainedSince !== null) {
         const taskId = typeof payload?.taskId === "string" ? payload.taskId : "";
         const key = `${event}:${taskId}`;
-        if (deferredTaskWakes.has(key) || deferredTaskWakes.size < maxDeferredTaskWakes) {
+        const bytes = Buffer.byteLength(frame);
+        const previous = deferredTaskWakes.get(key);
+        if (previous) {
           deferredTaskWakes.delete(key);
-          deferredTaskWakes.set(key, frame);
+          deferredTaskWakeBytes -= previous.bytes;
+        }
+        if (
+          bytes <= maxDeferredTaskWakeBytes
+          && deferredTaskWakes.size < maxDeferredTaskWakes
+          && deferredTaskWakeBytes + bytes <= maxDeferredTaskWakeBytes
+        ) {
+          deferredTaskWakes.set(key, { frame, bytes });
+          deferredTaskWakeBytes += bytes;
         }
         return;
       }

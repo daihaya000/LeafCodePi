@@ -255,7 +255,7 @@ export async function startBackendTaskStream({
   const isWorking = (current: Record<string, unknown> | null | undefined) =>
     current?.status === "working" || current?.isStreaming === true || current?.isCompacting === true;
   let lastWorking = isWorking(detail.detail);
-  /** A streaming-text wake arrived: the next read needs bodies, never an omit probe. */
+  /** Older Backend stream wakes without a delta need a paged read, never an omit probe. */
   let forcePage = false;
   const stop = () => {
     stopped = true;
@@ -400,6 +400,16 @@ export async function startBackendTaskStream({
   try {
     wake = subscribeDirty(id, (payload) => {
       if (stopped || sse.closed) return;
+      if (payload?.reason === BACKEND_TASK_STREAM_REASON && payload.delta) {
+        // The Backend already projected the newest message. Forward it directly instead of
+        // fetching the entire message page on every streaming wake.
+        sse.send("delta", payload.delta);
+        if (typeof payload.delta.isStreaming === "boolean" || typeof payload.delta.isCompacting === "boolean") {
+          lastStreaming = payload.delta.isStreaming === true || payload.delta.isCompacting === true;
+        }
+        return;
+      }
+      // Older Backend bundles send only a wake, so retain the full-page refresh fallback.
       if (payload?.reason === BACKEND_TASK_STREAM_REASON) forcePage = true;
       dirtyPending = true;
       schedule();

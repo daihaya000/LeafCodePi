@@ -1728,19 +1728,23 @@ const TASK_STREAM_EVENT_CHANNEL = "__task_stream__";
  * refreshed on its 2s poll and replies appeared in 2-second jumps.
  */
 const throttledTaskStreamWake = createTaskStreamWake({
-  emit: (taskId) => state().events.emit(TASK_STREAM_EVENT_CHANNEL, { taskId, reason: "stream" }),
+  emit: (taskId, delta) => state().events.emit(TASK_STREAM_EVENT_CHANNEL, {
+    taskId,
+    reason: "stream",
+    ...(delta ? { delta } : {}),
+  }),
 });
-function publishTaskStream(taskId: string): void {
+function publishTaskStream(taskId: string, delta: () => Record<string, unknown>): void {
   // No cutover consumer (in-process WebUI): nothing to wake, and no timers to arm.
   if (state().events.listenerCount(TASK_STREAM_EVENT_CHANNEL) === 0) return;
-  throttledTaskStreamWake(taskId);
+  throttledTaskStreamWake(taskId, delta);
 }
 
-/** Backend→Web cutover: throttled "streaming text changed" notices (never on the dirty channel). */
+/** Backend→Web cutover: throttled message deltas (never on the dirty channel). */
 export function subscribeTaskStream(
-  listener: (payload: { taskId: string; reason?: string }) => void,
+  listener: (payload: { taskId: string; reason?: string; delta?: Record<string, unknown> }) => void,
 ): () => void {
-  const handler = (payload: { taskId: string; reason?: string }) => listener(payload);
+  const handler = (payload: { taskId: string; reason?: string; delta?: Record<string, unknown> }) => listener(payload);
   state().events.on(TASK_STREAM_EVENT_CHANNEL, handler);
   return () => state().events.off(TASK_STREAM_EVENT_CHANNEL, handler);
 }
@@ -1833,14 +1837,9 @@ export function emitTaskChanged(taskId: string, eventType = "task_changed"): voi
  * Reuse the cached branch and project the streaming suffix alone through the
  * latestOnly snapshot path.
  */
-function emitTaskDelta(live: LiveRuntime, eventType: string): void {
-  // Wake cutover viewers before the local-listener early return: a Backend owner has no local
-  // SSE listeners, and its WebUI streams would otherwise wait for their 2s poll per update.
-  publishTaskStream(live.taskId);
-  if (state().events.listenerCount(live.taskId) === 0) return;
-  // High-frequency events only change the message and session flags. Task
-  // metadata is refreshed by the non-throttled lifecycle snapshots, so avoid
-  // the store read and session-file scans performed by toSummary() here.
+function projectTaskDelta(live: LiveRuntime, eventType: string): { type: "delta"; [key: string]: unknown } {
+  // High-frequency events only change the message and session flags. Task metadata is refreshed
+  // by lifecycle snapshots, so avoid the store read and session-file scans done by toSummary().
   const message = snapshotMessages(
     live.session,
     live.throughputByStartedAt,
@@ -1851,14 +1850,12 @@ function emitTaskDelta(live: LiveRuntime, eventType: string): void {
     messageContext(live),
   ).at(-1) ?? null;
   const contextUsage = sessionContextUsage(live.session);
-  // Delta snapshots are high-frequency; use the live flag instead of reading
-  // the Goal Loop state file for every token update.
   const compactionSuggested = !live.goalLoopTurnActive && shouldSuggestAtThreshold(
     parseCompactionAction(getSetting(COMPACTION_ACTION_SETTING_KEY)),
     contextUsage?.percent,
     parseCompactionThreshold(getSetting(COMPACTION_THRESHOLD_SETTING_KEY)),
   );
-  emit(live.taskId, {
+  return {
     type: "delta",
     message,
     isStreaming: live.session.isStreaming,
@@ -1866,7 +1863,21 @@ function emitTaskDelta(live: LiveRuntime, eventType: string): void {
     ...(contextUsage ? { contextUsage } : {}),
     compactionSuggested,
     eventType,
-  });
+  };
+}
+
+function emitTaskDelta(live: LiveRuntime, eventType: string): void {
+  const hasLocalListeners = state().events.listenerCount(live.taskId) > 0;
+  const hasCutoverListeners = state().events.listenerCount(TASK_STREAM_EVENT_CHANNEL) > 0;
+  if (!hasLocalListeners && !hasCutoverListeners) return;
+  if (hasLocalListeners) {
+    const delta = projectTaskDelta(live, eventType);
+    if (hasCutoverListeners) publishTaskStream(live.taskId, () => delta);
+    emit(live.taskId, delta);
+    return;
+  }
+  // Remote-only consumers project only for leading/trailing throttled wakes, not each token event.
+  if (hasCutoverListeners) publishTaskStream(live.taskId, () => projectTaskDelta(live, eventType));
 }
 
 /** Refresh idle clients after settings changes without projecting conversation history. */

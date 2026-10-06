@@ -45,7 +45,7 @@ async function start(
     idleIntervalMs?: number;
     intervalMs?: number;
     dirtyIdleIntervalMs?: number;
-    subscribeDirty?: (taskId: string, listener: (payload?: { taskId: string; reason?: string }) => void) => () => void;
+    subscribeDirty?: (taskId: string, listener: (payload?: { taskId: string; reason?: string; delta?: Record<string, unknown> }) => void) => () => void;
     dirtyConnected?: () => boolean;
   } = {},
 ) {
@@ -254,8 +254,8 @@ describe("Backend task stream polling", () => {
     expect(vi.getTimerCount()).toBe(0);
   });
 
-  it("reads a page directly on a streaming-text wake instead of an omit probe", async () => {
-    let wake: ((payload?: { taskId: string; reason?: string }) => void) | undefined;
+  it("falls back to a page read for a streaming wake from an older Backend", async () => {
+    let wake: ((payload?: { taskId: string; reason?: string; delta?: Record<string, unknown> }) => void) | undefined;
     mocks.forwardTaskDetail.mockResolvedValue(result(0));
     const stream = await start(sink(), {
       idleIntervalMs: 30_000,
@@ -268,6 +268,34 @@ describe("Backend task stream polling", () => {
       ["task-1", { messages: "page", limit: 150 }],
       ["task-1", { messages: "page", limit: 150 }],
     ]);
+    stream.stop();
+  });
+
+  it("forwards a Backend-projected delta without fetching a page for the wake", async () => {
+    let wake: ((payload?: { taskId: string; reason?: string; delta?: Record<string, unknown> }) => void) | undefined;
+    const sse = sink();
+    mocks.forwardTaskDetail.mockResolvedValue(result(0, { status: "working", isStreaming: true }));
+    const stream = await start(sse, {
+      intervalMs: 2_000,
+      idleIntervalMs: 30_000,
+      dirtyIdleIntervalMs: 30_000,
+      subscribeDirty: (_id, listener) => { wake = listener; return () => {}; },
+    });
+    const delta = {
+      type: "delta",
+      message: { id: "m1", role: "assistant", parts: [] },
+      isStreaming: true,
+      eventType: "text_delta",
+    };
+
+    wake?.({ taskId: "task-1", reason: "stream", delta });
+    expect(sse.send).toHaveBeenLastCalledWith("delta", delta);
+    await vi.advanceTimersByTimeAsync(BACKEND_EVENT_DIRTY_COALESCE_MS);
+    expect(mocks.forwardTaskDetail).toHaveBeenCalledTimes(1);
+
+    // The independent 2s fallback is still armed for missed or metadata-only events.
+    await vi.advanceTimersByTimeAsync(2_000 - BACKEND_EVENT_DIRTY_COALESCE_MS);
+    expect(mocks.forwardTaskDetail).toHaveBeenCalledTimes(2);
     stream.stop();
   });
 
