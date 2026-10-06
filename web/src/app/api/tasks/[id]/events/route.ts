@@ -42,6 +42,7 @@ const REUSABLE_TASK_SNAPSHOT_FIELDS = [
   "permissionRequest",
   "questionRequest",
   "contextUsage",
+  "messageHistory",
 ] as const;
 
 function omitTaskMessagePayload(payload: Record<string, unknown>): Record<string, unknown> {

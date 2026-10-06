@@ -286,7 +286,7 @@ export async function startBackendTaskStream({
   let lastSnapshot: string | undefined;
   let lastTaskSummaryJson: string | undefined;
   const lastSnapshotFieldJson = new Map<string, string>();
-  const reusableSnapshotFields = ["goalLoop", "todos", "permissionRequest", "questionRequest", "contextUsage"] as const;
+  const reusableSnapshotFields = ["goalLoop", "todos", "permissionRequest", "questionRequest", "contextUsage", "messageHistory"] as const;
   const prepareTaskSummaryForWire = (snapshot: Record<string, unknown>) => {
     const task = snapshot.task;
     const taskJson = task && typeof task === "object" ? JSON.stringify(task) : undefined;

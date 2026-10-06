@@ -33,6 +33,8 @@ vi.mock("@/lib/backend-forward", () => ({
   forwardablePromptBody: vi.fn((body) => body),
 }));
 
+const utf8ByteLength = (value: unknown) => new TextEncoder().encode(JSON.stringify(value)).byteLength;
+
 function task(overrides: Partial<TaskDetail> = {}): TaskDetail {
   return {
     id: "task-1",
@@ -423,6 +425,7 @@ describe("/api/tasks/[id]/events", () => {
     expect(eventData(await readChunk(reader)).eventType).toBe("bootstrap");
     const ready = eventData(await readChunk(reader));
     expect(ready.eventType).toBe("ready");
+    expect(ready).toHaveProperty("messageHistory");
 
     listener({
       type: "snapshot",
@@ -438,11 +441,13 @@ describe("/api/tasks/[id]/events", () => {
     });
     const updated = eventData(await readChunk(reader));
     expect(updated).toMatchObject({ eventType: "context_update", taskReused: true });
-    for (const field of ["task", "goalLoop", "todos", "permissionRequest", "questionRequest", "contextUsage"]) {
+    for (const field of ["task", "goalLoop", "todos", "permissionRequest", "questionRequest", "contextUsage", "messageHistory"]) {
       expect(updated).not.toHaveProperty(field);
     }
-    const fullEquivalent = { ...updated, goalLoop, todos, permissionRequest, questionRequest, contextUsage };
-    expect(JSON.stringify(updated).length).toBeLessThan(JSON.stringify(fullEquivalent).length);
+    const fullEquivalent = { ...updated, goalLoop, todos, permissionRequest, questionRequest, contextUsage, messageHistory: ready.messageHistory };
+    const withMessageHistory = { ...updated, messageHistory: ready.messageHistory };
+    expect(utf8ByteLength(withMessageHistory) - utf8ByteLength(updated)).toBeGreaterThan(0);
+    expect(utf8ByteLength(updated)).toBeLessThan(utf8ByteLength(fullEquivalent));
     await reader.cancel();
   });
 
