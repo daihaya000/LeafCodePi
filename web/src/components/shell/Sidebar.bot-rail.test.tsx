@@ -420,6 +420,7 @@ describe("Bot mode list", () => {
   it("polls unread updates while the document is hidden", async () => {
     localStorage.setItem("webui.sidebar.collapsed", "0");
     const hidden = vi.spyOn(document, "hidden", "get").mockReturnValue(true);
+    const visibilityState = vi.spyOn(document, "visibilityState", "get").mockReturnValue("hidden");
     const setIntervalSpy = vi.spyOn(window, "setInterval");
     const setTimeoutSpy = vi.spyOn(window, "setTimeout");
     try {
@@ -429,11 +430,14 @@ describe("Bot mode list", () => {
       await waitFor(() =>
         expect(mocks.getJson.mock.calls.some(([path]) => path === "/api/tasks?kind=all&view=sidebar")).toBe(true),
       );
+      await waitFor(() =>
+        expect(mocks.getJson.mock.calls.some(([path]) => path === "/api/bots/sidebar")).toBe(true),
+      );
       await act(async () => {
         await new Promise((resolve) => setTimeout(resolve, 0));
       });
       mocks.getJson.mockClear();
-      // cutover後、未読更新の定期pollは setTimeout スケジュール（setInterval はBotサイドバー用）。
+      // 未読更新のpollは setTimeout、Botサイドバーの低頻度fallbackは setInterval。
       const latestWithDelay = (calls: ReadonlyArray<readonly unknown[]>, delays: readonly number[]) => {
         for (let index = calls.length - 1; index >= 0; index -= 1) {
           const [callback, delay] = calls[index]!;
@@ -442,12 +446,18 @@ describe("Bot mode list", () => {
         return null;
       };
       const scheduledPoll = latestWithDelay(setTimeoutSpy.mock.calls, [12_000, 20_000]);
-      const botPoll = latestWithDelay(setIntervalSpy.mock.calls, [12_000]);
+      const botPoll = latestWithDelay(setIntervalSpy.mock.calls, [30_000]);
       expect(scheduledPoll).not.toBeNull();
       expect(botPoll).not.toBeNull();
       act(() => {
         scheduledPoll?.();
         botPoll?.();
+      });
+      // Hidden tabs skip the bot preview/outbox read; it refreshes immediately on visibility return.
+      expect(mocks.getJson.mock.calls.filter(([path]) => path === "/api/bots/sidebar")).toHaveLength(0);
+      act(() => {
+        visibilityState.mockReturnValue("visible");
+        document.dispatchEvent(new Event("visibilitychange"));
       });
       expect(mocks.getJson.mock.calls.filter(([path]) => path === "/api/bots/sidebar")).toHaveLength(1);
       expect(mocks.getJson.mock.calls.filter(([path]) => path === "/api/tasks?kind=all&view=sidebar")).toHaveLength(1);
@@ -456,6 +466,7 @@ describe("Bot mode list", () => {
     } finally {
       setTimeoutSpy.mockRestore();
       setIntervalSpy.mockRestore();
+      visibilityState.mockRestore();
       hidden.mockRestore();
     }
   });

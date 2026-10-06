@@ -96,6 +96,8 @@ const COLLAPSED_WIDTH = 80;
 const MIN_WIDTH = 180;
 const MAX_WIDTH = 480;
 const POLL_IDLE_MS = 12_000;
+/** Bot previews scan session files; local events refresh immediately, so this is a slow cross-tab safety net. */
+const BOT_SIDEBAR_POLL_MS = 30_000;
 /** When Backend task_dirty is attached, idle sidebar polls can stretch. */
 const DIRTY_IDLE_POLL_MS = 20_000;
 const POLL_WORKING_MS = 2_000;
@@ -1833,10 +1835,16 @@ const SidebarView = memo(function SidebarView({
 
   useEffect(() => {
     void refreshBotSidebar().catch(() => undefined);
-    const timer = window.setInterval(() => {
-      void refreshBotSidebar().catch(() => undefined);
-    }, POLL_IDLE_MS);
-    return () => window.clearInterval(timer);
+    const refreshIfVisible = () => {
+      if (document.visibilityState === "visible") void refreshBotSidebar().catch(() => undefined);
+    };
+    const timer = window.setInterval(refreshIfVisible, BOT_SIDEBAR_POLL_MS);
+    // Avoid reading previews / request outboxes in background tabs; reconcile immediately on return.
+    document.addEventListener("visibilitychange", refreshIfVisible);
+    return () => {
+      window.clearInterval(timer);
+      document.removeEventListener("visibilitychange", refreshIfVisible);
+    };
   }, []);
 
   useEffect(() => {
