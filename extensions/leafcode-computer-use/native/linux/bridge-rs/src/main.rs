@@ -430,11 +430,12 @@ async fn act(state: &Arc<Mutex<HelperState>>, args: &Value) -> Result<Value, Pro
             }
             "setText" | "typeText" => {
                 let text = params.get("text").and_then(Value::as_str).unwrap_or("");
-                if let Ok(worked) = client.set_text(&node, text).await {
+                if let Ok(true) = client.set_text(&node, text).await {
                     return Ok(
-                        json!({"outcome":if worked{"worked"}else{"didnt"},"performed":semantic_performed(),"evidence":{"value":text}}),
+                        json!({"outcome":"worked","performed":semantic_performed(),"evidence":{"value":text}}),
                     );
                 }
+                // A negative semantic result means no text was delivered; try focused XTEST when allowed.
             }
             _ => {}
         }
@@ -559,6 +560,10 @@ fn scale_outline_rects(value: &mut Value, scale_x: f64, scale_y: f64) {
     }
 }
 
+fn should_click_before_type_text(action: &str, params: &Value) -> bool {
+    action == "typeText" && params.get("preserveFocus").and_then(Value::as_bool) != Some(true)
+}
+
 fn physical_act(
     action: &str,
     params: &Value,
@@ -613,7 +618,12 @@ fn physical_act(
                 .collect::<Result<Vec<_>, ProtocolError>>()?;
             input.drag(&points, button)?;
         }
-        "typeText" => input.type_text(params.get("text").and_then(Value::as_str).unwrap_or(""))?,
+        "typeText" => {
+            if should_click_before_type_text(action, params) {
+                input.click(x, y, "left", 1)?;
+            }
+            input.type_text(params.get("text").and_then(Value::as_str).unwrap_or(""))?;
+        }
         "setText" => {
             input.click(x, y, button, 1)?;
             input.keypress(&["control", "a"])?;
@@ -1070,5 +1080,12 @@ mod tests {
             batch_outcome(&[json!({"outcome":"unknown"})], true),
             "didnt"
         );
+    }
+
+    #[test]
+    fn targeted_type_text_clicks_its_point_but_current_focus_is_preserved() {
+        assert!(should_click_before_type_text("typeText", &json!({"text":"abc"})));
+        assert!(!should_click_before_type_text("typeText", &json!({"text":"abc","preserveFocus":true})));
+        assert!(!should_click_before_type_text("keypress", &json!({"preserveFocus":false})));
     }
 }
