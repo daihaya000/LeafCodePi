@@ -119,3 +119,29 @@ lines.on('close', () => process.exit(0));\n`, { mode: 0o600 });
   assert.deepEqual(report.connect.servers, { fixture: { tools: 1 } });
   assert.deepEqual(report.issues, []);
 });
+
+test("connect handshakes servers concurrently and preserves config order in the report", async (t) => {
+  const agentDir = await emptyAgentDir(t);
+  const script = join(agentDir, "peer.mjs");
+  await writeFile(script, `import fs from 'node:fs';import readline from 'node:readline';
+const [readyPath, otherPath] = process.argv.slice(2);fs.writeFileSync(readyPath, 'ready');
+const wait = new Int32Array(new SharedArrayBuffer(4));const deadline = Date.now() + 5_000;
+while (!fs.existsSync(otherPath) && Date.now() < deadline) Atomics.wait(wait, 0, 0, 10);
+if (!fs.existsSync(otherPath)) process.exit(1);
+const lines = readline.createInterface({ input: process.stdin });
+const send = (id, result) => process.stdout.write(JSON.stringify({ jsonrpc: '2.0', id, result }) + '\\n');
+lines.on('line', (line) => { const message = JSON.parse(line); if (message.id === undefined) return;
+  if (message.method === 'initialize') send(message.id, { protocolVersion: message.params.protocolVersion, capabilities: { tools: {} }, serverInfo: { name: 'fixture', version: '1' } });
+  else if (message.method === 'tools/list') send(message.id, { tools: [] });
+  else throw Error('Unexpected fixture request'); });
+lines.on('close', () => process.exit(0));\n`, { mode: 0o600 });
+  const browserReady = join(agentDir, "browser-ready"), otherReady = join(agentDir, "other-ready");
+  await writeFile(join(agentDir, "mcp.json"), JSON.stringify({ mcpServers: {
+    "browser-use": { command: process.execPath, args: [script, browserReady, otherReady] },
+    fixture: { command: process.execPath, args: [script, otherReady, browserReady] },
+  } }), { mode: 0o600 });
+  const report = await runNativeMcpCheck({ agentDir, skipStorage: true, connect: true, env: {}, connectTimeoutMs: 8_000 });
+  assert.equal(report.ok, true, JSON.stringify(report));
+  assert.deepEqual(Object.keys(report.connect.servers), ["browser-use", "fixture"]);
+  assert.deepEqual(report.connect.servers, { "browser-use": { tools: 0 }, fixture: { tools: 0 } });
+});
