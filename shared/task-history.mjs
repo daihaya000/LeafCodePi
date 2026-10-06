@@ -1,4 +1,13 @@
 export const TASK_MESSAGE_PAGE_SIZE = 150;
+export const MIN_TASK_MESSAGE_PAGE_SIZE = 20;
+export const MAX_TASK_MESSAGE_PAGE_SIZE = 1000;
+
+/** Clamp a user-set page size; anything that is not a finite number falls back to the default. */
+export function clampTaskMessagePageSize(value) {
+  const number = typeof value === "string" && value.trim() ? Number(value) : value;
+  if (typeof number !== "number" || !Number.isFinite(number)) return TASK_MESSAGE_PAGE_SIZE;
+  return Math.min(MAX_TASK_MESSAGE_PAGE_SIZE, Math.max(MIN_TASK_MESSAGE_PAGE_SIZE, Math.round(number)));
+}
 
 export class InvalidTaskMessageCursorError extends Error {
   constructor() {

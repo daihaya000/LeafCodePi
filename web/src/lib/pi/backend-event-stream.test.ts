@@ -10,8 +10,10 @@ import { createSseWriter } from "@/lib/sse-writer";
 const mocks = vi.hoisted(() => ({
   forwardTaskDetail: vi.fn(),
   forwardTaskPendingRequests: vi.fn(),
+  readHistoryPageSize: vi.fn(() => 150),
 }));
 vi.mock("@/lib/backend-forward", () => mocks);
+vi.mock("@/lib/pi/history-page-size", () => ({ readHistoryPageSize: mocks.readHistoryPageSize }));
 vi.mock("@/lib/backend-task-dirty-hub", () => ({
   BACKEND_TASK_STREAM_REASON: "stream",
   isBackendTaskDirtyConnected: () => false,
@@ -66,6 +68,7 @@ describe("Backend task stream polling", () => {
     vi.useFakeTimers();
     mocks.forwardTaskDetail.mockReset().mockResolvedValue(result(0));
     mocks.forwardTaskPendingRequests.mockReset().mockResolvedValue(pending);
+    mocks.readHistoryPageSize.mockReset().mockReturnValue(150);
   });
   afterEach(() => {
     vi.clearAllTimers();
@@ -77,7 +80,7 @@ describe("Backend task stream polling", () => {
     await vi.advanceTimersByTimeAsync(2_000);
     stream.stop();
     expect(mocks.forwardTaskDetail.mock.calls).toEqual([
-      ["task-1", { messages: "page" }],
+      ["task-1", { messages: "page", limit: 150 }],
       ["task-1", { messages: "omit" }],
     ]);
   });
@@ -96,9 +99,9 @@ describe("Backend task stream polling", () => {
     await vi.advanceTimersByTimeAsync(2_000);
     stream.stop();
     expect(mocks.forwardTaskDetail.mock.calls).toEqual([
-      ["task-1", { messages: "page" }],
+      ["task-1", { messages: "page", limit: 150 }],
       ["task-1", { messages: "omit" }],
-      ["task-1", { messages: "page" }],
+      ["task-1", { messages: "page", limit: 150 }],
     ]);
     expect(sse.send).toHaveBeenLastCalledWith(
       "snapshot",
@@ -123,7 +126,7 @@ describe("Backend task stream polling", () => {
     await vi.advanceTimersByTimeAsync(2_000);
     stream.stop();
     expect(mocks.forwardTaskDetail.mock.calls).toEqual([
-      ["task-1", { messages: "page" }],
+      ["task-1", { messages: "page", limit: 150 }],
       ["task-1", { messages: "omit" }],
     ]);
     expect(sse.send).toHaveBeenLastCalledWith(
@@ -150,8 +153,8 @@ describe("Backend task stream polling", () => {
     await vi.advanceTimersByTimeAsync(2_000);
     expect(mocks.forwardTaskDetail).toHaveBeenCalledTimes(2);
     expect(mocks.forwardTaskDetail.mock.calls).toEqual([
-      ["task-1", { messages: "page" }],
-      ["task-1", { messages: "page" }],
+      ["task-1", { messages: "page", limit: 150 }],
+      ["task-1", { messages: "page", limit: 150 }],
     ]);
     stream.stop();
   });
@@ -262,8 +265,8 @@ describe("Backend task stream polling", () => {
     wake?.({ taskId: "task-1", reason: "stream" });
     await vi.advanceTimersByTimeAsync(BACKEND_EVENT_DIRTY_COALESCE_MS);
     expect(mocks.forwardTaskDetail.mock.calls).toEqual([
-      ["task-1", { messages: "page" }],
-      ["task-1", { messages: "page" }],
+      ["task-1", { messages: "page", limit: 150 }],
+      ["task-1", { messages: "page", limit: 150 }],
     ]);
     stream.stop();
   });
@@ -322,11 +325,18 @@ describe("Backend task stream polling", () => {
   });
 
   it("still pages full history from an older Backend that ignores the query", () => {
-    const messages = Array.from({ length: 100 }, (_, index) => ({ id: `m${index}`, role: "user", parts: [] }));
+    const messages = Array.from({ length: 200 }, (_, index) => ({ id: `m${index}`, role: "user", parts: [] }));
     const snapshot = backendTaskSnapshot({ id: "task-1", messages }, pending);
-    expect(snapshot.messages).toEqual(messages.slice(-50));
+    expect(snapshot.messages).toEqual(messages.slice(-150));
     expect(snapshot.messageHistory).toEqual({ hasMore: true, nextCursor: "m50" });
-    expect(messages).toHaveLength(100);
+    expect(messages).toHaveLength(200);
+  });
+
+  it("asks the Backend for the configured page size", async () => {
+    mocks.readHistoryPageSize.mockReturnValue(300);
+    const stream = await start(sink());
+    stream.stop();
+    expect(mocks.forwardTaskDetail.mock.calls).toEqual([["task-1", { messages: "page", limit: 300 }]]);
   });
 
   it("serializes each snapshot only once with the real SSE writer", async () => {
@@ -521,7 +531,7 @@ describe("Backend task stream polling", () => {
     if (one.ok) one.stop();
     if (two.ok) two.stop();
     expect(mocks.forwardTaskDetail).toHaveBeenCalledTimes(2);
-    expect(mocks.forwardTaskDetail).toHaveBeenCalledWith("task-2", { messages: "page" });
+    expect(mocks.forwardTaskDetail).toHaveBeenCalledWith("task-2", { messages: "page", limit: 150 });
     expect(mocks.forwardTaskPendingRequests).toHaveBeenCalledTimes(2);
   });
 
@@ -559,7 +569,7 @@ describe("Backend task stream polling", () => {
       subscribeDirty: () => () => {},
     });
     if (streaming.ok) {
-      expect(mocks.forwardTaskDetail).toHaveBeenCalledWith("task-1", { messages: "page" });
+      expect(mocks.forwardTaskDetail).toHaveBeenCalledWith("task-1", { messages: "page", limit: 150 });
       streaming.stop();
     }
   });
@@ -740,6 +750,7 @@ describe("Backend task stream message deltas", () => {
   beforeEach(() => {
     vi.useFakeTimers();
     mocks.forwardTaskPendingRequests.mockReset().mockResolvedValue(pending);
+    mocks.readHistoryPageSize.mockReset().mockReturnValue(150);
   });
   afterEach(() => {
     vi.clearAllTimers();

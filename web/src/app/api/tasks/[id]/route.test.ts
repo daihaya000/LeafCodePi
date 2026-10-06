@@ -9,6 +9,7 @@ const mocks = vi.hoisted(() => ({
   archiveTask: vi.fn(),
   destroyTask: vi.fn(),
 }));
+vi.mock("@/lib/pi/history-page-size", () => ({ readHistoryPageSize: () => 200 }));
 vi.mock("@/lib/pi/get-task-detail-bounded", () => ({ getTaskDetailBounded: mocks.getTaskDetailBounded }));
 vi.mock("@/lib/pi/runtime-ownership", () => ({
   localRuntimeBlocked: mocks.localRuntimeBlocked,
@@ -52,6 +53,20 @@ describe("GET /api/tasks/[id]", () => {
     expect(mocks.forwardTaskDetail).not.toHaveBeenCalled();
   });
 
+  it("pages the local detail with the configured history page size", async () => {
+    mocks.localRuntimeBlocked.mockReturnValue(false);
+    mocks.getTaskDetailBounded.mockResolvedValue({
+      id: "task-1", messages: Array.from({ length: 250 }, (_, index) => ({ id: `m${index}`, role: "user", parts: [] })),
+    });
+    const response = await GET(
+      new NextRequest("http://localhost/api/tasks/task-1?messages=page", { method: "GET" }),
+      params,
+    );
+    const body = await response.json();
+    expect(body.task.messages).toHaveLength(200);
+    expect(body.task.messageHistory).toEqual({ hasMore: true, nextCursor: "m50" });
+  });
+
   it("reads the detail from the owning Backend after the cutover", async () => {
     mocks.localRuntimeBlocked.mockReturnValue(true);
     mocks.forwardTaskDetail.mockResolvedValue({ ok: true, detail: { id: "task-1", status: "working", live: true } });
@@ -76,7 +91,7 @@ describe("GET /api/tasks/[id]", () => {
       params,
     );
     expect(page.status).toBe(200);
-    expect(mocks.forwardTaskDetail).toHaveBeenLastCalledWith("task-1", { messages: "page" });
+    expect(mocks.forwardTaskDetail).toHaveBeenLastCalledWith("task-1", { messages: "page", limit: 200 });
     // An unknown mode is not a Backend option; keep the plain read.
     await GET(
       new NextRequest("http://localhost/api/tasks/task-1?messages=bogus", { method: "GET" }),

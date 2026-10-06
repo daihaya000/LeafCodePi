@@ -83,6 +83,9 @@ vi.mock("@/components/settings/NavigatorSettings", () => ({
 vi.mock("@/components/settings/AutoArchiveSettings", () => ({
   AutoArchiveSettings: () => <h3>古いセッションの自動アーカイブ</h3>,
 }));
+vi.mock("@/components/settings/HistoryPageSizeSettings", () => ({
+  HistoryPageSizeSettings: () => <h3>履歴の読み込み件数</h3>,
+}));
 vi.mock("@/components/settings/ReasoningTranslationSettings", () => ({
   ReasoningTranslationSettings: () => {
     mountCounts.response += 1;

@@ -665,12 +665,15 @@ export function readBackendTaskDetail(
     timeoutMs?: number;
     messages?: "page" | "omit";
     before?: string;
+    /** Page size for `messages: "page"`; the Backend falls back to its default when omitted. */
+    limit?: number;
   } = {},
 ): Promise<BackendResult<{ detail: Record<string, unknown> | null }>> {
   const query = options.messages
     ? new URLSearchParams({
         messages: options.messages,
         ...(options.messages === "page" && options.before !== undefined ? { before: options.before } : {}),
+        ...(options.messages === "page" && options.limit !== undefined ? { limit: String(options.limit) } : {}),
       })
     : null;
   return fetchBackendJson(`${BACKEND_TASKS_PATH}/${encodeURIComponent(id)}${BACKEND_TASK_DETAIL_SUFFIX}${query ? `?${query}` : ""}`, options);

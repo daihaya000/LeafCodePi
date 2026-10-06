@@ -10,7 +10,7 @@ import { parseMcpAuthRemoveRequest, publicMcpAuthRemoveResult } from "../../shar
 import { parseMcpOAuthStartRequest, publicMcpOAuthStartResult } from "../../shared/mcp-oauth-start-request.mjs";
 import { parseMcpOAuthCompleteRequest, publicMcpOAuthCompleteResult } from "../../shared/mcp-oauth-complete-request.mjs";
 import { publicMcpServerList } from "../../shared/mcp-server-list.mjs";
-import { InvalidTaskMessageCursorError, pageTaskMessages } from "../../shared/task-history.mjs";
+import { clampTaskMessagePageSize, InvalidTaskMessageCursorError, pageTaskMessages } from "../../shared/task-history.mjs";
 import {
   BACKEND_ERROR_CODES,
   BACKEND_HEALTH_PATH,
@@ -1181,10 +1181,13 @@ export function createBackendServer({
       const paged = messagesMode === "page";
       const omitMessages = messagesMode === "omit";
       const before = target.searchParams.get("before");
+      const limitParam = target.searchParams.get("limit");
       if ((messagesMode !== null && ((!paged && !omitMessages) || target.searchParams.getAll("messages").length !== 1))
         || (paged && (target.searchParams.getAll("before").length > 1
           || (before !== null && (!before.trim() || before.length > 512))))
-        || (omitMessages && before !== null)) {
+        || (omitMessages && before !== null)
+        || (limitParam !== null && (!paged || target.searchParams.getAll("limit").length > 1
+          || !/^\d{1,5}$/.test(limitParam)))) {
         sendJson(response, 400, { error: "Invalid history page request", code: BACKEND_ERROR_CODES.badRequest });
         return;
       }
@@ -1201,7 +1204,8 @@ export function createBackendServer({
           return;
         }
         sendJson(response, 200, { detail: paged
-          ? { ...detail, ...pageTaskMessages(Array.isArray(detail.messages) ? detail.messages : [], before) }
+          ? { ...detail, ...pageTaskMessages(Array.isArray(detail.messages) ? detail.messages : [], before,
+            limitParam === null ? undefined : clampTaskMessagePageSize(Number(limitParam))) }
           : detail });
       } catch (error) {
         if (error instanceof InvalidTaskMessageCursorError) {

@@ -1,6 +1,23 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { InvalidTaskMessageCursorError, pageTaskMessages } from "./task-history.mjs";
+import {
+  clampTaskMessagePageSize,
+  InvalidTaskMessageCursorError,
+  MAX_TASK_MESSAGE_PAGE_SIZE,
+  MIN_TASK_MESSAGE_PAGE_SIZE,
+  pageTaskMessages,
+  TASK_MESSAGE_PAGE_SIZE,
+} from "./task-history.mjs";
+
+test("page size is clamped and invalid values use the default", () => {
+  assert.equal(clampTaskMessagePageSize(200), 200);
+  assert.equal(clampTaskMessagePageSize("300"), 300);
+  assert.equal(clampTaskMessagePageSize(1), MIN_TASK_MESSAGE_PAGE_SIZE);
+  assert.equal(clampTaskMessagePageSize(10 ** 9), MAX_TASK_MESSAGE_PAGE_SIZE);
+  assert.equal(clampTaskMessagePageSize(Number.NaN), TASK_MESSAGE_PAGE_SIZE);
+  assert.equal(clampTaskMessagePageSize(""), TASK_MESSAGE_PAGE_SIZE);
+  assert.equal(clampTaskMessagePageSize(undefined), TASK_MESSAGE_PAGE_SIZE);
+});
 
 test("shared pagination preserves turn boundaries and older-page cursors", () => {
   const messages = [

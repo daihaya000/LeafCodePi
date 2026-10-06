@@ -6,8 +6,10 @@ import {
   restoreTask,
 } from "@/lib/pi/harness";
 import { getTaskDetailBounded } from "@/lib/pi/get-task-detail-bounded";
+import { readHistoryPageSize } from "@/lib/pi/history-page-size";
 import { localRuntimeBlocked } from "@/lib/pi/runtime-ownership";
 import { forwardTaskDetail, forwardTaskTeardown } from "@/lib/backend-forward";
+import { pageTaskMessages } from "@/lib/task-history";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -20,7 +22,9 @@ export async function GET(
     const { id } = await params;
     const messages = req.nextUrl.searchParams.get("messages");
     const detailMessages =
-      messages === "page" || messages === "omit" ? { messages } as const : undefined;
+      messages === "page"
+        ? { messages, limit: readHistoryPageSize() } as const
+        : messages === "omit" ? { messages } as const : undefined;
     // After the cutover the Backend owns the session, so its detail is the real one. There is no local
     // fallback: reading a session this process does not own would report stale state as current.
     if (localRuntimeBlocked()) {
@@ -41,7 +45,12 @@ export async function GET(
       );
     }
     // CodeRequestCard polls this while Code runs; bound ensureLive hangs.
-    return NextResponse.json({ task: await getTaskDetailBounded(id) });
+    const detail = await getTaskDetailBounded(id);
+    if (messages === "page") {
+      const page = pageTaskMessages(detail.messages, undefined, readHistoryPageSize());
+      return NextResponse.json({ task: { ...detail, ...page } });
+    }
+    return NextResponse.json({ task: detail });
   } catch (error) {
     const { error: message, status } = jsonError(error);
     return NextResponse.json({ error: message }, { status });

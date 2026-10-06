@@ -20,6 +20,7 @@ import {
   pageTaskMessages,
   pageTaskSnapshotPayload,
 } from "@/lib/task-history";
+import { readHistoryPageSize } from "@/lib/pi/history-page-size";
 import { localRuntimeBlocked } from "@/lib/pi/runtime-ownership";
 import { startBackendTaskStream } from "@/lib/pi/backend-event-stream";
 
@@ -127,7 +128,7 @@ export async function GET(
           ? performance.now() - bootstrapStartedAt
           : 0;
         unsubscribe = subscribeTask(id, (payload) => {
-          const safePayload = pageTaskSnapshotPayload(payload);
+          const safePayload = pageTaskSnapshotPayload(payload, readHistoryPageSize());
           if (!ready) {
             // History snapshots still coalesce, but control events (permission,
             // hang retry, errors) must survive until the ready snapshot flushes.
@@ -216,7 +217,7 @@ export async function GET(
           if (sse.closed) return;
           canReuseCachedMessages = matchesCachedRevision(detail);
         }
-        const messagePage = pageTaskMessages(detail.messages);
+        const messagePage = pageTaskMessages(detail.messages, undefined, readHistoryPageSize());
         const taskSummary = { ...detail };
         for (const key of [
           "messages",
@@ -321,7 +322,7 @@ export async function GET(
               ]) {
                 delete (taskSummary as Record<string, unknown>)[key];
               }
-              const messagePage = pageTaskMessages(detail.messages);
+              const messagePage = pageTaskMessages(detail.messages, undefined, readHistoryPageSize());
               // The poll runs every 2s for as long as another worker owns the task, but an
               // unchanged detail produces a byte-identical snapshot. Skip the send and keep
               // only the ownership probe, so an idle foreign task costs no SSE traffic.

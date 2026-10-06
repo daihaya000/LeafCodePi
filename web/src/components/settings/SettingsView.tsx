@@ -21,6 +21,7 @@ import { MemorySettings } from "@/components/settings/MemorySettings";
 import { CompactionSettings } from "@/components/settings/CompactionSettings";
 import { SessionLabelSettings } from "@/components/settings/SessionLabelSettings";
 import { AutoArchiveSettings } from "@/components/settings/AutoArchiveSettings";
+import { HistoryPageSizeSettings } from "@/components/settings/HistoryPageSizeSettings";
 import { NavigatorSettings } from "@/components/settings/NavigatorSettings";
 import { SkillsSettings } from "@/components/settings/SkillsSettings";
 import { ExtensionsSettings } from "@/components/settings/ExtensionsSettings";
@@ -387,6 +388,7 @@ export function SettingsView() {
               >
                 <div className="grid gap-4 @4xl:grid-cols-2">
                   <AutoArchiveSettings />
+                  <HistoryPageSizeSettings />
                 </div>
               </SettingsGroup>
 

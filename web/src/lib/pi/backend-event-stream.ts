@@ -1,5 +1,6 @@
 import { pageTaskDetailMessages } from "@/lib/task-history";
 import { forwardTaskDetail, forwardTaskPendingRequests } from "@/lib/backend-forward";
+import { readHistoryPageSize } from "@/lib/pi/history-page-size";
 import {
   BACKEND_TASK_STREAM_REASON,
   isBackendTaskDirtyConnected,
@@ -66,10 +67,15 @@ type CachedPage = {
 const inFlightReads = new Map<string, Promise<BackendSnapshotRead>>();
 
 function readBackendSnapshot(id: string, messages: DetailMessages): Promise<BackendSnapshotRead> {
-  const key = `${id}:${messages}`;
+  // The page size is a live setting, so a read in flight under another size must not be shared.
+  const limit = messages === "page" ? readHistoryPageSize() : undefined;
+  const key = `${id}:${messages}:${limit ?? ""}`;
   const existing = inFlightReads.get(key);
   if (existing) return existing;
-  const read = Promise.allSettled([forwardTaskDetail(id, { messages }), forwardTaskPendingRequests(id)])
+  const read = Promise.allSettled([
+    forwardTaskDetail(id, limit === undefined ? { messages } : { messages, limit }),
+    forwardTaskPendingRequests(id),
+  ])
     .then(([detail, pending]): BackendSnapshotRead => {
       // Keep a rejected read coalesced until its sibling finishes too.
       if (detail.status === "rejected") throw detail.reason;
@@ -90,7 +96,7 @@ function detailRevision(detail: Record<string, unknown> | null | undefined): str
 function cachePageFromDetail(detail: Record<string, unknown> | null): CachedPage | undefined {
   const messageRevision = detailRevision(detail);
   if (!detail || !messageRevision) return undefined;
-  const paged = pageTaskDetailMessages(detail);
+  const paged = pageTaskDetailMessages(detail, undefined, readHistoryPageSize());
   return {
     messages: paged.messages,
     messageHistory: paged.messageHistory,
@@ -170,7 +176,7 @@ export function backendTaskSnapshot(
 ): Record<string, unknown> {
   const summary: Record<string, unknown> = { ...(detail ?? {}) };
   for (const key of DETAIL_ONLY_FIELDS) delete summary[key];
-  const page = pageTaskDetailMessages(detail);
+  const page = pageTaskDetailMessages(detail, undefined, readHistoryPageSize());
   return {
     type: "snapshot",
     task: summary,
