@@ -89,9 +89,10 @@ export async function runNativeMcpCheck(options = {}) {
     const common = { snapshot: fresh, configPath: resolve(agentDir, "mcp.json"), sessionCwd, assertSnapshotOwner: prepared.binding.assertOwner };
     const stdioFactory = createBackendMcpStdioTransportFactory({ ...common, homeDir: options.homeDir ?? homedir(), environment: { ...env } });
     const httpFactory = createBackendMcpHttpTransportFactory({ ...common, variables: { ...env }, fetch: options.fetch ?? globalThis.fetch });
-    const servers = {};
-    for (const server of fresh.servers) {
-      if (server.config.enabled === false) continue;
+    const enabledServers = fresh.servers.filter((server) => server.config.enabled !== false);
+    // Handshake independently: browser-use can take tens of seconds to start, and serial checks
+    // would make every later server pay that startup delay too.
+    const results = await Promise.all(enabledServers.map(async (server) => {
       let transport;
       try { transport = (typeof server.config.url === "string" ? httpFactory : stdioFactory)(server, sessionCwd, undefined); }
       catch {
@@ -99,16 +100,17 @@ export async function runNativeMcpCheck(options = {}) {
         // commands, so name the keys the owner could not resolve instead of a generic refusal.
         const envKeys = Object.entries(server.config.env ?? {})
           .filter(([, value]) => typeof value === "string" && value.startsWith("!") && failedCommands.has(value.slice(1))).map(([key]) => key);
-        servers[server.name] = envKeys.length ? { error: "unsupported-env-command", envKeys } : { error: "transport-refused" };
-        continue;
+        return [server.name, envKeys.length ? { error: "unsupported-env-command", envKeys } : { error: "transport-refused" }];
       }
       const client = new McpClient({ name: "leafcode-cutover-check", version: "0.1.0", requestTimeoutMs: options.connectTimeoutMs ?? 30_000 });
       try {
         await client.connect(transport);
-        servers[server.name] = { tools: (await client.listTools()).length };
-      } catch { servers[server.name] = { error: "handshake-failed" }; }
+        return [server.name, { tools: (await client.listTools()).length }];
+      } catch { return [server.name, { error: "handshake-failed" }]; }
       finally { await client.close().catch(() => {}); await transport.close().catch(() => {}); }
-    }
+    }));
+    // Promise.all retains config order, keeping the JSON report deterministic despite variable startup times.
+    const servers = Object.fromEntries(results);
     report.connect = { ...report.connect, servers, browserRequested: report.connect?.browserRequested === true };
     // Acceptance needs every enabled server to complete a handshake; exposure decides only which tools
     // the model sees, so a codemode server still has to answer tools/list.
