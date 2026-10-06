@@ -13,6 +13,21 @@ export const OFFLINE_STREAK = 3;
  */
 export const RESTART_REQUEST_GIVE_UP_MS = 90_000;
 
+/** Tray-host restarts may rebuild both services; this is a display estimate, not a wait limit. */
+export const HOST_RESTART_ESTIMATE_MS = 5 * 60_000;
+
+export function restartEstimateRemainingMs(requestedAt: number, now = Date.now()): number {
+  const elapsedMs = Math.max(0, now - requestedAt);
+  return Math.max(0, HOST_RESTART_ESTIMATE_MS - elapsedMs);
+}
+
+export function formatRestartCountdown(remainingMs: number): string {
+  const totalSeconds = Math.ceil(Math.max(0, remainingMs) / 1000);
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = String(totalSeconds % 60).padStart(2, "0");
+  return `${minutes}:${seconds}`;
+}
+
 export type RestartProbeState = {
   /** health に一度でも成功したか。初回接続前の失敗は無視する。 */
   connected: boolean;

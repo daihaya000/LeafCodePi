@@ -2,6 +2,8 @@ import assert from "node:assert/strict";
 import { describe, it } from "vitest";
 import {
   INITIAL_RESTART_PROBE,
+  HOST_RESTART_ESTIMATE_MS,
+  formatRestartCountdown,
   isRestartOverlayVisible,
   nextRestartProbe,
   nextRestartProbeDelayMs,
@@ -10,6 +12,7 @@ import {
   RESTART_PROBE_IDLE_MS,
   OFFLINE_STREAK,
   RESTART_REQUEST_GIVE_UP_MS,
+  restartEstimateRemainingMs,
   restartOverlayMessage,
   type RestartProbeState,
 } from "./webui-restart";
@@ -128,6 +131,19 @@ describe("nextRestartProbe", () => {
     assert.match(restartOverlayMessage("host"), /トレイホスト/);
     assert.match(restartOverlayMessage("webui"), /WebUI/);
     assert.match(restartOverlayMessage(null), /WebUI/);
+  });
+});
+
+describe("host restart countdown estimate", () => {
+  it("counts down and clamps at zero", () => {
+    assert.equal(restartEstimateRemainingMs(1_000, 1_000), HOST_RESTART_ESTIMATE_MS);
+    assert.equal(restartEstimateRemainingMs(1_000, 2_001), HOST_RESTART_ESTIMATE_MS - 1_001);
+    assert.equal(restartEstimateRemainingMs(1_000, 400_000), 0);
+    assert.equal(restartEstimateRemainingMs(2_000, 1_000), HOST_RESTART_ESTIMATE_MS);
+    assert.equal(formatRestartCountdown(HOST_RESTART_ESTIMATE_MS), "5:00");
+    assert.equal(formatRestartCountdown(HOST_RESTART_ESTIMATE_MS - 1_000), "4:59");
+    assert.equal(formatRestartCountdown(1), "0:01");
+    assert.equal(formatRestartCountdown(0), "0:00");
   });
 });
 

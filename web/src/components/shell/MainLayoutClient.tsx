@@ -8,10 +8,13 @@ import { NotificationSoundSync } from "@/components/NotificationSoundSync";
 import { maybeRedirectToLocalhost } from "@/lib/localhost-redirect";
 import {
   INITIAL_RESTART_PROBE,
+  HOST_RESTART_ESTIMATE_MS,
+  formatRestartCountdown,
   isRestartOverlayVisible,
   nextRestartProbe,
   nextRestartProbeDelayMs,
   RESTART_PROBE_FAST_MS,
+  restartEstimateRemainingMs,
   restartOverlayMessage,
   WEBUI_RESTART_ABORTED_EVENT,
   WEBUI_RESTART_EVENT,
@@ -23,7 +26,17 @@ function WebUiRestartOverlay() {
   const [restarting, setRestarting] = useState(false);
   const [target, setTarget] = useState<RestartOverlayTarget | null>(null);
   const [abortHint, setAbortHint] = useState<string | null>(null);
+  const [restartStartedAt, setRestartStartedAt] = useState<number | null>(null);
+  const [estimatedRemainingMs, setEstimatedRemainingMs] = useState(HOST_RESTART_ESTIMATE_MS);
   const probeRef = useRef(INITIAL_RESTART_PROBE);
+
+  useEffect(() => {
+    if (!restarting || target !== "host" || restartStartedAt === null) return;
+    const timer = window.setInterval(() => {
+      setEstimatedRemainingMs(restartEstimateRemainingMs(restartStartedAt));
+    }, 1000);
+    return () => window.clearInterval(timer);
+  }, [restarting, target, restartStartedAt]);
 
   useEffect(() => {
     let cancelled = false;
@@ -75,12 +88,15 @@ function WebUiRestartOverlay() {
     const handleRestartRequested = (event: Event) => {
       const detail = (event as CustomEvent<{ target?: RestartOverlayTarget }>).detail;
       const nextTarget = detail?.target === "host" ? "host" : "webui";
+      const requestedAt = Date.now();
       setTarget(nextTarget);
       setAbortHint(null);
+      setRestartStartedAt(nextTarget === "host" ? requestedAt : null);
+      setEstimatedRemainingMs(HOST_RESTART_ESTIMATE_MS);
       probeRef.current = {
         ...probeRef.current,
         requested: true,
-        requestedAt: Date.now(),
+        requestedAt,
       };
       setRestarting(true);
       // Switch to the fast cadence now; an idle probe may be up to a minute away.
@@ -108,6 +124,13 @@ function WebUiRestartOverlay() {
         <div className="flex min-w-64 flex-col items-center gap-3 rounded-2xl border border-border bg-surface/95 px-8 py-7 text-center shadow-[0_8px_30px_rgba(0,0,0,0.12)]">
           <Loader2 className="h-8 w-8 animate-spin text-accent" aria-hidden="true" />
           <p className="text-sm font-semibold">{restartOverlayMessage(target)}</p>
+          {target === "host" && (
+            <p className="text-xs text-muted" aria-live="off">
+              {estimatedRemainingMs > 0
+                ? `推定残り時間: ${formatRestartCountdown(estimatedRemainingMs)}`
+                : "推定時間を超過。再接続を待っています。"}
+            </p>
+          )}
           <p className="text-xs text-muted">再接続されると自動的にページを更新します。</p>
         </div>
       </div>
