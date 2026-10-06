@@ -1021,6 +1021,51 @@ describe("integrated session routing", () => {
     releaseTaskLease(task.id);
   });
 
+  it("applies a Composer model change made during a Goal Loop at the next Goal turn", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "leafcode-pi-goal-loop-model-switch-"));
+    tempDirs.push(dir);
+    process.env.LEAFCODE_PI_DATA_DIR = dir;
+    process.env.PI_CODING_AGENT_DIR = join(dir, "agent");
+    __resetPiAgentDirCacheForTests();
+    const sonnet = { provider: "anthropic", id: "claude-sonnet", input: ["text"], reasoning: false };
+    const haiku = { provider: "anthropic", id: "claude-haiku", input: ["text"], reasoning: false };
+    installHarness(new Map(), sonnet);
+    const harness = (globalThis as Record<string, unknown>)[GLOBAL_KEY] as {
+      modelRuntime: { getModel: (providerID: string, modelID: string) => unknown };
+      live: Map<string, { session: { model?: { id?: string } } }>;
+    };
+    harness.modelRuntime.getModel = (providerID, modelID) =>
+      [sonnet, haiku].find((model) => model.provider === providerID && model.id === modelID);
+
+    const project = upsertProject({ name: "demo", rootPath: dir });
+    const task = await createTask({
+      projectId: project.id,
+      prompt: "最初の確認",
+      model: "anthropic::claude-sonnet",
+      goalLoop: { maxTurns: 3 },
+    });
+    disarmTaskHangWatch(task.id);
+    const live = harness.live.get(task.id)!;
+    expect(live.session.model?.id).toBe("claude-sonnet");
+
+    // The Goal Loop owns the session: the change is stored but must not touch the running session.
+    const updated = await setTaskModel(task.id, "anthropic::claude-haiku");
+    expect(updated.modelID).toBe("claude-haiku");
+    expect(live.session.model?.id).toBe("claude-sonnet");
+
+    const prepare = fakePi.sessions[0]?.routingHooks?.prepareGoalLoopTurn as
+      | ((prompt: string) => Promise<boolean | "retry">)
+      | undefined;
+    assert.ok(prepare);
+    // A route change replaces the session; the Goal Loop retries on the successor.
+    expect(await prepare("turn 2")).toBe(false);
+    const successor = fakePi.sessions.at(-1)?.routingHooks?.prepareGoalLoopTurn as typeof prepare;
+    assert.ok(successor);
+    expect(await successor("turn 2")).toBe(true);
+    expect(harness.live.get(task.id)?.session.model?.id).toBe("claude-haiku");
+    expect(getTask(task.id)?.modelID).toBe("claude-haiku");
+  });
+
   it("releases a prepared Goal turn even when the session is compacting", async () => {
     const dir = mkdtempSync(join(tmpdir(), "leafcode-pi-goal-loop-release-compact-"));
     tempDirs.push(dir);
