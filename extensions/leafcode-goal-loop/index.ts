@@ -135,7 +135,7 @@ const SCHEDULE_WATCHDOG_MS = 15_000;
 const TERMINAL = new Set<GoalLoopStatus>(["completed", "stopped"]);
 const UNSCHEDULABLE = new Set<GoalLoopStatus>(["paused", "blocked"]);
 const ABORTED_TURN_PAUSE_ERROR = "実行が中断されたため一時停止しました。";
-const HANG_ABORT_PAUSE_ERROR = "ハング watchdog が停止したため一時停止しました。/goal-resume で再開できます。";
+const HANG_ABORT_PAUSE_ERROR = "ハング watchdog が停止したため、中断したターンを自動再開します。";
 /**
  * The LeafCodePi WebUI announces its turn routing on this Pi event-bus channel
  * from an inline extension factory (web/src/lib/pi/harness.ts). Pi loads path
@@ -1387,6 +1387,13 @@ function isAbortPausedLoop(loop: GoalLoop | null): loop is GoalLoop & { status: 
   );
 }
 
+function isAutoRetryPausedLoop(loop: GoalLoop | null): boolean {
+  return isAbortPausedLoop(loop) || Boolean(
+    loop?.status === "paused" &&
+    (loop.pauseReason === "turn_timeout" || loop.pauseReason === "hang")
+  );
+}
+
 function hasInterruptedTurnRecovery(loop: GoalLoop): boolean {
   return (loop.status === "queued" || loop.status === "verifying_completed") &&
     loop.retryInterruptedTurn && loop.pendingTurnRecovery;
@@ -1394,7 +1401,7 @@ function hasInterruptedTurnRecovery(loop: GoalLoop): boolean {
 
 /**
  * Apply a result that arrived after the loop was paused mid-turn.
- * Explicit user/manual_send/hang pauses stay paused; automatic interruptions continue.
+ * Explicit operator pauses stay paused; automatic hang/timeout interruptions continue.
  */
 async function applyLatePausedResult(runtime: Runtime, result: GoalLoopProgress): Promise<boolean> {
   const loop = currentLoop(runtime);
@@ -1433,7 +1440,7 @@ async function applyLatePausedResult(runtime: Runtime, result: GoalLoopProgress)
   updateUI(runtime, updated);
   appendSnapshot(runtime, updated);
   if (
-    (pauseReason === "manual_send" || pauseReason === "hang" || (pauseReason === "user" && pauseError !== ABORTED_TURN_PAUSE_ERROR)) &&
+    (pauseReason === "manual_send" || (pauseReason === "user" && pauseError !== ABORTED_TURN_PAUSE_ERROR)) &&
     !TERMINAL.has(updated.status) &&
     !UNSCHEDULABLE.has(updated.status)
   ) {
@@ -1495,7 +1502,7 @@ async function settleAwaitingTurn(runtime: Runtime): Promise<void> {
   const result = extractGoalResultFromMessages(messages);
   if (aborted) {
     // Explicit pause/stop already changed durable status before settlement.
-    // A hang watchdog abort must stay paused; other internal aborts may retry.
+    // Hang-watchdog aborts are retried by the Goal Loop scheduler, never queuePrompt.
     let hangAbort = false;
     try {
       hangAbort = (runtime.hostRouting ?? runtime.ctx).isGoalLoopHangAbort?.() === true;
@@ -1509,7 +1516,7 @@ async function settleAwaitingTurn(runtime: Runtime): Promise<void> {
     if (!paused) return; // Keep evidence and the watchdog on failed persistence.
     runtime.abortedTurnPausePending = !hangAbort;
     if (result && !(await applyLatePausedResult(runtime, result))) return;
-    if (!result && !hangAbort) await requeueInterruptedTurn(runtime);
+    if (!result) await requeueInterruptedTurn(runtime);
     clearPendingAgentRun(runtime);
     return;
   }
@@ -1614,7 +1621,7 @@ function notifyLoopEnded(runtime: Runtime): void | Promise<void> {
   if (!loop || loop.endNoticeSent || runtime.endNoticeQueued) return;
   if (!TERMINAL.has(loop.status) && loop.status !== "blocked" && loop.status !== "paused") return;
   // Internal abort/timeout is a retry boundary, not the end of the loop's contract.
-  if (isAbortPausedLoop(loop) || (loop.status === "paused" && loop.pauseReason === "turn_timeout")) return;
+  if (isAutoRetryPausedLoop(loop)) return;
   try {
     runtime.pi.sendMessage(
       {
@@ -1713,7 +1720,7 @@ function pauseLoop(runtime: Runtime, reason: GoalLoopPauseReason = "user", error
 function requeueInterruptedTurn(runtime: Runtime): void | Promise<void> {
   if (!isActiveRuntime(runtime)) return;
   const loop = currentLoop(runtime);
-  if (!loop || (!isAbortPausedLoop(loop) && !(loop.status === "paused" && loop.pauseReason === "turn_timeout"))) return;
+  if (!loop || !isAutoRetryPausedLoop(loop)) return;
 
   const resumed: GoalLoop = {
     ...loop,
@@ -1893,7 +1900,7 @@ async function ensureScheduled(runtime: Runtime): Promise<void> {
   const loop = currentLoop(runtime);
   if (!loop) return;
   if (loop.status !== "running") runtime.runningIdleSince = undefined;
-  if (isAbortPausedLoop(loop) || (loop.status === "paused" && loop.pauseReason === "turn_timeout")) {
+  if (isAutoRetryPausedLoop(loop)) {
     // Also recover when an internal abort never emitted agent_settled, or the
     // settlement write failed. The idle/pending gates above prevent overlap.
     const recovered = extractGoalResultFromMessages(runtime.pendingAgentMessages ?? []) ?? lateTurnResult(runtime, loop);

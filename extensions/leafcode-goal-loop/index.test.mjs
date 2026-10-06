@@ -2941,56 +2941,39 @@ test("automatic abort preserves a late JSON result and continues", async () => {
   }
 });
 
-test("hang watchdog abort stays paused instead of requeueing the interrupted turn", async () => {
+test("hang watchdog abort retries the interrupted Goal Loop turn", async () => {
+  const previousDataDir = process.env.LEAFCODE_PI_DATA_DIR;
   const cwd = mkdtempSync(join(tmpdir(), "leafcode-goal-loop-hang-abort-"));
   process.env.LEAFCODE_PI_DATA_DIR = cwd;
-  const handlers = new Map();
-  const commands = new Map();
-  let busy = false;
-  let sendCount = 0;
-  const stateFile = () => join(cwd, "goals-loop", "hang-abort-session.json");
-  const ctx = {
-    cwd,
-    mode: "rpc",
-    hasUI: false,
-    isIdle: () => !busy,
-    hasPendingMessages: () => false,
-    abort: () => { busy = false; },
-    isGoalLoopHangAbort: () => true,
-    sessionManager: {
-      getSessionId: () => "hang-abort-session",
-      getBranch: () => [],
-    },
-    ui: { setStatus: () => {}, setWidget: () => {}, notify: () => {} },
-  };
+  const harness = loopEndNoticeHarness("hang-abort-session");
+  const { sent, notices, readState, handlers, commands, ctx, pi, setBusy } = harness;
+  ctx.isGoalLoopHangAbort = () => true;
+  const turns = () => sent.filter((item) => item.message.customType === "leafcode-goal-turn");
 
   try {
-    goalLoopExtension({
-      on(name, handler) { handlers.set(name, handler); },
-      registerCommand(name, options) { commands.set(name, options.handler); },
-      appendEntry() {},
-      sendMessage() { sendCount += 1; busy = true; },
-    });
+    goalLoopExtension(pi);
     await handlers.get("session_start")?.({}, ctx);
     const payload = Buffer.from(JSON.stringify({ goal: "demo", maxTurns: 3 })).toString("base64url");
     await commands.get("goal-start")?.(payload, ctx);
-    await waitFor(() => sendCount === 1 && JSON.parse(readFileSync(stateFile(), "utf8")).status === "running");
+    await waitFor(() => turns().length === 1 && readState().status === "running");
 
-    busy = false;
+    setBusy(false);
     await handlers.get("agent_end")?.({
       type: "agent_end",
       messages: [{ role: "assistant", stopReason: "aborted", content: [] }],
     }, ctx);
     await handlers.get("agent_settled")?.({ type: "agent_settled" }, ctx);
 
-    const paused = JSON.parse(readFileSync(stateFile(), "utf8"));
-    assert.equal(paused.status, "paused");
-    assert.equal(paused.pauseReason, "hang");
-    assert.equal(paused.retryInterruptedTurn, true);
-    await new Promise((resolve) => setTimeout(resolve, 350));
-    assert.equal(sendCount, 1);
+    await waitFor(() => turns().length === 2 && readState().status === "running");
+    const retried = readState();
+    assert.equal(retried.turnCount, 1);
+    assert.equal(retried.retryInterruptedTurn, false);
+    assert.equal(turns()[1].message.details.turn, turns()[0].message.details.turn);
+    assert.equal(notices().length, 0);
   } finally {
     await handlers.get("session_shutdown")?.({}, ctx);
+    if (previousDataDir === undefined) delete process.env.LEAFCODE_PI_DATA_DIR;
+    else process.env.LEAFCODE_PI_DATA_DIR = previousDataDir;
     rmSync(cwd, { recursive: true, force: true });
   }
 });
