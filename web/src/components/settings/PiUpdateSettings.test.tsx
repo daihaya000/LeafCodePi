@@ -50,6 +50,27 @@ describe("PiUpdateSettings", () => {
     ).toBe(false);
   });
 
+  it("npmに配信中の最新バージョンを確認できる", async () => {
+    fetchMock
+      .mockResolvedValueOnce(jsonResponse(statusBody()))
+      .mockResolvedValueOnce(
+        jsonResponse({ version: "1.2.3", checkedAt: new Date("2026-10-06T08:00:00Z").getTime() }),
+      );
+
+    render(<PiUpdateSettings />);
+    await waitFor(() => {
+      expect(
+        (screen.getByRole("button", { name: "最新版に更新" }) as HTMLButtonElement).disabled,
+      ).toBe(false);
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "最新バージョンを確認" }));
+
+    await waitFor(() => expect(screen.getByText("v1.2.3")).toBeTruthy());
+    expect(fetchMock.mock.calls[1]?.[0]).toBe("/api/pi/latest-version");
+    expect(screen.getByText(/最終確認:/)).toBeTruthy();
+  });
+
   it("最新版への更新を予約して再取得し、予約済みを表示する", async () => {
     fetchMock
       .mockResolvedValueOnce(jsonResponse(statusBody()))
