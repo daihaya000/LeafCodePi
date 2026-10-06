@@ -7,6 +7,7 @@ import { fileURLToPath } from "node:url";
 
 const PACKAGE_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..", "..");
 const COMMAND_TIMEOUT_MS = 15_000;
+const MAX_HELPER_LINE_BYTES = 32 * 1024 * 1024;
 
 export const LINUX_HELPER_PROTOCOL_VERSION = 4;
 export const LINUX_HELPER_PATH = process.env.LEAFCODE_COMPUTER_USE_LINUX_HELPER_PATH
@@ -29,31 +30,29 @@ async function waitForShared<T>(promise: Promise<T>, signal?: AbortSignal): Prom
 		const onAbort = () => reject(new Error("Operation aborted."));
 		signal.addEventListener("abort", onAbort, { once: true });
 		promise.then(
-			(value) => {
-				signal.removeEventListener("abort", onAbort);
-				resolve(value);
-			},
-			(error) => {
-				signal.removeEventListener("abort", onAbort);
-				reject(error);
-			},
+			(value) => { signal.removeEventListener("abort", onAbort); resolve(value); },
+			(error) => { signal.removeEventListener("abort", onAbort); reject(error); },
 		);
 	});
 }
 
 export interface LinuxHelperClientOptions {
 	helperPath?: string;
+	spawnProcess?: typeof spawn;
 }
 
 export class LinuxHelperClient {
 	private child?: ChildProcessWithoutNullStreams;
 	private processPromise?: Promise<ChildProcessWithoutNullStreams>;
 	private buffer = "";
+	private bufferBytes = 0;
 	private pending = new Map<string, Pending<unknown>>();
 	private readonly helperPath: string;
+	private readonly spawnProcess: typeof spawn;
 
 	constructor(options: LinuxHelperClientOptions = {}) {
 		this.helperPath = options.helperPath ?? LINUX_HELPER_PATH;
+		this.spawnProcess = options.spawnProcess ?? spawn;
 	}
 
 	dispose(): void {
@@ -75,6 +74,7 @@ export class LinuxHelperClient {
 		}
 		this.pending.clear();
 		this.buffer = "";
+		this.bufferBytes = 0;
 	}
 
 	async ensureInstalled(signal?: AbortSignal): Promise<void> {
@@ -88,21 +88,20 @@ export class LinuxHelperClient {
 		await this.ensureInstalled(signal);
 		if (this.processPromise) return await waitForShared(this.processPromise, signal);
 		if (this.child && this.child.exitCode === null && !this.child.killed) return this.child;
-		if (!this.processPromise) {
-			const processPromise = this.startProcess();
-			this.processPromise = processPromise;
-			processPromise.then(
-				() => { if (this.processPromise === processPromise) this.processPromise = undefined; },
-				() => { if (this.processPromise === processPromise) this.processPromise = undefined; },
-			);
-		}
-		return await waitForShared(this.processPromise, signal);
+		const processPromise = this.startProcess();
+		this.processPromise = processPromise;
+		processPromise.then(
+			() => { if (this.processPromise === processPromise) this.processPromise = undefined; },
+			() => { if (this.processPromise === processPromise) this.processPromise = undefined; },
+		);
+		return await waitForShared(processPromise, signal);
 	}
 
 	private async startProcess(): Promise<ChildProcessWithoutNullStreams> {
-		const child = spawn(this.helperPath, [], { stdio: ["pipe", "pipe", "pipe"] });
+		const child = this.spawnProcess(this.helperPath, [], { stdio: ["pipe", "pipe", "pipe"] });
 		child.stdout.setEncoding("utf8");
 		child.stderr.setEncoding("utf8");
+		child.stderr.resume();
 		child.stdin.setDefaultEncoding("utf8");
 		child.stdout.on("data", (chunk: string) => this.onStdout(chunk));
 		child.on("exit", (code, signalName) => {
@@ -117,6 +116,7 @@ export class LinuxHelperClient {
 		});
 		this.child = child;
 		this.buffer = "";
+		this.bufferBytes = 0;
 		return await new Promise<ChildProcessWithoutNullStreams>((resolve, reject) => {
 			child.once("spawn", () => resolve(child));
 			child.once("error", reject);
@@ -125,11 +125,22 @@ export class LinuxHelperClient {
 
 	private onStdout(chunk: string): void {
 		this.buffer += chunk;
+		this.bufferBytes += Buffer.byteLength(chunk, "utf8");
 		for (;;) {
 			const newline = this.buffer.indexOf("\n");
-			if (newline < 0) return;
-			const line = this.buffer.slice(0, newline).trim();
+			if (newline < 0) {
+				if (this.bufferBytes > MAX_HELPER_LINE_BYTES) this.failHelper(new Error("Linux helper response exceeded the 32 MiB line limit."));
+				return;
+			}
+			const rawLine = this.buffer.slice(0, newline);
+			const rawLineBytes = Buffer.byteLength(rawLine, "utf8");
+			if (rawLineBytes > MAX_HELPER_LINE_BYTES) {
+				this.failHelper(new Error("Linux helper response exceeded the 32 MiB line limit."));
+				return;
+			}
+			const line = rawLine.trim();
 			this.buffer = this.buffer.slice(newline + 1);
+			this.bufferBytes -= rawLineBytes + 1;
 			if (!line) continue;
 			let parsed: any;
 			try { parsed = JSON.parse(line); } catch { continue; }
@@ -149,32 +160,45 @@ export class LinuxHelperClient {
 		}
 	}
 
+	private failHelper(error: Error): void {
+		const child = this.child;
+		this.child = undefined;
+		this.rejectPending(error);
+		if (child && !child.killed) child.kill("SIGTERM");
+	}
+
 	async command<T>(cmd: string, args: Record<string, unknown> = {}, options?: { timeoutMs?: number; signal?: AbortSignal }): Promise<T> {
 		const child = await this.process(options?.signal);
+		if (options?.signal?.aborted) throw new Error("Operation aborted.");
 		const id = randomUUID();
 		const timeoutMs = options?.timeoutMs ?? COMMAND_TIMEOUT_MS;
 		return await new Promise<T>((resolve, reject) => {
+			const signal = options?.signal;
+			let timer: NodeJS.Timeout;
+			const cleanup = () => signal?.removeEventListener("abort", onAbort);
 			const onAbort = () => {
-				this.pending.delete(id);
+				if (!this.pending.delete(id)) return;
 				clearTimeout(timer);
+				cleanup();
 				reject(new Error("Operation aborted."));
 			};
-			const timer = setTimeout(() => {
-				options?.signal?.removeEventListener("abort", onAbort);
+			timer = setTimeout(() => {
+				cleanup();
 				this.pending.delete(id);
 				reject(new Error(`Helper command '${cmd}' timed out after ${timeoutMs}ms.`));
 			}, timeoutMs);
 			this.pending.set(id, {
-				resolve: (value) => { options?.signal?.removeEventListener("abort", onAbort); resolve(value as T); },
-				reject: (error) => { options?.signal?.removeEventListener("abort", onAbort); reject(error); },
+				resolve: (value) => { cleanup(); resolve(value as T); },
+				reject: (error) => { cleanup(); reject(error); },
 				timer,
 			});
-			options?.signal?.addEventListener("abort", onAbort, { once: true });
+			signal?.addEventListener("abort", onAbort, { once: true });
+			if (signal?.aborted) { onAbort(); return; }
 			child.stdin.write(`${JSON.stringify({ protocolVersion: LINUX_HELPER_PROTOCOL_VERSION, id, cmd, args })}\n`, (error) => {
 				if (!error) return;
-				options?.signal?.removeEventListener("abort", onAbort);
 				this.pending.delete(id);
 				clearTimeout(timer);
+				cleanup();
 				reject(error);
 			});
 		});

@@ -259,7 +259,7 @@ function buildOutline(lookId: string, root: OutlineNode): Outline {
 			refToWireRef.set(node.ref, node.wireRef);
 			wireRefToRef.set(node.wireRef, node.ref);
 		}
-		queue.push(...node.children);
+		for (const child of node.children) queue.push(child);
 	}
 	return { lookId, root, nodes, refToWireRef, wireRefToRef };
 }
@@ -420,17 +420,22 @@ function normalizedSearchRole(value: string): string {
 }
 
 function damerauLevenshtein(a: string, b: string): number {
-	const rows = a.length + 1;
-	const cols = b.length + 1;
-	const matrix = Array.from({ length: rows }, (_, i) => Array.from({ length: cols }, (_, j) => i === 0 ? j : j === 0 ? i : 0));
-	for (let i = 1; i < rows; i += 1) {
-		for (let j = 1; j < cols; j += 1) {
+	let previousPrevious: number[] | undefined;
+	let previous = Array.from({ length: b.length + 1 }, (_, index) => index);
+	for (let i = 1; i <= a.length; i += 1) {
+		const current = new Array<number>(b.length + 1);
+		current[0] = i;
+		for (let j = 1; j <= b.length; j += 1) {
 			const cost = a[i - 1] === b[j - 1] ? 0 : 1;
-			matrix[i][j] = Math.min(matrix[i - 1][j] + 1, matrix[i][j - 1] + 1, matrix[i - 1][j - 1] + cost);
-			if (i > 1 && j > 1 && a[i - 1] === b[j - 2] && a[i - 2] === b[j - 1]) matrix[i][j] = Math.min(matrix[i][j], matrix[i - 2][j - 2] + 1);
+			current[j] = Math.min(current[j - 1] + 1, previous[j] + 1, previous[j - 1] + cost);
+			if (i > 1 && j > 1 && a[i - 1] === b[j - 2] && a[i - 2] === b[j - 1]) {
+				current[j] = Math.min(current[j], previousPrevious![j - 2] + 1);
+			}
 		}
+		previousPrevious = previous;
+		previous = current;
 	}
-	return matrix[a.length][b.length];
+	return previous[b.length];
 }
 
 export function rankedTextMatch(values: string[], text: string): { reason: "exact" | "prefix" | "substring" | "fuzzy"; score: number } | undefined {
@@ -442,9 +447,13 @@ export function rankedTextMatch(values: string[], text: string): { reason: "exac
 	if (candidates.some((value) => value.includes(query))) return { reason: "substring", score: 0.9 };
 	let score = 0;
 	for (const value of candidates) {
-		for (const candidate of [value, ...value.split(/\W+/)]) {
+		for (const candidate of new Set([value, ...value.split(/\W+/)])) {
 			if (!candidate || candidate.length > 256) continue;
-			score = Math.max(score, 1 - damerauLevenshtein(query, candidate) / Math.max(query.length, candidate.length));
+			const maxLength = Math.max(query.length, candidate.length);
+			const maxDistance = Math.floor(maxLength * 0.28 + 1e-9);
+			if (Math.abs(query.length - candidate.length) > maxDistance) continue;
+			const distance = damerauLevenshtein(query, candidate);
+			if (distance <= maxDistance) score = Math.max(score, 1 - distance / maxLength);
 		}
 	}
 	return score >= 0.72 ? { reason: "fuzzy", score } : undefined;
@@ -562,7 +571,7 @@ function rebuildIndexes(outline: Outline): void {
 			outline.refToWireRef.set(node.ref, node.wireRef);
 			outline.wireRefToRef.set(node.wireRef, node.ref);
 		}
-		queue.push(...node.children);
+		for (const child of node.children) queue.push(child);
 	}
 }
 
@@ -633,7 +642,8 @@ export function graftScopedOutline(outline: Outline, targetRef: string, scoped: 
 		for (const child of node.children) collect(child);
 	};
 	collect(target);
-	let nextNumber = Math.max(...outline.nodes.map((node) => outlineRefNumber(node.ref)), 0) + 1;
+	let nextNumber = 1;
+	for (const node of outline.nodes) nextNumber = Math.max(nextNumber, outlineRefNumber(node.ref) + 1);
 	const nextRef = () => `@e${nextNumber++}`;
 	const oldChildren = target.children;
 	const used = new Set<OutlineNode>([target]);

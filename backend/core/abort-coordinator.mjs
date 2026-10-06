@@ -35,6 +35,11 @@ export async function runUserAbort(id, deps) {
     let failed = false;
     const captureFailure = (error) => { if (!failed) { failure = error; failed = true; } };
     let messages = [];
+    // Idle reservations need explicit cancellation: native abort emits no agent_end when idle.
+    // Treat persistence failures as cleanup errors, never as a reason to skip the native abort.
+    if (deps.cancelScheduledResume) {
+      try { await deps.cancelScheduledResume(live); } catch (error) { captureFailure(error); }
+    }
     try {
       messages = deps.snapshotMessages(live);
       deps.persistManualAbortedAssistantId(id, finalAssistantIdOfCurrentTurn(messages));

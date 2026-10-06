@@ -19,7 +19,7 @@ import type { FramePoints, HelperActPerformed, HelperActResult, NativeInputDeliv
 import type { PermissionStatus } from "./permissions.ts";
 import { ActiveSessionRegistry, SessionResourceScheduler, SessionStateMap } from "./runtime.ts";
 import { scoreWindow, shouldPreferForegroundModalWindow } from "./root-selection.ts";
-import { SavedStates, type CurrentCapture, type CurrentTarget, type OperationState } from "./state.ts";
+import { SavedStates, terminalDesktopActionResourceKey, type CurrentCapture, type CurrentTarget, type OperationState } from "./state.ts";
 import { changesBetween, renderChanges, stabilizeRefs } from "./view.ts";
 export type { ActParams, EvaluateBrowserParams, ExpandUiParams, ImageMode, InspectUiParams, LaunchBrowserParams, FindParams, MouseButtonName, NavigateBrowserParams, ObserveParams, ObserveTargetParams, ReadTextParams, RootSelector, SearchUiParams, StateTargetParams, UiAction, WaitForParams } from "./contract.ts";
 
@@ -300,6 +300,7 @@ const CURRENT_TARGET_GONE_ERROR =
 
 const COMMAND_TIMEOUT_MS = 15_000;
 const LOOK_TIMEOUT_MS = 33_000;
+const PLATFORM_READY_CACHE_TTL_MS = 2_000;
 
 const ACTION_SETTLE_MS = 280;
 
@@ -578,6 +579,8 @@ async function ensureReady(ctx: ExtensionContext, signal?: AbortSignal): Promise
 	const ownerSessionId = ctx.sessionManager.getSessionId();
 	runtimeState.platformSessions.register(ownerSessionId);
 	const platformState = sessionPlatformState(ownerSessionId);
+	const readyAgeMs = Date.now() - platformState.lastPermissionCheckAt;
+	if (platformState.helperDiagnostics && readyAgeMs >= 0 && readyAgeMs < PLATFORM_READY_CACHE_TTL_MS) return;
 	const ready = await currentPlatformBackend.ensureReady(ctx, platformState, signal);
 	platformState.permissionStatus = ready.permissionStatus;
 	platformState.lastPermissionCheckAt = ready.lastPermissionCheckAt;
@@ -1105,7 +1108,14 @@ async function buildToolResult(
 	const outlineText = useDiff
 		? `\n\nChanges (${transition!.changedNodeCount}, ${base!.stateId} → ${result.capture.stateId}):\n${renderedChanges || "(no element changes)"}\nUse stateId ${result.capture.stateId} for subsequent actions and queries.`
 		: `\n\nOutline (${folded.nodeCount} nodes, stateId ${result.capture.stateId}${transition?.reason ? `, full view: ${transition.reason}` : ""}${folded.truncated ? ", folded output truncated" : ""}):\n${folded.text}`;
-	const fallbackText = fallbackReason ? `\n\n${fallbackReason.message}` : "";
+	const fallbackMessage = fallbackReason
+		? result.look.image?.jpegBase64
+			? fallbackReason.message
+			: imageMode === "always"
+				? "An image was requested explicitly, but the platform helper did not return one."
+				: "The outline could benefit from a look image, but the platform helper did not return one."
+		: undefined;
+	const fallbackText = fallbackMessage ? `\n\n${fallbackMessage}` : "";
 	const deltaText = rootDeltaLines(execution).join("\n");
 	const content: AgentToolResult<ComputerUseDetails>["content"] = [{ type: "text", text: `${summary}${deltaText ? `\n${deltaText}` : ""}${consoleText}${noteText}${outlineText}${fallbackText}` }];
 	if (fallbackReason && result.look.image?.jpegBase64) {
@@ -1924,6 +1934,7 @@ async function terminalDesktopActionResult(
 	const status = targetClosed ? "target_closed" : "post_action_observation_failed";
 	const code = targetClosed ? "target_closed" : "post_action_observation_failed";
 	const message = error instanceof Error ? error.message : String(error);
+	savedStates.delete(baseStateId);
 	clearDesktopOperationState(operationState());
 	const details: TerminalDesktopActionDetails = {
 		tool: "act_ui",
@@ -2330,6 +2341,7 @@ export function reconstructStateFromBranch(ctx: ExtensionContext): void {
 	const references = sessionReferences(ownerSessionId);
 
 	const restoredResources = new Set<string>();
+	const invalidatedResources = new Set<string>();
 	for (const entry of [...ctx.sessionManager.getBranch()].reverse()) {
 		if ((entry as any)?.type !== "message") continue;
 		const message = (entry as any).message;
@@ -2337,6 +2349,11 @@ export function reconstructStateFromBranch(ctx: ExtensionContext): void {
 		if (!AGENT_TOOL_NAMES.has(message.toolName)) continue;
 
 		const rawDetails = message.details as any;
+		const invalidatedResource = terminalDesktopActionResourceKey(rawDetails);
+		if (invalidatedResource) {
+			if (!restoredResources.has(invalidatedResource)) invalidatedResources.add(invalidatedResource);
+			continue;
+		}
 		if (rawDetails?.tool === "find_roots" && Array.isArray(rawDetails.windows)) {
 			for (const window of rawDetails.windows) {
 				if (typeof window?.windowRef !== "string" || !Number.isFinite(window?.pid)) continue;
@@ -2388,7 +2405,7 @@ export function reconstructStateFromBranch(ctx: ExtensionContext): void {
 		};
 
 		const resourceKey = desktopResourceKey(target);
-		if (restoredResources.has(resourceKey)) continue;
+		if (restoredResources.has(resourceKey) || invalidatedResources.has(resourceKey)) continue;
 		const capture: CurrentCapture = {
 			stateId: details.capture.stateId,
 			width: Math.max(1, Math.trunc(toFiniteNumber(details.capture.width, 1))),

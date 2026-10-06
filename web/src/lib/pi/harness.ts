@@ -3968,6 +3968,7 @@ export function sessionToolNames(input: {
         "fetch_content",
         "get_search_content",
         "intercom",
+        "session_resume",
         ...(hasDesktop ? COMPUTER_USE_TOOL_NAMES : []),
         ...(input.subagentPermission === "allow" ? ["subagent"] : []),
         "todowrite",
@@ -11021,6 +11022,11 @@ export async function abortTask(id: string): Promise<TaskSummary> {
     persistManualAbortedAssistantId: (taskId, assistantId) =>
       persistManualAbortedAssistantId(taskId, assistantId),
     abortSession: (live) => live.session.abort(),
+    cancelScheduledResume: async (live) => {
+      const runner = live.session.extensionRunner;
+      const cancelResume = runner?.getCommand("session-resume-cancel");
+      if (cancelResume) await cancelResume.handler("", runner.createCommandContext());
+    },
     snapshotMessages: (live) =>
       snapshotMessages(
         live.session,

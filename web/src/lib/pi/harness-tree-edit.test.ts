@@ -25,7 +25,7 @@ function makeSession() {
     sessionId: "test-session", isStreaming: false, isCompacting: false,
     messages: [], agent: { state: { messages: [] } }, prompt: vi.fn(), abort: vi.fn(), clearQueue: vi.fn(),
     compact: vi.fn(), setThinkingLevel: vi.fn(),
-    extensionRunner: { getCommand: vi.fn<() => { handler: () => void } | undefined>(), createCommandContext: () => ({}) },
+    extensionRunner: { getCommand: vi.fn<(name: string) => { handler: () => void } | undefined>(), createCommandContext: () => ({}) },
     sessionManager: {
       getEntries: () => entries, getBranch: () => entries, getCwd: () => root, getLeafId: () => leaf,
       getEntry: (entryId: string) => entries.find((entry) => entry.id === entryId),
@@ -73,7 +73,8 @@ function seedLoop(status: string) {
 }
 it.each(["paused", "blocked"])("the main stop terminates a live session's %s Goal Loop", async (status) => {
   const { file, loop } = seedLoop(status);
-  session.extensionRunner.getCommand.mockReturnValue({ handler: () => writeFileSync(file, JSON.stringify({ ...loop, status: "stopped" })) });
+  session.extensionRunner.getCommand.mockImplementation((name) => name === "goal-stop"
+    ? { handler: () => writeFileSync(file, JSON.stringify({ ...loop, status: "stopped" })) } : undefined);
   await abortTask(id);
   expect(session.extensionRunner.getCommand).toHaveBeenCalledWith("goal-stop");
   expect(JSON.parse(readFileSync(file, "utf8")).status).toBe("stopped");

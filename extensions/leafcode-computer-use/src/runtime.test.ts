@@ -9,6 +9,8 @@ describe("ActiveSessionRegistry", () => {
 
 		expect(sessions.release("session-a")).toBe(false);
 		expect(sessions.release("session-b")).toBe(true);
+		expect(sessions.release("session-b")).toBe(false);
+		expect(sessions.release("unknown")).toBe(false);
 	});
 });
 

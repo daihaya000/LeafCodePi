@@ -44,6 +44,10 @@ export function PiUpdateSettings() {
   const [hostReachable, setHostReachable] = useState<boolean | null>(null);
   const [busy, setBusy] = useState<PiUpdateMode | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [publishedVersion, setPublishedVersion] = useState<string | null>(null);
+  const [publishedCheckedAt, setPublishedCheckedAt] = useState<number | null>(null);
+  const [checkingPublishedVersion, setCheckingPublishedVersion] = useState(false);
+  const [publishedVersionError, setPublishedVersionError] = useState<string | null>(null);
   const mountedRef = useRef(true);
 
   const load = useCallback(async () => {
@@ -94,6 +98,37 @@ export function PiUpdateSettings() {
     };
   }, [load]);
 
+  const checkPublishedVersion = async () => {
+    if (checkingPublishedVersion) return;
+    setCheckingPublishedVersion(true);
+    setPublishedVersionError(null);
+    try {
+      const res = await fetch("/api/pi/latest-version", {
+        cache: "no-store",
+        signal: AbortSignal.timeout(10_000),
+      });
+      const data = (await res.json().catch(() => ({}))) as {
+        version?: unknown;
+        checkedAt?: unknown;
+        error?: string;
+      };
+      if (!res.ok || typeof data.version !== "string") {
+        throw new Error(data.error || "Piの最新バージョンを取得できませんでした");
+      }
+      if (!mountedRef.current) return;
+      setPublishedVersion(data.version);
+      setPublishedCheckedAt(typeof data.checkedAt === "number" ? data.checkedAt : Date.now());
+    } catch (err) {
+      if (mountedRef.current) {
+        setPublishedVersionError(
+          err instanceof Error ? err.message : "Piの最新バージョンを取得できませんでした",
+        );
+      }
+    } finally {
+      if (mountedRef.current) setCheckingPublishedVersion(false);
+    }
+  };
+
   const reserve = async (mode: PiUpdateMode) => {
     if (busy) return;
     setBusy(mode);
@@ -127,6 +162,36 @@ export function PiUpdateSettings() {
       <p className="mt-1 text-xs text-muted">
         起動時の自動更新は行いません。ここで予約した内容は、次回のトレイホスト再起動時に適用されます。
       </p>
+      <div className="mt-3 flex items-center justify-between gap-3">
+        <div>
+          <p className="text-xs text-muted">配信中の最新バージョン</p>
+          <p className="text-sm">
+            {publishedVersion
+              ? `v${publishedVersion}`
+              : checkingPublishedVersion
+                ? "確認中…"
+                : "未確認"}
+          </p>
+          {publishedCheckedAt !== null && (
+            <p className="text-xs text-muted">最終確認: {formatTime(publishedCheckedAt)}</p>
+          )}
+        </div>
+        <Button
+          type="button"
+          size="sm"
+          variant="secondary"
+          busy={checkingPublishedVersion}
+          disabled={checkingPublishedVersion}
+          onClick={() => void checkPublishedVersion()}
+        >
+          最新バージョンを確認
+        </Button>
+      </div>
+      {publishedVersionError && (
+        <p role="alert" className="mt-2 text-sm text-danger">
+          {publishedVersionError}
+        </p>
+      )}
       {hostReachable === null && (
         <p className="mt-2 text-xs text-muted">ホストの状態を確認しています…</p>
       )}
