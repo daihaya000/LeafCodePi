@@ -4485,13 +4485,23 @@ export const TaskView = memo(function TaskView({
                 loading={modelsLoading}
                 onChange={(value) => {
                   const changeId = ++modelChangeRef.current;
+                  const previous = modelValue;
                   if (value === AUTO_MODEL_VALUE) {
                     if (!autoModelEnabled) return;
                     setModelSelection(AUTO_MODEL_VALUE);
                     writeStoredModel(AUTO_MODEL_VALUE);
+                    // A running Goal Loop re-resolves Auto before each next turn.
+                    if (goalLoopVisible) {
+                      void sendJson(`/api/tasks/${taskId}/goal-loop-auto-model`, { enabled: true }, "PUT").catch((err) => {
+                        if (modelChangeRef.current !== changeId) return;
+                        const fallback = previous === plainTaskModelValue ? "" : previous;
+                        setModelSelection(fallback);
+                        writeStoredModel(fallback);
+                        setError(err instanceof Error ? err.message : "Auto の切替に失敗しました");
+                      });
+                    }
                     return;
                   }
-                  const previous = modelValue;
                   setModelSelection(value);
                   void (async () => {
                     try {

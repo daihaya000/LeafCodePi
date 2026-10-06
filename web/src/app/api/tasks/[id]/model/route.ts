@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { jsonError, setTaskModel } from "@/lib/pi/harness";
 import { forwardTaskModel } from "@/lib/backend-forward";
 import { localRuntimeBlocked } from "@/lib/pi/runtime-ownership";
+import { clearGoalLoopAutoModel } from "@/lib/pi/goal-loop-auto-model";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -22,9 +23,13 @@ export async function POST(
       if (!forwarded.ok) {
         return NextResponse.json({ error: "モデルの変更に失敗しました" }, { status: forwarded.status ?? 502 });
       }
+      clearGoalLoopAutoModel(id);
       return NextResponse.json({ task: forwarded.task });
     }
-    return NextResponse.json({ task: await setTaskModel(id, body.model) });
+    const task = await setTaskModel(id, body.model);
+    // An explicit model replaces the Auto-per-turn choice of a running Goal Loop.
+    clearGoalLoopAutoModel(id);
+    return NextResponse.json({ task });
   } catch (error) {
     const { error: message, status } = jsonError(error);
     return NextResponse.json({ error: message }, { status });

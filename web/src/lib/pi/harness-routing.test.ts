@@ -443,7 +443,8 @@ import { setSetting } from "@/lib/pi/web-settings";
 import { BOT_PROMPT_PREFIX } from "@/lib/pi/messages";
 import { armTaskHangWatch, disarmTaskHangWatch, getTaskHangWatch } from "@/lib/pi/hang-watchdog";
 import { AccountRuntimeManager } from "./account-runtime-manager";
-import { goalLoopStateFile } from "./goal-loop-state";
+import { goalLoopStateFile, readGoalLoopState } from "./goal-loop-state";
+import { clearGoalLoopAutoModel, isGoalLoopAutoModel, setGoalLoopAutoModel } from "./goal-loop-auto-model";
 import { taskRuntimeLeasePath } from "@/lib/task-runtime-lease";
 import { readPermissionGateConfig } from "@/lib/permission-gate-config";
 import {
@@ -457,6 +458,7 @@ import {
   promptTask,
   resetTaskSession,
   requestBotSoulReload,
+  resolveAutoModel,
   resolveProviderFallbackModels,
   setTaskModel,
 } from "./harness";
@@ -1059,11 +1061,83 @@ describe("integrated session routing", () => {
     assert.ok(prepare);
     // A route change replaces the session; the Goal Loop retries on the successor.
     expect(await prepare("turn 2")).toBe(false);
-    const successor = fakePi.sessions.at(-1)?.routingHooks?.prepareGoalLoopTurn as typeof prepare;
+    const successor = fakePi.sessions.at(-1)?.routingHooks?.prepareGoalLoopTurn as
+      | ((prompt: string) => Promise<boolean | "retry">)
+      | undefined;
     assert.ok(successor);
     expect(await successor("turn 2")).toBe(true);
     expect(harness.live.get(task.id)?.session.model?.id).toBe("claude-haiku");
     expect(getTask(task.id)?.modelID).toBe("claude-haiku");
+  });
+
+  it("re-resolves Auto before the next Goal turn once Auto is chosen during a Goal Loop", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "leafcode-pi-goal-loop-auto-model-"));
+    tempDirs.push(dir);
+    process.env.LEAFCODE_PI_DATA_DIR = dir;
+    process.env.PI_CODING_AGENT_DIR = join(dir, "agent");
+    __resetPiAgentDirCacheForTests();
+    const base = { provider: "anthropic", input: ["text"], reasoning: false, thinkingLevelMap: { off: "none" } };
+    const models = [{ ...base, id: "claude-sonnet" }, { ...base, id: "claude-haiku" }];
+    const account = createAccount({ label: "テスト", providers: ["anthropic"] });
+    storeProviderAuth(account.id, process.env.PI_CODING_AGENT_DIR!);
+    installHarness(new Map([[account.id, {
+      ...runtime(account.id),
+      getModels: () => models.map((model) => ({ id: model.id, name: model.id })),
+      getModel: (providerID: string, modelID: string) =>
+        models.find((model) => model.provider === providerID && model.id === modelID),
+      getAvailable: async () => models,
+    } as ReturnType<typeof runtime>]]));
+    await setAccountRoutingMode("anthropic", "integrated");
+    setSetting("auto-optimize", "balanced");
+
+    const goal = "Goal Loop Autoの確認";
+    const decision = await resolveAutoModel({ prompt: goal, hasImages: false, historyMessageCount: 0, mode: "balanced" });
+    assert.ok(decision);
+    const other = models.find((model) => model.id !== decision.modelID)!;
+
+    const project = upsertProject({ name: "demo", rootPath: dir });
+    const task = await createTask({
+      projectId: project.id,
+      prompt: goal,
+      model: `anthropic::${other.id}`,
+      goalLoop: { maxTurns: 3 },
+    });
+    disarmTaskHangWatch(task.id);
+    const harness = (globalThis as Record<string, unknown>)[GLOBAL_KEY] as {
+      live: Map<string, { session: { model?: { id?: string } } }>;
+    };
+    const loop = readGoalLoopState(dir, task.sessionId!);
+    assert.ok(loop);
+
+    // Without the Auto marker the fixed model is kept.
+    const prepare = fakePi.sessions[0]?.routingHooks?.prepareGoalLoopTurn as
+      | ((prompt: string) => Promise<boolean | "retry">)
+      | undefined;
+    assert.ok(prepare);
+    expect(await prepare("turn 2")).toBe(true);
+    expect(getTask(task.id)?.modelID).toBe(other.id);
+    const release = fakePi.sessions[0]!.routingHooks?.releaseGoalLoopTurn as (() => void) | undefined;
+    release?.();
+
+    // A marker from another loop does not apply; the current loop's marker does.
+    expect(setGoalLoopAutoModel(task.id, { createdAt: "other loop" })).toBe(true);
+    expect(isGoalLoopAutoModel(task.id, loop)).toBe(false);
+    expect(setGoalLoopAutoModel(task.id, loop)).toBe(true);
+    expect(isGoalLoopAutoModel(task.id, loop)).toBe(true);
+
+    type PrepareTurn = (prompt: string) => Promise<boolean | "retry">;
+    let current = fakePi.sessions[0]!.routingHooks?.prepareGoalLoopTurn as PrepareTurn;
+    let prepared = await current("turn 3");
+    if (prepared === false) {
+      current = fakePi.sessions.at(-1)?.routingHooks?.prepareGoalLoopTurn as PrepareTurn;
+      prepared = await current("turn 3");
+    }
+    expect(prepared).toBe(true);
+    expect(getTask(task.id)?.modelID).toBe(decision.modelID);
+    expect(harness.live.get(task.id)?.session.model?.id).toBe(decision.modelID);
+
+    clearGoalLoopAutoModel(task.id);
+    expect(isGoalLoopAutoModel(task.id, loop)).toBe(false);
   });
 
   it("releases a prepared Goal turn even when the session is compacting", async () => {

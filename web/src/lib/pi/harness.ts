@@ -321,6 +321,7 @@ import {
 } from "@/lib/pi/question-prompt";
 import { registerWebUiQuestionHandler } from "@/lib/pi/webui-question-bridge";
 import { getSetting } from "@/lib/pi/web-settings";
+import { isGoalLoopAutoModel } from "@/lib/pi/goal-loop-auto-model";
 import { listSubagentRuns } from "@/lib/pi/subagent-runs";
 import { stopRunningSubagentRuns } from "@/lib/pi/stop-subagent-runs";
 import { getCachedUsage, invalidateCachedUsage } from "@/lib/codexbar/cache";
@@ -3452,6 +3453,38 @@ type GoalLoopTurnRoutingContext = {
   isGoalLoopHangAbort?: () => boolean;
 };
 
+/** Re-resolve Auto for the next Goal turn. Failures keep the current model; the loop must not stall. */
+async function resolveGoalLoopAutoModelForTurn(taskId: string, live: LiveRuntime): Promise<void> {
+  try {
+    const task = getTask(taskId);
+    if (!task) return;
+    const loop = readGoalLoopState(
+      live.session.sessionManager.getCwd(),
+      live.session.sessionId,
+    );
+    if (!loop || !isGoalLoopAutoModel(taskId, loop)) return;
+    const { mode, config } = configuredAutoRoute();
+    const sessionFile = live.session.sessionFile ?? task.sessionFile;
+    if (!sessionFile) return;
+    const decision = await resolveAutoModel({
+      prompt: loop.goal,
+      hasImages: false,
+      historyMessageCount: readSessionConversation(sessionFile).length,
+      recentFailure: task.status === "error" || Boolean(task.error),
+      mode,
+      config,
+    });
+    if (!decision) return;
+    // The user may have picked a concrete model while Auto was resolving.
+    if (!isGoalLoopAutoModel(taskId, readGoalLoopState(live.session.sessionManager.getCwd(), live.session.sessionId))) return;
+    await setTaskModel(taskId, autoModelValue(decision), { accountIdExplicit: false });
+    const thinkingLevel = autoVariantToThinkingLevel(decision.variant);
+    if (thinkingLevel) await setTaskThinkingLevel(taskId, thinkingLevel);
+  } catch {
+    // Keep the model chosen so far.
+  }
+}
+
 function registerGoalLoopTurnRouting(taskId: string): (pi: ExtensionAPI) => void {
   return (pi) => {
     // Path extensions register session_start first. Announce synchronously now so
@@ -3513,10 +3546,17 @@ function registerGoalLoopTurnRouting(taskId: string): (pi: ExtensionAPI) => void
         const latestBefore = state().live.get(taskId);
         if (!latestBefore || latestBefore.session.sessionManager !== manager) return false;
         if (isLiveBusyForReplace(latestBefore)) return "retry";
+        // Composer was switched to Auto during the loop: choose the model for this turn now.
+        // The change is deferred into pendingSettings, which prepareLiveForPrompt applies below.
+        await resolveGoalLoopAutoModelForTurn(taskId, latestBefore);
+        if (!ownsRouting()) return false;
+        const autoLatest = state().live.get(taskId);
+        if (!autoLatest || autoLatest.session.sessionManager !== manager) return false;
+        if (isLiveBusyForReplace(autoLatest)) return "retry";
         const after = await prepareLiveForPrompt(
-          latestBefore,
+          autoLatest,
           true,
-          copyPendingLiveSettings(latestBefore.pendingSettings),
+          copyPendingLiveSettings(autoLatest.pendingSettings),
           { deferWorking: true },
         );
         // session.reload() emits session_start on a fresh extension instance.
