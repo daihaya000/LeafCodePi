@@ -133,6 +133,12 @@ pub fn act(args: &Value) -> Result<Value, ProtocolError> {
     }
 }
 
+fn should_click_before_type_text(request: &ParsedActRequest, point: Option<(i32, i32)>) -> bool {
+    request.action == "typeText"
+        && point.is_some()
+        && request.params.get("preserveFocus").and_then(Value::as_bool) != Some(true)
+}
+
 fn invalid(message: impl Into<String>) -> ProtocolError {
     ProtocolError::new(message.into(), ErrorCode::InvalidRequest)
 }
@@ -202,6 +208,11 @@ mod native {
                 ok("unknown", grounding, "hid")
             }
             "typeText" => {
+                if should_click_before_type_text(request, point) {
+                    if let Some((x, y)) = point {
+                        click(x, y, "left")?;
+                    }
+                }
                 send_text(
                     request
                         .params
@@ -497,5 +508,19 @@ mod tests {
                 "{action} must not report worked without verification"
             );
         }
+    }
+
+    #[test]
+    fn targeted_type_text_clicks_its_point_but_current_focus_is_preserved() {
+        let targeted = parse_act_request(&json!({
+            "lookId":"look_1","action":"typeText","target":{"x":10,"y":20},"params":{"text":"abc"}
+        })).unwrap();
+        assert!(should_click_before_type_text(&targeted, Some((10, 20))));
+        assert!(!should_click_before_type_text(&targeted, None));
+
+        let focused = parse_act_request(&json!({
+            "lookId":"look_1","action":"typeText","target":{"x":10,"y":20},"params":{"text":"abc","preserveFocus":true}
+        })).unwrap();
+        assert!(!should_click_before_type_text(&focused, Some((10, 20))));
     }
 }

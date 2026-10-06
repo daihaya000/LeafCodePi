@@ -110,7 +110,7 @@ const actTool = defineTool({
 	label: "Act",
 	description: "Perform one or more precisely targeted checked actions and return the successor state.",
 	promptSnippet: "Pass dependent click/type steps together and use expect for observable completion.",
-	promptGuidelines: ["After clicking an editable region, omit ref from typeText/keypress so input follows the established focus."],
+	promptGuidelines: ["In image-bearing states, after clicking an editable region, omit ref from typeText/keypress so input follows the established focus.", "In outline-only or headless states, use setText directly with an editable @e ref instead of coordinate-based click/typeText.", "Linux physical typeText supports printable ASCII only; for non-ASCII text, use setText with an editable @e ref (setText replaces the field value)."],
 	parameters: Type.Object({ stateId, expect: Type.Optional(Type.Object(conditionProperties)), actions: Type.Array(uiAction, { minItems: 1, maxItems: 20 }) }),
 	execute: executeAct,
 });

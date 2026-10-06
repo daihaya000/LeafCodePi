@@ -161,7 +161,10 @@ export class CdpTab {
 	}
 
 	async typeIntoBackendNode(backendNodeId: number, text: string, replace: boolean): Promise<void> {
-		await this.withBackendNode(backendNodeId, "function(text, replace){ this.scrollIntoView({block:'center', inline:'center'}); this.focus(); if (replace) { if ('value' in this) this.value = ''; else this.textContent = ''; } if ('value' in this) this.value += text; else this.textContent = (this.textContent || '') + text; this.dispatchEvent(new InputEvent('input', {bubbles:true, inputType:'insertText', data:text})); this.dispatchEvent(new Event('change', {bubbles:true})); }", [text, replace]);
+		await this.withBackendNode(backendNodeId, "function(){ this.scrollIntoView({block:'center', inline:'center'}); this.focus(); }");
+		if (replace) await this.keypress(process.platform === "darwin" ? ["meta", "a"] : ["control", "a"]);
+		if (text) await this.typeIntoFocused(text);
+		else if (replace) await this.keypress(["Backspace"]);
 	}
 
 	async scrollBy(deltaX: number, deltaY: number, backendNodeId?: number): Promise<void> {
@@ -180,8 +183,11 @@ export class CdpTab {
 		const modifierBits: Record<string, number> = { alt: 1, option: 1, control: 2, ctrl: 2, meta: 4, command: 4, cmd: 4, shift: 8 };
 		const modifiers = keys.reduce((bits, key) => bits | (modifierBits[key.toLowerCase()] ?? 0), 0);
 		for (const key of keys.filter((candidate) => modifierBits[candidate.toLowerCase()] === undefined)) {
-			await this.send("Input.dispatchKeyEvent", { type: "keyDown", key, code: key, text: key.length === 1 && modifiers === 0 ? key : undefined, modifiers });
-			await this.send("Input.dispatchKeyEvent", { type: "keyUp", key, code: key, modifiers });
+			const letter = /^[a-z]$/i.test(key);
+			const code = letter ? `Key${key.toUpperCase()}` : key;
+			const keyboardCode = letter ? key.toUpperCase().charCodeAt(0) : undefined;
+			await this.send("Input.dispatchKeyEvent", { type: "keyDown", key, code, windowsVirtualKeyCode: keyboardCode, text: key.length === 1 && modifiers === 0 ? key : undefined, modifiers });
+			await this.send("Input.dispatchKeyEvent", { type: "keyUp", key, code, windowsVirtualKeyCode: keyboardCode, modifiers });
 		}
 	}
 

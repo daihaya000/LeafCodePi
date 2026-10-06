@@ -6,7 +6,7 @@ import net from "node:net";
 import os from "node:os";
 import path from "node:path";
 import type { AgentToolResult, AgentToolUpdateCallback, ExtensionContext } from "@earendil-works/pi-coding-agent";
-import { canRetryInForeground, outcomeAfterCheck, outcomeAfterObservedValues, prepareAction, type ActionState, type PreparedAction } from "./actions.ts";
+import { canRetryInForeground, outcomeAfterCheck, outcomeAfterObservedValues, prepareAction, updateActionFocus, type ActionState, type PreparedAction } from "./actions.ts";
 import { cdpClickForContext, cdpDragForContext, cdpEvaluateForContext, cdpKeypressForContext, cdpMouseForContext, cdpNavigateContext, cdpScrollForContext, cdpSnapshotForContext, cdpTabForWindow, cdpTypeFocusedForContext, cdpTypeForContext, disconnectCdp, listCdpPageContexts, setCdpSessionIdProvider, setCdpSessionPort, type CdpConsoleEntry, type CdpPageSnapshot } from "./cdp.ts";
 import { getComputerUseConfig, isBrowserUseEnabled, isHeadlessMode, loadComputerUseConfig } from "./config.ts";
 import { noteAfterAct, noteFromLook, noteRegionKeyForRef, renderNote, type WindowNote } from "./note.ts";
@@ -1802,6 +1802,7 @@ function prepareUiAction(action: UiAction, state: ActionState, look: LookRespons
 	return prepareAction(action, state, {
 		headless,
 		image: look.image,
+		supportsUnicodeTextInput: currentPlatformBackend.name !== "linux",
 		node: outlineNodeByRef,
 		center: outlineNodeCenter,
 		validatePoint: (x, y, label) => ensurePointIsInLookImage(x, y, look, label),
@@ -1815,9 +1816,7 @@ async function dispatchUiAction(action: UiAction, target: ResolvedTarget, look: 
 		return executionTrace("wait", "stealth", { outcome: "worked" });
 	}
 	const trace = await helperAct(target, prepared, headless, signal);
-	if (!headless && (prepared.establishesFocus || (prepared.action === "click" && "x" in prepared.target))) {
-		state.currentFocus = true;
-	}
+	if (!headless) updateActionFocus(action, prepared, state, outlineNodeByRef);
 	return trace;
 }
 
