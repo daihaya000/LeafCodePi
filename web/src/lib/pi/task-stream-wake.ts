@@ -5,7 +5,7 @@
  * window), and a continuous stream then wakes at most once per `intervalMs`, always followed by a
  * trailing wake so the last tokens are never left for the next poll.
  */
-export const TASK_STREAM_WAKE_MS = 200;
+export const TASK_STREAM_WAKE_MS = 300;
 
 type Timer = ReturnType<typeof setTimeout>;
 
