@@ -381,6 +381,28 @@ describe("messageEntryById", () => {
     };
   }
 
+  it("uses the SDK entry index without copying or scanning the full history", () => {
+    let lookups = 0;
+    const entry = { type: "message", id: "indexed", message: { role: "user", content: "hello" } };
+    const session = { sessionManager: {
+      getEntry: (id: string) => { lookups += 1; return id === entry.id ? entry : undefined; },
+      getEntries: () => { throw new Error("full-history copy must not be used"); },
+    } };
+    assert.equal(messageEntryById(session as never, "indexed")?.id, "indexed");
+    assert.equal(messageEntryById(session as never, "missing"), null);
+    assert.equal(lookups, 2);
+  });
+
+  it("resolves legacy ids from the active branch without copying full history", () => {
+    const entry = { type: "message", id: "active", message: { role: "user", content: "hello" } };
+    const session = { sessionManager: {
+      getEntry: () => undefined,
+      getBranch: () => [entry],
+      getEntries: () => { throw new Error("full-history copy must not be used"); },
+    } };
+    assert.equal(messageEntryById(session as never, "msg-0")?.id, "active");
+  });
+
   it("finds the session entry by entry id (UiMessage.id carries the entry id)", () => {
     const session = mockEntries([
       { type: "message", id: "e1", message: { role: "user", content: "hello" } },
