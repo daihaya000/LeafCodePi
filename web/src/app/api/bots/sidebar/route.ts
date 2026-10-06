@@ -1,4 +1,5 @@
-import { NextResponse } from "next/server";
+import { NextRequest } from "next/server";
+import { etagJsonResponse } from "@/lib/etag-json";
 import { botTaskId, listBots } from "@/lib/bots";
 import { listRooms } from "@/lib/rooms";
 import { getTask, listTasks } from "@/lib/store";
@@ -22,7 +23,7 @@ function safeIso(createdAt: number | undefined): string | null {
   return Number.isFinite(at) ? new Date(at).toISOString() : null;
 }
 
-export async function GET() {
+export async function GET(req?: NextRequest) {
   const counts = new Map<string, number>();
   for (const task of listTasks()) {
     const botId = task.botId ?? task.supervisorBotId;
@@ -61,5 +62,5 @@ export async function GET() {
       lastMessageAt: message ? safeIso(message.createdAt) : null,
     };
   });
-  return NextResponse.json({ bots: botPreviews, rooms });
+  return etagJsonResponse(req, { bots: botPreviews, rooms });
 }
