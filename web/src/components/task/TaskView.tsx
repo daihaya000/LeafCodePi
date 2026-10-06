@@ -1323,6 +1323,7 @@ export const TaskView = memo(function TaskView({
         epoch: String(Date.now()),
         delta: "1",
         streamDeltas: document.hidden ? "0" : "1",
+        streamMessages: document.hidden ? "0" : "1",
       });
       if (
         cachedSession &&
@@ -1381,6 +1382,12 @@ export const TaskView = memo(function TaskView({
         } catch {
           setError("イベントデータの解析に失敗しました");
           return;
+        }
+        if (document.hidden && payload.eventType !== "agent_settled") {
+          payload.messages = undefined;
+          payload.messageHistory = undefined;
+          payload.messagesDelta = undefined;
+          payload.historyReset = false;
         }
         const snapshotTask = payload.task;
         const snapshotTaskWithSuggestion = snapshotTask as

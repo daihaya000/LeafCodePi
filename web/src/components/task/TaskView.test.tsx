@@ -684,13 +684,23 @@ it("skips hidden-page deltas and resyncs the latest snapshot when visible", asyn
     render(<TaskView taskId={task.id} mdUp />);
     await waitFor(() => expect(TestEventSource.sources).toHaveLength(1));
     expect(TestEventSource.sources[0]!.url).toContain("streamDeltas=1");
+    expect(TestEventSource.sources[0]!.url).toContain("streamMessages=1");
     Object.defineProperty(document, "hidden", { configurable: true, value: true });
     act(() => document.dispatchEvent(new Event("visibilitychange")));
     await waitFor(() => expect(TestEventSource.sources).toHaveLength(2));
     const hiddenSource = TestEventSource.sources[1]!;
     expect(hiddenSource.url).toContain("streamDeltas=0");
+    expect(hiddenSource.url).toContain("streamMessages=0");
     await act(async () => {
       hiddenSource.dispatchEvent(new MessageEvent("delta", { data: JSON.stringify({ message }) }));
+      hiddenSource.dispatchEvent(new MessageEvent("snapshot", {
+        data: JSON.stringify({
+          eventType: "remote_poll",
+          task: { ...task, status: "working", isStreaming: true },
+          messages: [message],
+          isStreaming: true,
+        }),
+      }));
       await Promise.resolve();
     });
     expect(screen.queryByText("latest hidden output")).toBeNull();
@@ -699,6 +709,7 @@ it("skips hidden-page deltas and resyncs the latest snapshot when visible", asyn
     act(() => document.dispatchEvent(new Event("visibilitychange")));
     await waitFor(() => expect(TestEventSource.sources).toHaveLength(3));
     expect(TestEventSource.sources[2]!.url).toContain("streamDeltas=1");
+    expect(TestEventSource.sources[2]!.url).toContain("streamMessages=1");
     await act(async () => {
       TestEventSource.sources[2]!.dispatchEvent(new MessageEvent("snapshot", {
         data: JSON.stringify({

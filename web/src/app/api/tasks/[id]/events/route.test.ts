@@ -254,19 +254,26 @@ describe("/api/tasks/[id]/events", () => {
       return vi.fn();
     });
     const response = await GET(
-      new NextRequest("http://127.0.0.1:3010/api/tasks/task-1/events?streamDeltas=0"),
+      new NextRequest("http://127.0.0.1:3010/api/tasks/task-1/events?streamDeltas=0&streamMessages=0"),
       { params: Promise.resolve({ id: "task-1" }) },
     );
     const reader = response.body!.getReader();
-    await readChunk(reader); // bootstrap
-    await readChunk(reader); // ready
+    const bootstrapPayload = eventData(await readChunk(reader));
+    expect(bootstrapPayload).not.toHaveProperty("messages");
+    const readyPayload = eventData(await readChunk(reader));
+    expect(readyPayload).not.toHaveProperty("messages");
+    expect(mocks.getTaskDetail).toHaveBeenCalledWith("task-1", expect.objectContaining({ includeMessages: false }));
 
     listener({ type: "delta", message: { id: "high-frequency", role: "assistant", createdAt: 2, parts: [] } });
-    listener({ type: "snapshot", eventType: "permission_request", permissionRequest: { requestId: "req-1" } });
+    listener({
+      type: "snapshot", eventType: "permission_request", permissionRequest: { requestId: "req-1" },
+      messages: [{ id: "hidden-history", role: "assistant", createdAt: 2, parts: [] }],
+    });
     const controlChunk = await readChunk(reader);
     expect(controlChunk).toContain("event: snapshot\n");
     expect(eventData(controlChunk).eventType).toBe("permission_request");
     expect(eventData(controlChunk).permissionRequest).toEqual({ requestId: "req-1" });
+    expect(eventData(controlChunk)).not.toHaveProperty("messages");
     await reader.cancel();
   });
 

@@ -32,6 +32,17 @@ const TASK_SSE_DETAIL_TIMEOUT_MS = 30_000;
 const REMOTE_TASK_POLL_BASE_MS = 2_000;
 const REMOTE_TASK_POLL_MAX_MS = 10_000;
 
+function omitTaskMessagePayload(payload: Record<string, unknown>): Record<string, unknown> {
+  if (payload.eventType === "agent_settled") return payload;
+  const result = { ...payload };
+  delete result.message;
+  delete result.messages;
+  delete result.messagesDelta;
+  delete result.messageHistory;
+  delete result.historyReset;
+  return result;
+}
+
 /**
  * Change key for the foreign-owner poll. Task writes bump `updatedAt`, and the
  * message count plus last message id cover sub-millisecond appends, so an
@@ -76,6 +87,7 @@ export async function GET(
   const perfRequested = req.nextUrl.searchParams.get("perf") === "1";
   const messageDelta = req.nextUrl.searchParams.get("delta") === "1";
   const streamDeltas = req.nextUrl.searchParams.get("streamDeltas") !== "0";
+  const streamMessages = req.nextUrl.searchParams.get("streamMessages") !== "0";
   const serverTimings: { phase: string; durationMs: number }[] = [];
   const transportTimings: { phase: string; durationMs: number }[] = [];
   const reportTiming = perfRequested
@@ -116,7 +128,7 @@ export async function GET(
         // After the cutover the Backend owns the session: this process must not subscribe to (or open)
         // a session it does not own, so the stream is built from the Backend's detail and polled.
         if (localRuntimeBlocked()) {
-          const backendStream = await startBackendTaskStream({ id, sse, messageDelta, streamDeltas });
+          const backendStream = await startBackendTaskStream({ id, sse, messageDelta, streamDeltas, streamMessages });
           if (!backendStream.ok) {
             sse.send("error", {
               error: backendStream.reason === "not-found" ? "タスクが見つかりません" : "Backendから取得できません",
@@ -134,8 +146,9 @@ export async function GET(
           ? performance.now() - bootstrapStartedAt
           : 0;
         unsubscribe = subscribeTask(id, (payload) => {
-          const safePayload = pageTaskSnapshotPayload(payload, readHistoryPageSize());
-          if (!streamDeltas && safePayload.type === "delta") return;
+          if (!streamDeltas && payload.type === "delta") return;
+          const sourcePayload = streamMessages ? payload : omitTaskMessagePayload(payload);
+          const safePayload = pageTaskSnapshotPayload(sourcePayload, readHistoryPageSize());
           if (!ready) {
             // History snapshots still coalesce, but control events (permission,
             // hang retry, errors) must survive until the ready snapshot flushes.
@@ -150,7 +163,7 @@ export async function GET(
           unsubscribe();
           return;
         }
-        sse.send("snapshot", {
+        const bootstrapPayload = {
           type: "snapshot",
           task: bootstrap,
           messages: bootstrap.messages,
@@ -162,7 +175,8 @@ export async function GET(
           hangRetryCount: bootstrap.hangRetryCount ?? 0,
           revertLeafId: bootstrap.revertLeafId ?? null,
           eventType: "bootstrap",
-        });
+        };
+        sse.send("snapshot", streamMessages ? bootstrapPayload : omitTaskMessagePayload(bootstrapPayload));
         if (sse.closed) return;
         const hasCacheCandidate = Boolean(cachedTaskUpdatedAt && cachedSessionId);
         // A matching idle cache can render while cold Pi setup finishes. Keep
@@ -192,7 +206,7 @@ export async function GET(
           });
         }
         let detail = await getTaskDetailForReady(id, {
-          ...(hasCacheCandidate && !cachedSilentResumeCandidate
+          ...(!streamMessages || (hasCacheCandidate && !cachedSilentResumeCandidate)
             ? { includeMessages: false }
             : {}),
           ...(reportTiming ? { onTiming: reportTiming } : {}),
@@ -219,12 +233,14 @@ export async function GET(
           // correctness; stable idle cache hits keep the expensive projection
           // out of the ready path.
           detail = reportTiming
-            ? await getTaskDetailForReady(id, { onTiming: reportTiming })
-            : await getTaskDetailForReady(id);
+            ? await getTaskDetailForReady(id, { ...(!streamMessages ? { includeMessages: false } : {}), onTiming: reportTiming })
+            : await getTaskDetailForReady(id, !streamMessages ? { includeMessages: false } : undefined);
           if (sse.closed) return;
           canReuseCachedMessages = matchesCachedRevision(detail);
         }
-        const messagePage = pageTaskMessages(detail.messages, undefined, readHistoryPageSize());
+        const messagePage = streamMessages
+          ? pageTaskMessages(detail.messages, undefined, readHistoryPageSize())
+          : undefined;
         const taskSummary = { ...detail };
         for (const key of [
           "messages",
@@ -241,12 +257,14 @@ export async function GET(
         ]) {
           delete (taskSummary as Record<string, unknown>)[key];
         }
-        sse.send("snapshot", {
+        const readyPayload = {
           type: "snapshot",
           task: taskSummary,
           ...(canReuseCachedMessages
             ? { messagesReused: true }
-            : { messages: messagePage.messages, messageHistory: messagePage.messageHistory }),
+            : messagePage
+              ? { messages: messagePage.messages, messageHistory: messagePage.messageHistory }
+              : {}),
           ...(hasCacheCandidate && !canReuseCachedMessages ? { historyReset: true } : {}),
           ...(perfRequested ? { serverTiming: serverTimings } : {}),
           isStreaming: detail.isStreaming,
@@ -263,7 +281,8 @@ export async function GET(
           hangRetryCount: detail.hangRetryCount ?? 0,
           revertLeafId: detail.revertLeafId ?? null,
           eventType: "ready",
-        });
+        };
+        sse.send("snapshot", streamMessages ? readyPayload : omitTaskMessagePayload(readyPayload));
         if (perfRequested) {
           sse.send("perf", {
             type: "perf",
@@ -319,6 +338,7 @@ export async function GET(
               }
               const detail = await getTaskDetailBounded(id, {
                 offline: true,
+                ...(!streamMessages ? { includeMessages: false } : {}),
                 timeoutMs: 10_000,
               });
               if (writer.closed) return;
@@ -338,10 +358,12 @@ export async function GET(
               ]) {
                 delete (taskSummary as Record<string, unknown>)[key];
               }
-              const messagePage = pageTaskMessages(detail.messages, undefined, readHistoryPageSize());
+              const messagePage = streamMessages
+                ? pageTaskMessages(detail.messages, undefined, readHistoryPageSize())
+                : undefined;
               // Keep active foreign tasks responsive, then back off unchanged details up to
               // 10s. Skip byte-identical snapshots so idle remote sessions cost fewer reads and no SSE traffic.
-              const signature = remotePollSignature(taskSummary, detail, messagePage.messages.length);
+              const signature = remotePollSignature(taskSummary, detail, messagePage?.messages.length ?? detail.messages.length);
               if (signature !== lastRemoteSignature) {
                 lastRemoteSignature = signature;
                 unchangedRemotePolls = 0;
@@ -350,8 +372,7 @@ export async function GET(
                 writer.send("snapshot", {
                   type: "snapshot",
                   task: taskSummary,
-                  messages: messagePage.messages,
-                  messageHistory: messagePage.messageHistory,
+                  ...(messagePage ? { messages: messagePage.messages, messageHistory: messagePage.messageHistory } : {}),
                   isStreaming: detail.isStreaming,
                   isCompacting: detail.isCompacting,
                   contextUsage: detail.contextUsage,

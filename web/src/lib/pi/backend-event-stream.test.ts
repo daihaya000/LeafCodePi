@@ -48,6 +48,8 @@ async function start(
     subscribeDirty?: (taskId: string, listener: (payload?: { taskId: string; reason?: string; delta?: Record<string, unknown> }) => void) => () => void;
     dirtyConnected?: () => boolean;
     streamDeltas?: boolean;
+    streamMessages?: boolean;
+    messageDelta?: boolean;
   } = {},
 ) {
   const stream = await startBackendTaskStream({
@@ -60,6 +62,8 @@ async function start(
     subscribeDirty: options.subscribeDirty ?? (() => () => {}),
     dirtyConnected: options.dirtyConnected ?? (() => true),
     streamDeltas: options.streamDeltas,
+    streamMessages: options.streamMessages,
+    messageDelta: options.messageDelta,
   });
   if (!stream.ok) throw new Error(stream.reason);
   return stream;
@@ -304,11 +308,16 @@ describe("Backend task stream polling", () => {
   it("suppresses direct stream wakes for a background client while keeping the safety poll", async () => {
     let wake: ((payload?: { taskId: string; reason?: string; delta?: Record<string, unknown> }) => void) | undefined;
     const sse = sink();
-    mocks.forwardTaskDetail.mockResolvedValue(result(0, { status: "working", isStreaming: true }));
+    mocks.forwardTaskDetail.mockResolvedValue(result(0, {
+      status: "working", isStreaming: true,
+      messages: [{ id: "existing", role: "assistant", parts: [] }],
+    }));
     const stream = await start(sse, {
       idleIntervalMs: 30_000,
       dirtyIdleIntervalMs: 30_000,
       streamDeltas: false,
+      streamMessages: false,
+      messageDelta: true,
       subscribeDirty: (_id, listener) => { wake = listener; return () => {}; },
     });
     wake?.({
@@ -318,9 +327,14 @@ describe("Backend task stream polling", () => {
     });
     expect(sse.send).not.toHaveBeenCalledWith("delta", expect.anything());
     expect(mocks.forwardTaskDetail).toHaveBeenCalledTimes(1);
+    expect(mocks.forwardTaskDetail).toHaveBeenNthCalledWith(1, "task-1", { messages: "omit" });
+    expect(sse.send.mock.calls.filter(([event]) => event === "snapshot").every(([, payload]) => !("messages" in (payload as Record<string, unknown>)))).toBe(true);
 
+    mocks.forwardTaskDetail.mockResolvedValue(result(1, { status: "working", isStreaming: true, messages: [] }));
     await vi.advanceTimersByTimeAsync(2_000);
     expect(mocks.forwardTaskDetail).toHaveBeenCalledTimes(2);
+    expect(mocks.forwardTaskDetail).toHaveBeenNthCalledWith(2, "task-1", { messages: "omit" });
+    expect(sse.send.mock.calls.filter(([event]) => event === "snapshot").every(([, payload]) => !("messages" in (payload as Record<string, unknown>)))).toBe(true);
     stream.stop();
   });
 

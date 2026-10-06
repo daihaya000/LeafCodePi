@@ -173,15 +173,15 @@ export function backendTaskSnapshot(
   detail: Record<string, unknown> | null,
   pending: { permissionRequest: unknown; questionRequest: unknown },
   extra: Record<string, unknown> = {},
+  streamMessages = true,
 ): Record<string, unknown> {
   const summary: Record<string, unknown> = { ...(detail ?? {}) };
   for (const key of DETAIL_ONLY_FIELDS) delete summary[key];
-  const page = pageTaskDetailMessages(detail, undefined, readHistoryPageSize());
+  const page = streamMessages ? pageTaskDetailMessages(detail, undefined, readHistoryPageSize()) : undefined;
   return {
     type: "snapshot",
     task: summary,
-    messages: page.messages,
-    messageHistory: page.messageHistory,
+    ...(page ? { messages: page.messages, messageHistory: page.messageHistory } : {}),
     isStreaming: detail?.isStreaming ?? false,
     isCompacting: detail?.isCompacting ?? false,
     contextUsage: detail?.contextUsage,
@@ -223,6 +223,7 @@ export async function startBackendTaskStream({
   dirtyConnected = isBackendTaskDirtyConnected,
   messageDelta = false,
   streamDeltas = true,
+  streamMessages = true,
 }: {
   id: string;
   sse: BackendEventSink;
@@ -242,8 +243,10 @@ export async function startBackendTaskStream({
   messageDelta?: boolean;
   /** Whether the client accepts high-frequency direct stream wakes; snapshot polling remains active. */
   streamDeltas?: boolean;
+  /** Whether snapshots include transcript pages; false keeps only state during hidden-tab connections. */
+  streamMessages?: boolean;
 }): Promise<{ ok: true; stop: () => void } | { ok: false; reason: string }> {
-  const [detail, pending] = await readBackendSnapshot(id, "page");
+  const [detail, pending] = await readBackendSnapshot(id, streamMessages ? "page" : "omit");
   if (!detail.ok) return { ok: false, reason: detail.reason };
   let stopped = false;
   let busy = false;
@@ -252,7 +255,7 @@ export async function startBackendTaskStream({
   let timer: ReturnType<typeof setTimeout> | undefined;
   let wake: (() => void) | undefined;
   let dirtyAttached = false;
-  let cachedPage = cachePageFromDetail(detail.detail);
+  let cachedPage = streamMessages ? cachePageFromDetail(detail.detail) : undefined;
   let lastStreaming = detail.detail?.isStreaming === true || detail.detail?.isCompacting === true;
   /** Accepted prompt / running turn: poll at the short interval even before the stream opens. */
   const isWorking = (current: Record<string, unknown> | null | undefined) =>
@@ -290,6 +293,15 @@ export async function startBackendTaskStream({
   /** Last page actually delivered on this connection; the base for message deltas. */
   let lastPage: SentMessagePage | undefined;
   const sendWithMessageDelta = (snapshot: Record<string, unknown>) => {
+    if (!streamMessages) {
+      const serialized = JSON.stringify(snapshot);
+      if (serialized === lastSnapshot) return;
+      if (sse.sendSerialized) sse.sendSerialized("snapshot", serialized);
+      else sse.send("snapshot", snapshot);
+      lastSnapshot = serialized;
+      lastPage = undefined;
+      return;
+    }
     const messages = Array.isArray(snapshot.messages) ? snapshot.messages as Array<{ id?: unknown }> : [];
     const rest: Record<string, unknown> = { ...snapshot };
     delete rest.messages;
@@ -316,7 +328,7 @@ export async function startBackendTaskStream({
   };
   const send = (current: Record<string, unknown> | null, requests: BackendSnapshotRead[1]) => {
     if (stopped || sse.closed) return;
-    const snapshot = backendTaskSnapshot(current, resolvePending(requests), extraFields());
+    const snapshot = backendTaskSnapshot(current, resolvePending(requests), extraFields(), streamMessages);
     if (messageDelta) {
       sendWithMessageDelta(snapshot);
       lastStreaming = current?.isStreaming === true || current?.isCompacting === true;
@@ -334,10 +346,11 @@ export async function startBackendTaskStream({
     lastWorking = isWorking(current);
   };
   const readNext = async (): Promise<{ detail: Record<string, unknown> | null; pending: BackendSnapshotRead[1] } | null> => {
-    const mode: DetailMessages = lastStreaming || forcePage || !cachedPage ? "page" : "omit";
+    const mode: DetailMessages = streamMessages && (lastStreaming || forcePage || !cachedPage) ? "page" : "omit";
     forcePage = false;
     const [next, requests] = await readBackendSnapshot(id, mode);
     if (stopped || sse.closed || !next.ok) return null;
+    if (!streamMessages) return { detail: next.detail, pending: requests };
     if (mode === "page") {
       cachedPage = cachePageFromDetail(next.detail) ?? cachedPage;
       return { detail: next.detail, pending: requests };
