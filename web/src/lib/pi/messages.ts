@@ -408,6 +408,14 @@ export function goalLoopUiPrompt(item: Record<string, unknown>): string | null {
   return prompt.trim() ? prompt : null;
 }
 
+/** Only the labelled display text is public; scheduler instructions stay in model context. */
+function sessionResumeUiPrompt(item: Record<string, unknown>): string | null {
+  if (item.customType !== "leafcode-session-resume-trigger" || item.display !== true) return null;
+  const details = isRecord(item.details) ? item.details : null;
+  const prompt = asString(details?.uiPrompt);
+  return prompt.startsWith("【予約再開】\n") && prompt.length <= 4_100 ? prompt : null;
+}
+
 /** projectPiMessages で独立した UiMessage になる raw（toolResult は assistant へ merge され除外）。 */
 export function piRawMessageProjectsToUi(item: unknown): boolean {
   if (!isRecord(item)) return false;
@@ -418,7 +426,7 @@ export function piRawMessageProjectsToUi(item: unknown): boolean {
     role === "assistant" ||
     role === "bashExecution" ||
     role === "compactionSummary" ||
-    (role === "custom" && goalLoopUiPrompt(item) !== null)
+    (role === "custom" && (goalLoopUiPrompt(item) !== null || sessionResumeUiPrompt(item) !== null))
   );
 }
 
@@ -537,11 +545,14 @@ export function projectPiMessages(raw: unknown[], indexOffset = 0): UiMessage[] 
       if (isGoalLoopTurnMarker(item)) {
         activeGoalLoopTurn = goalLoopTurnFromRaw(item) ?? undefined;
       }
-      const text = goalLoopUiPrompt(item);
+      const resumeText = sessionResumeUiPrompt(item);
+      if (resumeText !== null) activeGoalLoopTurn = undefined;
+      const text = goalLoopUiPrompt(item) ?? resumeText;
       if (text === null) return;
       messages.push({
         id,
-        role: "user",
+        // A self-resume notice is not an editable user request or a new approval.
+        role: resumeText !== null ? "assistant" : "user",
         createdAt,
         parts: [
           { id: `${id}-text`, type: "text", text },

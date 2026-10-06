@@ -12,6 +12,8 @@ export type UserAbortDeps<Live, Message extends MessageLike, Task, Summary> = {
   persistManualAbortedAssistantId: (taskId: string, assistantId: string) => void;
   /** Starts the native abort; the returned promise is awaited last. */
   abortSession: (live: Live) => Promise<unknown>;
+  /** Clears one-shot self-resume reservations, including an idle session. */
+  cancelScheduledResume?: (live: Live) => Promise<unknown>;
   snapshotMessages: (live: Live) => Message[];
   stopGoalLoop: (live: Live) => Promise<unknown>;
   stopSubagentRuns: (live: Live, messages: Message[]) => Promise<unknown>;

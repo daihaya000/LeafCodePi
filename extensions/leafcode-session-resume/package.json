@@ -1,0 +1,13 @@
+{
+  "name": "leafcode-session-resume",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "エージェント自身による自セッションの一回限りの予約再開",
+  "pi": {
+    "extensions": ["index.ts"]
+  },
+  "peerDependencies": {
+    "@earendil-works/pi-coding-agent": "*"
+  }
+}

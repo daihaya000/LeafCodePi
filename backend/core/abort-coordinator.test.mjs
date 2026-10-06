@@ -40,6 +40,24 @@ test("a live stop keeps the exact ordering: native abort before projection and s
   assert.deepEqual(f.persisted, ["", "a"]);
 });
 
+test("a user stop cancels idle self-resume reservations before slow cleanup", async () => {
+  const f = fixture();
+  f.deps.cancelScheduledResume = async () => { f.order.push("resumeCancel"); };
+  await runUserAbort("task", f.deps);
+  assert.ok(f.order.indexOf("abort") < f.order.indexOf("resumeCancel"));
+  assert.ok(f.order.indexOf("resumeCancel") < f.order.indexOf("snapshot"));
+});
+
+test("reservation cancellation failure never skips native abort, child cleanup, or idle", async () => {
+  const f = fixture();
+  f.deps.cancelScheduledResume = async () => { throw new Error("reservation persistence failed"); };
+  await assert.rejects(runUserAbort("task", f.deps), /reservation persistence failed/);
+  assert.ok(f.order.includes("abort"));
+  assert.ok(f.order.includes("goalLoop"));
+  assert.ok(f.order.includes("subagents:0"));
+  assert.deepEqual(f.order.slice(-3), ["idle", "release", "emit"]);
+});
+
 test("the final await lets the SDK abort settle before idle is published", async () => {
   let settle;
   const pending = new Promise((resolve) => { settle = resolve; });

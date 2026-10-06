@@ -16,6 +16,8 @@ describe("sessionToolNames", () => {
     assert.equal(sessionToolNames({ platform: "darwin" }).includes("act_ui"), false);
     assert.ok(linux.includes("tool_search"));
     assert.ok(linux.includes("codemode"));
+    assert.ok(linux.includes("session_resume"));
+    assert.deepEqual(sessionToolNames({ agentTools: ["read", "session_resume"] }), ["read", "session_resume"]);
 
     const windows = sessionToolNames({ platform: "win32" });
     assert.ok(windows.includes("powershell"));
