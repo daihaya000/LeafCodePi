@@ -297,6 +297,8 @@ export async function startBackendTaskStream({
   };
   /** Last page actually delivered on this connection; the base for message deltas. */
   let lastPage: SentMessagePage | undefined;
+  let lastRestJson: string | undefined;
+  let lastDirectMessage: unknown;
   const sendWithMessageDelta = (snapshot: Record<string, unknown>) => {
     if (!streamMessages) {
       const serialized = JSON.stringify(snapshot);
@@ -305,6 +307,7 @@ export async function startBackendTaskStream({
       else sse.send("snapshot", snapshot);
       lastSnapshot = serialized;
       lastPage = undefined;
+      lastRestJson = serialized;
       return;
     }
     const messages = Array.isArray(snapshot.messages) ? snapshot.messages as Array<{ id?: unknown }> : [];
@@ -321,15 +324,44 @@ export async function startBackendTaskStream({
     // Deltas only while a turn streams: idle snapshots are rare and carry the full page, so any row a
     // client replaced from a REST read heals at the end of every turn.
     const live = snapshot.isStreaming === true || snapshot.isCompacting === true;
+    if (!live) lastDirectMessage = undefined;
+    if (live && lastPage && page && lastDirectMessage && typeof lastDirectMessage === "object") {
+      const direct = lastDirectMessage as { id?: unknown };
+      const directId = typeof direct.id === "string" ? direct.id : undefined;
+      const directIndex = directId === undefined ? -1 : page.ids.indexOf(directId);
+      if (directId !== undefined && directIndex >= 0) {
+        if (JSON.stringify(direct) === messageJsons[directIndex]) {
+          const ids = [...lastPage.ids];
+          const jsonById = new Map(lastPage.jsonById);
+          if (!jsonById.has(directId)) {
+            ids.push(directId);
+            while (ids.length > readHistoryPageSize()) {
+              const removed = ids.shift();
+              if (removed) jsonById.delete(removed);
+            }
+          }
+          jsonById.set(directId, messageJsons[directIndex]!);
+          lastPage = { ids, jsonById };
+        }
+        lastDirectMessage = undefined;
+      }
+    }
     const changed = live && lastPage && page ? messagePageDelta(lastPage, page.ids, messageJsons) : undefined;
+    if (live && changed?.length === 0 && restJson === lastRestJson) {
+      // Direct task_stream deltas may already have delivered this exact row and state.
+      lastSnapshot = key;
+      lastPage = page;
+      return;
+    }
     // restJson is a non-empty object (`type` is always set), so its body can follow the messages.
-    const body = changed
+    const body = changed !== undefined
       ? `{"messagesDelta":true,"messages":[${changed.map((index) => messageJsons[index]).join(",")}],${restJson.slice(1)}`
       : `{"messages":[${messageJsons.join(",")}],${restJson.slice(1)}`;
     if (sse.sendSerialized) sse.sendSerialized("snapshot", body);
     else sse.send("snapshot", JSON.parse(body));
     lastSnapshot = key;
     lastPage = page;
+    lastRestJson = restJson;
   };
   const send = (current: Record<string, unknown> | null, requests: BackendSnapshotRead[1]) => {
     if (stopped || sse.closed) return;
@@ -427,7 +459,13 @@ export async function startBackendTaskStream({
       if (payload?.reason === BACKEND_TASK_STREAM_REASON && payload.delta) {
         // The Backend already projected the newest message. Hidden clients can disable this
         // high-frequency path and rely on the independent snapshot poll until they return.
-        if (streamDeltas) sse.send("delta", payload.delta);
+        if (streamDeltas) {
+          sse.send("delta", payload.delta);
+          const message = payload.delta.message;
+          if (messageDelta && streamMessages && message && typeof message === "object" && typeof (message as { id?: unknown }).id === "string") {
+            lastDirectMessage = message;
+          }
+        }
         if (typeof payload.delta.isStreaming === "boolean" || typeof payload.delta.isCompacting === "boolean") {
           lastStreaming = payload.delta.isStreaming === true || payload.delta.isCompacting === true;
         }

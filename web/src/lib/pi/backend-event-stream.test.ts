@@ -346,6 +346,57 @@ describe("Backend task stream polling", () => {
     stream.stop();
   });
 
+  it("does not resend a direct stream message in the next safety snapshot", async () => {
+    let wake: ((payload?: { taskId: string; reason?: string; delta?: Record<string, unknown> }) => void) | undefined;
+    const sse = sink();
+    const message = {
+      id: "m1", role: "assistant", createdAt: 1,
+      parts: [{ id: "p1", type: "text", text: "streamed once" }],
+    };
+    mocks.forwardTaskDetail.mockResolvedValue(result(0, { status: "working", isStreaming: true, messages: [] }));
+    const stream = await start(sse, {
+      intervalMs: 2_000,
+      idleIntervalMs: 30_000,
+      dirtyIdleIntervalMs: 30_000,
+      messageDelta: true,
+      subscribeDirty: (_id, listener) => { wake = listener; return () => {}; },
+    });
+    wake?.({
+      taskId: "task-1",
+      reason: "stream",
+      delta: { type: "delta", message, isStreaming: true },
+    });
+    expect(sse.send).toHaveBeenCalledWith("delta", expect.objectContaining({ message }));
+
+    mocks.forwardTaskDetail.mockResolvedValue(result(1, { status: "working", isStreaming: true, messages: [message] }));
+    await vi.advanceTimersByTimeAsync(2_000);
+    const snapshots = sse.send.mock.calls.filter(([event]) => event === "snapshot");
+    expect(snapshots.at(-1)?.[1]).toMatchObject({ messagesDelta: true, messages: [] });
+    stream.stop();
+  });
+
+  it("still sends a poll row when Backend content is newer than the last direct delta", async () => {
+    let wake: ((payload?: { taskId: string; reason?: string; delta?: Record<string, unknown> }) => void) | undefined;
+    const sse = sink();
+    const previous = { id: "m1", role: "assistant", createdAt: 1, parts: [{ id: "p1", type: "text", text: "old" }] };
+    const streamed = { ...previous, parts: [{ id: "p1", type: "text", text: "partial" }] };
+    const latest = { ...previous, parts: [{ id: "p1", type: "text", text: "latest" }] };
+    mocks.forwardTaskDetail.mockResolvedValue(result(0, { status: "working", isStreaming: true, messages: [previous] }));
+    const stream = await start(sse, {
+      intervalMs: 2_000,
+      idleIntervalMs: 30_000,
+      dirtyIdleIntervalMs: 30_000,
+      messageDelta: true,
+      subscribeDirty: (_id, listener) => { wake = listener; return () => {}; },
+    });
+    wake?.({ taskId: "task-1", reason: "stream", delta: { type: "delta", message: streamed, isStreaming: true } });
+    mocks.forwardTaskDetail.mockResolvedValue(result(1, { status: "working", isStreaming: true, messages: [latest] }));
+    await vi.advanceTimersByTimeAsync(2_000);
+    const snapshots = sse.send.mock.calls.filter(([event]) => event === "snapshot");
+    expect(snapshots.at(-1)?.[1]).toMatchObject({ messagesDelta: true, messages: [latest] });
+    stream.stop();
+  });
+
   it("suppresses direct stream wakes for a background client while keeping the safety poll", async () => {
     let wake: ((payload?: { taskId: string; reason?: string; delta?: Record<string, unknown> }) => void) | undefined;
     const sse = sink();
