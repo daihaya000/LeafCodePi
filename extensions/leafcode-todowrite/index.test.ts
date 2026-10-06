@@ -251,7 +251,7 @@ describe("todowrite omission gate", () => {
     }
   });
 
-  it("unlocks only after registering an in-progress item and stays unlocked after clearing", async () => {
+  it("unlocks only after registering an in-progress item and closes again when the list is cleared", async () => {
     const run = fixture();
     expect(run.callTool("edit")?.block).toBe(true);
 
@@ -259,7 +259,8 @@ describe("todowrite omission gate", () => {
     expect(run.callTool("edit")).toBeUndefined();
 
     await run.writeTodos([]);
-    expect(run.callTool("powershell")).toBeUndefined();
+    expect(run.callTool("powershell")?.block).toBe(true);
+    expect(run.callTool("read")).toBeUndefined();
   });
 
   it("does not unlock a non-empty list without an in-progress item", async () => {
@@ -666,5 +667,96 @@ describe("todowrite model guidance", () => {
     expect(text).toContain("Skip the list for a question, explanation");
     expect(text).toContain("one small self-contained action");
     expect(text).toContain("If the ToDo gate stops a tool call anyway, register the list and retry the call.");
+  });
+});
+
+describe("todowrite enforcement core", () => {
+  const open = [{ content: "実装", status: "in_progress", priority: "high" }];
+  const done = [{ content: "実装", status: "completed", priority: "high" }];
+  const settleEvent = (run: ReturnType<typeof fixture>, outcome = "completed") =>
+    run.emit("agent_before_settle", { outcome }) as { continue?: boolean; entries?: Array<{ content: string }> } | undefined;
+
+  it("closes the gate when every item is completed, but still allows read-only work and the git closing phase", async () => {
+    const run = fixture();
+    await run.writeTodos(open);
+    expect(run.callTool("edit")).toBeUndefined();
+    await run.writeTodos(done);
+    expect(run.callTool("edit")?.reason).toContain("全ToDoが完了済み");
+    expect(run.callTool("read")).toBeUndefined();
+    expect(run.callTool("powershell", { command: "git status --short" })).toBeUndefined();
+    expect(run.callTool("powershell", { command: "git add -- a.ts; git commit -m 'x'" })).toBeUndefined();
+    expect(run.callTool("powershell", { command: "git push --force" })?.block).toBe(true);
+    expect(run.callTool("powershell", { command: "git status; Remove-Item a.ts" })?.block).toBe(true);
+    expect(run.callTool("powershell", { command: "git log $(rm x)" })?.block).toBe(true);
+    expect(run.callTool("powershell", { command: "git log --oneline -3 | Select-Object -First 1" })).toBeUndefined();
+    expect(run.callTool("powershell", { command: "git status | Remove-Item a.ts" })?.block).toBe(true);
+    expect(run.callTool("powershell", { command: "git branch -D main" })?.block).toBe(true);
+    expect(run.callTool("bash", { command: "npm test" })?.block).toBe(true);
+    await run.writeTodos([...done, { content: "次の作業", status: "in_progress", priority: "high" }]);
+    expect(run.callTool("edit")).toBeUndefined();
+  });
+
+  it("forces a continuation when the run settles with unfinished items, at most twice per task", async () => {
+    const run = fixture();
+    await run.writeTodos(open);
+    for (let i = 0; i < 2; i += 1) {
+      const result = settleEvent(run);
+      expect(result?.continue).toBe(true);
+      expect(result?.entries?.[0]?.content).toContain("未完了のToDo");
+    }
+    expect(settleEvent(run)).toBeUndefined();
+    run.emit("input", { source: "interactive", text: "次", streamingBehavior: undefined });
+    await run.writeTodos(open);
+    expect(settleEvent(run)?.continue).toBe(true);
+  });
+
+  it("does not force a continuation for completed, aborted or inactive runs", async () => {
+    const run = fixture();
+    await run.writeTodos(open);
+    expect(settleEvent(run, "aborted")).toBeUndefined();
+    expect(settleEvent(run, "error")).toBeUndefined();
+    const inactive = fixture({ active: false });
+    expect(settleEvent(inactive)).toBeUndefined();
+    const quiet = fixture();
+    expect(settleEvent(quiet)).toBeUndefined();
+  });
+
+  it("requires a review item after file changes before the run may settle", async () => {
+    const run = fixture();
+    await run.writeTodos(open);
+    run.callTool("edit");
+    await run.writeTodos(done);
+    expect(settleEvent(run)?.entries?.[0]?.content).toContain("レビュー");
+    await run.writeTodos([...done, { content: "レビュー・問題修正", status: "completed", priority: "high" }]);
+    expect(settleEvent(run)).toBeUndefined();
+  });
+
+  it("asks for a list when work was stopped and never registered", () => {
+    const run = fixture();
+    expect(run.callTool("edit")?.block).toBe(true);
+    expect(settleEvent(run)?.entries?.[0]?.content).toContain("未起票");
+  });
+
+  it("expires a Jev waiver after the mutation budget and does not ask Jev again", async () => {
+    const judge = installJudge(small);
+    const run = fixture();
+    startTask(run, "この関数は何をしているの？");
+    for (let i = 0; i < 3; i += 1) expect(await run.callToolAsync("edit")).toBeUndefined();
+    expect(judge).toHaveBeenCalledOnce();
+    expect((await run.callToolAsync("edit"))?.block).toBe(true);
+    expect((await run.callToolAsync("powershell"))?.block).toBe(true);
+    expect(judge).toHaveBeenCalledOnce();
+  });
+
+  it("appends the live list to each request only while a list is being worked", async () => {
+    const run = fixture();
+    const messages = [{ role: "user", content: "依頼" }];
+    expect(run.emit("context", { messages })).toBeUndefined();
+    await run.writeTodos(open);
+    const result = run.emit("context", { messages }) as { messages: Array<{ role: string; content: Array<{ text: string }> }> };
+    expect(result.messages).toHaveLength(2);
+    expect(result.messages[1]!.content[0]!.text).toContain("in_progress: 実装");
+    await run.writeTodos(done);
+    expect(run.emit("context", { messages })).toBeUndefined();
   });
 });

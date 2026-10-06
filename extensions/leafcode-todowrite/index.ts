@@ -11,6 +11,17 @@ import { StringEnum } from "@earendil-works/pi-ai";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import { hasJevNoulJudge } from "./jev-bridge.ts";
+import {
+  STOP_CONTINUATION_LIMIT,
+  WAIVER_MUTATION_LIMIT,
+  FILE_CHANGE_TOOLS,
+  auditTask,
+  blockedWhenClosedReason,
+  buildStateNote,
+  buildStopMessage,
+  isClosingShellCommand,
+  isShellTool,
+} from "./enforcement.ts";
 import { normalizeTodos, type TodoItem } from "./state.ts";
 import { clipRequestText, judgeTodoNotNeeded } from "./todo-need.ts";
 export { normalizeTodos } from "./state.ts";
@@ -62,7 +73,18 @@ const SUBSTANTIVE_READ_TOOLS = new Set([
   "get_search_content",
 ]);
 type TodoGateState = {
+  /** A list with an in_progress item was registered during this task. */
   openedThisTask: boolean;
+  /** Admitted side-effect / shell / unclassified calls (the work the list is meant to track). */
+  mutations: number;
+  /** Admitted edit / write calls. A task with these owes a review step. */
+  fileChanges: number;
+  /** Mutating calls admitted while a Jev waiver was active. */
+  waivedMutations: number;
+  /** The waiver ran past its mutation budget: the task outgrew "no list needed" and Jev is not asked again. */
+  waiverExpired: boolean;
+  /** Forced continuations from the end-of-run audit. */
+  stopContinuations: number;
   substantiveCalls: number;
   violationObserved: boolean;
   reminderSent: boolean;
@@ -99,6 +121,11 @@ function asRecord(value: unknown): RecordLike | null {
 function createTodoGateState(): TodoGateState {
   return {
     openedThisTask: false,
+    mutations: 0,
+    fileChanges: 0,
+    waivedMutations: 0,
+    waiverExpired: false,
+    stopContinuations: 0,
     substantiveCalls: 0,
     violationObserved: false,
     reminderSent: false,
@@ -188,6 +215,8 @@ function reconstructState(ctx: ExtensionContext): TodoItem[] {
 export default function (pi: ExtensionAPI): void {
   let todos: TodoItem[] = [];
   let gate = createTodoGateState();
+  // Process-lifetime counters for tuning the enforcement (shown by /todos).
+  const stats = { gateBlocks: 0, closedBlocks: 0, waiverExpiries: 0, forcedContinuations: 0 };
 
   const resetGate = () => {
     gate = createTodoGateState();
@@ -221,25 +250,116 @@ export default function (pi: ExtensionAPI): void {
     gate.waived = false;
     gate.waiver = undefined;
   });
+  const hasInProgress = () => todos.some((todo) => todo.status === "in_progress");
+  // Work the list is meant to track. Counted when a call is admitted, for the end-of-run audit.
+  const admit = (task: TodoGateState, toolName: string, action: TodoGateAction) => {
+    if (action !== "block") return;
+    task.mutations += 1;
+    if (FILE_CHANGE_TOOLS.has(toolName)) task.fileChanges += 1;
+  };
   pi.on("tool_call", (event, ctx) => {
     const task = gate;
-    if (task.openedThisTask || task.waived) return;
     const action = classifyToolForTodoGate(event.toolName, event.input);
     if (action === "allow" || !gateEnabled()) return;
+
+    // State machine: a list opened this task admits work only while an item is in_progress.
+    // Clearing the list or completing every item closes the gate again.
+    if (task.openedThisTask) {
+      if (hasInProgress()) {
+        admit(task, event.toolName, action);
+        return;
+      }
+      if (action === "count") return;
+      const command = asRecord(event.input)?.command;
+      if (isShellTool(event.toolName) && isClosingShellCommand(command)) {
+        admit(task, event.toolName, action);
+        return;
+      }
+      stats.closedBlocks += 1;
+      return { block: true, reason: blockedWhenClosedReason(todos) };
+    }
+
+    // A Jev waiver covers small tasks only: once the task keeps changing things it expires.
+    if (task.waived) {
+      if (action === "count") return;
+      if (task.waivedMutations < WAIVER_MUTATION_LIMIT) {
+        task.waivedMutations += 1;
+        admit(task, event.toolName, action);
+        return;
+      }
+      task.waived = false;
+      task.waiver = undefined;
+      task.waiverExpired = true;
+      stats.waiverExpiries += 1;
+    }
+
     if (action === "count") {
       task.substantiveCalls += 1;
       if (task.substantiveCalls < TODO_GATE_READ_LIMIT) return;
     }
     // Gate operations, not words in the prompt.
     const stop = () => {
-      if (task.openedThisTask || task.waived) return undefined;
+      if (task.openedThisTask || task.waived) {
+        if (!task.openedThisTask) task.waivedMutations += action === "block" ? 1 : 0;
+        admit(task, event.toolName, action);
+        return undefined;
+      }
       task.violationObserved = true;
+      stats.gateBlocks += 1;
       return { block: true, reason: TODO_GATE_REASON };
     };
-    // Without Jev (no host, or an unknown request) this is the conventional synchronous
-    // stop. Otherwise Jev is asked once whether the task needs a ToDo list at all.
-    if (!task.requestText || !hasJevNoulJudge()) return stop();
+    // Without Jev (no host, an unknown request, or an expired waiver) this is the conventional
+    // synchronous stop. Otherwise Jev is asked once whether the task needs a ToDo list at all.
+    if (!task.requestText || task.waiverExpired || !hasJevNoulJudge()) return stop();
     return consultJev(task, ctx.signal).then(stop);
+  });
+  // Last line of defence: the run may not settle while the list is missing or unfinished.
+  // Bounded per task, so a model that cannot comply is still released.
+  // agent_before_settle exists in the host's pi-coding-agent but not in this package's pinned
+  // dev typings, so register it through a minimal local signature.
+  type SettleEvent = { outcome?: "completed" | "aborted" | "error" };
+  const onBeforeSettle = pi.on as unknown as (
+    event: "agent_before_settle",
+    handler: (event: SettleEvent, ctx: ExtensionContext) => unknown,
+  ) => void;
+  onBeforeSettle.call(pi, "agent_before_settle", (event, ctx) => {
+    const task = gate;
+    if (!gateEnabled() || event.outcome !== "completed") return;
+    if (task.stopContinuations >= STOP_CONTINUATION_LIMIT) return;
+    const reasons = auditTask({
+      todos,
+      openedThisTask: task.openedThisTask,
+      violationObserved: task.violationObserved,
+      waived: task.waived,
+      fileChanges: task.fileChanges,
+    });
+    if (reasons.length === 0) return;
+    task.stopContinuations += 1;
+    stats.forcedContinuations += 1;
+    if (ctx.hasUI) ctx.ui.notify("ToDo運用の是正のため作業を継続します。", "warning");
+    return {
+      continue: true,
+      entries: [
+        {
+          type: "custom_message" as const,
+          customType: "leafcode-todowrite-stop",
+          content: buildStopMessage(reasons),
+          display: false,
+        },
+      ],
+    };
+  });
+  // Keeps the live list in front of the model on every request (survives compaction).
+  pi.on("context", (event) => {
+    if (!gateEnabled() || !gate.openedThisTask) return;
+    const note = buildStateNote(todos);
+    if (!note) return;
+    return {
+      messages: [
+        ...event.messages,
+        { role: "user" as const, content: [{ type: "text" as const, text: note }], timestamp: Date.now() },
+      ],
+    };
   });
   pi.on("agent_settled", (_event, ctx) => {
     if (
@@ -315,7 +435,9 @@ export default function (pi: ExtensionAPI): void {
       const text = todos.length
         ? [todoSummary(todos), ...todos.map((todo) => `${todo.status} [${todo.priority}] ${todo.content}`)].join("\n")
         : "ToDo はありません。";
-      ctx.ui.notify(text, "info");
+      const counters =
+        `\n(gate停止 ${stats.gateBlocks} / 完了後停止 ${stats.closedBlocks} / 免除失効 ${stats.waiverExpiries} / 強制継続 ${stats.forcedContinuations})`;
+      ctx.ui.notify(text + counters, "info");
     },
   });
 }
