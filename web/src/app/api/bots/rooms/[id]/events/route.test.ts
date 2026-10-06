@@ -145,6 +145,74 @@ describe("GET /api/bots/rooms/[id]/events", () => {
     await reader.cancel();
   });
 
+  it("reuses unchanged room data and sends safe message deltas with full-snapshot fallback", async () => {
+    vi.useFakeTimers();
+    mocks.localRuntimeBlocked.mockReturnValue(true);
+    let currentRoom = room({ messages: [{
+      id: "m1", role: "assistant", text: "large room transcript ".repeat(300), createdAt: 1,
+    }] });
+    mocks.getRoom.mockImplementation(() => currentRoom);
+    mocks.forwardPendingRequestsByTask
+      .mockResolvedValueOnce({ ok: true, byTask: {} })
+      .mockResolvedValue({
+        ok: true,
+        byTask: { "bot:one:room:r1": { permissionRequest: { id: "p1" }, questionRequest: null } },
+      });
+
+    const response = await GET(request(), params);
+    const reader = response.body!.getReader();
+    const first = await readEvent(reader);
+    expect(first.data.room).toEqual(currentRoom);
+    await vi.advanceTimersByTimeAsync(0);
+    await vi.advanceTimersByTimeAsync(5_000);
+
+    const attention = await readEvent(reader);
+    expect(attention.data).toMatchObject({ roomReused: true, attention: [{ botId: "one" }] });
+    expect(attention.data).not.toHaveProperty("room");
+    expect(new TextEncoder().encode(JSON.stringify(first.data)).byteLength -
+      new TextEncoder().encode(JSON.stringify(attention.data)).byteLength).toBeGreaterThan(4_000);
+
+    currentRoom = {
+      ...currentRoom,
+      updatedAt: "2026-01-01T00:00:02.000Z",
+      messages: [...currentRoom.messages, { id: "m2", role: "assistant", text: "new room state", createdAt: 2 }],
+    };
+    await vi.advanceTimersByTimeAsync(5_000);
+    const changed = await readEvent(reader);
+    expect(changed.data).not.toHaveProperty("room");
+    expect(changed.data.roomMetadata).toMatchObject({ id: "r1", updatedAt: currentRoom.updatedAt });
+    expect(changed.data.roomMessagesDelta).toEqual([currentRoom.messages[1]]);
+    const fullBytes = new TextEncoder().encode(JSON.stringify({
+      type: "snapshot", room: currentRoom, attention: changed.data.attention,
+    })).byteLength;
+    const deltaBytes = new TextEncoder().encode(JSON.stringify(changed.data)).byteLength;
+    expect(fullBytes - deltaBytes).toBeGreaterThan(4_000);
+
+    currentRoom = { ...currentRoom, name: "Renamed", updatedAt: "2026-01-01T00:00:03.000Z" };
+    await vi.advanceTimersByTimeAsync(5_000);
+    const metadataOnly = await readEvent(reader);
+    expect(metadataOnly.data.roomMetadata).toMatchObject({ name: "Renamed" });
+    expect(metadataOnly.data.roomMessagesDelta).toEqual([]);
+
+    currentRoom = {
+      ...currentRoom,
+      updatedAt: "2026-01-01T00:00:04.000Z",
+      messages: currentRoom.messages.map((message, index) => index === 0 ? { ...message, text: `${message.text} continued` } : message),
+    };
+    await vi.advanceTimersByTimeAsync(5_000);
+    const updatedMessage = await readEvent(reader);
+    expect(updatedMessage.data).not.toHaveProperty("room");
+    expect(updatedMessage.data.roomMetadata).toMatchObject({ updatedAt: currentRoom.updatedAt });
+    expect(updatedMessage.data.roomMessagesDelta).toEqual([currentRoom.messages[0]]);
+
+    currentRoom = { ...currentRoom, updatedAt: "2026-01-01T00:00:05.000Z", messages: [...currentRoom.messages].reverse() };
+    await vi.advanceTimersByTimeAsync(5_000);
+    const fallback = await readEvent(reader);
+    expect(fallback.data.room).toEqual(currentRoom);
+    expect(fallback.data).not.toHaveProperty("roomMessagesDelta");
+    await reader.cancel();
+  });
+
   it("emits a disk-fresh room before the pending HTTP round-trip finishes", async () => {
     vi.useFakeTimers();
     mocks.localRuntimeBlocked.mockReturnValue(true);

@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { createMessageReader, writeMessage } from "./framing.ts";
+import { createMessageReader, MAX_FRAME_BYTES, writeMessage } from "./framing.ts";
 
 function framePayload(payload: Buffer): Buffer {
   const header = Buffer.alloc(4);
@@ -111,4 +111,15 @@ test("writeMessage emits frames accepted by createMessageReader", () => {
   reader(Buffer.concat(chunks));
 
   assert.deepEqual(messages, [{ ok: true }]);
+});
+
+test("writeMessage rejects oversized frames before writing them", () => {
+  let writes = 0;
+  const socket = { write: () => { writes += 1; return true; } };
+
+  assert.throws(
+    () => writeMessage(socket as never, { text: "x".repeat(MAX_FRAME_BYTES) }),
+    new RegExp(`Intercom frame length \\d+ exceeds maximum ${MAX_FRAME_BYTES} bytes`),
+  );
+  assert.equal(writes, 0);
 });

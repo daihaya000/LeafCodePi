@@ -63,7 +63,7 @@ function lastLogStatus(messages: readonly UiMessage[], parts: readonly UiPart[])
 }
 
 /** Keep Bot/Code log icons and layout here to prevent drift; callers own grouping and choose which responses count toward usage. */
-export function ActivityLog({ children, renderChildren, header, count, parts, messages = [], statusMessages = messages, active, running = false, outcome, kind }: {
+export function ActivityLog({ children, renderChildren, header, count, parts, messages = [], statusMessages = messages, active, running = false, outcome, kind, revealNonce }: {
   children?: ReactNode;
   /** Defer constructing nested message/tool elements until a large log is opened. */
   renderChildren?: () => ReactNode;
@@ -81,6 +81,8 @@ export function ActivityLog({ children, renderChildren, header, count, parts, me
   /** ツールパーツを持たない委譲実行などの最終状態。 */
   outcome?: "completed" | "error" | "cancelled";
   kind: "bot" | "task";
+  /** Opens this log (and renders every child) each time the value changes: in-session search and bookmarks use it to reveal a message inside a collapsed log. */
+  revealNonce?: number;
 }) {
   const elapsedMs = useToolElapsedMs(parts, active, messages);
   const status = outcome ?? lastLogStatus(statusMessages, parts);
@@ -112,6 +114,12 @@ export function ActivityLog({ children, renderChildren, header, count, parts, me
   useLayoutEffect(() => {
     setOpen(running);
   }, [running]);
+  // 検索・ブックマークのジャンプ先がこのログ内にあるとき、開いて遅延描画分も出す（手動の開閉は次の通知まで維持）。
+  useLayoutEffect(() => {
+    if (revealNonce === undefined) return;
+    setOpen(true);
+    setVisibleChildCount(Number.MAX_SAFE_INTEGER);
+  }, [revealNonce]);
   // 展開中はタイムラインと同じ追従ルール（明示的な上スクロールだけ追従解除）。
   useLayoutEffect(() => {
     const scroller = scrollerRef.current;

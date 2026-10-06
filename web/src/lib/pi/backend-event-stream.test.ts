@@ -527,7 +527,7 @@ describe("Backend task stream polling", () => {
     expect(mocks.forwardTaskDetail.mock.calls).toEqual([["task-1", { messages: "page", limit: 300 }]]);
   });
 
-  it("omits an unchanged task summary in the real SSE frame", async () => {
+  it("omits an unchanged Bot inbox from real SSE frames and resends mailbox changes", async () => {
     const enqueue = vi.fn();
     const controller = { enqueue } as unknown as ReadableStreamDefaultController<Uint8Array>;
     const sse = createSseWriter(controller);
@@ -535,6 +535,16 @@ describe("Backend task stream polling", () => {
     const todos = Array.from({ length: 8 }, (_, index) => ({ id: `todo-${index}`, content: "same", status: "pending" }));
     const permissionRequest = { requestId: "approval-1", message: "permission" };
     const questionRequest = { requestId: "question-1", message: "question" };
+    const inbox = {
+      messages: Array.from({ length: 4 }, (_, index) => ({
+        id: `inbox-${index}`, fromBotId: "peer", toBotId: "bot-1", fromName: "Peer",
+        text: "mailbox-message ".repeat(40), createdAt: index,
+      })),
+      unreadCount: 4,
+      preview: { fromBotId: "peer", fromName: "Peer", text: "latest", createdAt: 4 },
+      pendingAsks: [],
+    };
+    let currentInbox = inbox;
     mocks.forwardTaskDetail
       .mockResolvedValueOnce(result(0, { goalLoop, todos, contextUsage: { tokens: 1, contextWindow: 100, percent: 1 } }))
       .mockResolvedValue(result(0, { goalLoop, todos, contextUsage: { tokens: 2, contextWindow: 100, percent: 2 } }));
@@ -542,28 +552,46 @@ describe("Backend task stream polling", () => {
     const stream = await startBackendTaskStream({
       id: "task-1", sse, intervalMs: 2_000, idleIntervalMs: 2_000,
       dirtyIdleIntervalMs: 2_000, subscribeDirty: () => () => {},
-      extra: { nestedState: { goalLoop, todos, permissionRequest } },
+      extra: () => ({ nestedState: { goalLoop, todos, permissionRequest }, intercomInbox: currentInbox }),
     });
     if (!stream.ok) throw new Error(stream.reason);
     try {
       await vi.advanceTimersByTimeAsync(2_000);
-      const frames = enqueue.mock.calls.map(([chunk]) => new TextDecoder().decode(chunk as Uint8Array));
-      expect(frames).toHaveLength(2);
-      const payloads = frames.map((frame) => {
+      const readFrames = () => enqueue.mock.calls.map(([chunk]) => new TextDecoder().decode(chunk as Uint8Array));
+      const readPayloads = (frames: string[]) => frames.map((frame) => {
         const line = frame.split("\n").find((value) => value.startsWith("data: "));
         return JSON.parse(line!.slice("data: ".length)) as Record<string, unknown>;
       });
+      let frames = readFrames();
+      let payloads = readPayloads(frames);
+      expect(frames).toHaveLength(2);
       expect(payloads[0]).toHaveProperty("task");
       expect(payloads[0]).toHaveProperty("goalLoop");
       expect(payloads[0]).toHaveProperty("todos");
       expect(payloads[0]).toHaveProperty("permissionRequest");
       expect(payloads[0]).toHaveProperty("messageHistory");
+      expect(payloads[0].intercomInbox).toEqual(inbox);
       expect(payloads[1]).toMatchObject({ taskReused: true, contextUsage: { tokens: 2 } });
+      expect(payloads[1]).not.toHaveProperty("intercomInbox");
       for (const field of ["task", "goalLoop", "todos", "permissionRequest", "questionRequest", "messageHistory"]) {
         expect(payloads[1]).not.toHaveProperty(field);
       }
       expect(payloads[1].nestedState).toEqual({ goalLoop, todos, permissionRequest });
-      expect(utf8ByteLength(frames[1]!)).toBeLessThan(utf8ByteLength(frames[0]!));
+      expect(utf8ByteLength(frames[0]!) - utf8ByteLength(frames[1]!)).toBeGreaterThan(2_000);
+
+      currentInbox = {
+        ...inbox,
+        unreadCount: 5,
+        messages: [...inbox.messages, {
+          id: "inbox-new", fromBotId: "peer", toBotId: "bot-1", fromName: "Peer", text: "new", createdAt: 5,
+        }],
+      };
+      await vi.advanceTimersByTimeAsync(2_000);
+      frames = readFrames();
+      payloads = readPayloads(frames);
+      expect(frames).toHaveLength(3);
+      expect(payloads[2].intercomInbox).toEqual(currentInbox);
+      expect(utf8ByteLength(frames[2]!)).toBeGreaterThan(utf8ByteLength(frames[1]!));
     } finally {
       stream.stop();
       sse.cleanup();

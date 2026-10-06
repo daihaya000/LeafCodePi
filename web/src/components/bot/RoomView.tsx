@@ -62,6 +62,27 @@ export function applyRoomSnapshot(current: RoomDto | null, next: RoomDto): RoomD
   return messages === next.messages ? next : { ...next, messages };
 }
 
+export function applyRoomMessagesDelta(
+  current: RoomDto | null,
+  metadata: Omit<RoomDto, "messages">,
+  changedMessages: RoomMessage[],
+): RoomDto | null {
+  if (!current || current.id !== metadata.id) return current;
+  if (changedMessages.length === 0) return applyRoomSnapshot(current, { ...metadata, messages: current.messages });
+  const messages = [...current.messages];
+  const indexById = new Map(messages.map((message, index) => [message.id, index]));
+  for (const message of changedMessages) {
+    const existingIndex = indexById.get(message.id);
+    if (existingIndex === undefined) {
+      indexById.set(message.id, messages.length);
+      messages.push(message);
+    } else {
+      messages[existingIndex] = message;
+    }
+  }
+  return applyRoomSnapshot(current, { ...metadata, messages });
+}
+
 /** Drop answered attention that a stale SSE snapshot may still carry. */
 function applyClearedRoomAttention(
   items: RoomAttention[],
@@ -314,11 +335,20 @@ export function RoomView({ id, active = true }: { id: string; active?: boolean }
         if (!isCurrentSource()) return;
         retryCount = 0;
         try {
-          const payload = JSON.parse((event as MessageEvent).data) as { room?: RoomDto; attention?: RoomAttention[] };
+          const payload = JSON.parse((event as MessageEvent).data) as {
+            room?: RoomDto;
+            roomReused?: true;
+            roomMetadata?: Omit<RoomDto, "messages">;
+            roomMessagesDelta?: RoomMessage[];
+            attention?: RoomAttention[];
+          };
           setSseError(null);
           if (payload.room) {
             roomSseVersionRef.current += 1;
             setRoom((current) => applyRoomSnapshot(current, payload.room!));
+          } else if (payload.roomMetadata && payload.roomMessagesDelta) {
+            roomSseVersionRef.current += 1;
+            setRoom((current) => applyRoomMessagesDelta(current, payload.roomMetadata!, payload.roomMessagesDelta!));
           }
           setAttention((current) => {
             const next = applyClearedRoomAttention(

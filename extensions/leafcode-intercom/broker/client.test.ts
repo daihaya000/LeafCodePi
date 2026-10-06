@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { IntercomClient } from "./client.ts";
+import { MAX_FRAME_BYTES } from "./framing.ts";
 
 test("validated session lifecycle messages reach broker-message subscribers", () => {
   const client = new IntercomClient();
@@ -106,4 +107,27 @@ test("cancelAsk ignores synchronous socket write failures", () => {
   };
 
   assert.doesNotThrow(() => client.cancelAsk("ask-1"));
+});
+
+test("oversized sends fail locally without writing or disconnecting the client", async () => {
+  const client = new IntercomClient();
+  let writes = 0;
+  (client as any)._sessionId = "session-1";
+  (client as any).socket = {
+    destroyed: false,
+    writableEnded: false,
+    writable: true,
+    write() {
+      writes += 1;
+      return true;
+    },
+  };
+
+  await assert.rejects(
+    client.send("target", { messageId: "oversized", text: "x".repeat(MAX_FRAME_BYTES) }),
+    /exceeds maximum 1048576 bytes/,
+  );
+  assert.equal(writes, 0);
+  assert.equal(client.isConnected(), true);
+  assert.equal((client as any).pendingSends.size, 0);
 });

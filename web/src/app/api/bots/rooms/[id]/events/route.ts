@@ -12,9 +12,27 @@ import { localRuntimeBlocked } from "@/lib/pi/runtime-ownership";
 import { forwardPendingRequestsByTask, type PendingRequestsByTask } from "@/lib/backend-forward";
 import { BACKEND_TASK_STREAM_REASON, subscribeBackendTaskDirty } from "@/lib/backend-task-dirty-hub";
 import { roomSnapshotSignature } from "@/lib/room-events";
-import type { RoomAttention, RoomDto } from "@/lib/types";
+import type { RoomAttention, RoomDto, RoomMessage } from "@/lib/types";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+
+/** Return changed rows when the message order is stable; null requires a full-room fallback. */
+function changedRoomMessages(previous: RoomDto | undefined, next: RoomDto): RoomMessage[] | null {
+  if (!previous || previous.id !== next.id || previous.messages.length > next.messages.length) return null;
+  const changed: RoomMessage[] = [];
+  for (let index = 0; index < previous.messages.length; index += 1) {
+    const before = previous.messages[index];
+    const after = next.messages[index];
+    if (before.id !== after.id) return null;
+    if (JSON.stringify(before) !== JSON.stringify(after)) changed.push(after);
+  }
+  changed.push(...next.messages.slice(previous.messages.length));
+  return changed;
+}
+
+function roomMetadata(room: RoomDto): Omit<RoomDto, "messages"> {
+  return Object.fromEntries(Object.entries(room).filter(([key]) => key !== "messages")) as Omit<RoomDto, "messages">;
+}
 
 /** True when the owner's pending map differs from the one we last reported. */
 function pendingRequestsChanged(
@@ -53,6 +71,7 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
       const subscriptions = new Map<string, () => void>();
       const dirtyStops = new Map<string, () => void>();
       let previous = "";
+      let previousRoomJson: string | undefined;
       // After the cutover the pending approvals/questions live in the Backend, so they are read from
       // there once per refresh instead of from this process's memory.
       const backendOwns = localRuntimeBlocked();
@@ -82,8 +101,28 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
       const emitIfChanged = (room: RoomDto, attention: RoomAttention[]) => {
         const signature = roomSnapshotSignature(room, attention);
         if (signature === previous) return;
+        const roomJson = JSON.stringify(room);
+        const attentionJson = JSON.stringify(attention);
+        const roomReused = roomJson === previousRoomJson;
+        const previousRoom = !roomReused && previousRoomJson ? JSON.parse(previousRoomJson) as RoomDto : undefined;
+        const messagesDelta = roomReused ? null : changedRoomMessages(previousRoom, room);
+        const metadata = messagesDelta ? roomMetadata(room) : null;
+        const deltaFields = messagesDelta && metadata
+          ? `"roomMetadata":${JSON.stringify(metadata)},"roomMessagesDelta":${JSON.stringify(messagesDelta)}`
+          : null;
+        const useDelta = deltaFields !== null && Buffer.byteLength(deltaFields) < Buffer.byteLength(`"room":${roomJson}`);
+        if (sse?.sendSerialized) {
+          const roomField = roomReused ? '"roomReused":true' : useDelta ? deltaFields! : `"room":${roomJson}`;
+          sse.sendSerialized("snapshot", `{"type":"snapshot",${roomField},"attention":${attentionJson}}`);
+        } else {
+          sse?.send("snapshot", roomReused
+            ? { type: "snapshot", roomReused: true, attention }
+            : useDelta
+              ? { type: "snapshot", roomMetadata: metadata!, roomMessagesDelta: messagesDelta!, attention }
+              : { type: "snapshot", room, attention });
+        }
         previous = signature;
-        sse?.send("snapshot", { type: "snapshot", room, attention });
+        previousRoomJson = roomJson;
       };
 
       const collectTasks = (room: RoomDto): Set<string> => {
