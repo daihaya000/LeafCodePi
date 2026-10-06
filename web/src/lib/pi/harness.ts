@@ -6375,17 +6375,19 @@ function applyRoutingUsage(
   usageProviders: readonly CodexBarProvider[],
 ): ModelOption {
   const marked = applyLimitMark(option);
+  const unavailable = providerIsHardLimited(option.providerID, option.accountId);
   if (marked.codexbarMaxed === true && marked.codexbarStale !== true) {
-    return marked;
+    return { ...marked, codexbarUnavailable: unavailable };
   }
   const usage = usageProviders.find(
     (provider) =>
       provider.id === option.providerID &&
       (provider.accountId ?? null) === (option.accountId ?? null),
   );
-  if (!usage) return marked;
+  if (!usage) return { ...marked, codexbarUnavailable: unavailable };
   return {
     ...marked,
+    codexbarUnavailable: unavailable,
     codexbarUsedPercent: usage.usedPercent,
     codexbarMaxed: usage.maxed,
     ...(usage.stale ? { codexbarStale: true } : {}),
@@ -6448,6 +6450,7 @@ function integratedOption(
     codexbarUsedPercent:
       decision.allMaxed ? 100 : selectedUsage?.usedPercent ?? null,
     codexbarMaxed: decision.allMaxed,
+    codexbarUnavailable: decision.allMaxed,
     // 表示専用の％（残高から導出した値など）はピッカーの色にだけ使い、ヒントには渡さない。
     ...(!decision.allMaxed && selectedUsage?.usageDisplayOnly === true
       ? { codexbarDisplayOnly: true }

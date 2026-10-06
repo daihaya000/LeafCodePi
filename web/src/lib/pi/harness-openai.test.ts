@@ -131,6 +131,7 @@ describe("new OpenAI account integration", () => {
     invalidateHealthCache();
     models = await listModelsForAccounts(accounts);
     assert.equal(models.find((item) => item.providerID === "openai")?.codexbarMaxed, true);
+    assert.equal(models.find((item) => item.providerID === "openai")?.codexbarUnavailable, true);
     const choice = chooseAutoModel({ models, tier: "light", hasImages: false, usage: autoProviderUsageFromModels(models) });
     assert.equal(choice?.providerID, "openai-codex");
 
@@ -150,6 +151,7 @@ describe("new OpenAI account integration", () => {
     assert.equal(models.length, 1);
     assert.equal(models[0].subscription, false);
     assert.equal(models[0].codexbarMaxed, false);
+    assert.equal(models[0].codexbarUnavailable, false);
     assert.equal(models[0].routingCandidateCount, 2);
     const routes = await resolveProviderFallbackModels({ providerID: "openai", modelID: MODEL_ID, accountId: subscription.id });
     assert.deepEqual(routes, [{ providerID: "openai", modelID: MODEL_ID, accountId: api.id }]);

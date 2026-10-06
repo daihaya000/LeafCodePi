@@ -106,12 +106,16 @@ export function ModelSelect({
   // exact 照合だけでは integrated / 旧アカウント接頭辞の値が「モデル」空表示になる。
   const selected = modelOptionForValue(options, value);
   const selectedSupportsImage = modelSupportsImage(selected);
+  const selectableOptions = useMemo(
+    () => options.filter((option) => option.codexbarUnavailable !== true),
+    [options],
+  );
 
   // アカウント指定があれば「プロバイダ × アカウント」で枠を分ける。
   const grouped = useMemo(() => {
     const order: { key: string; header: string; options: ModelOption[] }[] = [];
     const index = new Map<string, number>();
-    for (const option of options) {
+    for (const option of selectableOptions) {
       const key = `${option.providerID}::${option.accountId ?? ""}`;
       let team = index.get(key);
       if (team === undefined) {
@@ -122,7 +126,7 @@ export function ModelSelect({
       order[team].options.push(option);
     }
     return order;
-  }, [options]);
+  }, [selectableOptions]);
 
   const chooseOption = useCallback(
     (option: ModelOption) => {
@@ -259,11 +263,13 @@ export function ModelSelect({
     };
   }, [open, updateMenuPosition]);
 
-  const isDisabled = disabled || loading || options.length === 0;
+  const isDisabled = disabled || loading || selectableOptions.length === 0;
   const emptyStateLabel = loading
     ? "モデルを読み込み中…"
-    : options.length === 0
-      ? emptyLabel
+    : selectableOptions.length === 0
+      ? options.length > 0
+        ? "利用可能なモデルなし"
+        : emptyLabel
       : "モデル";
   const selectedNearLimit = !isDisabled && modelNearLimit(selected);
   const selectedMaxed = !isDisabled && modelLimitReached(selected);

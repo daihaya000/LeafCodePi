@@ -167,6 +167,61 @@ describe("ModelSelect loading state", () => {
   });
 });
 
+describe("ModelSelect unavailable models", () => {
+  it("hides only models explicitly confirmed unavailable and preserves the selected label", () => {
+    const blocked = option({
+      codexbarUsedPercent: 100,
+      codexbarMaxed: true,
+      codexbarUnavailable: true,
+    });
+    const highUsage = option({
+      value: "openai::high-usage",
+      label: "High usage",
+      providerID: "openai",
+      modelID: "high-usage",
+      codexbarUsedPercent: 100,
+      codexbarMaxed: false,
+    });
+    const staleMaxed = option({
+      value: "openai::stale-maxed",
+      label: "Stale maxed",
+      providerID: "openai",
+      modelID: "stale-maxed",
+      codexbarMaxed: true,
+      codexbarStale: true,
+    });
+
+    render(
+      <ModelSelect
+        value={blocked.value}
+        options={[blocked, highUsage, staleMaxed]}
+        onChange={() => {}}
+      />,
+    );
+
+    const trigger = screen.getByRole("button", { name: "モデル" });
+    expect(trigger.textContent).toContain("Claude");
+    fireEvent.click(trigger);
+    expect(screen.queryByRole("option", { name: /Claude/ })).toBeNull();
+    expect(screen.getByRole("option", { name: /High usage/ })).toBeTruthy();
+    expect(screen.getByRole("option", { name: /Stale maxed/ })).toBeTruthy();
+  });
+
+  it("disables the picker when every model is confirmed unavailable", () => {
+    render(
+      <ModelSelect
+        value=""
+        options={[option({ codexbarUnavailable: true })]}
+        onChange={() => {}}
+      />,
+    );
+
+    const trigger = screen.getByRole("button", { name: "モデル" }) as HTMLButtonElement;
+    expect(trigger.disabled).toBe(true);
+    expect(trigger.textContent).toContain("利用可能なモデルなし");
+  });
+});
+
 describe("ModelSelect grouping by account", () => {
   it("splits providers into per-account groups and keeps shared providers plain", () => {
     render(

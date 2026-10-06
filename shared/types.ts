@@ -649,6 +649,8 @@ export type ModelOption = {
   codexbarLimited?: boolean;
   /** True when the provider hit its rate limit (usage >= 99.5%). */
   codexbarMaxed?: boolean;
+  /** True only when routing confirms this model cannot currently run. */
+  codexbarUnavailable?: boolean;
   /** True when CodexBar is showing a last-good snapshot after a fetch failure. */
   codexbarStale?: boolean;
   /** Integrated account routing hides the backing account labels in the picker. */
