@@ -1,5 +1,5 @@
 import { recordTypesafeUsage } from "@/lib/codexbar/providers/typesafe";
-import { isOpenAiDecisionsModel, jevModelKey } from "@/lib/jev-model-catalog";
+import { jevModelKey } from "@/lib/jev-model-catalog";
 import { toDecisionsRequest, fromDecisionsResponse } from "./openai-decisions";
 import { enabledJevModelKeys } from "@/lib/jev-model-settings";
 import { accountProviderModelKey, readProviderModelState } from "@/lib/provider-model-state";
@@ -117,13 +117,13 @@ export async function evaluateTypeSafe(
   for (const [index, ref] of candidates.entries()) {
     if (index > 0 && options.signal?.aborted) throw options.signal.reason ?? new Error("Jev判定が中断されました");
     try {
-      const { baseUrl, model, apiKey: storedKey, headers } = await resolveJevModelConnection(ref
+      const { baseUrl, model, api, apiKey: storedKey, headers } = await resolveJevModelConnection(ref
         ? { ...settings, provider: "registered", registeredModel: ref }
         : settings);
       const apiKey = ref ? storedKey : options.apiKey ?? storedKey;
       // 認証解決は含めず、HTTP往復と本文検証だけを計測する。
       const startedAt = performance.now();
-      const decisions = isOpenAiDecisionsModel(ref?.providerId ?? "", model);
+      const decisions = api === "decisions";
       const body = decisions ? toDecisionsRequest(request, model) : { ...request, model };
       const response = await (options.fetchImpl ?? fetch)(`${baseUrl}/${decisions ? "decisions" : "systemone"}`, {
         method: "POST",

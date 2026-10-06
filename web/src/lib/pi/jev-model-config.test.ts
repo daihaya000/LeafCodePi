@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { DEFAULT_JEV_MODEL_SETTINGS, JEV_MODEL_SETTING_KEY, normalizeJevModelSettings } from "@/lib/jev-model-settings";
-import { deleteLegacyJevCredential, getJevModelSettingsDto, jevCredentialProviderId, listLegacyJevCredentials, readJevApiKey, readJevModelSettings, saveJevModelSettings } from "./jev-model-config";
+import { deleteLegacyJevCredential, getJevModelSettingsDto, jevCredentialProviderId, listLegacyJevCredentials, readJevApiKey, readJevModelSettings, resolveJevModelConnection, saveJevModelSettings } from "./jev-model-config";
 
 const store = vi.hoisted(() => new Map<string, string>());
 vi.mock("./web-settings", () => ({
@@ -106,6 +106,9 @@ describe("Jev model configuration", () => {
     await saveJevModelSettings(compatible, "test-only-compatible-key");
     expect(readJevModelSettings()).toEqual(compatible);
     expect(await readJevApiKey(compatible)).toBe("test-only-compatible-key");
+    expect(await resolveJevModelConnection(compatible)).toEqual({
+      baseUrl: compatible.compatibleBaseUrl, model: compatible.compatibleModel, api: "systemone", apiKey: "test-only-compatible-key",
+    });
     const dto = await getJevModelSettingsDto();
     expect(dto.hasApiKey).toEqual({ typesafe: false, compatible: true });
     expect(JSON.stringify(dto)).not.toContain("test-only-compatible-key");

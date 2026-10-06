@@ -4,7 +4,11 @@ export type JevModelRef = {
   accountId?: string;
 };
 
+export type JevModelApi = "systemone" | "decisions";
+
 export type JevCatalogModel = JevModelRef & {
+  /** Resolved wire format, not the model's output modality. Legacy rows omit System One. */
+  api?: JevModelApi;
   providerName: string;
   name: string;
   baseUrl: string;
@@ -32,12 +36,24 @@ export function hasSystemOneEndpoint(value: unknown): boolean {
     ));
 }
 
-/** A decision model must never become a Composer/Auto chat candidate. */
+/** Recognize explicit Decisions contracts without guessing from model names or modalities. */
+export function hasDecisionsEndpoint(value: unknown): boolean {
+  const model = record(value);
+  return model.api === "decisions" || model.api === "openai-decisions" ||
+    (Array.isArray(model.supported_endpoints) && model.supported_endpoints.some(
+      (endpoint) => typeof endpoint === "string" && /^\/(?:v1\/|provider\/v1\/|api\/v1\/)?decisions\/?$/.test(endpoint),
+    ));
+}
+
+/** Decision-only models must not become Composer/Auto chat candidates. */
 export function isJevModel(value: unknown): boolean {
   const model = record(value);
   const architecture = record(model.architecture);
+  const hasChatEndpoint = Array.isArray(model.supported_endpoints) && model.supported_endpoints.some(
+    (endpoint) => typeof endpoint === "string" && /^\/(?:v1\/|provider\/v1\/|api\/v1\/)?(?:responses|chat\/completions)\/?$/.test(endpoint),
+  );
   return (typeof model.id === "string" && /(?:^|\/)jev(?:$|[-_.:])/i.test(model.id)) ||
-    hasSystemOneEndpoint(model) ||
+    hasSystemOneEndpoint(model) || hasDecisionsEndpoint(model) && !hasChatEndpoint ||
     (Array.isArray(architecture.output_modalities) && architecture.output_modalities.includes("decisions"));
 }
 
@@ -45,7 +61,7 @@ export function isJevModel(value: unknown): boolean {
 export function selectNativeJevModel<T extends { id: string }>(models: readonly T[], ref: JevModelRef): T | undefined {
   const matching = models.filter((model) => model.id === ref.modelId);
   const supported = matching.filter((model) => supportsJevModel(ref.providerId, model));
-  return supported.find(hasSystemOneEndpoint) ?? supported[0] ?? matching[0];
+  return supported.find(hasSystemOneEndpoint) ?? supported.find(hasDecisionsEndpoint) ?? supported[0] ?? matching[0];
 }
 
 export const OPENAI_DECISIONS_MODEL = "gpt-6-luna";
@@ -55,12 +71,19 @@ export function isOpenAiDecisionsModel(providerId: string, modelId: unknown): bo
   return providerId === "openai" && modelId === OPENAI_DECISIONS_MODEL;
 }
 
-/** Only explicit System One support or a documented provider establishes compatibility. */
-export function supportsJevModel(providerId: string, value: unknown): boolean {
+/** Explicit contracts take precedence; known legacy catalogs keep their System One format. */
+export function jevModelApi(providerId: string, value: unknown): JevModelApi | undefined {
   const model = record(value);
-  if (model.type !== undefined && model.type !== "chat" && model.type !== "classifier") return false;
-  // Other classifier APIs have incompatible request/response contracts despite a Jev-like name.
-  if (model.type === "classifier") return hasSystemOneEndpoint(value);
-  return hasSystemOneEndpoint(value) || isOpenAiDecisionsModel(providerId, model.id) ||
-    (["typesafe", "openrouter", "commandcode"].includes(providerId) && isJevModel(value));
+  if (model.type !== undefined && model.type !== "chat" && model.type !== "classifier") return undefined;
+  if (hasSystemOneEndpoint(model)) return "systemone";
+  if (hasDecisionsEndpoint(model)) return "decisions";
+  // Other classifier APIs remain incompatible despite their names or output modalities.
+  if (model.type === "classifier") return undefined;
+  if (isOpenAiDecisionsModel(providerId, model.id)) return "decisions";
+  if (["typesafe", "openrouter", "commandcode"].includes(providerId) && isJevModel(value)) return "systemone";
+  return undefined;
+}
+
+export function supportsJevModel(providerId: string, value: unknown): boolean {
+  return jevModelApi(providerId, value) !== undefined;
 }

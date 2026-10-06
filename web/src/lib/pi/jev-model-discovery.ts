@@ -1,4 +1,4 @@
-import { isOpenAiDecisionsModel, OPENAI_DECISIONS_MODEL, jevModelKey, selectNativeJevModel, supportsJevModel, type JevCatalogModel, type JevModelRef } from "@/lib/jev-model-catalog";
+import { hasDecisionsEndpoint, hasSystemOneEndpoint, isOpenAiDecisionsModel, OPENAI_DECISIONS_MODEL, jevModelApi, jevModelKey, selectNativeJevModel, supportsJevModel, type JevCatalogModel, type JevModelApi, type JevModelRef } from "@/lib/jev-model-catalog";
 import { DEFAULT_JEV_MODEL_SETTINGS } from "@/lib/jev-model-settings";
 import { TYPESAFE_API_BASE_URL, TYPESAFE_PROVIDER_ID } from "./typesafe-provider";
 
@@ -104,11 +104,24 @@ export async function discoverJevModels(
         const query = provider.id === "openrouter" ? "?output_modalities=decisions&limit=1000" : "";
         models.push(...(await remoteModels(`${baseUrl}/models${query}`, fetchImpl)).map((value) => ({ value, native: false })));
       }
+      const remoteApis = new Map<string, JevModelApi>();
+      for (const { value, native } of models) {
+        if (native || !value || typeof value !== "object") continue;
+        const model = value as { id?: unknown };
+        const api = jevModelApi(provider.id, value);
+        if (typeof model.id === "string" && api && (hasSystemOneEndpoint(value) || hasDecisionsEndpoint(value))) remoteApis.set(model.id, api);
+      }
       const found = new Map<string, JevCatalogModel>();
       for (const { value, native } of models) {
-        if (!value || typeof value !== "object" || !supportsJevModel(provider.id, value)) continue;
-        const model = value as { id?: unknown; name?: unknown; baseUrl?: string };
+        if (!value || typeof value !== "object") continue;
+        const model = value as { id?: unknown; name?: unknown; baseUrl?: string; type?: unknown };
         if (typeof model.id !== "string" || !model.id.trim() || model.id.length > 256 || /\s/.test(model.id)) continue;
+        // Public contracts may supplement an SDK chat row, but never override a native
+        // classifier/explicit contract, URL, headers or credential destination.
+        const remoteApi = native && (model.type === undefined || model.type === "chat") &&
+          !hasSystemOneEndpoint(value) && !hasDecisionsEndpoint(value) ? remoteApis.get(model.id) : undefined;
+        const api = remoteApi ?? jevModelApi(provider.id, value);
+        if (!api) continue;
         // Remote catalogs cannot override native models or choose credential destinations.
         if (!native && localIds.has(model.id)) continue;
         const endpoint = native && model.baseUrl !== undefined ? validJevBaseUrl(model.baseUrl) : baseUrl;
@@ -120,6 +133,7 @@ export async function discoverJevModels(
           name: typeof model.name === "string" ? model.name.slice(0, 256) : model.id,
           baseUrl: endpoint,
           source: "catalog",
+          ...(api === "decisions" ? { api } : {}),
           ...(scope.accountId ? { accountId: scope.accountId, accountLabel: scope.accountLabel } : {}),
         };
         found.set(jevModelKey(row), row);
@@ -129,7 +143,7 @@ export async function discoverJevModels(
         const row: JevCatalogModel = {
           providerId: provider.id, providerName: provider.name,
           modelId: OPENAI_DECISIONS_MODEL, name: "GPT-6 Luna (Decisions)",
-          baseUrl, source: "documented",
+          baseUrl, source: "documented", api: "decisions",
           ...(scope.accountId ? { accountId: scope.accountId, accountLabel: scope.accountLabel } : {}),
         };
         found.set(jevModelKey(row), row);

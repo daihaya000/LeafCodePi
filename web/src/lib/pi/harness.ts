@@ -141,7 +141,7 @@ import {
 import { registerTypeSafeProvider } from "@/lib/pi/typesafe-provider";
 import { isJevModel, type JevCatalogModel, type JevModelRef } from "@/lib/jev-model-catalog";
 import { clearJevDiscoveryCache, discoverJevModels } from "@/lib/pi/jev-model-discovery";
-import { resolveRegisteredJevConnection } from "@/lib/pi/jev-model-connection";
+import { resolveRegisteredJevConnection, type JevModelConnection } from "@/lib/pi/jev-model-connection";
 import { readJevModelSettings } from "@/lib/pi/jev-model-config";
 import { hasUsableJevModel, JEV_MODEL_SETTING_KEY } from "@/lib/jev-model-settings";
 import {
@@ -6114,9 +6114,7 @@ function readJevUsable(): Promise<boolean> {
 }
 
 /** Resolve current credentials, never copy account keys or silently pick another account. */
-export async function resolveRegisteredJevModel(ref: JevModelRef): Promise<{
-  baseUrl: string; model: string; apiKey?: string; headers?: Record<string, string>;
-}> {
+export async function resolveRegisteredJevModel(ref: JevModelRef): Promise<JevModelConnection> {
   if (isProviderDisabled(ref.providerId, readProviderModelState(), ref.accountId)) {
     throw new Error("選択したJevプロバイダーはモデル設定で無効です");
   }

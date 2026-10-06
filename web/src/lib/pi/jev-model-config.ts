@@ -10,6 +10,7 @@ import {
 } from "@/lib/jev-model-settings";
 import { getSetting, setSetting } from "./web-settings";
 import { registerTypeSafeProvider, TYPESAFE_PROVIDER_ID } from "./typesafe-provider";
+import type { JevModelConnection } from "./jev-model-connection";
 
 export function readJevModelSettings(): JevModelSettings {
   const raw = getSetting(JEV_MODEL_SETTING_KEY);
@@ -45,15 +46,13 @@ export async function readJevApiKey(settings: JevModelSettings): Promise<string 
   return key || undefined;
 }
 
-export async function resolveJevModelConnection(settings: JevModelSettings): Promise<{
-  baseUrl: string; model: string; apiKey?: string; headers?: Record<string, string>;
-}> {
+export async function resolveJevModelConnection(settings: JevModelSettings): Promise<JevModelConnection> {
   if (settings.provider === "registered") {
     if (!settings.registeredModel) throw new Error("Jevモデルが選択されていません");
     const { resolveRegisteredJevModel } = await import("./harness");
     return resolveRegisteredJevModel(settings.registeredModel);
   }
-  return { ...jevModelEndpoint(settings), apiKey: await readJevApiKey(settings) };
+  return { ...jevModelEndpoint(settings), api: "systemone", apiKey: await readJevApiKey(settings) };
 }
 
 const LEGACY_JEV_CREDENTIAL_ID = /^jev-compatible-[0-9a-f]{64}$/;

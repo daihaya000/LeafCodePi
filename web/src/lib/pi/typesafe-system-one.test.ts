@@ -42,9 +42,31 @@ describe("evaluateTypeSafe", () => {
     const ref = { providerId: "openai", modelId: "gpt-6-luna", accountId: "openai-one" };
     mocks.readSettings.mockReturnValue({ ...DEFAULT_JEV_MODEL_SETTINGS, provider: "registered", registeredModel: ref });
     mocks.resolve.mockResolvedValue({ baseUrl: "https://api.openai.com/v1", model: ref.modelId,
-      apiKey: "openai-test-key", headers: { "OpenAI-Project": "test-project" } });
+      api: "decisions", apiKey: "openai-test-key", headers: { "OpenAI-Project": "test-project" } });
     return ref;
   }
+
+  it.each(["openrouter", "commandcode", "custom-decisions"])("uses the resolved Decisions contract for any provider (%s)", async (providerId) => {
+    const ref = { providerId, modelId: "vendor/future-decision", accountId: "one" };
+    mocks.readSettings.mockReturnValue({ ...DEFAULT_JEV_MODEL_SETTINGS, provider: "registered", registeredModel: ref });
+    mocks.resolve.mockResolvedValue({ baseUrl: "https://gateway.example/v1", model: ref.modelId,
+      api: "decisions", apiKey: "gateway-test-key", headers: { "X-Title": "LeafCodePi" } });
+    const fetchImpl = respond({ model: ref.modelId, answers: [{ type: "predicate", name: "connected", probability: 0.9 }], usage: result.usage });
+    await expect(evaluateTypeSafe(request, { fetchImpl })).resolves.toMatchObject({ model: ref.modelId, answers: result.answers });
+    expect(fetchImpl).toHaveBeenCalledWith("https://gateway.example/v1/decisions", expect.objectContaining({
+      headers: expect.objectContaining({ Authorization: "Bearer gateway-test-key", "X-Title": "LeafCodePi" }),
+      body: JSON.stringify({ model: ref.modelId, input: request.state, questions: [{ type: "predicate", name: "connected", instructions: "Is this a test?" }] }),
+    }));
+    expect(mocks.recordUsage).not.toHaveBeenCalled();
+  });
+
+  it("honors an explicit System One contract over an OpenAI model-name inference", async () => {
+    useOpenAi();
+    mocks.resolve.mockResolvedValue({ baseUrl: "https://gateway.example/v1", model: "gpt-6-luna", api: "systemone" });
+    const fetchImpl = respond();
+    await expect(evaluateTypeSafe(request, { fetchImpl })).resolves.toEqual(result);
+    expect(fetchImpl.mock.calls[0][0]).toBe("https://gateway.example/v1/systemone");
+  });
 
   it("routes OpenAI Decisions through existing account auth and exposes Jev-compatible judgments", async () => {
     useOpenAi();
@@ -129,7 +151,7 @@ describe("evaluateTypeSafe", () => {
     const first = useOpenAi();
     const second = { providerId: "typesafe", modelId: "jev-latest" };
     mocks.readSettings.mockReturnValue({ ...DEFAULT_JEV_MODEL_SETTINGS, provider: "registered", enabledModels: [first, second] });
-    mocks.resolve.mockResolvedValueOnce({ baseUrl: "https://api.openai.com/v1", model: first.modelId, apiKey: "openai-test-key" })
+    mocks.resolve.mockResolvedValueOnce({ baseUrl: "https://api.openai.com/v1", model: first.modelId, api: "decisions", apiKey: "openai-test-key" })
       .mockResolvedValueOnce({ baseUrl: "https://api.typesafe.ai/v1", model: second.modelId, apiKey: "typesafe-test-key" });
     const fetchImpl = vi.fn().mockResolvedValueOnce(new Response(JSON.stringify({ model: first.modelId,
       answers: [{ type: "refusal", name: "connected" }], usage: { input_tokens: 42, output_tokens: 0 } })))

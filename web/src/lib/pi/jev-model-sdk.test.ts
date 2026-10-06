@@ -38,6 +38,54 @@ function classifier(id = "judge-v1", baseUrl = "https://model.example/v1"): Clas
 const noNetwork = () => vi.fn().mockResolvedValue(new Response(JSON.stringify({ data: [] })));
 
 describe("Jev discovery against the installed SDK contract", () => {
+  it("resolves a future OpenRouter Decisions catalog row with existing auth and no catalog URL trust", async () => {
+    const rt = await runtime();
+    rt.registerProvider("openrouter", { apiKey: "router-test-key", models: [] });
+    const fetchImpl = vi.fn().mockResolvedValue(new Response(JSON.stringify({ data: [{
+      id: "openai/gpt-6-luna", supported_endpoints: ["/v1/decisions"], baseUrl: "https://untrusted.example/v1",
+    }] })));
+    const models = await discoverJevModels(rt, { providerIds: ["openrouter"] }, fetchImpl);
+    expect(models).toMatchObject([{ modelId: "openai/gpt-6-luna", api: "decisions", baseUrl: "https://openrouter.ai/api/v1" }]);
+    expect(await resolveRegisteredJevConnection(rt, models[0], fetchImpl)).toEqual({
+      baseUrl: "https://openrouter.ai/api/v1", model: "openai/gpt-6-luna", api: "decisions", apiKey: "router-test-key", headers: {},
+    });
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+    expect(fetchImpl.mock.calls[0][1]).not.toHaveProperty("headers");
+  });
+
+  it("supplements a native SDK chat row with a remote Decisions contract while retaining native URL and auth", async () => {
+    const rt = await runtime();
+    rt.registerProvider("openrouter", { apiKey: "router-test-key", models: [{
+      id: "vendor/decision-v1", name: "Future decision", type: "chat", api: "openai-completions",
+      baseUrl: "https://native.example/v1", headers: { "X-Model": "native" }, reasoning: false,
+      input: ["text"], cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }, contextWindow: 1024, maxTokens: 128,
+    }] });
+    const fetchImpl = vi.fn().mockResolvedValue(new Response(JSON.stringify({ data: [{
+      id: "vendor/decision-v1", supported_endpoints: ["/api/v1/decisions"], baseUrl: "https://untrusted.example/v1",
+    }] })));
+    const models = await discoverJevModels(rt, { providerIds: ["openrouter"] }, fetchImpl);
+    expect(models).toMatchObject([{ modelId: "vendor/decision-v1", api: "decisions", baseUrl: "https://native.example/v1" }]);
+    const native = rt.getModels("openrouter")[0];
+    const getAuth = vi.spyOn(rt, "getAuth");
+    expect(await resolveRegisteredJevConnection(rt, models[0], fetchImpl)).toMatchObject({
+      api: "decisions", baseUrl: "https://native.example/v1", headers: { "X-Model": "native" }, apiKey: "router-test-key",
+    });
+    expect(getAuth).toHaveBeenCalledWith(native);
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+  });
+
+  it("supports custom native Decisions classifiers with model-scoped auth using the actual SDK", async () => {
+    const rt = await runtime();
+    rt.registerProvider("custom-decisions", { apiKey: "custom-test-key", models: [{ ...classifier(), api: "openai-decisions" }] });
+    const fetchImpl = noNetwork();
+    const models = await discoverJevModels(rt, { providerIds: ["custom-decisions"] }, fetchImpl);
+    expect(models).toMatchObject([{ modelId: "judge-v1", api: "decisions" }]);
+    expect(await resolveRegisteredJevConnection(rt, models[0], fetchImpl)).toMatchObject({
+      api: "decisions", baseUrl: "https://model.example/v1", apiKey: "custom-test-key", headers: { "X-Model": "model-header" },
+    });
+    expect(fetchImpl).not.toHaveBeenCalled();
+  });
+
   it("discovers and resolves the documented OpenAI Decisions model with the installed runtime", async () => {
     const rt = await runtime();
     rt.registerProvider("openai", { apiKey: "openai-test-key", models: [] });
@@ -45,7 +93,7 @@ describe("Jev discovery against the installed SDK contract", () => {
     const models = await discoverJevModels(rt, { providerIds: ["openai"], accountId: "one" }, fetchImpl);
     expect(models).toMatchObject([{ providerId: "openai", modelId: "gpt-6-luna", accountId: "one", source: "documented" }]);
     expect(await resolveRegisteredJevConnection(rt, models[0], fetchImpl)).toEqual({
-      baseUrl: "https://api.openai.com/v1", model: "gpt-6-luna", apiKey: "openai-test-key", headers: {},
+      baseUrl: "https://api.openai.com/v1", model: "gpt-6-luna", api: "decisions", apiKey: "openai-test-key", headers: {},
     });
     expect(fetchImpl).not.toHaveBeenCalled();
   });
@@ -103,7 +151,7 @@ describe("Jev discovery against the installed SDK contract", () => {
       { providerId: "leafcodecloud", modelId: "LeafJevSub", name: "LeafJevSub", baseUrl: "https://leaf.example/v1" },
     ]);
     expect(await resolveRegisteredJevConnection(rt, models[0], noCatalog)).toEqual({
-      baseUrl: "https://leaf.example/v1", model: "LeafJev", apiKey: "leaf-test-key", headers: {},
+      baseUrl: "https://leaf.example/v1", model: "LeafJev", api: "systemone", apiKey: "leaf-test-key", headers: {},
     });
     expect(await resolveRegisteredJevConnection(rt, models[1], noCatalog)).toMatchObject({
       baseUrl: "https://leaf.example/v1", model: "LeafJevSub", apiKey: "leaf-test-key",
@@ -136,7 +184,7 @@ describe("Jev discovery against the installed SDK contract", () => {
     expect(models).toMatchObject([{ providerId: "custom-systemone", modelId: "judge-v1", baseUrl: "https://model.example/v1" }]);
     expect(registeredJevEndpoint(rt, models[0])).toBe("https://model.example/v1");
     expect(await resolveRegisteredJevConnection(rt, models[0], fetchImpl)).toEqual({
-      baseUrl: "https://model.example/v1", model: "judge-v1", apiKey: "test-key", headers: { "X-Model": "model-header" },
+      baseUrl: "https://model.example/v1", model: "judge-v1", api: "systemone", apiKey: "test-key", headers: { "X-Model": "model-header" },
     });
     expect(fetchImpl).not.toHaveBeenCalled();
   });
@@ -171,7 +219,7 @@ describe("Jev discovery against the installed SDK contract", () => {
       apiKey: "test-key", baseUrl: "https://auth.example/v1/", headers: { "X-Model": null, "X-Auth": "auth-header" },
     } });
     expect(await resolveRegisteredJevConnection(rt, ref, noNetwork())).toEqual({
-      baseUrl: "https://auth.example/v1", model: "judge-v1", apiKey: "test-key", headers: { "X-Auth": "auth-header" },
+      baseUrl: "https://auth.example/v1", model: "judge-v1", api: "systemone", apiKey: "test-key", headers: { "X-Auth": "auth-header" },
     });
     expect(getAuth).toHaveBeenCalledWith(rt.getAllModels("custom-systemone")[0]);
     getAuth.mockResolvedValueOnce({ auth: { apiKey: "test-key", baseUrl: "https://user:password@example.com" } });
@@ -202,7 +250,7 @@ describe("Jev discovery against the installed SDK contract", () => {
     const models = await discoverJevModels(rt, { providerIds: ["openrouter"] }, fetchImpl);
     expect(models).toMatchObject([{ modelId: "vendor/decision-v1", baseUrl: "https://openrouter.ai/api/v1" }]);
     expect(await resolveRegisteredJevConnection(rt, models[0], fetchImpl)).toEqual({
-      baseUrl: "https://openrouter.ai/api/v1", model: "vendor/decision-v1", apiKey: "test-key", headers: {},
+      baseUrl: "https://openrouter.ai/api/v1", model: "vendor/decision-v1", api: "systemone", apiKey: "test-key", headers: {},
     });
     await expect(resolveRegisteredJevConnection(rt, { providerId: "openrouter", modelId: "typesafe/jev-invented" }, fetchImpl)).rejects.toThrow("未検出");
     expect(fetchImpl).toHaveBeenCalledTimes(1);

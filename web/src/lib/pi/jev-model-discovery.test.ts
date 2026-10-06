@@ -13,6 +13,30 @@ const reply = (models: unknown[]) => vi.fn().mockImplementation(async () => new 
 beforeEach(clearJevDiscoveryCache);
 
 describe("Jev discovery", () => {
+  it.each(["/decisions", "/v1/decisions", "/api/v1/decisions"])("retains an OpenRouter catalog's explicit Decisions format (%s)", async (endpoint) => {
+    const fetchImpl = reply([{ id: "openai/gpt-6-luna", supported_endpoints: [endpoint], baseUrl: "https://untrusted.example/v1" }]);
+    const models = await discoverJevModels(runtime(), { accountId: "one" }, fetchImpl);
+    expect(models).toMatchObject([{
+      providerId: "openrouter", modelId: "openai/gpt-6-luna", api: "decisions", accountId: "one", baseUrl: provider.baseUrl,
+    }]);
+    expect(fetchImpl.mock.calls[0][1]).not.toHaveProperty("headers");
+  });
+
+  it("supplements native chat capabilities but never overrides explicit native contracts or unsafe URLs", async () => {
+    const id = "vendor/future-judge";
+    const rt = { ...runtime(), getModels: () => [{ id, type: "chat", api: "openai-completions", baseUrl: "https://native.example/v1" }] };
+    expect(await discoverJevModels(rt, {}, reply([{ id, api: "decisions" }]))).toMatchObject([{ api: "decisions", baseUrl: "https://native.example/v1" }]);
+    clearJevDiscoveryCache();
+    const explicit = { ...rt, getModels: () => [{ id, api: "typesafe-system-one", baseUrl: "https://native.example/v1" }] };
+    expect((await discoverJevModels(explicit, {}, reply([{ id, api: "decisions" }])))[0].api).toBeUndefined();
+    clearJevDiscoveryCache();
+    const invalid = { ...rt, getModels: () => [{ id, type: "chat", baseUrl: "https://user:password@example.com/v1" }] };
+    expect(await discoverJevModels(invalid, {}, reply([{ id, api: "decisions" }]))).toEqual([]);
+    clearJevDiscoveryCache();
+    const incompatible = { ...rt, getModels: () => [{ id, type: "classifier", api: "llama-cpp-classify", baseUrl: "https://native.example/v1" }] };
+    expect(await discoverJevModels(incompatible, {}, reply([{ id, api: "decisions" }]))).toEqual([]);
+  });
+
   it.each([false, true])("discovers OpenAI Decisions before or after the chat catalog update (native: %s)", async (native) => {
     const rt = { ...runtime(native ? [{ id: "gpt-6-luna", name: "GPT-6 Luna" }] : []),
       getProviders: () => [{ id: "openai", name: "OpenAI" }] };

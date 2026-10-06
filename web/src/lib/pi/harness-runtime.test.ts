@@ -202,7 +202,7 @@ describe("getRuntimeFor", () => {
       { accountId: account.id, providerId: "openrouter", modelId: "typesafe/jev-1.14" },
     ]);
     assert.deepEqual(await resolveRegisteredJevModel(models[0]), {
-      baseUrl: "https://openrouter.ai/api/v1", model: "typesafe/jev-1.13",
+      baseUrl: "https://openrouter.ai/api/v1", model: "typesafe/jev-1.13", api: "systemone",
       apiKey: "account-test-key", headers: {},
     });
     assert.equal(fetchMock.mock.calls.length, 1);
@@ -219,12 +219,12 @@ describe("getRuntimeFor", () => {
     );
   });
 
-  it("resolves native Jev classifiers with model-scoped auth and URL overrides", async () => {
+  it.each(["typesafe-system-one", "openai-decisions"])("resolves native Jev classifiers with model-scoped auth and URL overrides (%s)", async (api) => {
     const dir = mkdtempSync(join(tmpdir(), "leafcode-pi-jev-native-"));
     tempDirs.push(dir);
     process.env.LEAFCODE_PI_DATA_DIR = dir;
     useTestAgentDir(dir);
-    const model = { id: "judge-v1", name: "Judge", type: "classifier", api: "typesafe-system-one", baseUrl: "https://native.example/v1/" };
+    const model = { id: "judge-v1", name: "Judge", type: "classifier", api, baseUrl: "https://native.example/v1/" };
     const getAuth = vi.fn(async () => ({ auth: { apiKey: "native-test-key", headers: { "X-Model": "native-header" } } }));
     const runtime = {
       getProvider: (id: string) => ({ id }),
@@ -242,7 +242,7 @@ describe("getRuntimeFor", () => {
     const models = await listJevModels(true);
     assert.equal(models.length, 1);
     assert.deepEqual(await resolveRegisteredJevModel(models[0]), {
-      baseUrl: "https://native.example/v1", model: "judge-v1", apiKey: "native-test-key", headers: { "X-Model": "native-header" },
+      baseUrl: "https://native.example/v1", model: "judge-v1", api: api === "openai-decisions" ? "decisions" : "systemone", apiKey: "native-test-key", headers: { "X-Model": "native-header" },
     });
     assert.deepEqual(getAuth.mock.calls[0], [model]);
   });
