@@ -197,6 +197,42 @@ it("keeps the suggestion when a mobile side panel is opened and closed", async (
   expect(mocks.sendJson).toHaveBeenCalledTimes(1);
 });
 
+it("runs scroll pinning only for active visible task panes", () => {
+  const originalVisibility = Object.getOwnPropertyDescriptor(document, "visibilityState");
+  const setIntervalSpy = vi.spyOn(window, "setInterval");
+  const clearIntervalSpy = vi.spyOn(window, "clearInterval");
+  vi.stubGlobal("ResizeObserver", undefined);
+  const setVisibility = (state: "visible" | "hidden") => {
+    Object.defineProperty(document, "visibilityState", { configurable: true, value: state });
+    act(() => document.dispatchEvent(new Event("visibilitychange")));
+  };
+  try {
+    Object.defineProperty(document, "visibilityState", { configurable: true, value: "visible" });
+    const view = render(<TaskView taskId={task.id} mdUp active={false} />);
+    const pinTimers = () => setIntervalSpy.mock.calls
+      .map((call, index) => ({ delay: call[1], id: setIntervalSpy.mock.results[index]?.value }))
+      .filter((timer) => timer.delay === 200);
+    expect(pinTimers()).toHaveLength(0);
+
+    view.rerender(<TaskView taskId={task.id} mdUp active />);
+    expect(pinTimers()).toHaveLength(1);
+    const firstTimer = pinTimers()[0]!.id;
+    setVisibility("hidden");
+    expect(clearIntervalSpy).toHaveBeenCalledWith(firstTimer);
+
+    setVisibility("visible");
+    expect(pinTimers()).toHaveLength(2);
+    const resumedTimer = pinTimers()[1]!.id;
+    view.unmount();
+    expect(clearIntervalSpy).toHaveBeenCalledWith(resumedTimer);
+  } finally {
+    if (originalVisibility) Object.defineProperty(document, "visibilityState", originalVisibility);
+    else Reflect.deleteProperty(document, "visibilityState");
+    setIntervalSpy.mockRestore();
+    clearIntervalSpy.mockRestore();
+  }
+});
+
 it("keeps a document-hidden active task unread until the document is visible", async () => {
   const updatedAt = "2026-01-01T00:00:00.000Z";
   saveTaskSessionCache({ task: { ...task, updatedAt }, messages: [], isStreaming: false, isCompacting: false });

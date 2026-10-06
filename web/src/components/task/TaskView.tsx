@@ -1974,25 +1974,51 @@ export const TaskView = memo(function TaskView({
   }, [messages.length, sessionHydrating, taskId]);
 
   useEffect(() => {
+    if (!active) return;
     const scroller = scrollRef.current;
     const content = contentRef.current;
     if (!scroller || !content) return;
     lastScrollTopRef.current = scroller.scrollTop;
     lastScrollHeightRef.current = scroller.scrollHeight;
     const pinned = () => {
-      if (!stickRef.current) return;
+      if (document.visibilityState !== "visible" || !stickRef.current) return;
       if (isNearBottom(scroller.scrollTop, scroller.clientHeight, scroller.scrollHeight)) return;
       scheduleScrollToBottom();
     };
-    if (typeof ResizeObserver !== "undefined") {
-      const observer = new ResizeObserver(pinned);
-      observer.observe(content);
-      pinned();
-      return () => observer.disconnect();
-    }
-    const id = window.setInterval(pinned, 200);
-    return () => window.clearInterval(id);
-  }, [scheduleScrollToBottom, taskId]);
+    let observer: ResizeObserver | undefined;
+    let interval: number | undefined;
+    const stop = () => {
+      observer?.disconnect();
+      observer = undefined;
+      if (interval !== undefined) window.clearInterval(interval);
+      interval = undefined;
+    };
+    const start = () => {
+      if (document.visibilityState !== "visible") return;
+      if (typeof ResizeObserver !== "undefined") {
+        if (observer) return;
+        observer = new ResizeObserver(pinned);
+        observer.observe(content);
+        pinned();
+      } else if (interval === undefined) {
+        interval = window.setInterval(pinned, 200);
+      }
+    };
+    const onVisibilityChange = () => {
+      if (document.visibilityState === "visible") {
+        if (typeof ResizeObserver === "undefined") pinned();
+        start();
+      } else {
+        stop();
+      }
+    };
+    start();
+    document.addEventListener("visibilitychange", onVisibilityChange);
+    return () => {
+      document.removeEventListener("visibilitychange", onVisibilityChange);
+      stop();
+    };
+  }, [active, scheduleScrollToBottom, taskId]);
 
   function addFiles(files: FileList) {
     if (!canAttachComposerImages({ goalLoopEnabled, compacting: isCompacting, archived: task?.status === "archived" })) return;
