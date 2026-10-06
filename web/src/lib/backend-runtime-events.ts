@@ -1,4 +1,4 @@
-import { Agent } from "undici";
+import { Agent, fetch as undiciFetch } from "undici";
 import { backendBaseUrl, type BackendEnv } from "@/lib/backend-client";
 import { sseResponse } from "@/lib/sse-response";
 import { BACKEND_PROTOCOL_HEADER, BACKEND_PROTOCOL_VERSION, BACKEND_RUNTIME_EVENTS_PATH } from "@shared/backend-protocol.mjs";
@@ -13,6 +13,14 @@ export const runtimeEventsDispatcher = new Agent({
   headersTimeout: 60_000,
   connect: { timeout: 10_000 },
 });
+
+/**
+ * The fetch that can use {@link runtimeEventsDispatcher}. Node's built-in fetch bundles its own undici
+ * and rejects an Agent from the `undici` package ("invalid onRequestStart method"), so every
+ * runtime-event connection failed: the browser hub got 503 and reconnected every 15s, and the
+ * server-side dirty hub never attached, leaving cutover task streams on their slow safety-net polls.
+ */
+export const runtimeEventsFetch = undiciFetch as unknown as typeof fetch;
 
 /**
  * Re-expose the upstream body so a Backend disconnect (restart, dropped transport) ends the
@@ -43,7 +51,7 @@ export function endOnUpstreamError(body: ReadableStream<Uint8Array>): ReadableSt
 }
 
 /** Proxy only the event body; internal credentials and headers never reach the browser. */
-export async function forwardRuntimeEventStream(signal: AbortSignal, { env = process.env, fetchImpl = fetch, timeoutMs = 10_000, dispatcher = runtimeEventsDispatcher, acceptEncoding }: { env?: BackendEnv; fetchImpl?: typeof fetch; timeoutMs?: number; dispatcher?: Agent; /** Browser Accept-Encoding: gzip the forwarded events for remote clients. */ acceptEncoding?: string | null } = {}): Promise<Response> {
+export async function forwardRuntimeEventStream(signal: AbortSignal, { env = process.env, fetchImpl = runtimeEventsFetch, timeoutMs = 10_000, dispatcher = runtimeEventsDispatcher, acceptEncoding }: { env?: BackendEnv; fetchImpl?: typeof fetch; timeoutMs?: number; dispatcher?: Agent; /** Browser Accept-Encoding: gzip the forwarded events for remote clients. */ acceptEncoding?: string | null } = {}): Promise<Response> {
   const failed = () => Response.json({ error: "Backendのイベントを取得できません" }, { status: 503 });
   const token = env.LEAFCODE_PI_BACKEND_TOKEN?.trim();
   if (!token) return failed();
