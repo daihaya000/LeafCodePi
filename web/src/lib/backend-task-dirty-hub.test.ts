@@ -1,3 +1,5 @@
+import { createServer } from "node:http";
+import type { AddressInfo } from "node:net";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   isBackendTaskDirtyConnected,
@@ -110,5 +112,36 @@ describe("backend-task-dirty-hub", () => {
     await Promise.resolve();
     expect(isBackendTaskDirtyConnected()).toBe(false);
     stop();
+  });
+
+  it("connects to a real Backend SSE through the default fetch", async () => {
+    // Regression: the default global fetch could not drive the undici 8 dispatcher, so in
+    // production the hub never connected and viewers silently fell back to 5s polling.
+    vi.useRealTimers();
+    const server = createServer((request, response) => {
+      expect(request.url).toMatch(/\?stream=1$/);
+      response.writeHead(200, {
+        "content-type": "text/event-stream; charset=utf-8",
+        [BACKEND_PROTOCOL_HEADER]: String(BACKEND_PROTOCOL_VERSION),
+      });
+      response.write(": connected\n\n");
+      response.write("event: task_dirty\ndata: {\"taskId\":\"task-real\",\"reason\":\"abort\"}\n\n");
+    });
+    await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+    const { port } = server.address() as AddressInfo;
+    const listener = vi.fn();
+    const stop = subscribeBackendTaskDirty("task-real", listener, {
+      env: { LEAFCODE_PI_BACKEND_TOKEN: "token", LEAFCODE_PI_BACKEND_URL: `http://127.0.0.1:${port}` },
+    });
+    try {
+      await vi.waitFor(() => {
+        expect(listener).toHaveBeenCalledWith({ taskId: "task-real", reason: "abort" });
+      }, { timeout: 5_000 });
+      expect(isBackendTaskDirtyConnected()).toBe(true);
+    } finally {
+      stop();
+      server.closeAllConnections();
+      await new Promise<void>((resolve) => server.close(() => resolve()));
+    }
   });
 });

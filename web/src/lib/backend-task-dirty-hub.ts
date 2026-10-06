@@ -1,5 +1,5 @@
 import { backendBaseUrl, type BackendEnv } from "@/lib/backend-client";
-import { runtimeEventsDispatcher } from "@/lib/backend-runtime-events";
+import { runtimeEventsDispatcher, runtimeEventsFetch } from "@/lib/backend-runtime-events";
 import {
   BACKEND_PROTOCOL_HEADER,
   BACKEND_PROTOCOL_VERSION,
@@ -159,7 +159,7 @@ function scheduleReconnect(env: BackendEnv, fetchImpl: typeof fetch) {
   reconnectTimer.unref?.();
 }
 
-function ensurePump(env: BackendEnv = process.env, fetchImpl: typeof fetch = fetch) {
+function ensurePump(env: BackendEnv = process.env, fetchImpl: typeof fetch = runtimeEventsFetch) {
   if (pump || listeners.size === 0) return;
   const controller = new AbortController();
   pump = controller;

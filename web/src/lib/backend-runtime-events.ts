@@ -1,4 +1,4 @@
-import { Agent } from "undici";
+import { Agent, fetch as undiciFetch } from "undici";
 import { backendBaseUrl, type BackendEnv } from "@/lib/backend-client";
 import { BACKEND_PROTOCOL_HEADER, BACKEND_PROTOCOL_VERSION, BACKEND_RUNTIME_EVENTS_PATH } from "@shared/backend-protocol.mjs";
 
@@ -12,6 +12,15 @@ export const runtimeEventsDispatcher = new Agent({
   headersTimeout: 60_000,
   connect: { timeout: 10_000 },
 });
+
+/**
+ * The fetch that drives `runtimeEventsDispatcher`. It must come from the same undici as the Agent:
+ * Node 22's built-in fetch bundles undici 6 and rejects an undici 8 Agent with
+ * `UND_ERR_INVALID_ARG: invalid onRequestStart method`, so the Backend SSE never opened — the dirty
+ * hub stayed disconnected (every remote viewer fell back to 5s polling with no wakes) and
+ * `/api/bots/events` always answered 503.
+ */
+export const runtimeEventsFetch = undiciFetch as unknown as typeof fetch;
 
 /**
  * Re-expose the upstream body so a Backend disconnect (restart, dropped transport) ends the
@@ -42,7 +51,7 @@ export function endOnUpstreamError(body: ReadableStream<Uint8Array>): ReadableSt
 }
 
 /** Proxy only the event body; internal credentials and headers never reach the browser. */
-export async function forwardRuntimeEventStream(signal: AbortSignal, { env = process.env, fetchImpl = fetch, timeoutMs = 10_000, dispatcher = runtimeEventsDispatcher }: { env?: BackendEnv; fetchImpl?: typeof fetch; timeoutMs?: number; dispatcher?: Agent } = {}): Promise<Response> {
+export async function forwardRuntimeEventStream(signal: AbortSignal, { env = process.env, fetchImpl = runtimeEventsFetch, timeoutMs = 10_000, dispatcher = runtimeEventsDispatcher }: { env?: BackendEnv; fetchImpl?: typeof fetch; timeoutMs?: number; dispatcher?: Agent } = {}): Promise<Response> {
   const failed = () => Response.json({ error: "Backendのイベントを取得できません" }, { status: 503 });
   const token = env.LEAFCODE_PI_BACKEND_TOKEN?.trim();
   if (!token) return failed();
@@ -52,7 +61,7 @@ export async function forwardRuntimeEventStream(signal: AbortSignal, { env = pro
     const response = await fetchImpl(`${backendBaseUrl(env)}${BACKEND_RUNTIME_EVENTS_PATH}`, {
       headers: { authorization: `Bearer ${token}`, [BACKEND_PROTOCOL_HEADER]: String(BACKEND_PROTOCOL_VERSION) },
       signal: AbortSignal.any([signal, deadline.signal]), cache: "no-store",
-      // undici-specific; Node's fetch and Next's undici both honor it. Test doubles ignore it.
+      // undici-specific; only the matching undici fetch (runtimeEventsFetch) honors it. Test doubles ignore it.
       dispatcher,
     } as RequestInit);
     if (!response.ok || !response.body || response.headers.get(BACKEND_PROTOCOL_HEADER) !== String(BACKEND_PROTOCOL_VERSION)

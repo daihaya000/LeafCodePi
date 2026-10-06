@@ -1,3 +1,5 @@
+import { createServer } from "node:http";
+import type { AddressInfo } from "node:net";
 import { expect, it, vi } from "vitest";
 import { endOnUpstreamError, forwardRuntimeEventStream, runtimeEventsDispatcher } from "./backend-runtime-events";
 const env = { LEAFCODE_PI_BACKEND_URL: "http://owner.invalid", LEAFCODE_PI_BACKEND_TOKEN: "private-test-token" };
@@ -47,4 +49,25 @@ it("SSE fetch disables undici bodyTimeout so quiet heartbeats are not killed", a
   expect((await forwardRuntimeEventStream(new AbortController().signal, { env, fetchImpl })).status).toBe(200);
   // bodyTimeout: 0 disables the 300s inter-chunk kill that stormed reconnects against a hung Backend.
   expect((runtimeEventsDispatcher as unknown as { closed?: boolean }).closed).not.toBe(true);
+});
+
+it("opens a real Backend SSE with the default fetch and the dispatcher (no undici mismatch)", async () => {
+  // Regression: Node's built-in fetch (undici 6) rejected the undici 8 Agent with
+  // "invalid onRequestStart method", so every real stream failed while doubles passed.
+  const server = createServer((request, response) => {
+    expect(request.headers.authorization).toBe("Bearer private-test-token");
+    response.writeHead(200, { "content-type": "text/event-stream", "x-leafcode-backend-protocol": "1" });
+    response.end('event: routine\ndata: {"ok":true}\n\n');
+  });
+  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+  try {
+    const { port } = server.address() as AddressInfo;
+    const response = await forwardRuntimeEventStream(new AbortController().signal, {
+      env: { LEAFCODE_PI_BACKEND_URL: `http://127.0.0.1:${port}`, LEAFCODE_PI_BACKEND_TOKEN: "private-test-token" },
+    });
+    expect(response.status).toBe(200);
+    expect(await response.text()).toContain("event: routine");
+  } finally {
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+  }
 });
