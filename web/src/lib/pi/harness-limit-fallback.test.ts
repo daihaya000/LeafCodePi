@@ -199,6 +199,8 @@ import { parseCodexBarSnapshot } from "@/lib/codexbar";
 import { getTask, upsertProject } from "@/lib/store";
 import type { ThinkingLevel } from "@/lib/types";
 import {
+  clearProviderLimit,
+  markProviderLimited,
   setAccountRoutingMode,
   __resetProviderRoutingQueueForTests,
 } from "@/lib/provider-routing";
@@ -208,6 +210,7 @@ import { SdkRuntimeFactory } from "@backend-core/sdk-runtime.mjs";
 import {
   createTask,
   promptTask,
+  PROVIDER_FALLBACK_FAILED_MESSAGE,
   __waitForProviderFallbackIdleForTests,
 } from "./harness";
 
@@ -276,8 +279,8 @@ function storeProviderAuth(accountId: string, agentDir: string, provider: string
   );
 }
 
-async function waitFor(check: () => boolean): Promise<void> {
-  const deadline = Date.now() + 2_000;
+async function waitFor(check: () => boolean, timeoutMs = 2_000): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
   while (!check()) {
     if (Date.now() >= deadline) throw new Error("waiting for the expected state timed out");
     await new Promise((resolve) => setTimeout(resolve, 0));
@@ -516,6 +519,91 @@ describe.each(["openai-codex", "openai"] as const)("provider limit fallback: %s"
     assert.equal(getTask(task.id)?.accountId, codex.id);
     assert.equal(getTask(task.id)?.accountIdExplicit, undefined);
   });
+
+  it("reports an actionable error when the limit leaves no fallback route", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "leafcode-pi-limit-no-route-"));
+    tempDirs.push(dir);
+    process.env.LEAFCODE_PI_DATA_DIR = dir;
+    const agentDir = join(dir, "agent");
+    process.env.PI_CODING_AGENT_DIR = agentDir;
+    __resetPiAgentDirCacheForTests();
+
+    const only = createAccount({ label: "codex-only", providers: [PROVIDER] });
+    storeProviderAuth(only.id, agentDir, PROVIDER);
+    installHarness(new Map([[only.id, runtime(only.id, PROVIDER)]]));
+    await setAccountRoutingMode(PROVIDER, "integrated");
+
+    const project = upsertProject({ name: "demo", rootPath: dir });
+    const task = await createTask({
+      projectId: project.id,
+      prompt: "start",
+      model: `${PROVIDER}::${MODEL_ID}`,
+    });
+    await waitFor(() => getTask(task.id)?.status === "idle");
+    assert.equal(getTask(task.id)?.accountId, only.id);
+
+    fakePi.sessions[0].nextError = PROVIDER === "openai"
+      ? "OpenAI API error: subscription_sharing_usage_limit_exceeded"
+      : "You have hit your ChatGPT usage limit (team plan). Try again in ~286 min.";
+    await promptTask(task.id, "continue working");
+
+    // The single exhausted route has no destination. The task must say so
+    // instead of leaving the raw provider error with no visible recovery.
+    await waitFor(
+      () => getTask(task.id)?.error === PROVIDER_FALLBACK_FAILED_MESSAGE,
+      15_000,
+    );
+    assert.equal(fakePi.sessions.length, 1);
+    assert.equal(fakePi.sessions[0]?.customMessages.length, 0);
+  }, 20_000);
+
+  it("retries until a fallback route becomes available", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "leafcode-pi-limit-retry-"));
+    tempDirs.push(dir);
+    process.env.LEAFCODE_PI_DATA_DIR = dir;
+    const agentDir = join(dir, "agent");
+    process.env.PI_CODING_AGENT_DIR = agentDir;
+    __resetPiAgentDirCacheForTests();
+
+    const first = createAccount({ label: "codex-1", providers: [PROVIDER] });
+    const second = createAccount({ label: "codex-2", providers: [PROVIDER] });
+    storeProviderAuth(first.id, agentDir, PROVIDER);
+    storeProviderAuth(second.id, agentDir, PROVIDER);
+    installHarness(
+      new Map([
+        [first.id, runtime(first.id, PROVIDER)],
+        [second.id, runtime(second.id, PROVIDER)],
+      ]),
+    );
+    await setAccountRoutingMode(PROVIDER, "integrated");
+    // The sibling route is unusable for the first attempt. A later retry must
+    // pick it up instead of leaving the task in error.
+    markProviderLimited(PROVIDER, second.id);
+
+    const project = upsertProject({ name: "demo", rootPath: dir });
+    const task = await createTask({
+      projectId: project.id,
+      prompt: "start",
+      model: `${PROVIDER}::${MODEL_ID}`,
+    });
+    await waitFor(() => getTask(task.id)?.status === "idle");
+    assert.equal(getTask(task.id)?.accountId, first.id);
+
+    fakePi.sessions[0].nextError = PROVIDER === "openai"
+      ? "OpenAI API error: subscription_sharing_usage_limit_exceeded"
+      : "You have hit your ChatGPT usage limit (team plan). Try again in ~286 min.";
+    await promptTask(task.id, "continue working", undefined, {
+      model: `${first.id}::${PROVIDER}::${MODEL_ID}`,
+    });
+    // Free the sibling after the first attempt has failed.
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    clearProviderLimit(PROVIDER, second.id);
+
+    await waitFor(() => fakePi.sessions.length === 2, 15_000);
+    expect(fakePi.sessions[1]).toMatchObject({ accountId: second.id });
+    assert.equal(getTask(task.id)?.accountId, second.id);
+    await waitFor(() => fakePi.sessions[1]?.prompts.length === 1);
+  }, 20_000);
 });
 
 // A queued prompt marks its task working before the integrated route is
