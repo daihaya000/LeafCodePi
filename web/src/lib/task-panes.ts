@@ -12,8 +12,9 @@
 import { createSettingSync } from "@/lib/setting-sync";
 
 export const MAX_PANES = 5;
-export const MAX_TABS_PER_PANE = 5;
-export const MAX_OPEN_TABS = 5;
+export const MAX_TABS_PER_PANE = 10;
+/** Bound hidden-mount view retention; active TaskView SSE connections remain limited by MAX_PANES. */
+export const MAX_OPEN_TABS = 10;
 export const TASK_PANES_STORAGE_KEY = "webui:task-panes";
 export const TASK_PANE_PREFER_NEW_EVENT = "webui:task-pane-prefer-new";
 export const DEFAULT_PREFER_NEW_PANE = false;

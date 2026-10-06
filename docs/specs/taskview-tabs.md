@@ -15,7 +15,8 @@
 
 ## 1. 構造とペイン
 
-- **最大 5 ペイン、タブ総数は最大 5**（各ペインのタブも最大 5）
+- **最大 5 ペイン、タブ総数は最大 10**（各ペインのタブも最大 10）
+- 負荷対策として開いて保持する画面は最大 10。TaskView の SSE は各ペインの active タブだけが接続するため、同時接続は最大 5
 - 各ペインは複数タスクをタブで保持
 - **レイアウト**: ペイン単位の split tree。各分割ノードが左右（row）または上下（column）の方向を持ち、端ドロップは対象アンカーの葉だけを分割する。5 ペインでも 2x2 に固定せず、既存の他ペインの方向を変えない
 - **1 ペイン × 1 タブ時もタブバーを表示**: タブ操作と新規作成入口を常時利用できる
@@ -104,4 +105,4 @@
 - **新規 model**: `web/src/lib/task-panes.ts` — 型・reducer・上限ガード・localStorage I/O を純関数中心で実装
 - **Provider**: `web/src/components/shell/TaskPanesContext.tsx` — useReducer + URL 同期（`history.replaceState`）+ md フォールバック + status 報告 map + tasks-changed 自動クローズ
 - **描画ホスト**: AppShell の `<section>` 内で layout tree を再帰レンダリング（`next/dynamic` ssr:false）。各 split node は自身の方向とリサイズ境界を持つ。`/task/[id]/page.tsx` は `null` を返す薄いページになり、URL 情報は pathname 経由で provider が取得
-- **DOM/SSE リソース**: 最大 5 の TaskView + EventSource。LeafCodePi の SSE は BFF 内 harness 配信で軽量だが、接続数上限に注意（リスク節参照）
+- **DOM/SSE リソース**: hidden mount される画面は最大 10、active な TaskView の EventSource は最大 5（ペイン数上限）。総タブ数を 10 に留め、保持ビューのメモリ負荷を抑える

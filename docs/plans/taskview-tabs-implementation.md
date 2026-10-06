@@ -2,7 +2,7 @@
 
 **仕様:** [`docs/specs/taskview-tabs.md`](../specs/taskview-tabs.md)
 
-**ゴール:** `/task/*` に複数タスクをタブで開き、最大 5 ペインまで分割できるようにする。タブ総数は最大 5 とし、ペイン単位の split tree と各ノードの方向を localStorage に永続化する。1 ペイン × 1 タブでもタブバーを表示する。
+**ゴール:** `/task/*` に複数タスクをタブで開き、最大 5 ペインまで分割できるようにする。タブ総数は最大 10（保持ビューの負荷を制限、active TaskView の SSE は最大 5）とし、ペイン単位の split tree と各ノードの方向を localStorage に永続化する。1 ペイン × 1 タブでもタブバーを表示する。
 
 **技術:** Next.js（App Router）、React、TypeScript、Vitest（node 環境・Testing Library なし）。DB / settings API は使わない。
 
@@ -44,8 +44,8 @@ Phase 1  task-panes model（型・reducer・localStorage）
 
 ```ts
 export const MAX_PANES = 5;
-export const MAX_TABS_PER_PANE = 5;
-export const MAX_OPEN_TABS = 5;
+export const MAX_TABS_PER_PANE = 10;
+export const MAX_OPEN_TABS = 10;
 export const TASK_PANES_STORAGE_KEY = "webui:task-panes";
 
 export type TaskPane = { id: string; tabs: string[]; activeTabId: string | null };
@@ -172,7 +172,7 @@ type Action =
 
 ## リスク
 
-1. **5 EventSource**: 最大 5 の TaskView が常駐。BFF 内 harness 配信なので 1 接続あたりは軽いが、**Home/settings 表示中も接続が生存する**（panes 保持方式のため）。
+1. **保持ビュー / EventSource**: hidden mount される画面は最大 10。TaskView の SSE は各ペインの active タブのみ接続するため同時接続は最大 5。Home/settings 表示中も panes と他ペインの active TaskView は生存するため、上限をさらに増やす場合はメモリ・接続負荷の実測が必要。
 2. **replaceState と usePathname の整合**: Next.js の replaceState 対応は App Router 公式だが、pathname 監視 effect との二重同期で不整合が出たら監視条件を見直す（冪等 set で済む設計にしてある）
 3. **SSR 白画面**: `ssr: false` の dynamic import のため初回一瞬ローディング表示。本家と同じ許容
 4. **コンポーネントテスト不在**: Testing Library 未導入のため UI 分岐は model 層テスト + 手動確認で担保。導入する場合は別タスク

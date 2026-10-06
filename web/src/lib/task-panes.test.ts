@@ -145,6 +145,15 @@ describe("openTab", () => {
     expect(next.panes[0].activeTabId).toBe("t1");
   });
 
+  it(`タブ総数上限 ${MAX_OPEN_TABS} 件まで同一ペインに開ける`, () => {
+    const tabs = Array.from({ length: MAX_OPEN_TABS }, (_, i) => `t${i}`);
+    let current = state(pane(P1, [tabs[0]!]));
+    for (const taskId of tabs.slice(1)) {
+      current = reducer(current, { type: "openTab", paneId: P1, taskId });
+    }
+    expect(current.panes[0].tabs).toEqual(tabs);
+  });
+
   it("タブ上限到達で同一参照のまま no-op", () => {
     const full = Array.from({ length: MAX_TABS_PER_PANE }, (_, i) => `t${i}`);
     const base = state(pane(P1, full));
@@ -153,12 +162,13 @@ describe("openTab", () => {
   });
 
   it(`別ペインを含むタブ総数 ${MAX_OPEN_TABS} 到達時も no-op`, () => {
+    const tabs = Array.from({ length: MAX_OPEN_TABS }, (_, i) => `t${i}`);
+    const splitAt = Math.ceil(tabs.length / 2);
     const base = state(
-      pane(P1, ["a", "b"]),
-      pane(P2, ["c", "d"]),
-      pane(P3, ["e"]),
+      pane(P1, tabs.slice(0, splitAt)),
+      pane(P2, tabs.slice(splitAt)),
     );
-    expect(reducer(base, { type: "openTab", paneId: P3, taskId: "extra" })).toBe(base);
+    expect(reducer(base, { type: "openTab", paneId: P1, taskId: "extra" })).toBe(base);
   });
 
   it("不明ペイン ID は no-op", () => {
@@ -196,7 +206,14 @@ describe("openInNewPane", () => {
   });
 
   it(`タブ総数 ${MAX_OPEN_TABS} 到達時は新規ペインを開かない`, () => {
-    const full = Array.from({ length: MAX_PANES }, (_, i) => pane(`p${i}`, [`t${i}`]));
+    const tabs = Array.from({ length: MAX_OPEN_TABS }, (_, i) => `t${i}`);
+    let cursor = 0;
+    const full = Array.from({ length: MAX_PANES }, (_, i) => {
+      const count = Math.ceil((tabs.length - cursor) / (MAX_PANES - i));
+      const paneTabs = tabs.slice(cursor, cursor + count);
+      cursor += paneTabs.length;
+      return pane(`p${i}`, paneTabs);
+    });
     const base = { panes: full, activePaneId: "p0" };
     expect(reducer(base, { type: "openInNewPane", taskId: "extra" })).toBe(base);
   });
@@ -503,14 +520,16 @@ describe("showWorkingTasks", () => {
     expect(next.activePaneId).toBe(next.panes[0].id);
   });
 
-  it("最大5タブを5ペインへ分散し、重複を除く", () => {
+  it(`最大 ${MAX_OPEN_TABS} タブを ${MAX_PANES} ペインへ分散し、重複を除く`, () => {
+    const taskIds = Array.from({ length: MAX_OPEN_TABS }, (_, i) => `task-${i}`);
     const next = reducer(state(pane(P1, ["old"])), {
       type: "showWorkingTasks",
-      taskIds: ["a", "b", "c", "d", "e", "d"],
+      taskIds: [...taskIds, taskIds[0]!],
     });
 
     expect(next.panes).toHaveLength(MAX_PANES);
-    expect(next.panes.map((item) => item.tabs)).toEqual([["a"], ["b"], ["c"], ["d"], ["e"]]);
+    expect(next.panes.flatMap((item) => item.tabs)).toEqual(taskIds);
+    expect(next.panes.every((item) => item.tabs.length <= MAX_TABS_PER_PANE)).toBe(true);
   });
 
   it("対象が空なら状態を変更しない", () => {
@@ -699,10 +718,14 @@ describe("normalize", () => {
     const fixedTabs = normalize({ panes: [{ id: P1, tabs: manyTabs }] });
     expect(fixedTabs?.panes[0].tabs).toHaveLength(MAX_TABS_PER_PANE);
 
+    const firstTabs = ["a", "b", "c"];
+    const overflowTabs = Array.from({ length: MAX_TABS_PER_PANE }, (_, i) => `d${i}`);
     const fixedTotal = normalize({
-      panes: [pane(P1, ["a", "b", "c"]), pane(P2, ["d", "e", "f"])],
+      panes: [pane(P1, firstTabs), pane(P2, overflowTabs)],
     });
-    expect(fixedTotal?.panes.flatMap((item) => item.tabs)).toEqual(["a", "b", "c", "d", "e"]);
+    expect(fixedTotal?.panes.flatMap((item) => item.tabs)).toEqual(
+      [...firstTabs, ...overflowTabs].slice(0, MAX_OPEN_TABS),
+    );
   });
 
   it("壊れた構造は null", () => {
@@ -871,16 +894,19 @@ describe("retargetActiveTab", () => {
   });
 
   it(`タブ総数 ${MAX_OPEN_TABS} 到達時は最も古いタブを置き換える`, () => {
-    const base = state(
-      pane(P1, ["p1"]),
-      pane(P2, ["p2"]),
-      pane(P3, ["p3"]),
-      pane("pane-4", ["p4"]),
-      pane("pane-5", ["p5"]),
-    );
+    const tabs = Array.from({ length: MAX_OPEN_TABS }, (_, i) => `p${i + 1}`);
+    let cursor = 0;
+    const panes = Array.from({ length: MAX_PANES }, (_, i) => {
+      const count = Math.ceil((tabs.length - cursor) / (MAX_PANES - i));
+      const paneTabs = tabs.slice(cursor, cursor + count);
+      cursor += paneTabs.length;
+      return pane(`pane-${i + 1}`, paneTabs);
+    });
+    const base = state(...panes);
+    const firstPaneTabs = panes[0]!.tabs;
     const next = retargetActiveTab(base, "fresh");
     expect(next.panes).toHaveLength(MAX_PANES);
-    expect(next.panes[0].tabs).toEqual(["fresh"]);
+    expect(next.panes[0].tabs).toEqual([...firstPaneTabs.slice(1), "fresh"]);
     expect(next.panes[0].activeTabId).toBe("fresh");
     expect(next.activePaneId).toBe(P1);
   });
