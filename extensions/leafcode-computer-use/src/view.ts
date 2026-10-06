@@ -10,14 +10,15 @@ function rebuildIndexes(outline: Outline): void {
 	outline.refToWireRef = new Map();
 	outline.wireRefToRef = new Map();
 	const queue = [outline.root];
-	while (queue.length > 0) {
-		const node = queue.shift()!;
+	let index = 0;
+	while (index < queue.length) {
+		const node = queue[index++];
 		outline.nodes.push(node);
 		if (node.wireRef) {
 			outline.refToWireRef.set(node.ref, node.wireRef);
 			outline.wireRefToRef.set(node.wireRef, node.ref);
 		}
-		queue.push(...node.children);
+		for (const child of node.children) queue.push(child);
 	}
 }
 
@@ -49,7 +50,8 @@ export function stabilizeRefs(base: Outline | undefined, next: Outline): Outline
 		const key = structuralKey(node);
 		structuralGroups.set(key, [...(structuralGroups.get(key) ?? []), node]);
 	}
-	let nextIndex = Math.max(0, ...base.nodes.map((node) => numericRef(node.ref))) + 1;
+	let nextIndex = 1;
+	for (const node of base.nodes) nextIndex = Math.max(nextIndex, numericRef(node.ref) + 1);
 	for (const node of next.nodes) {
 		const wireStable = node.wireRef ? byWireRef.get(node.wireRef) : undefined;
 		const structuralMatches = structuralGroups.get(structuralKey(node)) ?? [];

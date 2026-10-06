@@ -63,6 +63,15 @@ interface BrowserObservation {
 
 export type UiObservation = DesktopObservation | BrowserObservation;
 
+export function terminalDesktopActionResourceKey(details: unknown): string | undefined {
+	if (!details || typeof details !== "object") return undefined;
+	const candidate = details as { tool?: unknown; status?: unknown; target?: { pid?: unknown } };
+	if (candidate.tool !== "act_ui" || (candidate.status !== "target_closed" && candidate.status !== "post_action_observation_failed")) return undefined;
+	const pid = candidate.target?.pid;
+	if (typeof pid !== "number" || !Number.isSafeInteger(pid) || pid <= 0) return undefined;
+	return `desktop-pid:${pid}`;
+}
+
 export class SavedStates {
 	readonly store = new StateStore<UiObservation>(128);
 	readonly operations = new AsyncLocalStorage<OperationState>();
@@ -75,6 +84,10 @@ export class SavedStates {
 
 	get(stateId: string): StoredState<UiObservation> | undefined {
 		return this.store.get(stateId);
+	}
+
+	delete(stateId: string): boolean {
+		return this.store.delete(stateId);
 	}
 
 	set(record: StoredState<UiObservation>): void {

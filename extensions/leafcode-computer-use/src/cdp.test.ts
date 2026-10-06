@@ -1,5 +1,70 @@
-import { describe, expect, it } from "vitest";
-import { CdpSessionConnectionRegistry } from "./cdp.ts";
+import { describe, expect, it, vi } from "vitest";
+import { CdpSessionConnectionRegistry, CdpTab, chooseVisibleCdpCandidate } from "./cdp.ts";
+
+describe("chooseVisibleCdpCandidate", () => {
+	it("chooses only the unique visible tab in the matching window", () => {
+		expect(chooseVisibleCdpCandidate([
+			{ value: "background", frameMatches: true, visibility: "hidden" },
+			{ value: "active", frameMatches: true, visibility: "visible" },
+			{ value: "other-window", frameMatches: false, visibility: "visible" },
+		], true)).toBe("active");
+	});
+
+	it("does not select an arbitrary tab when visibility is ambiguous", () => {
+		expect(chooseVisibleCdpCandidate([
+			{ value: "first", frameMatches: true, visibility: "hidden" },
+			{ value: "second", frameMatches: true, visibility: "hidden" },
+		], true)).toBeUndefined();
+		expect(chooseVisibleCdpCandidate([
+			{ value: "first", frameMatches: true, visibility: "visible" },
+			{ value: "second", frameMatches: true, visibility: "visible" },
+		], false)).toBeUndefined();
+	});
+});
+
+class FakeWebSocket {
+	static readonly OPEN = 1;
+	static readonly CLOSED = 3;
+	readyState = FakeWebSocket.OPEN;
+	onopen?: () => void;
+	onmessage?: (event: { data: string }) => void;
+	onclose?: () => void;
+	onerror?: () => void;
+
+	constructor(_url: string) {
+		queueMicrotask(() => this.onopen?.());
+	}
+
+	send(raw: string): void {
+		const request = JSON.parse(raw) as { id: number; method: string };
+		queueMicrotask(() => {
+			this.onmessage?.({ data: JSON.stringify({ id: request.id, result: {} }) });
+			if (request.method === "Page.navigate") this.onmessage?.({ data: JSON.stringify({ method: "Page.loadEventFired" }) });
+		});
+	}
+
+	close(): void {
+		this.readyState = FakeWebSocket.CLOSED;
+		this.onclose?.();
+	}
+}
+
+describe("CdpTab.navigate", () => {
+	it("clears its load timeout when navigation completes", async () => {
+		vi.stubGlobal("WebSocket", FakeWebSocket as unknown as typeof WebSocket);
+		vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+		let tab: CdpTab | undefined;
+		try {
+			tab = await CdpTab.connect("ws://127.0.0.1:9222/devtools/page/test", "test", "title");
+			await tab.navigate("https://example.com");
+			expect(vi.getTimerCount()).toBe(0);
+		} finally {
+			tab?.close();
+			vi.useRealTimers();
+			vi.unstubAllGlobals();
+		}
+	});
+});
 
 describe("CdpSessionConnectionRegistry", () => {
 	it("disconnects only the requested session and invalidates pending connections", () => {

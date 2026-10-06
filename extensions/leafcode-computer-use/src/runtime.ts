@@ -16,8 +16,7 @@ export class ActiveSessionRegistry {
 	}
 
 	release(sessionId: string): boolean {
-		this.activeSessions.delete(sessionId);
-		return this.activeSessions.size === 0;
+		return this.activeSessions.delete(sessionId) && this.activeSessions.size === 0;
 	}
 }
 
@@ -73,6 +72,10 @@ export class StateStore<T> {
 
 	get(stateId: string): StoredState<T> | undefined {
 		return this.records.get(stateId);
+	}
+
+	delete(stateId: string): boolean {
+		return this.records.delete(stateId);
 	}
 
 	clearSession(sessionId: string): void {

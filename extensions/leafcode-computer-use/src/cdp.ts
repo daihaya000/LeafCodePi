@@ -137,15 +137,22 @@ export class CdpTab {
 	}
 
 	async navigate(url: string): Promise<void> {
+		let resolveLoaded!: () => void;
 		const loaded = new Promise<void>((resolve) => {
+			resolveLoaded = resolve;
 			this.loadFired = resolve;
+		});
+		let timer: NodeJS.Timeout | undefined;
+		const timedOut = new Promise<void>((resolve) => {
+			timer = setTimeout(resolve, NAVIGATE_LOAD_TIMEOUT_MS);
 		});
 		try {
 			await this.send("Page.navigate", { url });
 			// SPAs and slow pages may never fire load; cap the wait and move on.
-			await Promise.race([loaded, new Promise<void>((resolve) => setTimeout(resolve, NAVIGATE_LOAD_TIMEOUT_MS))]);
+			await Promise.race([loaded, timedOut]);
 		} finally {
-			this.loadFired = undefined;
+			if (timer) clearTimeout(timer);
+			if (this.loadFired === resolveLoaded) this.loadFired = undefined;
 		}
 	}
 
@@ -205,7 +212,8 @@ export class CdpTab {
 	async windowBounds(): Promise<WindowFrame | undefined> {
 		const result = await this.send("Browser.getWindowForTarget", { targetId: this.targetId });
 		const bounds = result?.bounds;
-		if (typeof bounds?.left !== "number" || typeof bounds?.width !== "number") return undefined;
+		const values = [bounds?.left, bounds?.top, bounds?.width, bounds?.height];
+		if (!values.every((value) => typeof value === "number" && Number.isFinite(value)) || bounds.width <= 0 || bounds.height <= 0) return undefined;
 		return { x: bounds.left, y: bounds.top, w: bounds.width, h: bounds.height };
 	}
 
@@ -381,11 +389,23 @@ export async function cdpTabForWindow(windowTitle: string, frame: WindowFrame | 
 	const generation = state.generation;
 	if (Date.now() - state.lastConnectFailureAt < CONNECT_FAILURE_RETRY_MS) return undefined;
 
-	for (const tab of state.connectedTabs.values()) {
-		const matches = tab.isOpen && titlesMatch(tab.title, windowTitle) && await tabMatchesFrame(tab, frame);
+	const cachedMatches: CdpTab[] = [];
+	for (const [targetId, tab] of state.connectedTabs) {
+		if (!tab.isOpen) {
+			state.connectedTabs.delete(targetId);
+			continue;
+		}
+		const matches = titlesMatch(tab.title, windowTitle) && await tabMatchesFrame(tab, frame);
 		if (state.generation !== generation) return undefined;
-		if (matches) return tab;
+		if (matches) cachedMatches.push(tab);
 	}
+	const cachedVisible = await Promise.all(cachedMatches.map(async (tab) => {
+		const visibility = await tab.evaluate("document.visibilityState").catch(() => undefined);
+		return { value: tab, frameMatches: true, visibility: typeof visibility === "string" ? visibility : undefined };
+	}));
+	if (state.generation !== generation) return undefined;
+	const cachedMatch = chooseVisibleCdpCandidate(cachedVisible, false);
+	if (cachedMatch) return cachedMatch;
 
 	try {
 		const pages = await cdpPages(ownerSessionId);
@@ -395,8 +415,16 @@ export async function cdpTabForWindow(windowTitle: string, frame: WindowFrame | 
 
 		const existing = state.connectedTabs.get(match.id);
 		if (existing?.isOpen) {
-			existing.title = match.title;
-			return existing;
+			const [frameMatches, visibility] = await Promise.all([
+				tabMatchesFrame(existing, frame, false),
+				existing.evaluate("document.visibilityState").catch(() => undefined),
+			]);
+			if (state.generation !== generation) return undefined;
+			if (frameMatches && visibility === "visible") {
+				existing.title = match.title;
+				return existing;
+			}
+			return undefined;
 		}
 		let connecting = state.connectingTabs.get(match.id);
 		if (!connecting) {
@@ -410,6 +438,18 @@ export async function cdpTabForWindow(windowTitle: string, frame: WindowFrame | 
 			if (state.connectingTabs.get(match.id) === connecting) state.connectingTabs.delete(match.id);
 		}
 		if (state.generation !== generation) {
+			connected.close();
+			return undefined;
+		}
+		const [frameMatches, visibility] = await Promise.all([
+			tabMatchesFrame(connected, frame, false),
+			connected.evaluate("document.visibilityState").catch(() => undefined),
+		]);
+		if (state.generation !== generation) {
+			connected.close();
+			return undefined;
+		}
+		if (!frameMatches || visibility !== "visible") {
 			connected.close();
 			return undefined;
 		}
@@ -427,6 +467,15 @@ interface CdpPageTarget {
 	title: string;
 	url?: string;
 	webSocketDebuggerUrl?: string;
+}
+
+export function chooseVisibleCdpCandidate<T>(
+	candidates: Array<{ value: T; frameMatches: boolean; visibility?: string }>,
+	requireFrameMatch: boolean,
+): T | undefined {
+	const eligible = requireFrameMatch ? candidates.filter((candidate) => candidate.frameMatches) : candidates;
+	const visible = eligible.filter((candidate) => candidate.visibility === "visible");
+	return visible.length === 1 ? visible[0].value : undefined;
 }
 
 export async function listCdpPageContexts(): Promise<CdpPageContext[]> {
@@ -665,7 +714,7 @@ function isLocalDebuggerWebSocket(wsUrl: string, expectedPort: string | undefine
  */
 async function pickTab(pages: CdpPageTarget[], windowTitle: string, frame?: WindowFrame): Promise<CdpPageTarget | undefined> {
 	const matches = pages.filter((target) => titlesMatch(target.title, windowTitle));
-	if (matches.length === 0) return pages.length === 1 ? pages[0] : undefined;
+	if (matches.length === 0) return undefined;
 	if (matches.length === 1) return matches[0];
 
 	const wanted = windowTitle.trim().toLowerCase();
@@ -673,21 +722,21 @@ async function pickTab(pages: CdpPageTarget[], windowTitle: string, frame?: Wind
 	const pool = exact.length > 0 ? exact : matches;
 	if (pool.length === 1) return pool[0];
 
-	let visibleFallback: CdpPageTarget | undefined;
+	const inspected: Array<{ value: CdpPageTarget; frameMatches: boolean; visibility?: string }> = [];
 	for (const candidate of pool) {
+		let tab: CdpTab | undefined;
 		try {
-			const tab = await CdpTab.connect(candidate.webSocketDebuggerUrl!, candidate.id, candidate.title);
-			const inFrame = await tabMatchesFrame(tab, frame, false);
+			tab = await CdpTab.connect(candidate.webSocketDebuggerUrl!, candidate.id, candidate.title);
+			const frameMatches = await tabMatchesFrame(tab, frame, false);
 			const visibility = await tab.evaluate("document.visibilityState").catch(() => undefined);
-			tab.close();
-			if (frame && inFrame && visibility === "visible") return candidate;
-			if (frame && inFrame && !visibleFallback) visibleFallback = candidate;
-			if (!frame && visibility === "visible") return candidate;
+			inspected.push({ value: candidate, frameMatches, visibility: typeof visibility === "string" ? visibility : undefined });
 		} catch {
 			// candidate unreachable; try the next one
+		} finally {
+			tab?.close();
 		}
 	}
-	return visibleFallback ?? pool[0];
+	return chooseVisibleCdpCandidate(inspected, Boolean(frame));
 }
 
 /**
