@@ -39,6 +39,8 @@ export type BackendEventSink = {
 };
 
 export const BACKEND_EVENT_POLL_MS = 2_000;
+/** Streaming safety fallback when the direct dirty/task-stream connection is healthy. */
+export const BACKEND_EVENT_STREAMING_POLL_MS = 5_000;
 /**
  * Bound dirty bursts without postponing refresh indefinitely under continuous updates. The Backend
  * already coalesces dirty (50ms) and throttles stream wakes (200ms), so this only merges the
@@ -215,6 +217,7 @@ export async function startBackendTaskStream({
   sse,
   extra = {},
   intervalMs = BACKEND_EVENT_POLL_MS,
+  streamingIntervalMs = intervalMs,
   idleIntervalMs = BACKEND_EVENT_IDLE_POLL_MS,
   dirtyIdleIntervalMs = BACKEND_EVENT_DIRTY_IDLE_POLL_MS,
   setTimeoutImpl = setTimeout,
@@ -229,6 +232,8 @@ export async function startBackendTaskStream({
   sse: BackendEventSink;
   extra?: Record<string, unknown> | (() => Record<string, unknown>);
   intervalMs?: number;
+  /** Slower streaming fallback; only used while the dirty event connection is healthy. */
+  streamingIntervalMs?: number;
   idleIntervalMs?: number;
   dirtyIdleIntervalMs?: number;
   setTimeoutImpl?: typeof setTimeout;
@@ -392,11 +397,14 @@ export async function startBackendTaskStream({
     if (busy || (dirtyPending && dirtyScheduled && timer !== undefined)) return;
     if (timer !== undefined) clearTimeoutImpl(timer);
     dirtyScheduled = dirtyPending;
+    const streamingFallback = lastStreaming && dirtyAttached && dirtyConnectedSafe() ? streamingIntervalMs : intervalMs;
     const delay = dirtyPending
       ? BACKEND_EVENT_DIRTY_COALESCE_MS
-      : lastStreaming || lastWorking
-        ? intervalMs
-        : dirtyAttached && dirtyConnectedSafe() ? dirtyIdleIntervalMs : idleIntervalMs;
+      : lastStreaming
+        ? streamingFallback
+        : lastWorking
+          ? intervalMs
+          : dirtyAttached && dirtyConnectedSafe() ? dirtyIdleIntervalMs : idleIntervalMs;
     timer = setTimeoutImpl(() => {
       timer = undefined;
       dirtyScheduled = false;

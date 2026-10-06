@@ -22,7 +22,7 @@ import {
 } from "@/lib/task-history";
 import { readHistoryPageSize } from "@/lib/pi/history-page-size";
 import { localRuntimeBlocked } from "@/lib/pi/runtime-ownership";
-import { startBackendTaskStream } from "@/lib/pi/backend-event-stream";
+import { BACKEND_EVENT_STREAMING_POLL_MS, startBackendTaskStream } from "@/lib/pi/backend-event-stream";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -128,7 +128,14 @@ export async function GET(
         // After the cutover the Backend owns the session: this process must not subscribe to (or open)
         // a session it does not own, so the stream is built from the Backend's detail and polled.
         if (localRuntimeBlocked()) {
-          const backendStream = await startBackendTaskStream({ id, sse, messageDelta, streamDeltas, streamMessages });
+          const backendStream = await startBackendTaskStream({
+            id,
+            sse,
+            messageDelta,
+            streamDeltas,
+            streamMessages,
+            streamingIntervalMs: BACKEND_EVENT_STREAMING_POLL_MS,
+          });
           if (!backendStream.ok) {
             sse.send("error", {
               error: backendStream.reason === "not-found" ? "タスクが見つかりません" : "Backendから取得できません",

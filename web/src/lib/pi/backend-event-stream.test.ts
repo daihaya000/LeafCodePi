@@ -44,6 +44,7 @@ async function start(
   options: {
     idleIntervalMs?: number;
     intervalMs?: number;
+    streamingIntervalMs?: number;
     dirtyIdleIntervalMs?: number;
     subscribeDirty?: (taskId: string, listener: (payload?: { taskId: string; reason?: string; delta?: Record<string, unknown> }) => void) => () => void;
     dirtyConnected?: () => boolean;
@@ -56,6 +57,7 @@ async function start(
     id: "task-1",
     sse,
     intervalMs: options.intervalMs ?? 2_000,
+    streamingIntervalMs: options.streamingIntervalMs,
     idleIntervalMs: options.idleIntervalMs ?? 2_000,
     // Keep dirty idle aligned with the test's idle interval unless a case opts in.
     dirtyIdleIntervalMs: options.dirtyIdleIntervalMs ?? options.idleIntervalMs ?? 2_000,
@@ -162,6 +164,45 @@ describe("Backend task stream polling", () => {
       ["task-1", { messages: "page", limit: 150 }],
       ["task-1", { messages: "page", limit: 150 }],
     ]);
+    stream.stop();
+  });
+
+  it("uses the slower streaming fallback only with a connected dirty hub and keeps dirty wakes immediate", async () => {
+    let wake: ((payload?: { taskId: string; reason?: string; delta?: Record<string, unknown> }) => void) | undefined;
+    const sse = sink();
+    mocks.forwardTaskDetail.mockResolvedValue(result(0, { status: "working", isStreaming: true }));
+    const stream = await start(sse, {
+      intervalMs: 2_000,
+      streamingIntervalMs: 5_000,
+      idleIntervalMs: 30_000,
+      dirtyIdleIntervalMs: 30_000,
+      dirtyConnected: () => true,
+      subscribeDirty: (_id, listener) => { wake = listener; return () => {}; },
+    });
+    await vi.advanceTimersByTimeAsync(2_000);
+    expect(mocks.forwardTaskDetail).toHaveBeenCalledTimes(1);
+    await vi.advanceTimersByTimeAsync(3_000);
+    expect(mocks.forwardTaskDetail).toHaveBeenCalledTimes(2);
+
+    wake?.({ taskId: "task-1", reason: "task_dirty" });
+    await vi.advanceTimersByTimeAsync(BACKEND_EVENT_DIRTY_COALESCE_MS - 1);
+    expect(mocks.forwardTaskDetail).toHaveBeenCalledTimes(2);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(mocks.forwardTaskDetail).toHaveBeenCalledTimes(3);
+    stream.stop();
+  });
+
+  it("keeps the short streaming fallback while the dirty hub is disconnected", async () => {
+    mocks.forwardTaskDetail.mockResolvedValue(result(0, { status: "working", isStreaming: true }));
+    const stream = await start(sink(), {
+      intervalMs: 2_000,
+      streamingIntervalMs: 5_000,
+      idleIntervalMs: 30_000,
+      dirtyIdleIntervalMs: 30_000,
+      dirtyConnected: () => false,
+    });
+    await vi.advanceTimersByTimeAsync(2_000);
+    expect(mocks.forwardTaskDetail).toHaveBeenCalledTimes(2);
     stream.stop();
   });
 
