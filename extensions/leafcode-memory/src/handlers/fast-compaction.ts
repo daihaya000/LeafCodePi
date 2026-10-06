@@ -57,6 +57,13 @@ export function buildSinglePassCompaction(
  */
 export function setupFastCompaction(pi: ExtensionAPI): void {
   pi.on("session_before_compact", async (event, ctx) => {
+    // All session_before_compact handlers run, even after one returns a result.
+    // Ask synchronously before resolving auth or making a request. The LCP host
+    // owns model selection and background compaction; standalone Pi keeps this path.
+    const ownership = { claimed: false };
+    pi.events.emit("leafcode:compaction:owner", ownership);
+    if (ownership.claimed) return;
+
     const model = resolveReviewModel(ctx.model, ctx.modelRegistry, {});
     if (!model) return;
 

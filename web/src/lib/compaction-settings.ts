@@ -4,6 +4,19 @@ export const DEFAULT_COMPACTION_THRESHOLD = 95;
 /** accountID::providerID::modelID (or providerID::modelID). Empty uses the session model. */
 export const COMPACTION_MODEL_SETTING_KEY = "compaction-model";
 export const COMPACTION_MODEL_EFFORT_SETTING_KEY = "compaction-model-effort";
+export const COMPACTION_BACKGROUND_SETTING_KEY = "compaction-background-enabled";
+export const COMPACTION_BACKGROUND_THRESHOLD_SETTING_KEY = "compaction-background-threshold";
+export const COMPACTION_SUMMARY_MAX_TOKENS_SETTING_KEY = "compaction-summary-max-tokens";
+
+export function parseCompactionSummaryMaxTokens(value: string | null | undefined): number {
+  const parsed = Number(value);
+  return Number.isSafeInteger(parsed) && parsed >= 512 && parsed <= 16_384 ? parsed : 4_096;
+}
+
+export function parseBackgroundCompactionThreshold(value: string | null | undefined): number {
+  const parsed = Number(value);
+  return Number.isInteger(parsed) && parsed >= 50 && parsed <= 85 ? parsed : 70;
+}
 
 export const CACHE_WARMING_MODES = ["off", "streaming", "idle"] as const;
 export type CacheWarmingMode = (typeof CACHE_WARMING_MODES)[number];
