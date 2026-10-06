@@ -39,3 +39,4 @@ scripts/launcher/*.pdb
 
 # Backendランタイムのバンドル成果物（scripts/build-backend-runtime.mjs が生成）
 /backend/runtime/
+/.playwright-cli/
