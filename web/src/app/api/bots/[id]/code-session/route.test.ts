@@ -611,6 +611,25 @@ describe("Bot Code session control", () => {
     expect(mocks.getBotCodeSessionPanelState).toHaveBeenCalledWith("bot-1");
   });
 
+  it("returns an empty 304 when the polled Code session panel is unchanged", async () => {
+    const panel = {
+      tasks: [{ id: "code-1", status: "working", kind: "code", botId: "bot-1" }],
+      loops: {},
+    };
+    mocks.getBotCodeSessionPanelState.mockResolvedValue(panel);
+    const url = request("GET").url;
+    const context = { params: Promise.resolve({ id: "bot-1" }) };
+    const first = await GET(new NextRequest(url), context);
+    const etag = first.headers.get("etag");
+    expect(first.status).toBe(200);
+    expect(etag?.startsWith("W/")).toBe(true);
+
+    const second = await GET(new NextRequest(url, { headers: { "if-none-match": etag! } }), context);
+    expect(second.status).toBe(304);
+    expect(await second.text()).toBe("");
+    expect(mocks.getBotCodeSessionPanelState).toHaveBeenCalledTimes(2);
+  });
+
   it("bundles Goal Loop DTOs for tasks that already have a summary", async () => {
     mocks.getBotCodeSessionPanelState.mockResolvedValue({
       tasks: [
