@@ -20,6 +20,8 @@ vi.mock("@/lib/backend-task-dirty-hub", () => ({
   subscribeBackendTaskDirty: () => () => {},
 }));
 
+const utf8ByteLength = (value: string) => new TextEncoder().encode(value).byteLength;
+
 const pending = { ok: true as const, permissionRequest: null, questionRequest: null };
 const detail = (revision: number, extra: Record<string, unknown> = {}) => ({
   id: "task-1",
@@ -102,11 +104,12 @@ describe("Backend task stream polling", () => {
     const first = sse.send.mock.calls[0]![1] as Record<string, unknown>;
     const second = sse.send.mock.calls[1]![1] as Record<string, unknown>;
     expect(first).toMatchObject({ task: { id: "task-1" }, goalLoop, todos, permissionRequest, questionRequest, contextUsage: firstContext });
+    expect(first).toHaveProperty("messageHistory");
     expect(second).toMatchObject({ taskReused: true, hangRetryCount: 2 });
-    for (const field of ["task", "goalLoop", "todos", "permissionRequest", "questionRequest", "contextUsage"]) {
+    for (const field of ["task", "goalLoop", "todos", "permissionRequest", "questionRequest", "contextUsage", "messageHistory"]) {
       expect(second).not.toHaveProperty(field);
     }
-    expect(JSON.stringify(second).length).toBeLessThan(JSON.stringify(first).length);
+    expect(utf8ByteLength(JSON.stringify(second))).toBeLessThan(utf8ByteLength(JSON.stringify(first)));
   });
 
   it("asks the Backend for a page first, then omit while idle and unchanged", async () => {
@@ -554,11 +557,13 @@ describe("Backend task stream polling", () => {
       expect(payloads[0]).toHaveProperty("goalLoop");
       expect(payloads[0]).toHaveProperty("todos");
       expect(payloads[0]).toHaveProperty("permissionRequest");
+      expect(payloads[0]).toHaveProperty("messageHistory");
       expect(payloads[1]).toMatchObject({ taskReused: true, contextUsage: { tokens: 2 } });
-      for (const field of ["task", "goalLoop", "todos", "permissionRequest", "questionRequest"]) {
+      for (const field of ["task", "goalLoop", "todos", "permissionRequest", "questionRequest", "messageHistory"]) {
         expect(payloads[1]).not.toHaveProperty(field);
       }
       expect(payloads[1].nestedState).toEqual({ goalLoop, todos, permissionRequest });
+      expect(utf8ByteLength(frames[1]!)).toBeLessThan(utf8ByteLength(frames[0]!));
     } finally {
       stream.stop();
       sse.cleanup();
