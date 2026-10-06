@@ -56,6 +56,34 @@ describe("/api/settings/[key]", () => {
   });
 
   it.each([
+    ["compaction-background-enabled", "0"],
+    ["compaction-background-enabled", "1"],
+    ["compaction-background-threshold", "70"],
+    ["compaction-background-threshold", "85"],
+    ["compaction-summary-max-tokens", "2048"],
+    ["compaction-summary-max-tokens", "16384"],
+    ["compaction-background-enabled", null],
+  ])("accepts %s=%s for the unified compactor", async (key, value) => {
+    const response = await PUT(request(key!, { value }), { params: Promise.resolve({ key: key! }) });
+    expect(response.status).toBe(200);
+    expect(settings.setSetting).toHaveBeenCalledWith(key, value);
+  });
+
+  it.each([
+    ["compaction-background-enabled", "false"],
+    ["compaction-background-threshold", "49"],
+    ["compaction-background-threshold", "86"],
+    ["compaction-background-threshold", "70.5"],
+    ["compaction-summary-max-tokens", "511"],
+    ["compaction-summary-max-tokens", "16385"],
+    ["compaction-summary-max-tokens", "NaN"],
+  ])("rejects invalid %s=%s without saving", async (key, value) => {
+    const response = await PUT(request(key, { value }), { params: Promise.resolve({ key }) });
+    expect(response.status).toBe(400);
+    expect(settings.setSetting).not.toHaveBeenCalled();
+  });
+
+  it.each([
     ["code-permission-mode", "ask"],
     ["code-permission-mode", "deny"],
     ["code-skill-permission", "deny"],

@@ -348,6 +348,16 @@ import {
 } from "@/lib/session-label-settings";
 import { compactWithJev } from "@/lib/pi/jev-compaction";
 import { compactWithConfiguredModel } from "@/lib/pi/compaction-model";
+import { compactSinglePass } from "@/lib/pi/single-pass-compaction";
+import { prepareBackgroundCompaction } from "@/lib/pi/prepare-background-compaction";
+import { registerCompactionController, type CompactionControllerOptions } from "@/lib/pi/compaction-controller";
+import {
+  COMPACTION_BACKGROUND_SETTING_KEY,
+  COMPACTION_BACKGROUND_THRESHOLD_SETTING_KEY,
+  COMPACTION_SUMMARY_MAX_TOKENS_SETTING_KEY,
+  parseBackgroundCompactionThreshold,
+  parseCompactionSummaryMaxTokens,
+} from "@/lib/compaction-settings";
 import {
   isJevCompactionEnabled,
   JEV_COMPACTION_ENABLED_SETTING_KEY,
@@ -4024,19 +4034,6 @@ export function sessionExtensionFactories(input: {
           isOpenAiFastModeEnabled(getSetting(OPENAI_FAST_MODE_SETTING_KEY)),
         ),
       );
-      api.on("session_before_compact", async (event) => {
-        if (isJevCompactionEnabled(getSetting(JEV_COMPACTION_ENABLED_SETTING_KEY))) {
-          const compaction = await compactWithJev(
-            event.preparation,
-            parseJevCompactionThreshold(getSetting(JEV_COMPACTION_THRESHOLD_SETTING_KEY)),
-            event.signal,
-            event.customInstructions,
-          );
-          if (compaction) return { compaction };
-        }
-        const compaction = await compactWithCompactionModel(event, input.taskId);
-        return compaction ? { compaction } : undefined;
-      });
     },
     ...(botSoulBotId
       ? [botSoulTool(botSoulBotId, () => requestBotSoulReload(botSoulBotId))]
@@ -4075,6 +4072,29 @@ export function sessionExtensionFactories(input: {
     ...(botSoulBotId && input.taskId
       ? [botIntercomTool(input.taskId)]
       : []),
+    (api) => registerCompactionController(api, {
+      config: (ctx) => {
+        const live = input.taskId ? state().live.get(input.taskId) : undefined;
+        if (!live || !ctx.model) return undefined;
+        const settings = live.session.settingsManager.getCompactionSettings(ctx.model);
+        const key = JSON.stringify([
+          getTask(input.taskId!)?.accountId, ctx.model.provider, ctx.model.id, settings,
+          getSetting(COMPACTION_MODEL_SETTING_KEY), getSetting(COMPACTION_MODEL_EFFORT_SETTING_KEY),
+          getSetting(COMPACTION_SUMMARY_MAX_TOKENS_SETTING_KEY),
+          getSetting(JEV_COMPACTION_ENABLED_SETTING_KEY), getSetting(JEV_COMPACTION_THRESHOLD_SETTING_KEY),
+        ]);
+        return {
+          enabled: settings.enabled && !live.goalLoopTurnActive && !isActiveGoalLoopSession(live.session) &&
+            parseCompactionAction(getSetting(COMPACTION_ACTION_SETTING_KEY)) === "auto" &&
+            getSetting(COMPACTION_BACKGROUND_SETTING_KEY) !== "0",
+          startPercent: parseBackgroundCompactionThreshold(getSetting(COMPACTION_BACKGROUND_THRESHOLD_SETTING_KEY)),
+          settings,
+          key,
+        };
+      },
+      prepare: async (branch, settings) => prepareBackgroundCompaction(await loadPi(), branch, settings),
+      summarize: (request) => compactWithCompactionModel(request, input.taskId),
+    }),
   ];
 }
 
@@ -6784,8 +6804,6 @@ export async function completeModelText(options: {
   throw lastError ?? new Error("利用可能なフォールバックモデルがありません");
 }
 
-type CompactionPreparation = Parameters<PiModule["compact"]>[0];
-
 /** Resolve the compaction-model setting through Pi's runtime for that route's account. */
 async function resolveCompactionModelRoute(value: string, accountId: string | null) {
   const route = await resolveConcreteModelWithFallback(value, accountId, {
@@ -6811,32 +6829,55 @@ async function resolveCompactionModelRoute(value: string, accountId: string | nu
   return { model, streamFn, release };
 }
 
-/** Summarize with the configured compaction model; undefined keeps Pi's default. */
+/** One pipeline for foreground and background: Jev, configured model, then session model. */
 async function compactWithCompactionModel(
-  event: { preparation: CompactionPreparation; signal: AbortSignal; customInstructions?: string },
+  request: Parameters<CompactionControllerOptions["summarize"]>[0],
   taskId: string | undefined,
 ) {
-  return compactWithConfiguredModel({
+  request.signal.throwIfAborted();
+  if (isJevCompactionEnabled(getSetting(JEV_COMPACTION_ENABLED_SETTING_KEY))) {
+    const result = await compactWithJev(
+      request.preparation,
+      parseJevCompactionThreshold(getSetting(JEV_COMPACTION_THRESHOLD_SETTING_KEY)),
+      request.signal,
+      request.customInstructions,
+    );
+    request.signal.throwIfAborted();
+    if (result) return result;
+  }
+  const sdk = await loadPi();
+  const summarize = (
+    model: Parameters<PiModule["generateSummaryWithUsage"]>[1],
+    streamFn: NonNullable<Parameters<PiModule["generateSummaryWithUsage"]>[9]>,
+    thinkingLevel?: Parameters<PiModule["generateSummaryWithUsage"]>[8],
+  ) => compactSinglePass({
+    generate: sdk.generateSummaryWithUsage,
+    preparation: request.preparation,
+    branch: request.branch,
+    model,
+    streamFn,
+    thinkingLevel,
+    signal: request.signal,
+    customInstructions: request.customInstructions,
+    summaryMaxTokens: parseCompactionSummaryMaxTokens(getSetting(COMPACTION_SUMMARY_MAX_TOKENS_SETTING_KEY)),
+    mode: request.mode,
+  });
+  const configured = await compactWithConfiguredModel({
     value: getSetting(COMPACTION_MODEL_SETTING_KEY),
     effort: getSetting(COMPACTION_MODEL_EFFORT_SETTING_KEY),
-    signal: event.signal,
+    signal: request.signal,
     resolve: (value) =>
       resolveCompactionModelRoute(value, (taskId ? getTask(taskId)?.accountId : undefined) ?? null),
-    compact: async (model, streamFn, thinkingLevel) =>
-      (await loadPi()).compact(
-        event.preparation,
-        model,
-        undefined,
-        undefined,
-        event.customInstructions,
-        event.signal,
-        thinkingLevel,
-        streamFn,
-      ),
+    compact: summarize,
     onError: (error) => {
       console.warn("[compaction-model] fallback to session model:", error);
     },
   });
+  request.signal.throwIfAborted();
+  if (configured) return configured;
+  if (!request.ctx.model) return undefined;
+  return summarize(request.ctx.model, (model, context, options) =>
+    request.ctx.modelRegistry.streamSimple(model, context, options));
 }
 
 /** OpenCode (Zen/Go) は x-opencode-session 付きのリクエストだけを受け付ける。 */

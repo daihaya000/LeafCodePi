@@ -12,6 +12,11 @@ import {
   COMPACTION_MODEL_EFFORT_SETTING_KEY,
   COMPACTION_MODEL_SETTING_KEY,
   COMPACTION_THRESHOLD_SETTING_KEY,
+  COMPACTION_BACKGROUND_SETTING_KEY,
+  COMPACTION_BACKGROUND_THRESHOLD_SETTING_KEY,
+  COMPACTION_SUMMARY_MAX_TOKENS_SETTING_KEY,
+  parseBackgroundCompactionThreshold,
+  parseCompactionSummaryMaxTokens,
 } from "@/lib/compaction-settings";
 import {
   isTitleAutoUpdateEnabledSetting,
@@ -126,6 +131,9 @@ export const ALLOWED_SETTING_KEYS: ReadonlySet<string> = new Set<string>([
   COMPACTION_THRESHOLD_SETTING_KEY,
   COMPACTION_MODEL_SETTING_KEY,
   COMPACTION_MODEL_EFFORT_SETTING_KEY,
+  COMPACTION_BACKGROUND_SETTING_KEY,
+  COMPACTION_BACKGROUND_THRESHOLD_SETTING_KEY,
+  COMPACTION_SUMMARY_MAX_TOKENS_SETTING_KEY,
   TITLE_AUTO_UPDATE_FREQUENCY_SETTING_KEY,
   TITLE_AUTO_UPDATE_ENABLED_SETTING_KEY,
   AUTO_ARCHIVE_DAYS_SETTING_KEY,
@@ -238,6 +246,15 @@ export function validateSettingValue(key: string, value: string, importedAccount
   }
   if (key === SESSION_LABEL_JEV_SETTING_KEY) {
     return value === "0" ? value : null;
+  }
+  if (key === COMPACTION_BACKGROUND_SETTING_KEY) {
+    return value === "0" || value === "1" ? value : null;
+  }
+  if (key === COMPACTION_BACKGROUND_THRESHOLD_SETTING_KEY) {
+    return String(parseBackgroundCompactionThreshold(value)) === value ? value : null;
+  }
+  if (key === COMPACTION_SUMMARY_MAX_TOKENS_SETTING_KEY) {
+    return String(parseCompactionSummaryMaxTokens(value)) === value ? value : null;
   }
   if (key === COMPACTION_ACTION_SETTING_KEY) {
     return value === "suggest" || value === "auto" || value === "off" ? value : null;
