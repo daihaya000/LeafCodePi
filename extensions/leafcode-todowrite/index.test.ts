@@ -211,6 +211,7 @@ describe("todowrite omission gate", () => {
     const run = fixture();
     for (const name of [
       "todowrite",
+      "show_image",
       "question",
       "tool_search",
       "memory_search",

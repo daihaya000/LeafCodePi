@@ -34,7 +34,7 @@ description: 起票に値する作業（複数の依存する手順を要する�
 
 | 操作 | ToDo未登録時 |
 | --- | --- |
-| 制御tool、`jev_judge`、`AGENTS.md` / `SKILL.md` のread、`skill_manage(action=view)` | 通過・読み取り回数に含めない |
+| 制御tool、`show_image`、`jev_judge`、`AGENTS.md` / `SKILL.md` のread、`skill_manage(action=view)` | 通過・読み取り回数に含めない |
 | read / grep / find / ls / Web検索・取得 | 2回まで通過、3回目から停止 |
 | 変更・shell・委譲・memory変更・その他の未分類tool | 初回から停止 |
 

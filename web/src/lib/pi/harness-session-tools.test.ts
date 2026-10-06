@@ -17,6 +17,7 @@ describe("sessionToolNames", () => {
     assert.ok(linux.includes("tool_search"));
     assert.ok(linux.includes("codemode"));
     assert.ok(linux.includes("session_resume"));
+    assert.ok(linux.includes("show_image"));
     assert.deepEqual(sessionToolNames({ agentTools: ["read", "session_resume"] }), ["read", "session_resume"]);
 
     const windows = sessionToolNames({ platform: "win32" });
@@ -40,6 +41,7 @@ describe("sessionToolNames", () => {
   });
 
   it("keeps an agent allowlist without implicitly granting tool_search or codemode", () => {
+    assert.deepEqual(sessionToolNames({ agentTools: ["read", "show_image"] }), ["read", "show_image"]);
     assert.deepEqual(sessionToolNames({ platform: "linux", agentTools: ["read", "grep"] }), [
       "read",
       "grep",
@@ -61,6 +63,7 @@ describe("sessionToolNames", () => {
     assert.equal(botTools.includes("powershell"), false);
     assert.equal(botTools.includes("act_ui"), false);
     assert.equal(botTools.includes("codemode"), false);
+    assert.ok(botTools.includes("show_image"));
     assert.ok(botTools.includes("update_soul"));
     assert.ok(botTools.includes("code_session"));
     assert.ok(botTools.includes("room_handoff"));

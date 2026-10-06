@@ -8,6 +8,6 @@ export const AGENT_TOOL_NAMES = [
   "read", "write", "edit", "bash", "powershell", "question", "grep", "find", "ls",
   "memory_search", "memory_add", "memory_replace", "memory_remove", "session_search",
   "skill_manage", "subagent", "subagent_wait", "contact_supervisor", "structured_output",
-  "todowrite", "tool_search", "jev_judge", "intercom", "web_search", "source_check",
+  "todowrite", "show_image", "tool_search", "jev_judge", "intercom", "web_search", "source_check",
   "fetch_content", "get_search_content", "codemode", ...COMPUTER_USE_TOOL_NAMES,
 ] as const;

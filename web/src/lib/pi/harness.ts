@@ -78,6 +78,8 @@ import {
 } from "@/lib/pi/messages";
 import { installToolResultCap } from "@/lib/pi/tool-result-cap";
 import { registerRequestImageCap } from "@/lib/pi/request-image-cap";
+import { registerShowImage } from "@/lib/pi/show-image";
+import { readTaskLocalImage } from "@/lib/local-image";
 import {
   applyMessageAccountIds,
   applyMessageAgentIds,
@@ -3972,6 +3974,7 @@ export function sessionToolNames(input: {
         ...(hasDesktop ? COMPUTER_USE_TOOL_NAMES : []),
         ...(input.subagentPermission === "allow" ? ["subagent"] : []),
         "todowrite",
+        "show_image",
         "codemode",
         TOOL_SEARCH_NAME,
         JEV_TOOL_NAME,
@@ -4140,6 +4143,12 @@ export function sessionExtensionFactories(input: {
         : (api: ExtensionAPI) => registerDeferredTools(api, undefined, input.nativeToolSearch),
     registerJevTool,
     registerRequestImageCap,
+    ...(input.taskId ? [(api: ExtensionAPI) => registerShowImage(api, {
+      validate: (path) => {
+        const result = readTaskLocalImage(input.taskId!, path);
+        return result.ok ? { ok: true } : { ok: false, error: result.error };
+      },
+    })] : []),
     ...(input.taskId ? [registerGoalLoopTurnRouting(input.taskId)] : []),
     ...(input.hasBotSkills
       ? [

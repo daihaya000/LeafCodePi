@@ -46,6 +46,7 @@ const TODO_GATE_MESSAGE = [
 
 const EXEMPT_TOOLS = new Set([
   "todowrite",
+  "show_image",
   "question",
   "tool_search",
   // A container only: the calls its script makes reach this gate as their own tool_call events
