@@ -212,6 +212,8 @@ describe("todowrite omission gate", () => {
     for (const name of [
       "todowrite",
       "show_image",
+      "show_video",
+      "show_audio",
       "question",
       "tool_search",
       "memory_search",

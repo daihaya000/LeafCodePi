@@ -78,8 +78,9 @@ import {
 } from "@/lib/pi/messages";
 import { installToolResultCap } from "@/lib/pi/tool-result-cap";
 import { registerRequestImageCap } from "@/lib/pi/request-image-cap";
-import { registerShowImage } from "@/lib/pi/show-image";
+import { registerShowImage, registerShowVideo, registerShowAudio } from "@/lib/pi/show-image";
 import { readTaskLocalImage } from "@/lib/local-image";
+import { validateTaskLocalMedia } from "@/lib/local-media";
 import {
   applyMessageAccountIds,
   applyMessageAgentIds,
@@ -3975,6 +3976,8 @@ export function sessionToolNames(input: {
         ...(input.subagentPermission === "allow" ? ["subagent"] : []),
         "todowrite",
         "show_image",
+        "show_video",
+        "show_audio",
         "codemode",
         TOOL_SEARCH_NAME,
         JEV_TOOL_NAME,
@@ -4143,12 +4146,16 @@ export function sessionExtensionFactories(input: {
         : (api: ExtensionAPI) => registerDeferredTools(api, undefined, input.nativeToolSearch),
     registerJevTool,
     registerRequestImageCap,
-    ...(input.taskId ? [(api: ExtensionAPI) => registerShowImage(api, {
-      validate: (path) => {
-        const result = readTaskLocalImage(input.taskId!, path);
-        return result.ok ? { ok: true } : { ok: false, error: result.error };
-      },
-    })] : []),
+    ...(input.taskId ? [(api: ExtensionAPI) => {
+      registerShowImage(api, {
+        validate: (path) => {
+          const result = readTaskLocalImage(input.taskId!, path);
+          return result.ok ? { ok: true } : { ok: false, error: result.error };
+        },
+      });
+      registerShowVideo(api, { validate: (path) => validateTaskLocalMedia(input.taskId!, path, "video") });
+      registerShowAudio(api, { validate: (path) => validateTaskLocalMedia(input.taskId!, path, "audio") });
+    }] : []),
     ...(input.taskId ? [registerGoalLoopTurnRouting(input.taskId)] : []),
     ...(input.hasBotSkills
       ? [

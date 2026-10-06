@@ -1,6 +1,6 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { describe, expect, it, vi } from "vitest";
-import { MAX_SHOWN_IMAGES, registerShowImage, shownImageMarkdown, type ImageValidation, type ShownImage } from "./show-image";
+import { MAX_SHOWN_IMAGES, registerShowImage, registerShowVideo, registerShowAudio, shownImageMarkdown, type ImageValidation, type ShownImage } from "./show-image";
 
 const image: ShownImage = { path: "renders/result.png", alt: "完成レンダー" };
 const textMessage = (text: string, stopReason = "stop") => ({
@@ -10,12 +10,14 @@ const textMessage = (text: string, stopReason = "stop") => ({
 type FinalResult = { message: ReturnType<typeof textMessage> } | undefined;
 type TestTool = {
   executionMode?: string;
-  execute: (id: string, params: { images: ShownImage[] }, signal?: AbortSignal) => Promise<{
+  execute: (id: string, params: Record<string, ShownImage[]>, signal?: AbortSignal) => Promise<{
     content: { type: string; text: string }[]; details: unknown;
   }>;
 };
 
-function fixture(branch: unknown[] = []) {
+function fixture(branch: unknown[] = [], kind: "image" | "video" | "audio" = "image") {
+  const name = `show_${kind}`;
+  const field = kind === "image" ? "images" : kind === "video" ? "videos" : "audio";
   type Handler = (event: unknown, ctx: unknown) => unknown;
   const handlers = new Map<string, Handler>();
   let tool!: TestTool;
@@ -23,17 +25,17 @@ function fixture(branch: unknown[] = []) {
   const validate = vi.fn<(path: string) => Promise<ImageValidation>>(async () => ({ ok: true }));
   const api = {
     on: (name: string, handler: Handler) => handlers.set(name, handler),
-    getActiveTools: () => active ? ["show_image"] : [],
+    getActiveTools: () => active ? [name] : [],
     registerTool: (definition: TestTool) => { tool = definition; },
   } as unknown as ExtensionAPI;
-  registerShowImage(api, { validate });
+  ({ image: registerShowImage, video: registerShowVideo, audio: registerShowAudio })[kind](api, { validate });
   const emit = (name: string, event: unknown = {}) => handlers.get(name)!(event, {
     sessionManager: { getBranch: () => branch },
   });
-  const execute = (images = [image], signal?: AbortSignal) => tool.execute("call", { images }, signal);
+  const execute = (images = [image], signal?: AbortSignal) => tool.execute("call", { [field]: images }, signal);
   const register = async (images = [image]) => {
     const result = await execute(images);
-    emit("tool_result", { toolName: "show_image", isError: false, ...result });
+    emit("tool_result", { toolName: name, isError: false, ...result });
     return result;
   };
   const final = (text = "生成完了", reason = "stop") => emit("message_end", { message: textMessage(text, reason) }) as FinalResult;
@@ -214,6 +216,13 @@ describe("show-image native policy", () => {
     expect(run.final()).toBeUndefined();
   });
 
+  it("does not apply another media kind\'s opt-out to an image in the same sentence", async () => {
+    const run = fixture();
+    run.emit("input", { source: "interactive", text: "画像を見せて、音声表示不要。" });
+    await run.register();
+    expect(repairedText(run.final())).toContain(shownImageMarkdown(image));
+  });
+
   it("injects presentation guidance independently of skill discovery", () => {
     const run = fixture();
     const result = run.emit("before_agent_start", { systemPrompt: "base" }) as { systemPrompt: string };
@@ -224,5 +233,63 @@ describe("show-image native policy", () => {
     const disabled = run.emit("before_agent_start", { systemPrompt: "base" }) as { systemPrompt: string };
     expect(disabled.systemPrompt).not.toContain("call show_image");
     expect(disabled.systemPrompt).toContain("Without show_image");
+  });
+});
+
+describe.each(["video", "audio"] as const)("show_%s native policy", (kind) => {
+  const noun = kind === "video" ? "動画" : "音声";
+  const media = { path: kind === "video" ? "renders/clip.mp4" : "music.wav", alt: `完成${noun}` };
+  it("validates, repairs only explicit registrations, and does not duplicate embedded media", async () => {
+    const run = fixture([], kind);
+    run.emit("tool_result", { toolName: "generate_media", details: { shownVideos: [media], shownAudio: [media] } });
+    expect(run.final()).toBeUndefined();
+    await run.register([media]);
+    expect(repairedText(run.final())).toContain(shownImageMarkdown(media));
+    await run.register([media]);
+    expect(run.final(shownImageMarkdown(media))).toBeUndefined();
+    expect(run.validate).toHaveBeenCalledWith(media.path);
+  });
+  it("repairs code-only mentions, respects tool permissions and resets for new requests", async () => {
+    const run = fixture([], kind);
+    await run.register([media]);
+    expect(repairedText(run.final(`\`${shownImageMarkdown(media)}\``))).toContain(shownImageMarkdown(media));
+    await run.register([media]);
+    run.emit("input", { source: "interactive", text: "次の質問" });
+    expect(run.final()).toBeUndefined();
+    run.disable();
+    await expect(run.execute([media])).rejects.toThrow("無効");
+  });
+  it("respects kind-specific opt-out without suppressing a different media kind", async () => {
+    const run = fixture([], kind);
+    run.emit("input", { source: "interactive", text: `${kind === "video" ? "音声" : "動画"}表示不要` });
+    await run.register([media]);
+    expect(repairedText(run.final())).toContain(shownImageMarkdown(media));
+    run.emit("input", { source: "interactive", streamingBehavior: "steer", text: `${noun}表示不要` });
+    await expect(run.execute([media])).rejects.toThrow("不要");
+    run.emit("input", { source: "interactive", streamingBehavior: "steer", text: `${noun}を表示して` });
+    await run.register([media]);
+    expect(repairedText(run.final())).toContain(shownImageMarkdown(media));
+  });
+  it("keeps separate clauses independent, respects combined opt-out and explicit playback requests", async () => {
+    const run = fixture([], kind);
+    run.emit("input", { source: "interactive", text: `${noun}を表示して、${kind === "video" ? "音声" : "動画"}表示不要。` });
+    await run.register([media]);
+    expect(repairedText(run.final())).toContain(shownImageMarkdown(media));
+    run.emit("input", { source: "interactive", streamingBehavior: "steer", text: "動画/音声は表示不要" });
+    await expect(run.execute([media])).rejects.toThrow("不要");
+    run.emit("input", { source: "interactive", streamingBehavior: "steer", text: `${noun}を再生して` });
+    await run.register([media]);
+    expect(repairedText(run.final())).toContain(shownImageMarkdown(media));
+  });
+
+  it("revalidates incomplete historical registrations on branch restore", async () => {
+    const detailsKey = kind === "video" ? "shownVideos" : "shownAudio";
+    const run = fixture([{ type: "message", message: {
+      role: "toolResult", toolName: `show_${kind}`, details: { [detailsKey]: [media] },
+    } }], kind);
+    await run.emit("session_tree");
+    expect(repairedText(run.final())).toContain(shownImageMarkdown(media));
+    const prompt = run.emit("before_agent_start", { systemPrompt: "base" }) as { systemPrompt: string };
+    expect(prompt.systemPrompt).toContain(`call show_${kind}`);
   });
 });

@@ -1,8 +1,6 @@
-import { readFileSync, realpathSync, statSync } from "node:fs";
-import { homedir, tmpdir } from "node:os";
-import { extname, isAbsolute, resolve } from "node:path";
-import { browseAllowedRoots, isAllowedBrowsePath } from "@/lib/browse-paths";
-import { getProject, getTask } from "@/lib/store";
+import { readFileSync, statSync } from "node:fs";
+import { extname } from "node:path";
+import { resolveTaskLocalFile } from "@/lib/local-file";
 
 export const MAX_LOCAL_IMAGE_BYTES = 32 * 1024 * 1024;
 const IMAGE_MIME_BY_EXTENSION: Readonly<Record<string, string>> = {
@@ -53,38 +51,15 @@ function imageMimeFromBytes(bytes: Buffer): string | null {
   return null;
 }
 
-function taskImageRoots(cwd: string): string[] {
-  return [...new Set([...browseAllowedRoots(), cwd, homedir(), tmpdir()])];
-}
-
 /** Serve only recognized raster images inside an existing task's trusted roots. */
 export function readTaskLocalImage(taskId: string, requestedPath: string): LocalImageResult {
-  if (!requestedPath || requestedPath.length > 4096 || /[\u0000-\u001f\u007f]/.test(requestedPath)) {
-    return failure(400, "画像パスが不正です");
-  }
-  // Never resolve UNC/device paths: on Windows this can disclose credentials to a remote host.
-  if (/^[\\/]{2}/.test(requestedPath) || /^[A-Za-z]:[^\\/]/.test(requestedPath)) {
-    return failure(400, "ネットワーク・ドライブ相対パスは表示できません");
-  }
-  const task = getTask(taskId);
-  if (!task) return failure(404, "タスクが見つかりません");
-
-  const project = task.projectId ? getProject(task.projectId) : undefined;
-  const cwd = project?.rootPath || task.directory;
-  if (!cwd) return failure(404, "作業フォルダーが見つかりません");
-  const expanded = requestedPath === "~" || requestedPath.startsWith("~/") || requestedPath.startsWith("~\\")
-    ? resolve(homedir(), requestedPath.slice(2))
-    : requestedPath;
-  const target = isAbsolute(expanded) ? resolve(expanded) : resolve(cwd, expanded);
-  if (!isAllowedBrowsePath(target, { roots: taskImageRoots(cwd) })) {
-    return failure(403, "この場所の画像は表示できません");
-  }
-
-  const expectedMime = IMAGE_MIME_BY_EXTENSION[extname(target).toLowerCase()];
+  const resolved = resolveTaskLocalFile(taskId, requestedPath);
+  if (!resolved.ok) return resolved;
+  const expectedMime = IMAGE_MIME_BY_EXTENSION[extname(requestedPath).toLowerCase()];
   if (!expectedMime) return failure(415, "PNG・JPEG・GIF・WebP・AVIF・BMPのみ表示できます");
 
   try {
-    const realPath = realpathSync.native(target);
+    const realPath = resolved.path;
     const info = statSync(realPath);
     if (!info.isFile()) return failure(400, "画像ファイルを指定してください");
     if (info.size <= 0) return failure(400, "空の画像は表示できません");

@@ -8,7 +8,8 @@ import { afterEach, beforeEach, expect, it, vi } from "vitest";
 const store = vi.hoisted(() => ({ getTask: vi.fn(), getProject: vi.fn(), listProjects: vi.fn(() => []) }));
 vi.mock("@/lib/store", () => store);
 import { readTaskLocalImage } from "@/lib/local-image";
-import { registerShowImage } from "./show-image";
+import { validateTaskLocalMedia } from "@/lib/local-media";
+import { registerShowImage, registerShowVideo, registerShowAudio } from "./show-image";
 
 let root: string;
 const png = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/p9sAAAAASUVORK5CYII=", "base64");
@@ -18,21 +19,25 @@ beforeEach(() => {
 });
 afterEach(() => rmSync(root, { recursive: true, force: true }));
 
-async function createSession(path: string, finalReply: string) {
+async function createSession(path: string, finalReply: string, kind: "image" | "video" | "audio" = "image") {
   const agentDir = join(root, "agent");
   mkdirSync(agentDir);
   const settingsManager = SettingsManager.inMemory();
   const loader = new DefaultResourceLoader({
     cwd: root, agentDir, settingsManager,
     noExtensions: true, noSkills: true, noPromptTemplates: true, noThemes: true, noContextFiles: true,
-    extensionFactories: [(api) => registerShowImage(api, {
-      validate: (path) => readTaskLocalImage("task", path),
-    })],
+    extensionFactories: [(api) => {
+      registerShowImage(api, { validate: (path) => readTaskLocalImage("task", path) });
+      registerShowVideo(api, { validate: (path) => validateTaskLocalMedia("task", path, "video") });
+      registerShowAudio(api, { validate: (path) => validateTaskLocalMedia("task", path, "audio") });
+    }],
   });
   await loader.reload();
   const faux = fauxProvider();
   faux.setResponses([
-    fauxAssistantMessage([fauxToolCall("show_image", { images: [{ path, alt: "完成画像" }] })], { stopReason: "toolUse" }),
+    fauxAssistantMessage([fauxToolCall(`show_${kind}`, {
+      [kind === "image" ? "images" : kind === "video" ? "videos" : "audio"]: [{ path, alt: "完成画像" }],
+    })], { stopReason: "toolUse" }),
     fauxAssistantMessage(finalReply),
     fauxAssistantMessage("次の回答"),
   ]);
@@ -40,7 +45,7 @@ async function createSession(path: string, finalReply: string) {
   modelRuntime.registerNativeProvider(faux.provider);
   const { session } = await createAgentSession({
     cwd: root, agentDir, resourceLoader: loader, settingsManager,
-    sessionManager: SessionManager.inMemory(root), modelRuntime, model: faux.getModel(), tools: ["show_image"],
+    sessionManager: SessionManager.inMemory(root), modelRuntime, model: faux.getModel(), tools: ["show_image", "show_video", "show_audio"],
   });
   await session.bindExtensions({ onError: (error) => { throw new Error(error.error); } });
   return session;
@@ -80,3 +85,19 @@ it.each(["missing.png", "fake.png", "vector.svg", "https://example.com/render.pn
     } finally { session.dispose(); }
   },
 );
+
+it.each(["video", "audio"] as const)("repairs and persists %s through real SDK with all media hooks bound", async (kind) => {
+  const path = kind === "video" ? "clip.mp4" : "music.wav";
+  writeFileSync(join(root, path), kind === "video"
+    ? Buffer.from([0, 0, 0, 20, ...Buffer.from("ftypisom"), 0, 0, 0, 0, ...Buffer.from("isom")])
+    : Buffer.from("RIFF0000WAVEfmt data PCM samples"));
+  const session = await createSession(path, "生成完了。ファイルに保存した。", kind);
+  try {
+    await session.prompt(`${kind === "video" ? "動画" : "音声"}を見せて。画像表示不要。`);
+    expect(session.messages.filter((message) => message.role === "toolResult")).toMatchObject([{ isError: false }]);
+    expect(JSON.stringify(session.messages.at(-1))).toContain(`![完成画像](<${path}>)`);
+    expect(JSON.stringify(session.sessionManager.getBranch())).toContain(`![完成画像](<${path}>)`);
+    await session.prompt("次の質問");
+    expect(JSON.stringify(session.messages.at(-1))).not.toContain(path);
+  } finally { session.dispose(); }
+});

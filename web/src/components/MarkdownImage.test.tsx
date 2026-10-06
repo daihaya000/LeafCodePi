@@ -1,6 +1,7 @@
 // @vitest-environment happy-dom
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
+import { mediaFormatForPath } from "@/lib/media-formats";
 import Markdown from "react-markdown";
 import {
   classifyMarkdownImageSource,
@@ -74,5 +75,48 @@ describe("MarkdownImage", () => {
     expect(screen.getByRole("img", { name: "preview" }).getAttribute("src")).toBe(
       "https://images.example/render.png",
     );
+  });
+});
+
+describe("Markdown media players", () => {
+  it.each(["clip.mp4", "clip.MOV", "clip.webm", "music.wav", "music.mp3", "music.m4a", "music.flac", "music.opus", "music.weba"])(
+    "renders %s with controls, a download and no autoplay/preload", (path) => {
+      const { container } = render(
+        <MarkdownImageScope taskId="task-1">
+          <Markdown components={{ img: MarkdownImage }} urlTransform={markdownImageUrlTransform}>
+            {`![完成メディア](<${path}>)`}
+          </Markdown>
+        </MarkdownImageScope>,
+      );
+      const kind = mediaFormatForPath(path)!.kind;
+      const player = container.querySelector(kind)!;
+      expect(player).not.toBeNull();
+      expect(player.getAttribute("src")).toBe(`/api/tasks/task-1/media?path=${encodeURIComponent(path)}`);
+      expect(player.hasAttribute("controls")).toBe(true);
+      expect(player.hasAttribute("autoplay")).toBe(false);
+      expect(player.getAttribute("preload")).toBe("none");
+      expect(player.getAttribute("aria-label")).toBe("完成メディア");
+      expect(screen.getByRole("link", { name: "ダウンロード" }).hasAttribute("download")).toBe(true);
+      expect(container.querySelector("img")).toBeNull();
+    },
+  );
+  it("keeps a download available when the browser cannot decode media", () => {
+    const { container } = render(<MarkdownImageScope taskId="task"><MarkdownImage src="music.wav" alt="音楽" /></MarkdownImageScope>);
+    fireEvent.error(container.querySelector("audio")!);
+    expect(screen.getByRole("alert").textContent).toContain("再生できません");
+    expect(screen.getByRole("link", { name: "ダウンロード" })).not.toBeNull();
+  });
+  it("never fetches remote media inline and opens it only via an explicit noreferrer link", () => {
+    const { container } = render(<MarkdownImage src="https://media.example/clip.mp4?token=public" alt="動画" />);
+    expect(container.querySelector("video,audio,img")).toBeNull();
+    const link = screen.getByRole("link", { name: "外部動画を開く: 動画" });
+    expect(link.getAttribute("target")).toBe("_blank");
+    expect(link.getAttribute("rel")).toBe("noopener noreferrer");
+  });
+  it("requires task scope for local playback and refuses prototype keys as extensions", () => {
+    render(<MarkdownImage src="clip.mp4" alt="動画" />);
+    expect(screen.queryByRole("link", { name: "ダウンロード" })).toBeNull();
+    expect(screen.getByText("タスクの動画を表示できません")).not.toBeNull();
+    expect(mediaFormatForPath("file.constructor")).toBeUndefined();
   });
 });

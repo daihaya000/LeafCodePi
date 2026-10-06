@@ -21,7 +21,7 @@ export type BotSkillsConfig = {
   exclude: string[];
 };
 
-export type BotToolName = "read" | "write" | "edit" | "bash" | "powershell" | "question" | "grep" | "find" | "ls" | "memory_search" | "memory_add" | "memory_replace" | "memory_remove" | "session_search" | "skill_manage" | "subagent" | "todowrite" | "show_image" | "tool_search" | "jev_judge" | "intercom" | "web_search" | "source_check" | "fetch_content" | "get_search_content" | "contact_supervisor" | "subagent_wait" | "structured_output" | "task_mutation_decision" | "watchdog_permission_decision" | "watchdog_warn";
+export type BotToolName = "read" | "write" | "edit" | "bash" | "powershell" | "question" | "grep" | "find" | "ls" | "memory_search" | "memory_add" | "memory_replace" | "memory_remove" | "session_search" | "skill_manage" | "subagent" | "todowrite" | "show_image" | "show_video" | "show_audio" | "tool_search" | "jev_judge" | "intercom" | "web_search" | "source_check" | "fetch_content" | "get_search_content" | "contact_supervisor" | "subagent_wait" | "structured_output" | "task_mutation_decision" | "watchdog_permission_decision" | "watchdog_warn";
 // The vocabulary itself lives in shared/bot-tools.mjs so the Backend process can read it too;
 // this file keeps the narrower BotToolName typing for the Web app.
 import {
