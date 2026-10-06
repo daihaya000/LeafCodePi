@@ -636,21 +636,53 @@ const SHARED_ELAPSED_CLOCK_MS = 1_000;
 let sharedElapsedNowMs = Date.now();
 const sharedElapsedListeners = new Set<() => void>();
 let sharedElapsedTimer: number | undefined;
+let sharedElapsedVisibilityHandler: (() => void) | undefined;
+
+function notifySharedElapsedListeners(): void {
+  for (const notify of sharedElapsedListeners) notify();
+}
+
+function stopSharedElapsedTimer(): void {
+  if (sharedElapsedTimer === undefined) return;
+  window.clearInterval(sharedElapsedTimer);
+  sharedElapsedTimer = undefined;
+}
+
+function startSharedElapsedTimer(): void {
+  if (
+    sharedElapsedTimer !== undefined ||
+    sharedElapsedListeners.size === 0 ||
+    document.visibilityState !== "visible"
+  ) return;
+  sharedElapsedTimer = window.setInterval(() => {
+    sharedElapsedNowMs = Date.now();
+    notifySharedElapsedListeners();
+  }, SHARED_ELAPSED_CLOCK_MS);
+}
 
 export function subscribeSharedElapsedClock(listener: () => void): () => void {
   sharedElapsedListeners.add(listener);
-  if (sharedElapsedTimer === undefined) {
-    sharedElapsedNowMs = Date.now();
-    sharedElapsedTimer = window.setInterval(() => {
+  if (!sharedElapsedVisibilityHandler) {
+    sharedElapsedVisibilityHandler = () => {
+      if (document.visibilityState === "hidden") {
+        stopSharedElapsedTimer();
+        return;
+      }
       sharedElapsedNowMs = Date.now();
-      for (const notify of sharedElapsedListeners) notify();
-    }, SHARED_ELAPSED_CLOCK_MS);
+      notifySharedElapsedListeners();
+      startSharedElapsedTimer();
+    };
+    document.addEventListener("visibilitychange", sharedElapsedVisibilityHandler);
   }
+  sharedElapsedNowMs = Date.now();
+  startSharedElapsedTimer();
   return () => {
     sharedElapsedListeners.delete(listener);
-    if (sharedElapsedListeners.size === 0 && sharedElapsedTimer !== undefined) {
-      window.clearInterval(sharedElapsedTimer);
-      sharedElapsedTimer = undefined;
+    if (sharedElapsedListeners.size !== 0) return;
+    stopSharedElapsedTimer();
+    if (sharedElapsedVisibilityHandler) {
+      document.removeEventListener("visibilitychange", sharedElapsedVisibilityHandler);
+      sharedElapsedVisibilityHandler = undefined;
     }
   };
 }
