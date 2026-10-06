@@ -2,6 +2,12 @@
 export async function register() {
   if (process.env.NEXT_RUNTIME !== "nodejs") return;
   try {
+    const { installContentTypeStringHeader } = await import("@/lib/http-compression-fix");
+    installContentTypeStringHeader();
+  } catch (error) {
+    console.warn("[http] content-type header fix unavailable", error);
+  }
+  try {
     const { startRuntimeServices } = await import("@/lib/pi/runtime-startup");
     await startRuntimeServices();
   } catch (error) {
