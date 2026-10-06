@@ -1,11 +1,13 @@
 // @vitest-environment happy-dom
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, createEvent, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { PaneLayout, TaskPanesState } from "@/lib/task-panes";
 import { resetUnreadStateForTests } from "@/lib/bot-unread";
 
 const mocks = vi.hoisted(() => ({
   getJson: vi.fn(),
+  isTaskDrag: vi.fn(() => false),
+  taskDragIdFrom: vi.fn((): string | null => null),
   useTaskPanes: vi.fn(),
   usePathname: vi.fn(() => "/task/active"),
   useSearchParams: vi.fn((): { get: (name: string) => string | null } => ({ get: () => null })),
@@ -50,6 +52,8 @@ vi.mock("./TaskTabs", () => ({
       aria-label="タスクと設定のタブ"
       data-testid="task-tabs"
       data-tabs={pane.tabs.join(",")}
+      onDragOver={(event) => event.stopPropagation()}
+      onDrop={(event) => event.stopPropagation()}
     >
       <button type="button" aria-label="新規作成タブを開く" onClick={onOpenHome} />
       {pane.tabs.length === 0 && (
@@ -62,8 +66,8 @@ vi.mock("@/components/ui", () => ({
   cx: (...values: unknown[]) => values.filter(Boolean).join(" "),
 }));
 vi.mock("@/lib/task-drag", () => ({
-  isTaskDrag: () => false,
-  taskDragIdFrom: () => null,
+  isTaskDrag: mocks.isTaskDrag,
+  taskDragIdFrom: mocks.taskDragIdFrom,
 }));
 
 import { TaskPanesHost } from "./TaskPanesHost";
@@ -137,6 +141,8 @@ function createThreePaneState(): TaskPanesState {
 describe("TaskPanesHost lazy tab mounting", () => {
   beforeEach(() => {
     mocks.getJson.mockResolvedValue({ tasks: [] });
+    mocks.isTaskDrag.mockReturnValue(false);
+    mocks.taskDragIdFrom.mockReturnValue(null);
     mocks.useTaskPanes.mockReturnValue({
       state: createState(),
       statusFor: () => null,
@@ -150,6 +156,9 @@ describe("TaskPanesHost lazy tab mounting", () => {
   });
 
   afterEach(() => {
+    fireEvent(window, new Event("blur"));
+    document.body.style.userSelect = "";
+    document.body.style.cursor = "";
     cleanup();
     localStorage.removeItem("webui:task-pane-prefer-new");
     resetUnreadStateForTests();
@@ -623,6 +632,88 @@ describe("TaskPanesHost lazy tab mounting", () => {
       expect(branchWrapper?.className).toContain("flex-col");
       expect(branchWrapper?.className).toContain("overflow-hidden");
     }
+  });
+
+  it.each(["dragOver", "drop"] as const)("タブバーの%sで分割プレビューを解除する", (eventType) => {
+    mocks.isTaskDrag.mockReturnValue(true);
+    const { container } = render(<TaskPanesHost />);
+    const pane = container.querySelector<HTMLElement>("[data-pane-id]")!;
+    vi.spyOn(pane, "getBoundingClientRect").mockReturnValue({
+      left: 0, top: 0, right: 600, bottom: 800, width: 600, height: 800,
+      x: 0, y: 0, toJSON: () => ({}),
+    });
+    const dataTransfer = { types: ["application/x-leafcodepi-task"], dropEffect: "move" };
+    const dragOver = createEvent.dragOver(pane, { dataTransfer });
+    Object.defineProperties(dragOver, { clientX: { value: 5 }, clientY: { value: 400 } });
+    fireEvent(pane, dragOver);
+    expect(pane.querySelector('[class~="bg-accent/15"]')).not.toBeNull();
+
+    fireEvent[eventType](screen.getByTestId("task-tabs"), { dataTransfer, clientX: 200, clientY: 10 });
+
+    expect(pane.querySelector('[class~="bg-accent/15"]')).toBeNull();
+  });
+
+  it("タブバーの余白をドラッグしても本体の端分割プレビューを出さない", () => {
+    mocks.isTaskDrag.mockReturnValue(true);
+    const { container } = render(<TaskPanesHost />);
+    const pane = container.querySelector<HTMLElement>("[data-pane-id]")!;
+    vi.spyOn(pane, "getBoundingClientRect").mockReturnValue({
+      left: 0, top: 0, right: 600, bottom: 800, width: 600, height: 800,
+      x: 0, y: 0, toJSON: () => ({}),
+    });
+    const header = pane.firstElementChild!;
+    const dragOver = createEvent.dragOver(header, {
+      dataTransfer: { types: ["application/x-leafcodepi-task"], dropEffect: "move" },
+    });
+    Object.defineProperties(dragOver, { clientX: { value: 5 }, clientY: { value: 10 } });
+
+    fireEvent(header, dragOver);
+
+    expect(dragOver.defaultPrevented).toBe(true);
+    expect(pane.querySelector('[class~="bg-accent/15"]')).toBeNull();
+    expect(pane.className).not.toContain("ring-accent/50");
+  });
+
+  it("タブバーの操作領域にドロップしてもペインを分割しない", () => {
+    mocks.isTaskDrag.mockReturnValue(true);
+    mocks.taskDragIdFrom.mockReturnValue("other-task");
+    const dispatch = mocks.useTaskPanes().dispatch;
+    const { container } = render(<TaskPanesHost />);
+    const pane = container.querySelector<HTMLElement>("[data-pane-id]")!;
+    const drop = createEvent.drop(pane.firstElementChild!, {
+      dataTransfer: { types: ["application/x-leafcodepi-task"] },
+    });
+
+    fireEvent(pane.firstElementChild!, drop);
+
+    expect(drop.defaultPrevented).toBe(true);
+    expect(dispatch).not.toHaveBeenCalled();
+  });
+
+  it("リサイズ中のアンマウントでグローバルイベントとbodyのスタイルを復元する", () => {
+    mocks.useTaskPanes.mockReturnValue({ ...mocks.useTaskPanes(), state: createTreeState() });
+    const view = render(<TaskPanesHost />);
+    const separator = screen.getAllByRole("separator")[0]!;
+    vi.spyOn(separator.parentElement!, "getBoundingClientRect").mockReturnValue({
+      left: 0, top: 0, right: 1200, bottom: 800, width: 1200, height: 800,
+      x: 0, y: 0, toJSON: () => ({}),
+    });
+    document.body.style.userSelect = "text";
+    document.body.style.cursor = "crosshair";
+    const removeListener = vi.spyOn(window, "removeEventListener");
+    fireEvent.pointerDown(separator, { clientX: 600, clientY: 400, pointerId: 1 });
+    expect(document.body.style.userSelect).toBe("none");
+
+    view.unmount();
+
+    expect(document.body.style.userSelect).toBe("text");
+    expect(document.body.style.cursor).toBe("crosshair");
+    for (const name of ["pointermove", "pointerup", "pointercancel", "blur"]) {
+      expect(removeListener).toHaveBeenCalledWith(name, expect.any(Function));
+    }
+    removeListener.mockRestore();
+    document.body.style.userSelect = "";
+    document.body.style.cursor = "";
   });
 
   it("モバイルではURLタスクだけを表示し、デスクトップ復帰後はアクティブタブを表示する", async () => {
