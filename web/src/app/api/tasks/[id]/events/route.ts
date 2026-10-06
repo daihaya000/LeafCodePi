@@ -48,10 +48,25 @@ function omitTaskMessagePayload(payload: Record<string, unknown>): Record<string
   return result;
 }
 
+/** Non-transcript fields used to detect meaningful foreign-owner state changes. */
+function remotePollStateSignature(
+  taskSummary: Record<string, unknown>,
+  detail: { isStreaming?: boolean; isCompacting?: boolean; contextUsage?: unknown; hangRetryCount?: number },
+): string {
+  return [
+    String(taskSummary.updatedAt ?? ""),
+    String(taskSummary.sessionId ?? ""),
+    String(taskSummary.status ?? ""),
+    String(detail.isStreaming ?? ""),
+    String(detail.isCompacting ?? ""),
+    JSON.stringify(detail.contextUsage ?? null),
+    String(detail.hangRetryCount ?? 0),
+  ].join(":");
+}
+
 /**
  * Change key for the foreign-owner poll. Task writes bump `updatedAt`, and the
- * message count plus last message id cover sub-millisecond appends, so an
- * unchanged remote task produces the same string and its snapshot is skipped.
+ * message count plus last message id cover sub-millisecond appends.
  */
 function remotePollSignature(
   taskSummary: Record<string, unknown>,
@@ -59,17 +74,7 @@ function remotePollSignature(
   messageCount: number,
   lastMessageId: string,
 ): string {
-  const last = taskSummary.updatedAt ?? "";
-  return [
-    String(last),
-    messageCount,
-    lastMessageId,
-    String(taskSummary.status ?? ""),
-    String(detail.isStreaming ?? ""),
-    String(detail.isCompacting ?? ""),
-    JSON.stringify(detail.contextUsage ?? null),
-    String(detail.hangRetryCount ?? 0),
-  ].join(":");
+  return `${remotePollStateSignature(taskSummary, detail)}:${messageCount}:${lastMessageId}`;
 }
 
 function serializeRemoteMessages(messages: readonly { id: string }[]): { page: SentMessagePage; jsons: string[] } {
@@ -348,6 +353,8 @@ export async function GET(
             messagePage?.messages.length ?? detail.messages.length,
             messagePage?.messages.at(-1)?.id ?? "",
           );
+          let lastRemoteStateSignature = remotePollStateSignature(taskSummary, detail);
+          let reuseCachedRemotePage = messageDelta && streamMessages && canReuseCachedMessages;
           let lastRemotePage = messageDelta && messagePage
             ? serializeRemoteMessages(messagePage.messages).page
             : undefined;
@@ -402,23 +409,52 @@ export async function GET(
                 messagePage?.messages.length ?? detail.messages.length,
                 messagePage?.messages.at(-1)?.id ?? "",
               );
+              const stateSignature = remotePollStateSignature(taskSummary, detail);
               const signatureChanged = signature !== lastRemoteSignature;
+              const cachedPageStillValid = reuseCachedRemotePage &&
+                cachedTaskUpdatedAt === detail.updatedAt &&
+                cachedSessionId === detail.sessionId &&
+                detail.status !== "working" && !detail.isStreaming && !detail.isCompacting;
               const serializedPage = signatureChanged && messageDelta && messagePage
                 ? serializeRemoteMessages(messagePage.messages)
                 : undefined;
               const changedMessageIndexes = lastRemotePage && serializedPage
                 ? messagePageDelta(lastRemotePage, serializedPage.page.ids, serializedPage.jsons)
                 : undefined;
-              if (signatureChanged) {
-                lastRemoteSignature = signature;
-                lastRemotePage = serializedPage?.page;
-                unchangedRemotePolls = 0;
-                // Offline detail always nulls permission/question. Omit them so a buffered
-                // live control event (or local pending at ready) is not wiped by remote polls.
-                writer.send("snapshot", {
-                  type: "snapshot",
-                  task: taskSummary,
-                  ...(messagePage
+              let shouldSendSnapshot = false;
+              let remoteMessages: Record<string, unknown> = {};
+              if (cachedPageStillValid) {
+                if (signatureChanged) {
+                  lastRemoteSignature = signature;
+                  lastRemotePage = serializedPage?.page;
+                }
+                const stateChanged = stateSignature !== lastRemoteStateSignature;
+                lastRemoteStateSignature = stateSignature;
+                shouldSendSnapshot = stateChanged;
+                if (messagePage) {
+                  remoteMessages = {
+                    messagesDelta: true,
+                    messages: [],
+                    messageHistory: messagePage.messageHistory,
+                  };
+                }
+                if (stateChanged) unchangedRemotePolls = 0;
+                else {
+                  unchangedRemotePolls = Math.min(unchangedRemotePolls + 1, 3);
+                  nextPollDelayMs = Math.min(
+                    REMOTE_TASK_POLL_MAX_MS,
+                    REMOTE_TASK_POLL_BASE_MS * 2 ** unchangedRemotePolls,
+                  );
+                }
+              } else {
+                reuseCachedRemotePage = false;
+                if (signatureChanged) {
+                  lastRemoteSignature = signature;
+                  lastRemoteStateSignature = stateSignature;
+                  lastRemotePage = serializedPage?.page;
+                  unchangedRemotePolls = 0;
+                  shouldSendSnapshot = true;
+                  remoteMessages = messagePage
                     ? changedMessageIndexes !== undefined
                       ? {
                           messagesDelta: true,
@@ -426,7 +462,22 @@ export async function GET(
                           messageHistory: messagePage.messageHistory,
                         }
                       : { messages: messagePage.messages, messageHistory: messagePage.messageHistory }
-                    : {}),
+                    : {};
+                } else {
+                  unchangedRemotePolls = Math.min(unchangedRemotePolls + 1, 3);
+                  nextPollDelayMs = Math.min(
+                    REMOTE_TASK_POLL_MAX_MS,
+                    REMOTE_TASK_POLL_BASE_MS * 2 ** unchangedRemotePolls,
+                  );
+                }
+              }
+              if (shouldSendSnapshot) {
+                // Offline detail always nulls permission/question. Omit them so a buffered
+                // live control event (or local pending at ready) is not wiped by remote polls.
+                writer.send("snapshot", {
+                  type: "snapshot",
+                  task: taskSummary,
+                  ...remoteMessages,
                   isStreaming: detail.isStreaming,
                   isCompacting: detail.isCompacting,
                   contextUsage: detail.contextUsage,
@@ -438,12 +489,6 @@ export async function GET(
                   revertLeafId: detail.revertLeafId ?? null,
                   eventType: "remote_poll",
                 });
-              } else {
-                unchangedRemotePolls = Math.min(unchangedRemotePolls + 1, 3);
-                nextPollDelayMs = Math.min(
-                  REMOTE_TASK_POLL_MAX_MS,
-                  REMOTE_TASK_POLL_BASE_MS * 2 ** unchangedRemotePolls,
-                );
               }
               if (!isTaskRuntimeOwnedElsewhere(getTask(id) ?? task)) stopRemotePoll();
             } catch {

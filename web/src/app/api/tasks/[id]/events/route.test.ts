@@ -498,6 +498,69 @@ describe("/api/tasks/[id]/events", () => {
     }
   });
 
+  it("does not resend a foreign-owner page when cached-ready revision still matches", async () => {
+    vi.useFakeTimers();
+    try {
+      const updatedAt = "2026-01-01T00:00:00.000Z";
+      const bootstrap = task({ status: "idle", isStreaming: false, updatedAt, messages: [] });
+      const history = Array.from({ length: 5 }, (_, index) => ({
+        id: `history-${index}`, role: "user" as const, createdAt: index + 1, parts: [],
+      }));
+      const lastMessage = { id: "final", role: "assistant" as const, createdAt: 6, parts: [] };
+      const cachedMessages = [...history, lastMessage];
+      const cachedContext = { tokens: 50, contextWindow: 1_000, percent: 5 };
+      const remoteContext = { tokens: 60, contextWindow: 1_000, percent: 6 };
+      const cachedDetail = task({ status: "idle", isStreaming: false, updatedAt, contextUsage: cachedContext, messages: [] });
+      const remoteDetail = task({ status: "idle", isStreaming: false, updatedAt, contextUsage: remoteContext, messages: cachedMessages });
+      mocks.getTaskBootstrap.mockReturnValue(bootstrap);
+      mocks.getTask.mockReturnValue(bootstrap);
+      mocks.getTaskDetail
+        .mockResolvedValueOnce(cachedDetail)
+        .mockResolvedValueOnce(remoteDetail);
+      mocks.isTaskRuntimeOwnedElsewhere.mockReturnValue(true);
+      mocks.subscribeTask.mockReturnValue(vi.fn());
+
+      const response = await GET(
+        new NextRequest(
+          `http://127.0.0.1:3010/api/tasks/task-1/events?delta=1&cachedTaskUpdatedAt=${encodeURIComponent(updatedAt)}&cachedSessionId=session-1`,
+        ),
+        { params: Promise.resolve({ id: "task-1" }) },
+      );
+      const reader = response.body!.getReader();
+      expect(eventData(await readChunk(reader)).eventType).toBe("bootstrap");
+      expect(eventData(await readChunk(reader)).eventType).toBe("cache_ready");
+      expect(eventData(await readChunk(reader))).toMatchObject({ eventType: "ready", messagesReused: true });
+
+      // The first offline read fills the message baseline and sends only changed state, not history.
+      await vi.advanceTimersByTimeAsync(2_000);
+      expect(eventData(await readChunk(reader))).toMatchObject({
+        eventType: "remote_poll", messagesDelta: true, messages: [], contextUsage: remoteContext,
+      });
+      mocks.getTaskDetail.mockResolvedValue(remoteDetail);
+      await vi.advanceTimersByTimeAsync(2_000);
+      expect(mocks.getTaskDetail).toHaveBeenCalledTimes(3);
+
+      const changedMessage = {
+        ...lastMessage,
+        parts: [{ id: "p1", type: "text" as const, text: "new output" }],
+      };
+      mocks.getTaskDetail.mockResolvedValue({
+        ...remoteDetail,
+        updatedAt: "2026-01-01T00:00:01.000Z",
+        messages: [...history, changedMessage],
+      });
+      await vi.advanceTimersByTimeAsync(4_000);
+      const changed = eventData(await readChunk(reader));
+      expect(changed.eventType).toBe("remote_poll");
+      expect(changed.messagesDelta).toBe(true);
+      expect(changed.messages).toEqual([changedMessage]);
+
+      await reader.cancel();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("does not reuse a matching cache while the task is working", async () => {
     const bootstrap = task({ messages: [], isStreaming: true });
     const detail = task({
