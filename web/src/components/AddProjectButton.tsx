@@ -107,6 +107,7 @@ export function AddProjectButton({
   const [listing, setListing] = useState<DirList | null>(null);
   const [busy, setBusy] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [navigationFailed, setNavigationFailed] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const pathInputRef = useRef<HTMLInputElement>(null);
   const listingRequestRef = useRef(0);
@@ -136,15 +137,19 @@ export function AddProjectButton({
   async function loadDir(next?: string) {
     const requestId = ++listingRequestRef.current;
     setLoading(true);
+    setNavigationFailed(false);
+    setPath(next ?? "");
     setError(null);
     try {
       const data = await getJson<DirList>("/api/browse/dirs", next ? { path: next } : undefined);
       if (requestId !== listingRequestRef.current) return;
       setListing(data);
-      if (data.path) setPath(data.path);
+      setPath(data.path ?? "");
+      setNavigationFailed(Boolean(data.error) || !data.path);
       setError(data.error ?? null);
     } catch (err) {
       if (requestId === listingRequestRef.current) {
+        setNavigationFailed(true);
         setError(err instanceof Error ? err.message : "フォルダ一覧を取得できません");
       }
     } finally {
@@ -290,7 +295,11 @@ export function AddProjectButton({
                   <input
                     ref={pathInputRef}
                     value={path}
-                    onChange={(event) => setPath(event.target.value)}
+                    onChange={(event) => {
+                      setPath(event.target.value);
+                      setNavigationFailed(false);
+                      setError(null);
+                    }}
                     onKeyDown={(event) => {
                       if (event.key !== "Enter" || !isValidPathShape(path)) return;
                       event.preventDefault();
@@ -412,7 +421,7 @@ export function AddProjectButton({
                 variant="primary"
                 size="sm"
                 busy={busy}
-                disabled={loading || !isValidPathShape(path)}
+                disabled={loading || navigationFailed || !isValidPathShape(path)}
                 onClick={() => {
                   if (selectionMode) {
                     onSelect?.(path.trim());
