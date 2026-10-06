@@ -92,6 +92,9 @@ export function ActivityLog({ children, header, count, parts, messages = [], sta
   const lastTopRef = useRef(0);
   const lastHeightRef = useRef(0);
   const [open, setOpen] = useState(running);
+  // Small groups stay mounted for instant expand; large collapsed historical logs can contain
+  // thousands of output nodes, so leave their body out of the DOM until the user opens them.
+  const mountBody = open || count < 25;
   // 作業の開始・完了時だけ開閉を同期し、途中の手動開閉は維持する。
   useLayoutEffect(() => {
     setOpen(running);
@@ -147,7 +150,7 @@ export function ActivityLog({ children, header, count, parts, messages = [], sta
         )}
         <ChevronRight className="h-3.5 w-3.5 shrink-0 text-faint transition-transform group-open/tool-activity:rotate-90" aria-hidden="true" />
       </summary>
-      <div
+      {mountBody && <div
         ref={scrollerRef}
         onScroll={(event) => {
           const el = event.currentTarget;
@@ -163,7 +166,7 @@ export function ActivityLog({ children, header, count, parts, messages = [], sta
           {insideHeaderNode}
           {children}
         </div>
-      </div>
+      </div>}
     </details>
   );
   return headerNode ? (

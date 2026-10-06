@@ -49,7 +49,7 @@ it.each([true, false])("keeps Bot and Code bubble geometry while aligning assist
 
 it("uses identical closed, scroll-bounded logs with full-width nested cards and headers", () => {
   const parts = [{ id: "tool", type: "tool" as const, tool: "read", callID: "call", state: { status: "completed" as const, input: {}, startedAtMs: 1000, endedAtMs: 3000 } }];
-  const { container } = render(<>{(["bot", "task"] as const).map((kind) => <ActivityLog key={kind} kind={kind} count={2} parts={parts} active={false}>
+  const { container } = render(<>{(["bot", "task"] as const).map((kind) => <ActivityLog key={kind} kind={kind} count={100} parts={parts} active={false}>
     <MessageHeader>Metadata</MessageHeader><MessageBubble>Tool content</MessageBubble>
   </ActivityLog>)}</>);
   const [bot, task] = [...container.querySelectorAll("details")];
@@ -62,14 +62,18 @@ it("uses identical closed, scroll-bounded logs with full-width nested cards and 
   expect(bot.querySelector('summary [role="img"][aria-label="完了"]')?.classList.contains("lucide-check")).toBe(true);
   expect(bot.querySelector('summary [role="img"][aria-label="完了"]')?.nextElementSibling).toBe(bot.querySelector("summary")?.lastElementChild);
   expect(bot.open).toBe(false);
-  expect(bot.querySelector("summary")?.textContent).toBe("作業ログ2件");
-  const content = bot.querySelector("summary")!.nextElementSibling!;
-  expect(content.classList.contains("[&_.max-w-bubble]:max-w-full")).toBe(true);
-  expect(content.classList.contains("overflow-y-auto")).toBe(true);
-  expect(content.classList.contains("max-h-[min(19.6rem,35dvh)]")).toBe(true);
+  expect(bot.querySelector("summary")?.textContent).toBe("作業ログ100件");
+  // Large collapsed work logs leave their thousands of potential output nodes unmounted.
+  expect(bot.querySelector("summary")!.nextElementSibling).toBeNull();
+  expect(task.querySelector("summary")!.nextElementSibling).toBeNull();
   fireEvent.click(bot.querySelector("summary")!);
   expect(bot.open).toBe(true);
   expect(task.open).toBe(false);
+  const content = bot.querySelector("summary")!.nextElementSibling!;
+  expect(content.textContent).toContain("Tool content");
+  expect(content.classList.contains("[&_.max-w-bubble]:max-w-full")).toBe(true);
+  expect(content.classList.contains("overflow-y-auto")).toBe(true);
+  expect(content.classList.contains("max-h-[min(19.6rem,35dvh)]")).toBe(true);
 });
 
 it.each(["task", "bot"] as const)("shows a finished single %s activity directly without a work log", (kind) => {
