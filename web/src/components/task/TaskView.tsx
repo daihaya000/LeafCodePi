@@ -99,11 +99,6 @@ import {
 } from "@/lib/auto-task-record";
 import { formatTokens, type ContextUsageDto } from "@/lib/context-usage";
 import { messageModelLabel, messageModelLabels } from "@/lib/message-model-label";
-import {
-  COMPACTION_ACTION_SETTING_KEY,
-  parseCompactionAction,
-  type CompactionAction,
-} from "@/lib/compaction-settings";
 import { TITLE_MAX_CHARS } from "@/lib/direct-generation-text";
 import {
   DEFAULT_TITLE_AUTO_UPDATE_ENABLED,
@@ -845,7 +840,6 @@ export const TaskView = memo(function TaskView({
   const [compactionSuggested, setCompactionSuggested] = useState(
     () => Boolean((cachedSession as TaskDetailWithCompactionSuggestion | null)?.compactionSuggested),
   );
-  const [compactionAction, setCompactionAction] = useState<CompactionAction>("auto");
   const [isCompacting, setIsCompacting] = useState(Boolean(cachedSession?.isCompacting));
   const [compactingLocal, setCompactingLocal] = useState(false);
   const [revertConfirmOpen, setRevertConfirmOpen] = useState(false);
@@ -948,19 +942,6 @@ export const TaskView = memo(function TaskView({
   );
   const [agentChanging, setAgentChanging] = useState(false);
   const [accountLabels, setAccountLabels] = useState<Map<string, string>>(new Map());
-  useEffect(() => {
-    let cancelled = false;
-    getJson<{ value: string | null }>(`/api/settings/${COMPACTION_ACTION_SETTING_KEY}`)
-      .then(({ value }) => {
-        if (!cancelled) setCompactionAction(parseCompactionAction(value));
-      })
-      .catch(() => {
-        // 既定値の auto のまま、手動圧縮ボタンは表示しない。
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, []);
   useEffect(() => {
     let cancelled = false;
     getJson<{ accounts: { id: string; label: string }[] }>("/api/accounts")
@@ -3707,20 +3688,18 @@ export const TaskView = memo(function TaskView({
               <Plus className="h-4 w-4" />
             </Button>
           )}
-          {compactionAction !== "auto" && (
-            <Button
-              variant="ghost"
-              size="icon"
-              title="コンテキスト圧縮"
-              aria-label="コンテキスト圧縮"
-              busy={compacting}
-              disabled={!task || working || compacting || archived}
-              className="h-11 w-11 @min-[500px]/task:h-9 @min-[500px]/task:w-9"
-              onClick={() => void compact()}
-            >
-              {!compacting && <Shrink className="h-4 w-4" />}
-            </Button>
-          )}
+          <Button
+            variant="ghost"
+            size="icon"
+            title="コンテキスト圧縮"
+            aria-label="コンテキスト圧縮"
+            busy={compacting}
+            disabled={!task || working || compacting || archived}
+            className="h-11 w-11 @min-[500px]/task:h-9 @min-[500px]/task:w-9"
+            onClick={() => void compact()}
+          >
+            {!compacting && <Shrink className="h-4 w-4" />}
+          </Button>
           <div className="@min-[500px]/task:hidden">
             <Button
               variant="ghost"
