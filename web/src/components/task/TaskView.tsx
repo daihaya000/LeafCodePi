@@ -1557,7 +1557,7 @@ export const TaskView = memo(function TaskView({
         if (status) onStatusRef.current?.(taskId, status);
       });
       nextSource.addEventListener("delta", (event) => {
-        if (!isCurrentSource()) return;
+        if (!isCurrentSource() || document.hidden) return;
         const rawData = (event as MessageEvent).data as string;
         if (TASK_PERF_ENABLED && perf) {
           perf.deltaCount += 1;
@@ -1667,6 +1667,12 @@ export const TaskView = memo(function TaskView({
       });
     };
 
+    const onVisibilityChange = () => {
+      if (document.hidden) return;
+      // Hidden-page deltas are intentionally skipped; bootstrap the latest snapshot on return.
+      connect();
+    };
+    document.addEventListener("visibilitychange", onVisibilityChange);
     // The SSE endpoint sends the initial timeline page; avoid a duplicate task-detail request.
     connect();
     // Skip the rest of a backoff wait when the network / tab comes back.
@@ -1719,6 +1725,7 @@ export const TaskView = memo(function TaskView({
     });
     return () => {
       closed = true;
+      document.removeEventListener("visibilitychange", onVisibilityChange);
       stopReconnectWake();
       retryTimer = cancelPendingSseReconnect(retryTimer);
       source = closeSseSource(source);

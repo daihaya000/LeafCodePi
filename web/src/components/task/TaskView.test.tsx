@@ -663,6 +663,56 @@ it("does not render a user message twice when SSE reprojects its ids", async () 
   expect(document.querySelector("[data-task-message]")?.getAttribute("data-task-message")).toBe("entry-42");
 });
 
+it("skips hidden-page deltas and resyncs the latest snapshot when visible", async () => {
+  const originalHidden = Object.getOwnPropertyDescriptor(document, "hidden");
+  class TestEventSource extends EventTarget {
+    static sources: TestEventSource[] = [];
+    constructor() { super(); TestEventSource.sources.push(this); }
+    close() {}
+  }
+  const message: UiMessage = {
+    id: "hidden-stream-message",
+    role: "assistant",
+    createdAt: 1,
+    parts: [{ id: "hidden-stream-text", type: "text", text: "latest hidden output" }],
+  };
+  vi.stubGlobal("EventSource", TestEventSource);
+  mocks.partView.mockImplementation(({ message: item }: { message: UiMessage }) => (
+    <div data-task-message={item.id}>{item.parts[0]?.type === "text" ? item.parts[0].text : ""}</div>
+  ));
+  try {
+    render(<TaskView taskId={task.id} mdUp />);
+    await waitFor(() => expect(TestEventSource.sources).toHaveLength(1));
+    const firstSource = TestEventSource.sources[0]!;
+    Object.defineProperty(document, "hidden", { configurable: true, value: true });
+    act(() => document.dispatchEvent(new Event("visibilitychange")));
+    await act(async () => {
+      firstSource.dispatchEvent(new MessageEvent("delta", { data: JSON.stringify({ message }) }));
+      await Promise.resolve();
+    });
+    expect(screen.queryByText("latest hidden output")).toBeNull();
+
+    Object.defineProperty(document, "hidden", { configurable: true, value: false });
+    act(() => document.dispatchEvent(new Event("visibilitychange")));
+    await waitFor(() => expect(TestEventSource.sources).toHaveLength(2));
+    await act(async () => {
+      TestEventSource.sources[1]!.dispatchEvent(new MessageEvent("snapshot", {
+        data: JSON.stringify({
+          eventType: "ready",
+          task: { ...task, status: "working", isStreaming: true },
+          messages: [message],
+          isStreaming: true,
+        }),
+      }));
+      await Promise.resolve();
+    });
+    expect(screen.getByText("latest hidden output")).toBeTruthy();
+  } finally {
+    if (originalHidden) Object.defineProperty(document, "hidden", originalHidden);
+    else Reflect.deleteProperty(document, "hidden");
+  }
+});
+
 it("stops following the bottom after the user scrolls up from a programmatic follow", async () => {
   class TestEventSource extends EventTarget {
     static latest: TestEventSource | null = null;
