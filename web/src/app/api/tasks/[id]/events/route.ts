@@ -22,7 +22,12 @@ import {
 } from "@/lib/task-history";
 import { readHistoryPageSize } from "@/lib/pi/history-page-size";
 import { localRuntimeBlocked } from "@/lib/pi/runtime-ownership";
-import { BACKEND_EVENT_STREAMING_POLL_MS, startBackendTaskStream } from "@/lib/pi/backend-event-stream";
+import {
+  BACKEND_EVENT_STREAMING_POLL_MS,
+  messagePageDelta,
+  startBackendTaskStream,
+  type SentMessagePage,
+} from "@/lib/pi/backend-event-stream";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -52,17 +57,28 @@ function remotePollSignature(
   taskSummary: Record<string, unknown>,
   detail: { isStreaming?: boolean; isCompacting?: boolean; contextUsage?: unknown; hangRetryCount?: number },
   messageCount: number,
+  lastMessageId: string,
 ): string {
   const last = taskSummary.updatedAt ?? "";
   return [
     String(last),
     messageCount,
+    lastMessageId,
     String(taskSummary.status ?? ""),
     String(detail.isStreaming ?? ""),
     String(detail.isCompacting ?? ""),
     JSON.stringify(detail.contextUsage ?? null),
     String(detail.hangRetryCount ?? 0),
   ].join(":");
+}
+
+function serializeRemoteMessages(messages: readonly { id: string }[]): { page: SentMessagePage; jsons: string[] } {
+  const ids = messages.map((message) => message.id);
+  const jsons = messages.map((message) => JSON.stringify(message));
+  return {
+    page: { ids, jsonById: new Map(ids.map((id, index) => [id, jsons[index]!])) },
+    jsons,
+  };
 }
 
 async function getTaskDetailForReady(
@@ -325,6 +341,16 @@ export async function GET(
 
         if (isTaskRuntimeOwnedElsewhere(getTask(id) ?? bootstrap)) {
           const writer = sse!;
+          // Ready already delivered this revision/page; don't echo it on the first unchanged poll.
+          lastRemoteSignature = remotePollSignature(
+            taskSummary,
+            detail,
+            messagePage?.messages.length ?? detail.messages.length,
+            messagePage?.messages.at(-1)?.id ?? "",
+          );
+          let lastRemotePage = messageDelta && messagePage
+            ? serializeRemoteMessages(messagePage.messages).page
+            : undefined;
           const scheduleRemotePoll = (delayMs: number) => {
             if (remotePollStopped || writer.closed) return;
             remotePollTimer = setTimeout(() => {
@@ -370,16 +396,37 @@ export async function GET(
                 : undefined;
               // Keep active foreign tasks responsive, then back off unchanged details up to
               // 10s. Skip byte-identical snapshots so idle remote sessions cost fewer reads and no SSE traffic.
-              const signature = remotePollSignature(taskSummary, detail, messagePage?.messages.length ?? detail.messages.length);
-              if (signature !== lastRemoteSignature) {
+              const signature = remotePollSignature(
+                taskSummary,
+                detail,
+                messagePage?.messages.length ?? detail.messages.length,
+                messagePage?.messages.at(-1)?.id ?? "",
+              );
+              const signatureChanged = signature !== lastRemoteSignature;
+              const serializedPage = signatureChanged && messageDelta && messagePage
+                ? serializeRemoteMessages(messagePage.messages)
+                : undefined;
+              const changedMessageIndexes = lastRemotePage && serializedPage
+                ? messagePageDelta(lastRemotePage, serializedPage.page.ids, serializedPage.jsons)
+                : undefined;
+              if (signatureChanged) {
                 lastRemoteSignature = signature;
+                lastRemotePage = serializedPage?.page;
                 unchangedRemotePolls = 0;
                 // Offline detail always nulls permission/question. Omit them so a buffered
                 // live control event (or local pending at ready) is not wiped by remote polls.
                 writer.send("snapshot", {
                   type: "snapshot",
                   task: taskSummary,
-                  ...(messagePage ? { messages: messagePage.messages, messageHistory: messagePage.messageHistory } : {}),
+                  ...(messagePage
+                    ? changedMessageIndexes !== undefined
+                      ? {
+                          messagesDelta: true,
+                          messages: changedMessageIndexes.map((index) => messagePage.messages[index]!),
+                          messageHistory: messagePage.messageHistory,
+                        }
+                      : { messages: messagePage.messages, messageHistory: messagePage.messageHistory }
+                    : {}),
                   isStreaming: detail.isStreaming,
                   isCompacting: detail.isCompacting,
                   contextUsage: detail.contextUsage,

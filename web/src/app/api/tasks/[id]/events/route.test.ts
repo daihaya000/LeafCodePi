@@ -431,9 +431,12 @@ describe("/api/tasks/[id]/events", () => {
     vi.useFakeTimers();
     try {
       const bootstrap = task({ kind: "code", botId: "bot-1", status: "working", isStreaming: true });
+      const earlierMessages = Array.from({ length: 5 }, (_, index) => ({
+        id: `history-${index}`, role: "user" as const, createdAt: index + 1, parts: [],
+      }));
       const first = task({
         kind: "code", botId: "bot-1", status: "idle", isStreaming: false,
-        messages: [{ id: "final", role: "assistant", createdAt: 1, parts: [] }],
+        messages: [...earlierMessages, { id: "final", role: "assistant", createdAt: 6, parts: [] }],
       });
       mocks.getTaskBootstrap.mockReturnValue(bootstrap);
       mocks.getTask.mockReturnValue(bootstrap);
@@ -442,28 +445,52 @@ describe("/api/tasks/[id]/events", () => {
       mocks.subscribeTask.mockReturnValue(vi.fn());
 
       const response = await GET(
-        new NextRequest("http://127.0.0.1:3010/api/tasks/task-1/events"),
+        new NextRequest("http://127.0.0.1:3010/api/tasks/task-1/events?delta=1"),
         { params: Promise.resolve({ id: "task-1" }) },
       );
       const reader = response.body!.getReader();
       await readChunk(reader);
       expect(eventData(await readChunk(reader)).eventType).toBe("ready");
 
+      // The ready snapshot is already authoritative, so an identical first poll sends no duplicate.
       await vi.advanceTimersByTimeAsync(2_000);
-      expect(eventData(await readChunk(reader)).eventType).toBe("remote_poll");
+      expect(mocks.getTaskDetail).toHaveBeenCalledTimes(2);
 
-      // Same detail again: ownership is still probed, but the next poll backs off to 4s.
-      await vi.advanceTimersByTimeAsync(2_000);
-      expect(mocks.getTaskDetail).toHaveBeenCalledTimes(3);
-
-      mocks.getTaskDetail.mockResolvedValue({
+      const updatedMessage = {
+        id: "final", role: "assistant", createdAt: 6,
+        parts: [{ id: "p1", type: "text", text: "updated" }],
+      };
+      const updatedTask = {
         ...first,
-        messages: [...first.messages, { id: "next", role: "assistant", createdAt: 2, parts: [] }],
-      });
+        updatedAt: "2026-01-01T00:00:01.000Z",
+        messages: [...earlierMessages, updatedMessage],
+      };
+      mocks.getTaskDetail.mockResolvedValue(updatedTask);
       await vi.advanceTimersByTimeAsync(4_000);
       const changed = eventData(await readChunk(reader));
       expect(changed.eventType).toBe("remote_poll");
-      expect((changed.messages as Array<{ id: string }>).at(-1)?.id).toBe("next");
+      expect(changed.messagesDelta).toBe(true);
+      expect(changed.messages).toEqual([updatedMessage]);
+
+      mocks.getTaskDetail.mockResolvedValue({
+        ...updatedTask,
+        messages: [...earlierMessages, updatedMessage, { id: "next", role: "assistant", createdAt: 7, parts: [] }],
+      });
+      await vi.advanceTimersByTimeAsync(2_000);
+      const appended = eventData(await readChunk(reader));
+      expect(appended.messagesDelta).toBe(true);
+      expect(appended.messages).toEqual([{ id: "next", role: "assistant", createdAt: 7, parts: [] }]);
+
+      // A last-row re-identification is detected even when updatedAt and page length are stable.
+      mocks.getTaskDetail.mockResolvedValue({
+        ...updatedTask,
+        messages: [...earlierMessages, updatedMessage, { id: "rewritten", role: "assistant", createdAt: 7, parts: [] }],
+      });
+      await vi.advanceTimersByTimeAsync(2_000);
+      const rewritten = eventData(await readChunk(reader));
+      expect(rewritten.eventType).toBe("remote_poll");
+      expect(rewritten).not.toHaveProperty("messagesDelta");
+      expect((rewritten.messages as Array<{ id: string }>).at(-1)?.id).toBe("rewritten");
 
       await reader.cancel();
     } finally {
