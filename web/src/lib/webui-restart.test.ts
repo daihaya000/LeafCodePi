@@ -4,6 +4,10 @@ import {
   INITIAL_RESTART_PROBE,
   isRestartOverlayVisible,
   nextRestartProbe,
+  nextRestartProbeDelayMs,
+  RESTART_PROBE_FAST_MS,
+  RESTART_PROBE_HIDDEN_MS,
+  RESTART_PROBE_IDLE_MS,
   OFFLINE_STREAK,
   RESTART_REQUEST_GIVE_UP_MS,
   restartOverlayMessage,
@@ -124,5 +128,16 @@ describe("nextRestartProbe", () => {
     assert.match(restartOverlayMessage("host"), /トレイホスト/);
     assert.match(restartOverlayMessage("webui"), /WebUI/);
     assert.match(restartOverlayMessage(null), /WebUI/);
+  });
+});
+
+describe("nextRestartProbeDelayMs", () => {
+  it("probes fast only while a restart is requested or the server is unreachable", () => {
+    const idle = { ...INITIAL_RESTART_PROBE, connected: true, startedAt: 1 };
+    assert.equal(nextRestartProbeDelayMs(idle, false), RESTART_PROBE_IDLE_MS);
+    assert.equal(nextRestartProbeDelayMs(idle, true), RESTART_PROBE_HIDDEN_MS);
+    assert.equal(nextRestartProbeDelayMs({ ...idle, requested: true, requestedAt: 1 }, true), RESTART_PROBE_FAST_MS);
+    assert.equal(nextRestartProbeDelayMs({ ...idle, failures: 1 }, false), RESTART_PROBE_FAST_MS);
+    assert.equal(nextRestartProbeDelayMs({ ...idle, offline: true }, true), RESTART_PROBE_FAST_MS);
   });
 });
