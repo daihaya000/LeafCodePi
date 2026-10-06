@@ -351,6 +351,17 @@ test("every service restart pulls latest sources first", () => {
   assert.match(index, /else if \(target === "backend"\) await restartBackend\(\)/);
   assert.match(index, /else await restartHost\(\)/);
 });
+test("a failed Host restart handoff releases the single-flight claim", () => {
+  const index = readFileSync(join(repoRoot, "host", "src", "index.js"), "utf8");
+  const restart = index.slice(
+    index.indexOf("async function restartHost("),
+    index.indexOf("async function publishStatusWebItem("),
+  );
+  assert.ok(restart.indexOf("try {") < restart.indexOf("await pullLatestSourcesAsync("));
+  assert.match(restart, /await waitForHostRestartChildSpawn\(child\)/);
+  assert.match(restart, /finally \{[\s\S]*?if \(!quitting\) restarting = false;/);
+});
+
 test("the Host can restart the Backend on request, and refuses while a Goal Loop is live", () => {
   const index = readFileSync(join(repoRoot, "host", "src", "index.js"), "utf8");
   assert.match(index, /onRestartBackend: \(\) => restartBackend\(\)/);

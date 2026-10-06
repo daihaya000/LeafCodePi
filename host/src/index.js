@@ -17,7 +17,13 @@ import { createLogFileWriter, formatLogLine } from "./log-file.js";
 import { getListeningPids, getPortListenerStatus } from "./port-scanner.js";
 import { hardKillTree, stopProcessTreeGracefully } from "./process-stop.js";
 import { stopOrphanedWebUi } from "./stale-webui.js";
-import { buildHostRestartScript, buildHostRestartWaitProgram, consumeHostRestartBuild, hostStdoutLogFile } from "./host-restart.js";
+import {
+  buildHostRestartScript,
+  buildHostRestartWaitProgram,
+  consumeHostRestartBuild,
+  hostStdoutLogFile,
+  waitForHostRestartChildSpawn,
+} from "./host-restart.js";
 import { serviceRestartBusyReason } from "./runtime-restart-guard.js";
 import { DEFAULT_BACKEND_PORT } from "../../shared/backend-protocol.mjs";
 import { createBackendService, shouldRunBackend } from "./backend-service.js";
@@ -819,13 +825,13 @@ async function restartWeb() {
  */
 async function restartHost() {
   if (!claimServiceRestart()) return;
-  log("Host restart requested; spawning replacement…");
-  await pullLatestSourcesAsync({ repoRoot: REPO_ROOT, log, error });
-  if (process.platform !== "win32") {
-    // Any throw before quit() used to leave `restarting` claimed forever: the Host kept running,
-    // the overlay waited for a replacement that never came, and every later restart was refused.
-    let logFd = null;
-    try {
+  let logFd = null;
+  let launcherPath = null;
+  let replacementLaunched = false;
+  try {
+    log("Host restart requested; spawning replacement…");
+    await pullLatestSourcesAsync({ repoRoot: REPO_ROOT, log, error });
+    if (process.platform !== "win32") {
       const waitProgram = buildHostRestartWaitProgram();
       const logFile = hostStdoutLogFile();
       if (logFile) {
@@ -845,69 +851,59 @@ async function restartHost() {
           env: { ...process.env, LEAFCODE_PI_NO_BROWSER: "1", LEAFCODE_PI_REBUILD_SERVICES: "1" },
         },
       );
-      const spawned = await new Promise((resolveSpawn) => {
-        child.once("spawn", () => resolveSpawn(true));
-        child.once("error", (err) => {
-          error(`Host restart failed: ${err.message}`);
-          resolveSpawn(false);
-        });
-      });
-      if (!spawned) throw new Error("replacement host waiter did not start");
+      await waitForHostRestartChildSpawn(child);
       child.unref();
+      replacementLaunched = true;
       log(`Replacement host waiter spawned (PID ${child.pid ?? "unknown"})`);
-    } catch (err) {
-      restarting = false;
-      error(`Host restart failed: ${err instanceof Error ? err.message : String(err)}`);
-      throw err;
-    } finally {
-      if (logFd !== null) {
-        try {
-          closeSync(logFd);
-        } catch {
-          /* ignore */
-        }
+    } else {
+      const name = `leafcode-pi-restart-${randomBytes(6).toString("hex")}.bat`;
+      launcherPath = join(tmpdir(), name);
+      const launcherExePath = join(REPO_ROOT, "LeafCodePi.exe");
+      const startBat = join(REPO_ROOT, "scripts", "start-webui.bat");
+      const lines = buildHostRestartScript({
+        lockFile: LOCK_FILE,
+        launcherExe: existsSync(launcherExePath) ? launcherExePath : null,
+        startBat,
+      });
+      writeFileSync(launcherPath, `${lines.join("\r\n")}\r\n`, "utf8");
+      const ps =
+        `$r = Invoke-CimMethod -ClassName Win32_Process -MethodName Create ` +
+        `-Arguments @{ CommandLine = 'cmd.exe /c call "${launcherPath}"' }; ` +
+        `if ($r.ReturnValue -ne 0) { exit 1 }; Write-Output $r.ProcessId`;
+      const encoded = Buffer.from(ps, "utf16le").toString("base64");
+      const out = spawnSync("powershell.exe", ["-NoProfile", "-EncodedCommand", encoded], {
+        encoding: "utf8",
+        windowsHide: true,
+        timeout: 15_000,
+      });
+      const pid = Number(String(out.stdout ?? "").trim());
+      if (out.status !== 0 || !Number.isInteger(pid) || pid <= 0) {
+        throw new Error(`WMI launch failed: ${String(out.stderr ?? "").trim() || "no pid"}`);
       }
+      replacementLaunched = true;
+      log(`Replacement host launcher spawned (WMI PID ${pid})`);
     }
-    await quit();
-    return;
-  }
-
-  const name = `leafcode-pi-restart-${randomBytes(6).toString("hex")}.bat`;
-  const launcherPath = join(tmpdir(), name);
-  const launcherExePath = join(REPO_ROOT, "LeafCodePi.exe");
-  const startBat = join(REPO_ROOT, "scripts", "start-webui.bat");
-  const lines = buildHostRestartScript({
-    lockFile: LOCK_FILE,
-    launcherExe: existsSync(launcherExePath) ? launcherExePath : null,
-    startBat,
-  });
-  writeFileSync(launcherPath, `${lines.join("\r\n")}\r\n`, "utf8");
-  const ps =
-    `$r = Invoke-CimMethod -ClassName Win32_Process -MethodName Create ` +
-    `-Arguments @{ CommandLine = 'cmd.exe /c call "${launcherPath}"' }; ` +
-    `if ($r.ReturnValue -ne 0) { exit 1 }; Write-Output $r.ProcessId`;
-  const encoded = Buffer.from(ps, "utf16le").toString("base64");
-  try {
-    const out = spawnSync("powershell.exe", ["-NoProfile", "-EncodedCommand", encoded], {
-      encoding: "utf8",
-      windowsHide: true,
-      timeout: 15_000,
-    });
-    const pid = Number(String(out.stdout ?? "").trim());
-    if (out.status !== 0 || !Number.isInteger(pid) || pid <= 0) {
-      throw new Error(`WMI launch failed: ${String(out.stderr ?? "").trim() || "no pid"}`);
-    }
-    log(`Replacement host launcher spawned (WMI PID ${pid})`);
     await quit();
   } catch (err) {
-    restarting = false;
-    error(`Host restart failed: ${err instanceof Error ? err.message : String(err)}`);
-    try {
-      unlinkSync(launcherPath);
-    } catch {
-      /* ignore */
+    if (launcherPath && !replacementLaunched) {
+      try {
+        unlinkSync(launcherPath);
+      } catch {
+        /* ignore */
+      }
     }
+    error(`Host restart failed: ${err instanceof Error ? err.message : String(err)}`);
     throw err;
+  } finally {
+    if (logFd !== null) {
+      try {
+        closeSync(logFd);
+      } catch {
+        /* ignore */
+      }
+    }
+    // Keep the claim only while shutdown is underway; release it after any earlier failure.
+    if (!quitting) restarting = false;
   }
 }
 
