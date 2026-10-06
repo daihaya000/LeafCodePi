@@ -104,6 +104,16 @@ describe("queued follow-up drain", () => {
     ).toBe(false);
   });
 
+  it("does not dequeue when submit's synchronous or revert guards are active", () => {
+    for (const guard of [
+      { submitInFlight: true },
+      { revertBusy: true },
+      { revertConfirmOpen: true },
+    ]) {
+      expect(shouldDrainQueuedFollowUp({ ...idle, hasQueuedItem: true, ...guard })).toBe(false);
+    }
+  });
+
   it("does not drain while a Goal Loop still owns the session (paused/blocked)", () => {
     expect(
       shouldDrainQueuedFollowUp({
@@ -167,6 +177,21 @@ describe("queued follow-up auto-send", () => {
         compacting: true,
       }),
     ).toBe(false);
+  });
+
+  it("keeps the item when submit's synchronous or revert guards are active", () => {
+    for (const guard of [
+      { submitInFlight: true },
+      { revertBusy: true },
+      { revertConfirmOpen: true },
+    ]) {
+      expect(shouldAutoSendQueuedFollowUp({
+        ...idle,
+        queuedAutoSend: true,
+        hasContent: true,
+        ...guard,
+      })).toBe(false);
+    }
   });
 });
 

@@ -29,8 +29,11 @@ export function shouldDrainQueuedFollowUp(input: {
   resumingTurn?: boolean;
   sessionHydrating?: boolean;
   sseReconnecting?: boolean;
-  /** Match submit()/silent resume — do not pop the queue while compacting. */
+  /** Match submit() guards — do not pop work that submit() would silently reject. */
   compacting?: boolean;
+  submitInFlight?: boolean;
+  revertBusy?: boolean;
+  revertConfirmOpen?: boolean;
 }): boolean {
   return (
     input.hasQueuedItem &&
@@ -44,7 +47,10 @@ export function shouldDrainQueuedFollowUp(input: {
     !input.resumingTurn &&
     !input.sessionHydrating &&
     !input.sseReconnecting &&
-    !input.compacting
+    !input.compacting &&
+    !input.submitInFlight &&
+    !input.revertBusy &&
+    !input.revertConfirmOpen
   );
 }
 
@@ -59,8 +65,11 @@ export function shouldAutoSendQueuedFollowUp(input: {
   resumingTurn?: boolean;
   sessionHydrating?: boolean;
   sseReconnecting?: boolean;
-  /** Match submit() — compacting makes auto-send a silent no-op and drops the item. */
+  /** Match submit() guards — do not invoke it when it would silently reject the item. */
   compacting?: boolean;
+  submitInFlight?: boolean;
+  revertBusy?: boolean;
+  revertConfirmOpen?: boolean;
 }): boolean {
   return (
     input.queuedAutoSend &&
@@ -73,7 +82,10 @@ export function shouldAutoSendQueuedFollowUp(input: {
     !input.resumingTurn &&
     !input.sessionHydrating &&
     !input.sseReconnecting &&
-    !input.compacting
+    !input.compacting &&
+    !input.submitInFlight &&
+    !input.revertBusy &&
+    !input.revertConfirmOpen
   );
 }
 

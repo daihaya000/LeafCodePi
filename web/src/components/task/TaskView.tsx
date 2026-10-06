@@ -2444,6 +2444,17 @@ export const TaskView = memo(function TaskView({
     const sentQueueEpoch = queueClearEpochRef.current;
     const submittedPrompt = queued ? queued.text : prompt;
     const submittedAttachments = queued ? queued.attachments : attachments;
+    const restoreQueuedFollowUp = () => {
+      if (
+        !queued ||
+        !shouldRestoreQueuedFollowUpOnFailure(sentQueueEpoch, queueClearEpochRef.current)
+      ) return false;
+      setFailedQueuedId(queued.id);
+      setQueuedFollowUps((current) =>
+        current.some((item) => item.id === queued.id) ? current : [queued, ...current],
+      );
+      return true;
+    };
     if (
       (!submittedPrompt.trim() && submittedAttachments.length === 0) ||
       submitting ||
@@ -2458,6 +2469,11 @@ export const TaskView = memo(function TaskView({
       revertConfirmOpen ||
       shouldBlockSubmitWhileStopRequested(stopRequestedRef.current, working)
     ) {
+      // The queue drain removes this item before submit; preserve it if a same-frame submit lock
+      // or another guard wins the race before the request starts.
+      if (restoreQueuedFollowUp()) {
+        setError("キュー送信を開始できませんでした。キューから再送してください");
+      }
       return;
     }
     let draftCleared = false;
@@ -2700,10 +2716,7 @@ export const TaskView = memo(function TaskView({
         setError(null);
         return;
       }
-      if (queued && shouldRestoreQueuedFollowUpOnFailure(sentQueueEpoch, queueClearEpochRef.current)) {
-        setFailedQueuedId(queued.id);
-        setQueuedFollowUps((current) => [queued, ...current]);
-      }
+      restoreQueuedFollowUp();
       if (draftCleared) {
         setPrompt((current) => current || submittedPrompt);
         setAttachments((current) =>
@@ -2821,6 +2834,9 @@ export const TaskView = memo(function TaskView({
         sessionHydrating,
         sseReconnecting,
         compacting,
+        submitInFlight: submitInFlightRef.current,
+        revertBusy,
+        revertConfirmOpen,
       })
     ) {
       return;
@@ -2841,6 +2857,8 @@ export const TaskView = memo(function TaskView({
     queuedFollowUps,
     failedQueuedId,
     resumingTurn,
+    revertBusy,
+    revertConfirmOpen,
     sessionHydrating,
     sseReconnecting,
     stopRequested,
@@ -2862,6 +2880,9 @@ export const TaskView = memo(function TaskView({
         sessionHydrating,
         sseReconnecting,
         compacting,
+        submitInFlight: submitInFlightRef.current,
+        revertBusy,
+        revertConfirmOpen,
       })
     ) {
       if (queuedAutoSend && !queuedSendRef.current) {
@@ -2884,6 +2905,8 @@ export const TaskView = memo(function TaskView({
     prompt,
     queuedAutoSend,
     resumingTurn,
+    revertBusy,
+    revertConfirmOpen,
     sessionHydrating,
     sseReconnecting,
     stopRequested,

@@ -545,6 +545,58 @@ it("holds the default queue until a Goal loop releases the session", async () =>
   expect(mocks.sendJson.mock.calls[0][1].streamingBehavior).toBeUndefined();
 });
 
+it("keeps a queued follow-up until a blocking revert confirmation closes", async () => {
+  class TestEventSource extends EventTarget {
+    static latest: TestEventSource;
+    constructor() { super(); TestEventSource.latest = this; }
+    close() {}
+  }
+  const userMessage: UiMessage = {
+    id: "queued-revert-user",
+    role: "user",
+    createdAt: 1,
+    parts: [{ id: "queued-revert-text", type: "text", text: "previous prompt" }],
+  };
+  vi.stubGlobal("EventSource", TestEventSource);
+  mocks.partView.mockImplementation(({ message, onRevert }: {
+    message: UiMessage;
+    onRevert?: (message: UiMessage) => void;
+  }) => message.role === "user"
+    ? <button type="button" onClick={() => onRevert?.(message)}>Revert message</button>
+    : null);
+  mocks.sendJson.mockResolvedValue({ task: { ...task, status: "working" } });
+  render(<TaskView taskId={task.id} mdUp />);
+  const snapshot = async (status: "working" | "idle", loopStatus: "running" | "paused" | "completed") => {
+    await act(async () => {
+      TestEventSource.latest.dispatchEvent(new MessageEvent("snapshot", {
+        data: JSON.stringify({
+          eventType: "ready",
+          task: { ...task, status, isStreaming: status === "working" },
+          goalLoop: { id: "loop-1", status: loopStatus, goal: "goal", acceptance: [], maxTurns: 5, turnCount: 1, progress: [] },
+          messages: [userMessage],
+        }),
+      }));
+    });
+  };
+
+  await snapshot("working", "running");
+  fireEvent.change(screen.getByRole("textbox", { name: "フォローアップ" }), { target: { value: "after loop" } });
+  fireEvent.click(screen.getByRole("button", { name: "キューに追加" }));
+  await snapshot("idle", "paused");
+  fireEvent.click(screen.getByRole("button", { name: "Revert message" }));
+  expect(screen.getByRole("alertdialog", { name: "巻き戻しの確認" })).toBeTruthy();
+
+  await snapshot("idle", "completed");
+  expect(mocks.sendJson).not.toHaveBeenCalled();
+  expect(screen.getByRole("button", { name: "即時送信: after loop" })).toBeTruthy();
+
+  fireEvent.click(within(screen.getByRole("alertdialog", { name: "巻き戻しの確認" })).getByRole("button", { name: "キャンセル" }));
+  await waitFor(() => expect(mocks.sendJson).toHaveBeenCalledWith(
+    `/api/tasks/${task.id}/prompt`, expect.objectContaining({ prompt: "after loop" }),
+  ));
+  expect(mocks.sendJson).toHaveBeenCalledTimes(1);
+});
+
 it("drops queued follow-ups when a Goal loop is stopped", async () => {
   class TestEventSource extends EventTarget {
     static latest: TestEventSource;
