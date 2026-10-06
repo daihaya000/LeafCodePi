@@ -1,4 +1,4 @@
-export const TASK_MESSAGE_PAGE_SIZE = 50;
+export const TASK_MESSAGE_PAGE_SIZE = 150;
 
 export class InvalidTaskMessageCursorError extends Error {
   constructor() {

@@ -24,9 +24,9 @@ test("latest-page transport excludes old history without mutating the source", (
   const page = pageTaskMessages(messages);
   const fullBytes = Buffer.byteLength(JSON.stringify({ messages }));
   const pageBytes = Buffer.byteLength(JSON.stringify(page));
-  assert.equal(page.messages.length, 50);
+  assert.equal(page.messages.length, 150);
   assert.equal(messages.length, 5000);
-  assert.deepEqual(page.messageHistory, { hasMore: true, nextCursor: "m4950" });
-  assert.ok(pageBytes < fullBytes / 90);
+  assert.deepEqual(page.messageHistory, { hasMore: true, nextCursor: "m4850" });
+  assert.ok(pageBytes < fullBytes / 25);
   t.diagnostic(`synthetic history JSON: full=${fullBytes} bytes, latest page=${pageBytes} bytes`);
 });
