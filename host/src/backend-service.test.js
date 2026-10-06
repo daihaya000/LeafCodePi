@@ -62,6 +62,69 @@ test("starting spawns the planned Backend once, with the pinned generation", () 
   assert.equal(children.length, 1);
 });
 
+test("Backend stdout and stderr are consumed and forwarded to the output sink", () => {
+  const child = new EventEmitter();
+  child.stdout = new EventEmitter();
+  child.stderr = new EventEmitter();
+  const output = [];
+  const service = createBackendService({
+    repoRoot: REPO_ROOT,
+    token: "t",
+    spawn: () => child,
+    generation: "gen-a",
+    onOutput: (level, text) => output.push({ level, text }),
+  });
+  service.start();
+
+  child.stdout.emit("data", Buffer.from("ready\n"));
+  child.stderr.emit("data", Buffer.from("warning\n"));
+
+  assert.deepEqual(output, [
+    { level: "log", text: "ready\n" },
+    { level: "error", text: "warning\n" },
+  ]);
+  assert.equal(child.stdout.listenerCount("data"), 1);
+  assert.equal(child.stderr.listenerCount("data"), 1);
+  service.stop();
+});
+
+test("Backend output pipes drain data beyond the Windows pipe capacity", { timeout: 10_000 }, async (t) => {
+  const payloadBytes = 256 * 1024;
+  const fixture = `
+    const payload = Buffer.alloc(${payloadBytes}, 0x78);
+    const write = (stream) => new Promise((resolve, reject) => {
+      stream.write(payload, (error) => error ? reject(error) : resolve());
+    });
+    Promise.all([write(process.stdout), write(process.stderr)])
+      .then(() => process.exit(0), () => process.exit(2));
+  `;
+  let child;
+  let exited;
+  const capturedBytes = { log: 0, error: 0 };
+  const service = createBackendService({
+    repoRoot: REPO_ROOT,
+    token: "t",
+    env: process.env,
+    spawn: (_command, _args, options) => {
+      child = nodeSpawn(process.execPath, ["-e", fixture], { ...options, cwd: process.cwd() });
+      exited = new Promise((resolve, reject) => {
+        child.once("error", reject);
+        child.once("exit", (code, signal) => resolve({ code, signal }));
+      });
+      return child;
+    },
+    generation: "gen-a",
+    restartMax: 0,
+    error: () => {},
+    onOutput: (level, text) => { capturedBytes[level] += Buffer.byteLength(text); },
+  });
+  service.start();
+  t.after(() => service.stop());
+
+  assert.deepEqual(await exited, { code: 0, signal: null });
+  assert.deepEqual(capturedBytes, { log: payloadBytes, error: payloadBytes });
+});
+
 test("a cutover can attach after a confirmed stop on the same service", async () => {
   const { spawn, calls, children } = fakeSpawn();
   const service = createBackendService({ repoRoot: REPO_ROOT, token: "t", spawn, generation: "gen-a" });
@@ -211,6 +274,24 @@ test("real Backend IPC registers an MCP child before crash cleanup", { timeout: 
   assert.equal(service.status().state, "failed", details);
   assert.equal(killCount, 1, details);
   assert.ok(mcpPid > 1, details);
+});
+
+test("exit code 134 is diagnosed as an abort without asserting an OOM cause", () => {
+  const { spawn, children } = fakeSpawn();
+  const errors = [];
+  const service = createBackendService({
+    repoRoot: REPO_ROOT,
+    token: "t",
+    spawn,
+    generation: "gen-a",
+    restartMax: 0,
+    error: (message) => errors.push(message),
+  });
+  service.start();
+  children[0].emit("exit", 134, null);
+
+  assert.ok(errors.some((message) => /code 134.*possible heap out-of-memory.*Backend stderr/.test(message)));
+  service.stop();
 });
 
 test("child cleanup still runs when the Backend restart budget is exhausted", async () => {

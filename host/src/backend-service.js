@@ -46,6 +46,7 @@ export function createBackendService({
   spawn,
   log = () => {},
   error = () => {},
+  onOutput = () => {},
   now = () => Date.now(),
   restartMax = 3,
   attachRuntime = false,
@@ -146,6 +147,9 @@ export function createBackendService({
       }
       return;
     }
+    if (code === 134 && !signal) {
+      error("Backend exited with code 134 (Node/V8 abort; possible heap out-of-memory; inspect captured Backend stderr)");
+    }
     if (!cleanupSucceeded) {
       state = "failed";
       error(`Backend exited (${signal ?? code}) but child process cleanup could not be confirmed; restart blocked`);
@@ -172,6 +176,20 @@ export function createBackendService({
     });
     child = started;
     started.on?.("message", handleBackendChildMessage);
+    // Child stdio pipes are bounded. Always consume them, even if no output sink was supplied.
+    const drainOutput = (stream, level) => {
+      if (typeof stream?.on !== "function") return;
+      stream.setEncoding?.("utf8");
+      stream.on("data", (chunk) => {
+        try {
+          onOutput(level, String(chunk));
+        } catch {
+          // Output must remain drained even if the optional logging sink fails.
+        }
+      });
+    };
+    drainOutput(started.stdout, "log");
+    drainOutput(started.stderr, "error");
     state = "running";
     clearStableTimer();
     // A process that stayed up for a full window has earned its budget back.

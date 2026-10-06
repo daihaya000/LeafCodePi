@@ -196,7 +196,16 @@ function claimServiceRestart() {
  */
 // Production runs the Backend by default: it owns the Pi runtime, so the WebUI is always its client.
 const backendService = shouldRunBackend(process.env)
-  ? createBackendService({ repoRoot: REPO_ROOT, env: process.env, spawn, log, error })
+  ? createBackendService({
+      repoRoot: REPO_ROOT,
+      env: process.env,
+      spawn,
+      log,
+      error,
+      onOutput: (level, text) => {
+        logWriter?.write({ ts: Date.now(), source: "backend", level, text });
+      },
+    })
   : null;
 let bindingReconcileInProgress = false;
 const expectedWebExitPids = new Set();
