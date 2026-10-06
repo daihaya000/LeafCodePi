@@ -11492,6 +11492,29 @@ export async function abortTaskCompaction(id: string): Promise<TaskDetail> {
  * Pi コアの navigateTree は user メッセージをターゲットにすると leaf を親へ
  * 移し、破棄した分の入力を editorText として返す。
  */
+/** Tree edits already own a live session; share one projection between HTTP and SSE. */
+function emitTreeEditSnapshot(
+  id: string,
+  detail: TaskDetail & { messageRevision?: string },
+  eventType: "revert" | "unrevert",
+): void {
+  emit(id, {
+    type: "snapshot",
+    task: toSummary(getTask(id)!),
+    messages: detail.messages,
+    isStreaming: detail.isStreaming,
+    isCompacting: detail.isCompacting,
+    contextUsage: detail.contextUsage,
+    compactionSuggested: detail.compactionSuggested,
+    goalLoop: detail.goalLoop,
+    todos: detail.todos,
+    messageRevision: detail.messageRevision,
+    ...(detail.activity ? { activity: detail.activity } : {}),
+    revertLeafId: detail.revertLeafId,
+    eventType,
+  });
+}
+
 function assertIdleForSessionTreeEdit(id: string): void {
   if (isTaskRuntimeBusyForDestructiveEdit(id, { allowTreeEdit: true })) {
     throw Object.assign(
@@ -11539,14 +11562,8 @@ export async function revertTask(
   persistRevertLeafId(id, live.revertLeafId);
   // Revert drops the conversational context that raised the prompt; keep abort/reset parity.
   clearPendingAttentionForTask(id);
-  const taskDetail = await getTaskDetail(id);
-  emit(id, {
-    type: "snapshot",
-    task: toSummary(getTask(id)!),
-    ...liveSnapshotFields(live),
-    revertLeafId: live.revertLeafId,
-    eventType: "revert",
-  });
+  const taskDetail = await getTaskDetail(id, { readOnly: true });
+  emitTreeEditSnapshot(id, taskDetail, "revert");
   const restoredPrompt = parsePromptFileMarkers(
     entry.editorText ?? (typeof result.editorText === "string"
       ? result.editorText
@@ -11744,14 +11761,8 @@ export async function unrevertTask(id: string): Promise<TaskDetail> {
   }
   restoreExactSessionLeaf(live.session, target);
   persistRevertLeafId(id, null);
-  const taskDetail = await getTaskDetail(id);
-  emit(id, {
-    type: "snapshot",
-    task: toSummary(getTask(id)!),
-    ...liveSnapshotFields(live),
-    revertLeafId: null,
-    eventType: "unrevert",
-  });
+  const taskDetail = await getTaskDetail(id, { readOnly: true });
+  emitTreeEditSnapshot(id, taskDetail, "unrevert");
   return taskDetail;
   });
 }

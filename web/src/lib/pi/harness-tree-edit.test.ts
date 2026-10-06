@@ -6,6 +6,7 @@ import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { insertTask, upsertProject, getTask, patchTask } from "@/lib/store";
 import { beginTaskPreparation } from "./task-operation-guard";
 import * as promptFileStore from "@/lib/prompt-file-store";
+import * as goalLoopState from "./goal-loop-state";
 import { abortTask, compactTask, goalLoopCommand, isTaskRuntimeBusyForDestructiveEdit, promptTask, revertTask, setTaskAgent, setTaskModel, setTaskThinkingLevel, unrevertTask } from "./harness";
 const globals = globalThis as Record<string, unknown>;
 let root: string;
@@ -155,6 +156,35 @@ it("reads a stored attachment once and returns matching text and file payload", 
   expect(result.text).toBe("review");
   expect(result.files).toEqual([{ uri: `data:text/plain;base64,${file.data}`, mime: file.mimeType, name: file.name }]);
   expect(read).toHaveBeenCalledExactlyOnceWith(path);
+});
+it.each(["revert", "unrevert"])("%s reuses the response projection for its lifecycle snapshot", async (operation) => {
+  if (operation === "unrevert") {
+    runtime.revertLeafId = "tip";
+    patchTask(id, { revertLeafId: "tip" });
+    leaf = "early";
+  }
+  const readLoop = vi.spyOn(goalLoopState, "readGoalLoopState");
+  const navigate = session.navigateTree.getMockImplementation()!;
+  session.navigateTree.mockImplementation(async (entryId) => {
+    const result = await navigate(entryId);
+    readLoop.mockClear(); // Measure the response/notification work after tree navigation.
+    return result;
+  });
+  const events = (globals.__leafcodePiHarness as { events: EventEmitter }).events;
+  let snapshot: Record<string, unknown> | undefined;
+  events.on(id, (event: Record<string, unknown>) => { if (event.eventType === operation) snapshot = event; });
+  const detail = operation === "revert" ? (await revertTask(id, "late")).task : await unrevertTask(id);
+  expect(snapshot).toBeDefined();
+  expect(snapshot?.messages).toBe(detail.messages);
+  expect(snapshot?.todos).toBe(detail.todos);
+  expect(snapshot?.contextUsage).toEqual(detail.contextUsage);
+  expect(snapshot?.goalLoop).toEqual(detail.goalLoop);
+  expect(snapshot?.isStreaming).toBe(detail.isStreaming);
+  expect(snapshot?.revertLeafId).toBe(detail.revertLeafId);
+  expect(snapshot?.messageRevision).toEqual(expect.any(String));
+  expect((snapshot?.task as Record<string, unknown>)?.messages).toBeUndefined();
+  // One projection plus the two summary reads (previously two projections and four reads).
+  expect(readLoop).toHaveBeenCalledTimes(3);
 });
 it("multiple rewinds preserve the original full transcript for undo", async () => {
   await revertTask(id, "late");
