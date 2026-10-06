@@ -18,6 +18,7 @@ import { BOT_CODE_SESSION_CHANGED_EVENT, BOT_DEFAULT_DISABLED_TOOL_NAMES, BOT_TO
 import { ShellProvider } from "@/components/shell/ShellContext";
 import { ACTIVITY_USAGE_TITLES } from "@/components/ConversationLayout";
 import { saveTaskSessionCache, TASK_SESSION_CACHE_STORAGE_KEY } from "@/lib/task-session-cache";
+import { createBotSseSnapshotDeduper } from "@/lib/bot-sse-snapshot";
 import { writeTaskTtsEnabled } from "@/lib/tts-playback";
 import { setNotificationDeliveryEnabled } from "@/lib/notification-delivery-client";
 let listener: (event: { data: string }) => void;
@@ -1128,6 +1129,21 @@ it("sends with Ctrl+Enter and leaves Enter available for newlines", async () => 
 
   fireEvent.keyDown(input, { key: "Enter", ctrlKey: true });
   await waitFor(() => expect(mocks.sendJson).toHaveBeenCalledWith("/api/bots/one/prompt", { prompt: "依頼" }));
+});
+
+it("retains transcript when the SSE deduper omits an unchanged message page", async () => {
+  const prepare = createBotSseSnapshotDeduper();
+  render(<ShellProvider><BotView id="one" active /></ShellProvider>);
+  await screen.findByRole("button", { name: "設定" });
+  const messages = [{ id: "reply", role: "assistant", createdAt: 1, parts: [{ type: "text", text: "retained reply" }] }];
+  const bootstrap = prepare({ type: "snapshot", eventType: "bootstrap", messages, isStreaming: false });
+  snapshot(bootstrap.payload);
+  bootstrap.commit();
+  expect(screen.getByText("retained reply")).toBeTruthy();
+  const ready = prepare({ type: "snapshot", eventType: "ready", messages, isStreaming: false });
+  expect(ready.payload).not.toHaveProperty("messages");
+  snapshot(ready.payload);
+  expect(screen.getByText("retained reply")).toBeTruthy();
 });
 
 it("applies streaming deltas without waiting for a full snapshot", async () => {

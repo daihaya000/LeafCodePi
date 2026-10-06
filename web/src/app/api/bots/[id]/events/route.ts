@@ -23,6 +23,7 @@ import {
   pageTaskMessages,
   pageTaskSnapshotPayload,
 } from "@/lib/task-history";
+import { createBotSseSnapshotDeduper } from "@/lib/bot-sse-snapshot";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -51,6 +52,14 @@ export async function GET(
     async start(controller) {
       let ready = false;
       const pendingPayloads: Record<string, unknown>[] = [];
+      const prepareSnapshot = createBotSseSnapshotDeduper();
+      const sendBotSnapshot = (payload: Record<string, unknown>) => {
+        const writer = sse;
+        if (!writer || writer.closed) return;
+        const prepared = prepareSnapshot(payload);
+        writer.send("snapshot", prepared.payload);
+        prepared.commit();
+      };
       const botId = taskId.slice("bot:".length);
       const sub = subscribeTask(taskId, (payload) => {
         const safePayload = pageTaskSnapshotPayload(payload, readHistoryPageSize());
@@ -58,11 +67,12 @@ export async function GET(
           bufferPendingSsePayload(pendingPayloads, safePayload);
           return;
         }
-        sse?.send(safePayload.type === "delta" ? "delta" : "snapshot", safePayload);
+        if (safePayload.type === "delta") sse?.send("delta", safePayload);
+        else sendBotSnapshot(safePayload);
       });
       const inboxSub = subscribeBotIntercomInbox(botId, (inbox) => {
         if (!ready) return;
-        sse?.send("snapshot", { type: "snapshot", eventType: "intercom_inbox", intercomInbox: inbox });
+        sendBotSnapshot({ type: "snapshot", eventType: "intercom_inbox", intercomInbox: inbox });
       });
       sse = createSseWriter(controller, { signal: req.signal });
       sse.onCleanup(sub);
@@ -90,7 +100,7 @@ export async function GET(
           return;
         }
         const bootstrap = getTaskBootstrap(taskId);
-        sse.send("snapshot", {
+        sendBotSnapshot({
           type: "snapshot",
           task: bootstrap,
           messages: bootstrap.messages,
@@ -123,7 +133,7 @@ export async function GET(
             matchesCachedRevision(bootstrap),
         );
         if (canSendCachedReady) {
-          sse.send("snapshot", {
+          sendBotSnapshot({
             type: "snapshot",
             task: bootstrap,
             messagesReused: true,
@@ -143,7 +153,7 @@ export async function GET(
           const writer = sse;
           if (!writer || writer.closed) return;
           const page = reuseMessages ? null : pageTaskMessages(detail.messages, undefined, readHistoryPageSize());
-          writer.send("snapshot", {
+          sendBotSnapshot({
             type: "snapshot",
             task: { ...detail, messages: undefined },
             ...(reuseMessages
@@ -166,7 +176,8 @@ export async function GET(
               if (writer.closed) break;
               const prepared = preparePendingPayloadForReadyFlush(payload, readyRank, detail.updatedAt);
               if (!prepared) continue;
-              writer.send(prepared.type === "delta" ? "delta" : "snapshot", prepared);
+              if (prepared.type === "delta") writer.send("delta", prepared);
+              else sendBotSnapshot(prepared);
             }
           }
           pendingPayloads.length = 0;
