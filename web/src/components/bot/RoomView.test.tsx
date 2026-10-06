@@ -62,6 +62,16 @@ afterEach(() => {
 });
 
 describe("RoomView loading", () => {
+  it("retains the room body when an SSE snapshot marks it as reused", async () => {
+    render(<RoomView id="room-1" />);
+    await screen.findByRole("heading", { name: "Team" });
+    expect(screen.getByRole("heading", { name: "Team" })).toBeTruthy();
+    await act(async () => { pushSnapshot({ roomReused: true, attention: [] }); });
+    expect(screen.getByRole("heading", { name: "Team" })).toBeTruthy();
+    await act(async () => { pushSnapshot({ room: { ...room, name: "Updated" }, attention: [] }); });
+    expect(screen.getByRole("heading", { name: "Updated" })).toBeTruthy();
+  });
+
   it("ignores a stale room response after switching ids", async () => {
     const roomOne = { ...room, id: "room-1", name: "One" };
     const roomTwo = { ...room, id: "room-2", name: "Two" };

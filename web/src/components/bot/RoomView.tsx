@@ -314,7 +314,7 @@ export function RoomView({ id, active = true }: { id: string; active?: boolean }
         if (!isCurrentSource()) return;
         retryCount = 0;
         try {
-          const payload = JSON.parse((event as MessageEvent).data) as { room?: RoomDto; attention?: RoomAttention[] };
+          const payload = JSON.parse((event as MessageEvent).data) as { room?: RoomDto; roomReused?: true; attention?: RoomAttention[] };
           setSseError(null);
           if (payload.room) {
             roomSseVersionRef.current += 1;

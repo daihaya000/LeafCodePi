@@ -53,6 +53,7 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
       const subscriptions = new Map<string, () => void>();
       const dirtyStops = new Map<string, () => void>();
       let previous = "";
+      let previousRoomJson: string | undefined;
       // After the cutover the pending approvals/questions live in the Backend, so they are read from
       // there once per refresh instead of from this process's memory.
       const backendOwns = localRuntimeBlocked();
@@ -82,8 +83,19 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
       const emitIfChanged = (room: RoomDto, attention: RoomAttention[]) => {
         const signature = roomSnapshotSignature(room, attention);
         if (signature === previous) return;
+        const roomJson = JSON.stringify(room);
+        const attentionJson = JSON.stringify(attention);
+        const roomReused = roomJson === previousRoomJson;
+        if (sse?.sendSerialized) {
+          const roomField = roomReused ? '"roomReused":true' : `"room":${roomJson}`;
+          sse.sendSerialized("snapshot", `{"type":"snapshot",${roomField},"attention":${attentionJson}}`);
+        } else {
+          sse?.send("snapshot", roomReused
+            ? { type: "snapshot", roomReused: true, attention }
+            : { type: "snapshot", room, attention });
+        }
         previous = signature;
-        sse?.send("snapshot", { type: "snapshot", room, attention });
+        previousRoomJson = roomJson;
       };
 
       const collectTasks = (room: RoomDto): Set<string> => {
