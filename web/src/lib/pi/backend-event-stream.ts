@@ -120,6 +120,70 @@ function mergeOmitWithCache(
   };
 }
 
+type SerializedObjectEntry = { key: string; start: number; valueStart: number; end: number };
+
+/** Extract raw top-level fields so reuse checks do not serialize large values a second time. */
+function serializedObjectEntries(serialized: string): SerializedObjectEntry[] {
+  const skipString = (source: string, start: number) => {
+    for (let index = start + 1; index < source.length; index += 1) {
+      if (source[index] === "\\") index += 1;
+      else if (source[index] === '"') return index + 1;
+    }
+    return source.length;
+  };
+  const skipValue = (source: string, start: number) => {
+    if (source[start] === '"') return skipString(source, start);
+    if (source[start] !== "{" && source[start] !== "[") {
+      let index = start;
+      while (index < source.length && !",}]".includes(source[index]!)) index += 1;
+      return index;
+    }
+    let depth = 0;
+    for (let index = start; index < source.length; index += 1) {
+      const char = source[index];
+      if (char === '"') index = skipString(source, index) - 1;
+      else if (char === "{" || char === "[") depth += 1;
+      else if (char === "}" || char === "]") {
+        depth -= 1;
+        if (depth === 0) return index + 1;
+      }
+    }
+    return source.length;
+  };
+
+  const entries: SerializedObjectEntry[] = [];
+  let cursor = 0;
+  while (/\s/.test(serialized[cursor] ?? "")) cursor += 1;
+  if (serialized[cursor] !== "{") return entries;
+  cursor += 1;
+  while (cursor < serialized.length) {
+    while (/\s/.test(serialized[cursor] ?? "")) cursor += 1;
+    if (serialized[cursor] === "}") break;
+    const start = cursor;
+    const keyEnd = skipString(serialized, cursor);
+    let key: unknown;
+    try {
+      key = JSON.parse(serialized.slice(start, keyEnd));
+    } catch {
+      return [];
+    }
+    if (typeof key !== "string") return [];
+    cursor = keyEnd;
+    while (/\s/.test(serialized[cursor] ?? "")) cursor += 1;
+    if (serialized[cursor] !== ":") return [];
+    cursor += 1;
+    while (/\s/.test(serialized[cursor] ?? "")) cursor += 1;
+    const valueStart = cursor;
+    const end = skipValue(serialized, valueStart);
+    entries.push({ key, start, valueStart, end });
+    cursor = end;
+    while (/\s/.test(serialized[cursor] ?? "")) cursor += 1;
+    if (serialized[cursor] !== ",") break;
+    cursor += 1;
+  }
+  return entries;
+}
+
 export type SentMessagePage = { ids: string[]; jsonById: Map<string, string> };
 
 /**
@@ -286,10 +350,12 @@ export async function startBackendTaskStream({
   let lastSnapshot: string | undefined;
   let lastTaskSummaryJson: string | undefined;
   const lastSnapshotFieldJson = new Map<string, string>();
-  const reusableSnapshotFields = ["goalLoop", "todos", "permissionRequest", "questionRequest", "contextUsage", "messageHistory"] as const;
-  const prepareTaskSummaryForWire = (snapshot: Record<string, unknown>) => {
+  const reusableSnapshotFields = ["goalLoop", "todos", "permissionRequest", "questionRequest", "contextUsage", "messageHistory", "intercomInbox"] as const;
+  const prepareTaskSummaryForWire = (snapshot: Record<string, unknown>, serialized: string) => {
+    const entries = serializedObjectEntries(serialized);
+    const serializedFieldJson = new Map(entries.map((entry) => [entry.key, serialized.slice(entry.valueStart, entry.end)]));
     const task = snapshot.task;
-    const taskJson = task && typeof task === "object" ? JSON.stringify(task) : undefined;
+    const taskJson = task && typeof task === "object" ? serializedFieldJson.get("task") : undefined;
     const taskReused = taskJson !== undefined && taskJson === lastTaskSummaryJson;
     const payload: Record<string, unknown> = { ...snapshot };
     const omittedFields: [string, string][] = [];
@@ -300,14 +366,14 @@ export async function startBackendTaskStream({
     }
     for (const field of reusableSnapshotFields) {
       if (!Object.prototype.hasOwnProperty.call(snapshot, field)) continue;
-      const fieldJson = JSON.stringify(snapshot[field]);
+      const fieldJson = serializedFieldJson.get(field);
       if (fieldJson === undefined) continue;
       if (lastSnapshotFieldJson.get(field) === fieldJson) {
         delete payload[field];
         omittedFields.push([field, fieldJson]);
       } else changedFields.push([field, fieldJson]);
     }
-    return { payload, taskJson, taskReused, omittedFields, changedFields };
+    return { payload, taskJson, taskReused, omittedFields, changedFields, entries };
   };
   const rememberSentSnapshot = (prepared: ReturnType<typeof prepareTaskSummaryForWire>) => {
     if (!prepared.taskReused && prepared.taskJson !== undefined) lastTaskSummaryJson = prepared.taskJson;
@@ -318,64 +384,9 @@ export async function startBackendTaskStream({
     prepared: ReturnType<typeof prepareTaskSummaryForWire>,
   ) => {
     if (!prepared.taskReused && prepared.omittedFields.length === 0) return serialized;
-    const skipString = (source: string, start: number) => {
-      for (let index = start + 1; index < source.length; index += 1) {
-        if (source[index] === "\\") index += 1;
-        else if (source[index] === '"') return index + 1;
-      }
-      return source.length;
-    };
-    const skipValue = (source: string, start: number) => {
-      if (source[start] === '"') return skipString(source, start);
-      if (source[start] !== "{" && source[start] !== "[") {
-        let index = start;
-        while (index < source.length && !",}]".includes(source[index]!)) index += 1;
-        return index;
-      }
-      let depth = 0;
-      for (let index = start; index < source.length; index += 1) {
-        const char = source[index];
-        if (char === '"') index = skipString(source, index) - 1;
-        else if (char === "{" || char === "[") depth += 1;
-        else if (char === "}" || char === "]") {
-          depth -= 1;
-          if (depth === 0) return index + 1;
-        }
-      }
-      return source.length;
-    };
-    const entries: { key: string; start: number; end: number }[] = [];
-    let cursor = 0;
-    while (/\s/.test(serialized[cursor] ?? "")) cursor += 1;
-    if (serialized[cursor] !== "{") return serialized;
-    cursor += 1;
-    while (cursor < serialized.length) {
-      while (/\s/.test(serialized[cursor] ?? "")) cursor += 1;
-      if (serialized[cursor] === "}") break;
-      const start = cursor;
-      const keyEnd = skipString(serialized, cursor);
-      let key: string;
-      try {
-        key = JSON.parse(serialized.slice(start, keyEnd)) as string;
-      } catch {
-        return serialized;
-      }
-      cursor = keyEnd;
-      while (/\s/.test(serialized[cursor] ?? "")) cursor += 1;
-      if (serialized[cursor] !== ":") return serialized;
-      cursor += 1;
-      while (/\s/.test(serialized[cursor] ?? "")) cursor += 1;
-      const end = skipValue(serialized, cursor);
-      entries.push({ key, start, end });
-      cursor = end;
-      while (/\s/.test(serialized[cursor] ?? "")) cursor += 1;
-      if (serialized[cursor] !== ",") break;
-      cursor += 1;
-    }
-
     const omittedFields = new Set(prepared.omittedFields.map(([field]) => field));
     const serializedEntries: string[] = [];
-    for (const entry of entries) {
+    for (const entry of prepared.entries) {
       if (omittedFields.has(entry.key)) continue;
       if (prepared.taskReused && entry.key === "taskReused") continue;
       serializedEntries.push(
@@ -405,7 +416,7 @@ export async function startBackendTaskStream({
     if (!streamMessages) {
       const serialized = JSON.stringify(snapshot);
       if (serialized === lastSnapshot) return;
-      const prepared = prepareTaskSummaryForWire(snapshot);
+      const prepared = prepareTaskSummaryForWire(snapshot, serialized);
       if (sse.sendSerialized) sse.sendSerialized("snapshot", rewriteSerializedSnapshot(serialized, prepared));
       else sse.send("snapshot", prepared.payload);
       rememberSentSnapshot(prepared);
@@ -458,7 +469,7 @@ export async function startBackendTaskStream({
       return;
     }
     // restJson is a non-empty object (`type` is always set), so its body can follow the messages.
-    const prepared = prepareTaskSummaryForWire(snapshot);
+    const prepared = prepareTaskSummaryForWire(snapshot, restJson);
     const wireRestJson = rewriteSerializedSnapshot(restJson, prepared);
     const body = changed !== undefined
       ? `{"messagesDelta":true,"messages":[${changed.map((index) => messageJsons[index]).join(",")}],${wireRestJson.slice(1)}`
@@ -480,7 +491,7 @@ export async function startBackendTaskStream({
     }
     const serialized = JSON.stringify(snapshot);
     if (serialized === lastSnapshot) return;
-    const prepared = prepareTaskSummaryForWire(snapshot);
+    const prepared = prepareTaskSummaryForWire(snapshot, serialized);
     if (sse.sendSerialized) sse.sendSerialized("snapshot", rewriteSerializedSnapshot(serialized, prepared));
     else sse.send("snapshot", prepared.payload);
     rememberSentSnapshot(prepared);
