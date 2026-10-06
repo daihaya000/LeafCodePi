@@ -6,7 +6,7 @@ const client = vi.hoisted(() => ({ getJson: vi.fn(), sendJson: vi.fn() }));
 vi.mock("@/lib/client", () => client);
 
 import { AutoModelSettings } from "./AutoModelSettings";
-import { writeAutoOptimizeMode } from "@/lib/auto-settings";
+import { writeAutoModelEnabled, writeAutoOptimizeMode } from "@/lib/auto-settings";
 
 describe("AutoModelSettings", () => {
   beforeEach(() => {
@@ -32,6 +32,7 @@ describe("AutoModelSettings", () => {
           })
         : Promise.resolve({ value: null }),
     );
+    writeAutoModelEnabled(true);
     render(<AutoModelSettings />);
     expect(screen.getByText("モデルを読み込み中…")).toBeTruthy();
     await waitFor(() => expect(screen.queryByText("モデルを読み込み中…")).toBeNull());
@@ -42,6 +43,7 @@ describe("AutoModelSettings", () => {
     client.getJson.mockImplementation((path: string) =>
       path === "/api/models" ? Promise.resolve({ models: [] }) : Promise.resolve({ value: null }),
     );
+    writeAutoModelEnabled(true);
     render(<AutoModelSettings />);
     await waitFor(() => expect(screen.queryByText("モデルを読み込み中…")).toBeNull());
 
@@ -66,12 +68,25 @@ describe("AutoModelSettings", () => {
 
     const toggle = screen.getByRole("switch", { name: "Autoモデルを有効化" });
     expect(toggle.getAttribute("aria-checked")).toBe("false");
-    fireEvent.click(toggle);
+    expect(screen.queryByText("最適化方針")).toBeNull();
+    expect(screen.queryByText("Auto ルーティング設定")).toBeNull();
+    expect(screen.queryByText("Jevルーティング")).toBeNull();
 
+    fireEvent.click(toggle);
     expect(screen.getByRole("switch", { name: "Autoモデルを無効化" })).toBeTruthy();
+    expect(screen.getByRole("group", { name: "最適化方針" })).toBeTruthy();
     await waitFor(() => expect(client.sendJson).toHaveBeenCalledWith(
       "/api/settings/auto-model-enabled",
       { value: "1" },
+      "PUT",
+    ));
+
+    fireEvent.click(screen.getByRole("switch", { name: "Autoモデルを無効化" }));
+    expect(screen.queryByRole("group", { name: "最適化方針" })).toBeNull();
+    expect(screen.queryByText("Auto ルーティング設定")).toBeNull();
+    await waitFor(() => expect(client.sendJson).toHaveBeenCalledWith(
+      "/api/settings/auto-model-enabled",
+      { value: "0" },
       "PUT",
     ));
   });
@@ -80,6 +95,7 @@ describe("AutoModelSettings", () => {
     client.getJson.mockImplementation((path: string) =>
       path === "/api/models" ? Promise.resolve({ models: [] }) : Promise.resolve({ value: null }),
     );
+    writeAutoModelEnabled(true);
     render(<AutoModelSettings />);
     await waitFor(() => expect(screen.queryByText("モデルを読み込み中…")).toBeNull());
 
@@ -109,6 +125,7 @@ describe("AutoModelSettings", () => {
         ? Promise.reject(new Error("offline"))
         : Promise.resolve({ value: null }),
     );
+    writeAutoModelEnabled(true);
     render(<AutoModelSettings />);
     await waitFor(() => expect(screen.getByRole("alert").textContent).toBe("offline"));
     // The rest of the panel still renders even though the fetch failed.
@@ -121,6 +138,7 @@ describe("AutoModelSettings", () => {
         ? Promise.resolve({ models: [] })
         : Promise.resolve({ value: null }),
     );
+    writeAutoModelEnabled(true);
     render(<AutoModelSettings />);
     await waitFor(() => expect(screen.queryByText("モデルを読み込み中…")).toBeNull());
     expect(screen.getByText("利用可能なモデルがありません。")).toBeTruthy();
@@ -130,6 +148,7 @@ describe("AutoModelSettings", () => {
     // A stored local setting must win over what the server reports, so the
     // user's explicit choice is never silently overwritten on load.
     writeAutoOptimizeMode("intelligence");
+    writeAutoModelEnabled(true);
     client.getJson.mockImplementation((path: string) =>
       path === "/api/models"
         ? Promise.resolve({ models: [] })
@@ -148,6 +167,7 @@ describe("AutoModelSettings", () => {
 
   it("restores a valid server mode when the local mode is invalid", async () => {
     localStorage.setItem("webui:auto-optimize", "invalid");
+    writeAutoModelEnabled(true);
     client.getJson.mockImplementation((path: string) => {
       if (path === "/api/models") return Promise.resolve({ models: [] });
       if (path === "/api/settings/auto-optimize") return Promise.resolve({ value: "intelligence" });
@@ -163,6 +183,7 @@ describe("AutoModelSettings", () => {
 
   it("restores a valid server route when the local route config is corrupt", async () => {
     localStorage.setItem("webui:auto-route-overrides", "{broken");
+    writeAutoModelEnabled(true);
     const routeConfig = JSON.stringify({
       version: 2,
       modes: {
@@ -217,6 +238,7 @@ describe("AutoModelSettings", () => {
       return Promise.resolve({ value: null });
     });
 
+    writeAutoModelEnabled(true);
     render(<AutoModelSettings />);
     const addButtons = await screen.findAllByRole("button", { name: "候補を追加" });
     fireEvent.click(addButtons[0]!);
