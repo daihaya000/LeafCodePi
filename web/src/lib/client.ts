@@ -15,6 +15,28 @@ export class ApiError extends Error {
 // Coalesce concurrent reads only; completed requests are removed immediately.
 const inflightGets = new Map<string, Promise<unknown>>();
 
+/**
+ * Last ETag-bearing body per URL, kept as text so every caller still gets a fresh object (callers
+ * may mutate what they receive). Polls send If-None-Match and reuse this on an empty 304.
+ */
+const etagBodies = new Map<string, { etag: string; text: string }>();
+const ETAG_BODY_LIMIT = 24;
+
+function rememberEtagBody(url: string, etag: string, text: string) {
+  etagBodies.delete(url);
+  etagBodies.set(url, { etag, text });
+  while (etagBodies.size > ETAG_BODY_LIMIT) {
+    const oldest = etagBodies.keys().next().value;
+    if (oldest === undefined) break;
+    etagBodies.delete(oldest);
+  }
+}
+
+/** Test hook: forget remembered ETag bodies. */
+export function clearEtagBodiesForTest() {
+  etagBodies.clear();
+}
+
 export function apiUrl(path: string, params?: Record<string, string | undefined>) {
   const url = new URL(path, window.location.origin);
   for (const [key, value] of Object.entries(params ?? {})) {
@@ -46,12 +68,27 @@ export async function getJson<T>(
   if (existing) return existing as Promise<T>;
 
   const request = (async () => {
+    const remembered = etagBodies.get(url);
     const res = await fetch(url, {
       cache: "no-store",
+      ...(remembered ? { headers: { "if-none-match": remembered.etag } } : {}),
       ...(options?.signal ? { signal: options.signal } : {}),
     });
+    if (res.status === 304 && remembered) {
+      // LRU touch: a list polled every few seconds must not be evicted by one-off reads.
+      rememberEtagBody(url, remembered.etag, remembered.text);
+      return JSON.parse(remembered.text) as T;
+    }
     if (!res.ok) throw await parseError(res);
-    return (await res.json()) as T;
+    const etag = res.headers?.get?.("etag");
+    if (!etag) {
+      if (remembered) etagBodies.delete(url);
+      return (await res.json()) as T;
+    }
+    const text = await res.text();
+    const parsed = JSON.parse(text) as T;
+    rememberEtagBody(url, etag, text);
+    return parsed;
   })();
   if (coalesce) inflightGets.set(url, request);
   try {

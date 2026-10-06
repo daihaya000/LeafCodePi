@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { ApiError, getJson, sendJson } from "./client";
+import { ApiError, clearEtagBodiesForTest, getJson, sendJson } from "./client";
 
 afterEach(() => vi.unstubAllGlobals());
 
@@ -82,5 +82,37 @@ describe("getJson", () => {
     const listener = addEventListener.mock.calls[0]?.[1];
     expect(listener).toBeTypeOf("function");
     expect(removeEventListener).toHaveBeenCalledWith("abort", listener);
+  });
+});
+
+describe("getJson conditional GET", () => {
+  afterEach(() => clearEtagBodiesForTest());
+
+  it("revalidates with If-None-Match and reuses the remembered body on 304", async () => {
+    vi.stubGlobal("window", { location: { origin: "http://localhost" } });
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify({ tasks: [{ id: "t1" }] }), { status: 200, headers: { etag: 'W/"v1"' } }))
+      .mockResolvedValueOnce(new Response(null, { status: 304, headers: { etag: 'W/"v1"' } }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ tasks: [] }), { status: 200, headers: { etag: 'W/"v2"' } }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const first = await getJson<{ tasks: { id: string }[] }>("/api/tasks");
+    const second = await getJson<{ tasks: { id: string }[] }>("/api/tasks");
+    expect(second).toEqual(first);
+    // Each caller receives its own object, so a caller's mutation cannot leak into the next poll.
+    expect(second).not.toBe(first);
+    await expect(getJson("/api/tasks")).resolves.toEqual({ tasks: [] });
+    expect(fetchMock.mock.calls[0]![1]).not.toHaveProperty("headers");
+    expect(fetchMock.mock.calls[1]![1]).toMatchObject({ headers: { "if-none-match": 'W/"v1"' } });
+    expect(fetchMock.mock.calls[2]![1]).toMatchObject({ headers: { "if-none-match": 'W/"v1"' } });
+  });
+
+  it("does not send If-None-Match for responses without an ETag", async () => {
+    vi.stubGlobal("window", { location: { origin: "http://localhost" } });
+    const fetchMock = vi.fn().mockImplementation(async () => new Response(JSON.stringify({ ok: true }), { status: 200 }));
+    vi.stubGlobal("fetch", fetchMock);
+    await getJson("/api/plain");
+    await getJson("/api/plain");
+    expect(fetchMock.mock.calls[1]![1]).not.toHaveProperty("headers");
   });
 });
