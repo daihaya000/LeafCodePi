@@ -145,7 +145,7 @@ describe("GET /api/bots/rooms/[id]/events", () => {
     await reader.cancel();
   });
 
-  it("reuses an unchanged room body when attention changes, then sends the changed room", async () => {
+  it("reuses unchanged room data and sends safe message deltas with full-snapshot fallback", async () => {
     vi.useFakeTimers();
     mocks.localRuntimeBlocked.mockReturnValue(true);
     let currentRoom = room({ messages: [{
@@ -179,8 +179,37 @@ describe("GET /api/bots/rooms/[id]/events", () => {
     };
     await vi.advanceTimersByTimeAsync(5_000);
     const changed = await readEvent(reader);
-    expect(changed.data.room).toEqual(currentRoom);
-    expect(changed.data).not.toHaveProperty("roomReused");
+    expect(changed.data).not.toHaveProperty("room");
+    expect(changed.data.roomMetadata).toMatchObject({ id: "r1", updatedAt: currentRoom.updatedAt });
+    expect(changed.data.roomMessagesDelta).toEqual([currentRoom.messages[1]]);
+    const fullBytes = new TextEncoder().encode(JSON.stringify({
+      type: "snapshot", room: currentRoom, attention: changed.data.attention,
+    })).byteLength;
+    const deltaBytes = new TextEncoder().encode(JSON.stringify(changed.data)).byteLength;
+    expect(fullBytes - deltaBytes).toBeGreaterThan(4_000);
+
+    currentRoom = { ...currentRoom, name: "Renamed", updatedAt: "2026-01-01T00:00:03.000Z" };
+    await vi.advanceTimersByTimeAsync(5_000);
+    const metadataOnly = await readEvent(reader);
+    expect(metadataOnly.data.roomMetadata).toMatchObject({ name: "Renamed" });
+    expect(metadataOnly.data.roomMessagesDelta).toEqual([]);
+
+    currentRoom = {
+      ...currentRoom,
+      updatedAt: "2026-01-01T00:00:04.000Z",
+      messages: currentRoom.messages.map((message, index) => index === 0 ? { ...message, text: `${message.text} continued` } : message),
+    };
+    await vi.advanceTimersByTimeAsync(5_000);
+    const updatedMessage = await readEvent(reader);
+    expect(updatedMessage.data).not.toHaveProperty("room");
+    expect(updatedMessage.data.roomMetadata).toMatchObject({ updatedAt: currentRoom.updatedAt });
+    expect(updatedMessage.data.roomMessagesDelta).toEqual([currentRoom.messages[0]]);
+
+    currentRoom = { ...currentRoom, updatedAt: "2026-01-01T00:00:05.000Z", messages: [...currentRoom.messages].reverse() };
+    await vi.advanceTimersByTimeAsync(5_000);
+    const fallback = await readEvent(reader);
+    expect(fallback.data.room).toEqual(currentRoom);
+    expect(fallback.data).not.toHaveProperty("roomMessagesDelta");
     await reader.cancel();
   });
 

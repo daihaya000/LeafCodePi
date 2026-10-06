@@ -17,7 +17,7 @@ vi.mock("next/link", () => ({
   default: ({ children, ...props }: { children: ReactNode; [key: string]: unknown }) => <a {...props}>{children}</a>,
 }));
 
-import { RoomView } from "./RoomView";
+import { applyRoomMessagesDelta, RoomView } from "./RoomView";
 import { setNotificationDeliveryEnabled } from "@/lib/notification-delivery-client";
 
 type EventSourceStub = { last?: { listeners: Map<string, (event: MessageEvent) => void> } };
@@ -68,8 +68,30 @@ describe("RoomView loading", () => {
     expect(screen.getByRole("heading", { name: "Team" })).toBeTruthy();
     await act(async () => { pushSnapshot({ roomReused: true, attention: [] }); });
     expect(screen.getByRole("heading", { name: "Team" })).toBeTruthy();
-    await act(async () => { pushSnapshot({ room: { ...room, name: "Updated" }, attention: [] }); });
+    const metadata = Object.fromEntries(
+      Object.entries({ ...room, name: "Updated" }).filter(([key]) => key !== "messages"),
+    ) as Omit<typeof room, "messages">;
+    await act(async () => { pushSnapshot({
+      roomMetadata: metadata,
+      roomMessagesDelta: [{ id: "message-2", role: "assistant", text: "reply", createdAt: 2 }],
+      attention: [],
+    }); });
     expect(screen.getByRole("heading", { name: "Updated" })).toBeTruthy();
+  });
+
+  it("merges changed room messages and replaces matching optimistic ids", () => {
+    const metadata = Object.fromEntries(
+      Object.entries({ ...room, name: "Updated" }).filter(([key]) => key !== "messages"),
+    ) as Omit<typeof room, "messages">;
+    const next = applyRoomMessagesDelta(room, metadata, [
+      { ...room.messages[0], text: "server-confirmed" },
+      { id: "message-2", role: "assistant", text: "reply", createdAt: 2 },
+    ]);
+    expect(next?.name).toBe("Updated");
+    expect(next?.messages).toEqual([
+      { ...room.messages[0], text: "server-confirmed" },
+      { id: "message-2", role: "assistant", text: "reply", createdAt: 2 },
+    ]);
   });
 
   it("ignores a stale room response after switching ids", async () => {
