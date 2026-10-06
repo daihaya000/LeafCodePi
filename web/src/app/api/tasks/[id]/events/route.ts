@@ -36,6 +36,13 @@ const TASK_SSE_PERF_ENABLED = process.env.NODE_ENV === "development";
 const TASK_SSE_DETAIL_TIMEOUT_MS = 30_000;
 const REMOTE_TASK_POLL_BASE_MS = 2_000;
 const REMOTE_TASK_POLL_MAX_MS = 10_000;
+const REUSABLE_TASK_SNAPSHOT_FIELDS = [
+  "goalLoop",
+  "todos",
+  "permissionRequest",
+  "questionRequest",
+  "contextUsage",
+] as const;
 
 function omitTaskMessagePayload(payload: Record<string, unknown>): Record<string, unknown> {
   if (payload.eventType === "agent_settled") return payload;
@@ -146,23 +153,33 @@ export async function GET(
       });
       sse.startHeartbeat();
       let lastSentTaskSummaryJson: string | undefined;
+      const lastSentSnapshotFieldJson = new Map<string, string>();
       const sendTaskAwareSnapshot = (event: string, payload: Record<string, unknown>) => {
         const writer = sse;
         if (!writer || writer.closed) return;
-        const task = payload.task;
-        if (event !== "snapshot" || !task || typeof task !== "object") {
+        if (event !== "snapshot") {
           writer.send(event, payload);
           return;
         }
-        const taskSummaryJson = JSON.stringify(task);
-        if (taskSummaryJson === lastSentTaskSummaryJson) {
-          const reusedPayload: Record<string, unknown> = { ...payload, taskReused: true };
-          delete reusedPayload.task;
-          writer.send(event, reusedPayload);
-          return;
+        const task = payload.task;
+        const taskSummaryJson = task && typeof task === "object" ? JSON.stringify(task) : undefined;
+        const taskReused = taskSummaryJson !== undefined && taskSummaryJson === lastSentTaskSummaryJson;
+        const wirePayload: Record<string, unknown> = { ...payload };
+        if (taskReused) {
+          delete wirePayload.task;
+          wirePayload.taskReused = true;
         }
-        writer.send(event, payload);
-        lastSentTaskSummaryJson = taskSummaryJson;
+        const changedFields: [string, string][] = [];
+        for (const field of REUSABLE_TASK_SNAPSHOT_FIELDS) {
+          if (!Object.prototype.hasOwnProperty.call(payload, field)) continue;
+          const fieldJson = JSON.stringify(payload[field]);
+          if (fieldJson === undefined) continue;
+          if (lastSentSnapshotFieldJson.get(field) === fieldJson) delete wirePayload[field];
+          else changedFields.push([field, fieldJson]);
+        }
+        writer.send(event, wirePayload);
+        if (!taskReused && taskSummaryJson !== undefined) lastSentTaskSummaryJson = taskSummaryJson;
+        for (const [field, fieldJson] of changedFields) lastSentSnapshotFieldJson.set(field, fieldJson);
       };
       try {
         // After the cutover the Backend owns the session: this process must not subscribe to (or open)

@@ -388,12 +388,28 @@ describe("/api/tasks/[id]/events", () => {
     await reader.cancel();
   });
 
-  it("reuses an unchanged task summary in an in-process snapshot", async () => {
+  it("reuses unchanged Goal Loop and attention payloads in an in-process snapshot", async () => {
     const bootstrap = task({ messages: [], isStreaming: false, status: "idle" });
-    const detail = task({ messages: [], isStreaming: false, status: "idle" });
+    const goalLoop = {
+      id: "loop-1", status: "running", goal: "繰り返し確認する", acceptance: ["状態が安定"],
+      maxTurns: 5, turnCount: 1, progress: [],
+    } as unknown as NonNullable<TaskDetail["goalLoop"]>;
+    const todos = Array.from({ length: 8 }, (_, index) => ({
+      id: `todo-${index}`, content: `変更内容を確認する ${index}`, status: "in_progress" as const, priority: "high" as const,
+    })) as NonNullable<TaskDetail["todos"]>;
+    const contextUsage = { tokens: 20, contextWindow: 100, percent: 20 };
+    const permissionRequest = {
+      id: "req-1", sessionId: "session-1", message: "許可を確認する", command: "echo ".repeat(80), labels: [],
+    };
+    const questionRequest = {
+      id: "question-1", sessionId: "session-1", questions: [{ question: "どちらですか", options: ["A", "B"] }],
+    };
+    const detail = task({ messages: [], isStreaming: false, status: "idle", goalLoop, todos, contextUsage });
     let listener!: (payload: Record<string, unknown>) => void;
     mocks.getTaskBootstrap.mockReturnValue(bootstrap);
     mocks.getTaskDetail.mockResolvedValue(detail);
+    mocks.pendingPermissionForTask.mockReturnValue(permissionRequest);
+    mocks.pendingQuestionForTask.mockReturnValue(questionRequest);
     mocks.subscribeTask.mockImplementation((_id: string, callback: typeof listener) => {
       listener = callback;
       return vi.fn();
@@ -408,19 +424,25 @@ describe("/api/tasks/[id]/events", () => {
     const ready = eventData(await readChunk(reader));
     expect(ready.eventType).toBe("ready");
 
-    const contextUsage = { tokens: 20, contextWindow: 100, percent: 20 };
     listener({
       type: "snapshot",
       task: ready.task as Record<string, unknown>,
       messages: [],
       isStreaming: false,
       contextUsage,
+      goalLoop,
+      todos,
+      permissionRequest,
+      questionRequest,
       eventType: "context_update",
     });
     const updated = eventData(await readChunk(reader));
-    expect(updated).toMatchObject({ eventType: "context_update", taskReused: true, contextUsage });
-    expect(updated).not.toHaveProperty("task");
-    expect(JSON.stringify(updated).length).toBeLessThan(JSON.stringify({ ...updated, task: ready.task }).length);
+    expect(updated).toMatchObject({ eventType: "context_update", taskReused: true });
+    for (const field of ["task", "goalLoop", "todos", "permissionRequest", "questionRequest", "contextUsage"]) {
+      expect(updated).not.toHaveProperty(field);
+    }
+    const fullEquivalent = { ...updated, goalLoop, todos, permissionRequest, questionRequest, contextUsage };
+    expect(JSON.stringify(updated).length).toBeLessThan(JSON.stringify(fullEquivalent).length);
     await reader.cancel();
   });
 

@@ -285,26 +285,106 @@ export async function startBackendTaskStream({
   };
   let lastSnapshot: string | undefined;
   let lastTaskSummaryJson: string | undefined;
+  const lastSnapshotFieldJson = new Map<string, string>();
+  const reusableSnapshotFields = ["goalLoop", "todos", "permissionRequest", "questionRequest", "contextUsage"] as const;
   const prepareTaskSummaryForWire = (snapshot: Record<string, unknown>) => {
     const task = snapshot.task;
     const taskJson = task && typeof task === "object" ? JSON.stringify(task) : undefined;
-    if (taskJson !== undefined && taskJson === lastTaskSummaryJson) {
-      const payload = { ...snapshot };
+    const taskReused = taskJson !== undefined && taskJson === lastTaskSummaryJson;
+    const payload: Record<string, unknown> = { ...snapshot };
+    const omittedFields: [string, string][] = [];
+    const changedFields: [string, string][] = [];
+    if (taskReused) {
       delete payload.task;
-      return { payload: { ...payload, taskReused: true }, taskJson, reused: true };
+      payload.taskReused = true;
     }
-    return { payload: snapshot, taskJson, reused: false };
+    for (const field of reusableSnapshotFields) {
+      if (!Object.prototype.hasOwnProperty.call(snapshot, field)) continue;
+      const fieldJson = JSON.stringify(snapshot[field]);
+      if (fieldJson === undefined) continue;
+      if (lastSnapshotFieldJson.get(field) === fieldJson) {
+        delete payload[field];
+        omittedFields.push([field, fieldJson]);
+      } else changedFields.push([field, fieldJson]);
+    }
+    return { payload, taskJson, taskReused, omittedFields, changedFields };
   };
-  const rememberSentTaskSummary = (prepared: ReturnType<typeof prepareTaskSummaryForWire>) => {
-    if (!prepared.reused && prepared.taskJson !== undefined) lastTaskSummaryJson = prepared.taskJson;
+  const rememberSentSnapshot = (prepared: ReturnType<typeof prepareTaskSummaryForWire>) => {
+    if (!prepared.taskReused && prepared.taskJson !== undefined) lastTaskSummaryJson = prepared.taskJson;
+    for (const [field, fieldJson] of prepared.changedFields) lastSnapshotFieldJson.set(field, fieldJson);
   };
-  const omitSerializedTaskSummary = (serialized: string, taskJson: string | undefined) => {
-    if (taskJson === undefined) return serialized;
-    const taskField = `"task":${taskJson}`;
-    const taskOffset = serialized.indexOf(taskField);
-    return taskOffset < 0
-      ? serialized
-      : `${serialized.slice(0, taskOffset)}"taskReused":true${serialized.slice(taskOffset + taskField.length)}`;
+  const rewriteSerializedSnapshot = (
+    serialized: string,
+    prepared: ReturnType<typeof prepareTaskSummaryForWire>,
+  ) => {
+    if (!prepared.taskReused && prepared.omittedFields.length === 0) return serialized;
+    const skipString = (source: string, start: number) => {
+      for (let index = start + 1; index < source.length; index += 1) {
+        if (source[index] === "\\") index += 1;
+        else if (source[index] === '"') return index + 1;
+      }
+      return source.length;
+    };
+    const skipValue = (source: string, start: number) => {
+      if (source[start] === '"') return skipString(source, start);
+      if (source[start] !== "{" && source[start] !== "[") {
+        let index = start;
+        while (index < source.length && !",}]".includes(source[index]!)) index += 1;
+        return index;
+      }
+      let depth = 0;
+      for (let index = start; index < source.length; index += 1) {
+        const char = source[index];
+        if (char === '"') index = skipString(source, index) - 1;
+        else if (char === "{" || char === "[") depth += 1;
+        else if (char === "}" || char === "]") {
+          depth -= 1;
+          if (depth === 0) return index + 1;
+        }
+      }
+      return source.length;
+    };
+    const entries: { key: string; start: number; end: number }[] = [];
+    let cursor = 0;
+    while (/\s/.test(serialized[cursor] ?? "")) cursor += 1;
+    if (serialized[cursor] !== "{") return serialized;
+    cursor += 1;
+    while (cursor < serialized.length) {
+      while (/\s/.test(serialized[cursor] ?? "")) cursor += 1;
+      if (serialized[cursor] === "}") break;
+      const start = cursor;
+      const keyEnd = skipString(serialized, cursor);
+      let key: string;
+      try {
+        key = JSON.parse(serialized.slice(start, keyEnd)) as string;
+      } catch {
+        return serialized;
+      }
+      cursor = keyEnd;
+      while (/\s/.test(serialized[cursor] ?? "")) cursor += 1;
+      if (serialized[cursor] !== ":") return serialized;
+      cursor += 1;
+      while (/\s/.test(serialized[cursor] ?? "")) cursor += 1;
+      const end = skipValue(serialized, cursor);
+      entries.push({ key, start, end });
+      cursor = end;
+      while (/\s/.test(serialized[cursor] ?? "")) cursor += 1;
+      if (serialized[cursor] !== ",") break;
+      cursor += 1;
+    }
+
+    const omittedFields = new Set(prepared.omittedFields.map(([field]) => field));
+    const serializedEntries: string[] = [];
+    for (const entry of entries) {
+      if (omittedFields.has(entry.key)) continue;
+      if (prepared.taskReused && entry.key === "taskReused") continue;
+      serializedEntries.push(
+        prepared.taskReused && entry.key === "task"
+          ? '"taskReused":true'
+          : serialized.slice(entry.start, entry.end),
+      );
+    }
+    return `{${serializedEntries.join(",")}}`;
   };
   let lastPending: PendingRequests = pending.ok
     ? { permissionRequest: pending.permissionRequest, questionRequest: pending.questionRequest }
@@ -326,12 +406,9 @@ export async function startBackendTaskStream({
       const serialized = JSON.stringify(snapshot);
       if (serialized === lastSnapshot) return;
       const prepared = prepareTaskSummaryForWire(snapshot);
-      if (sse.sendSerialized) {
-        sse.sendSerialized("snapshot", prepared.reused
-          ? omitSerializedTaskSummary(serialized, prepared.taskJson)
-          : serialized);
-      } else sse.send("snapshot", prepared.payload);
-      rememberSentTaskSummary(prepared);
+      if (sse.sendSerialized) sse.sendSerialized("snapshot", rewriteSerializedSnapshot(serialized, prepared));
+      else sse.send("snapshot", prepared.payload);
+      rememberSentSnapshot(prepared);
       lastSnapshot = serialized;
       lastPage = undefined;
       lastRestJson = serialized;
@@ -382,15 +459,13 @@ export async function startBackendTaskStream({
     }
     // restJson is a non-empty object (`type` is always set), so its body can follow the messages.
     const prepared = prepareTaskSummaryForWire(snapshot);
-    const wireRestJson = prepared.reused
-      ? omitSerializedTaskSummary(restJson, prepared.taskJson)
-      : restJson;
+    const wireRestJson = rewriteSerializedSnapshot(restJson, prepared);
     const body = changed !== undefined
       ? `{"messagesDelta":true,"messages":[${changed.map((index) => messageJsons[index]).join(",")}],${wireRestJson.slice(1)}`
       : `{"messages":[${messageJsons.join(",")}],${wireRestJson.slice(1)}`;
     if (sse.sendSerialized) sse.sendSerialized("snapshot", body);
     else sse.send("snapshot", JSON.parse(body));
-    rememberSentTaskSummary(prepared);
+    rememberSentSnapshot(prepared);
     lastSnapshot = key;
     lastPage = page;
     lastRestJson = restJson;
@@ -406,12 +481,9 @@ export async function startBackendTaskStream({
     const serialized = JSON.stringify(snapshot);
     if (serialized === lastSnapshot) return;
     const prepared = prepareTaskSummaryForWire(snapshot);
-    if (sse.sendSerialized) {
-      sse.sendSerialized("snapshot", prepared.reused
-        ? omitSerializedTaskSummary(serialized, prepared.taskJson)
-        : serialized);
-    } else sse.send("snapshot", prepared.payload);
-    rememberSentTaskSummary(prepared);
+    if (sse.sendSerialized) sse.sendSerialized("snapshot", rewriteSerializedSnapshot(serialized, prepared));
+    else sse.send("snapshot", prepared.payload);
+    rememberSentSnapshot(prepared);
     lastSnapshot = serialized;
     lastStreaming = current?.isStreaming === true || current?.isCompacting === true;
   };

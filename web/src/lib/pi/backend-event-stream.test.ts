@@ -85,10 +85,14 @@ describe("Backend task stream polling", () => {
 
   it("reuses an unchanged task summary for later state-only snapshots", async () => {
     const firstContext = { tokens: 10, contextWindow: 100, percent: 10 };
-    const nextContext = { tokens: 20, contextWindow: 100, percent: 20 };
+    const goalLoop = { id: "loop-1", status: "running", goal: "goal", progress: Array(8).fill("same") };
+    const todos = Array.from({ length: 8 }, (_, index) => ({ id: `todo-${index}`, content: "same", status: "pending" }));
+    const permissionRequest = { id: "request-1", message: "permission", command: "echo ".repeat(80) };
+    const questionRequest = { id: "question-1", questions: [{ question: "which?", options: ["A", "B"] }] };
     mocks.forwardTaskDetail
-      .mockResolvedValueOnce(result(0, { isStreaming: true, contextUsage: firstContext }))
-      .mockResolvedValue(result(0, { isStreaming: true, contextUsage: nextContext }));
+      .mockResolvedValueOnce(result(0, { isStreaming: true, contextUsage: firstContext, goalLoop, todos, hangRetryCount: 1 }))
+      .mockResolvedValue(result(0, { isStreaming: true, contextUsage: firstContext, goalLoop, todos, hangRetryCount: 2 }));
+    mocks.forwardTaskPendingRequests.mockResolvedValue({ ok: true, permissionRequest, questionRequest });
     const sse = sink();
     const stream = await start(sse, { messageDelta: true });
     await vi.advanceTimersByTimeAsync(2_000);
@@ -97,9 +101,11 @@ describe("Backend task stream polling", () => {
     expect(sse.send).toHaveBeenCalledTimes(2);
     const first = sse.send.mock.calls[0]![1] as Record<string, unknown>;
     const second = sse.send.mock.calls[1]![1] as Record<string, unknown>;
-    expect(first).toHaveProperty("task");
-    expect(second).toMatchObject({ taskReused: true, contextUsage: nextContext });
-    expect(second).not.toHaveProperty("task");
+    expect(first).toMatchObject({ task: { id: "task-1" }, goalLoop, todos, permissionRequest, questionRequest, contextUsage: firstContext });
+    expect(second).toMatchObject({ taskReused: true, hangRetryCount: 2 });
+    for (const field of ["task", "goalLoop", "todos", "permissionRequest", "questionRequest", "contextUsage"]) {
+      expect(second).not.toHaveProperty(field);
+    }
     expect(JSON.stringify(second).length).toBeLessThan(JSON.stringify(first).length);
   });
 
@@ -522,21 +528,37 @@ describe("Backend task stream polling", () => {
     const enqueue = vi.fn();
     const controller = { enqueue } as unknown as ReadableStreamDefaultController<Uint8Array>;
     const sse = createSseWriter(controller);
+    const goalLoop = { id: "loop-1", status: "running", goal: "goal", progress: Array(8).fill("same") };
+    const todos = Array.from({ length: 8 }, (_, index) => ({ id: `todo-${index}`, content: "same", status: "pending" }));
+    const permissionRequest = { requestId: "approval-1", message: "permission" };
+    const questionRequest = { requestId: "question-1", message: "question" };
     mocks.forwardTaskDetail
-      .mockResolvedValueOnce(result(0))
-      .mockResolvedValue(result(0, { contextUsage: { tokens: 1, contextWindow: 100, percent: 1 } }));
+      .mockResolvedValueOnce(result(0, { goalLoop, todos, contextUsage: { tokens: 1, contextWindow: 100, percent: 1 } }))
+      .mockResolvedValue(result(0, { goalLoop, todos, contextUsage: { tokens: 2, contextWindow: 100, percent: 2 } }));
+    mocks.forwardTaskPendingRequests.mockResolvedValue({ ok: true, permissionRequest, questionRequest });
     const stream = await startBackendTaskStream({
       id: "task-1", sse, intervalMs: 2_000, idleIntervalMs: 2_000,
       dirtyIdleIntervalMs: 2_000, subscribeDirty: () => () => {},
+      extra: { nestedState: { goalLoop, todos, permissionRequest } },
     });
     if (!stream.ok) throw new Error(stream.reason);
     try {
       await vi.advanceTimersByTimeAsync(2_000);
       const frames = enqueue.mock.calls.map(([chunk]) => new TextDecoder().decode(chunk as Uint8Array));
       expect(frames).toHaveLength(2);
-      expect(frames[0]).toContain('"task":');
-      expect(frames[1]).toContain('"taskReused":true');
-      expect(frames[1]).not.toContain('"task":');
+      const payloads = frames.map((frame) => {
+        const line = frame.split("\n").find((value) => value.startsWith("data: "));
+        return JSON.parse(line!.slice("data: ".length)) as Record<string, unknown>;
+      });
+      expect(payloads[0]).toHaveProperty("task");
+      expect(payloads[0]).toHaveProperty("goalLoop");
+      expect(payloads[0]).toHaveProperty("todos");
+      expect(payloads[0]).toHaveProperty("permissionRequest");
+      expect(payloads[1]).toMatchObject({ taskReused: true, contextUsage: { tokens: 2 } });
+      for (const field of ["task", "goalLoop", "todos", "permissionRequest", "questionRequest"]) {
+        expect(payloads[1]).not.toHaveProperty(field);
+      }
+      expect(payloads[1].nestedState).toEqual({ goalLoop, todos, permissionRequest });
     } finally {
       stream.stop();
       sse.cleanup();
@@ -662,8 +684,8 @@ describe("Backend task stream polling", () => {
     await vi.advanceTimersByTimeAsync(2_000);
     expect(sse.send).toHaveBeenLastCalledWith("snapshot", expect.objectContaining({
       task: expect.objectContaining({ updatedAt: 1 }),
-      permissionRequest: { requestId: "approval-1" },
     }));
+    expect(sse.send.mock.calls.at(-1)?.[1]).not.toHaveProperty("permissionRequest");
     stream.stop();
   });
 
