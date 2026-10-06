@@ -588,6 +588,41 @@ export type TaskMessagePage = {
   messageHistory: TaskMessageHistory;
 };
 
+/** A conversation message that contains every search term (user/assistant text only). */
+export type TaskSearchHit = {
+  messageId: string;
+  role: "user" | "assistant";
+  createdAt: number;
+  /** Single-line excerpt around the first match. */
+  snippet: string;
+  /** [start, end) offsets of the matches inside `snippet`. */
+  highlights: [number, number][];
+  /** Number of separate matches in the message. */
+  count: number;
+};
+
+export type TaskSearchResult = {
+  /** Folded terms the server searched for. */
+  terms: string[];
+  /** Matching messages in the whole session, before `limit` is applied. */
+  total: number;
+  /** True when only the newest `limit` hits are returned. */
+  truncated: boolean;
+  /** Timeline order (oldest first). */
+  hits: TaskSearchHit[];
+};
+
+/** A message the user marked to come back to; `preview` keeps it recognisable if the message is gone. */
+export type TaskBookmark = {
+  messageId: string;
+  role: "user" | "assistant";
+  /** The message's own timestamp, used to order bookmarks like the timeline. */
+  messageCreatedAt: number;
+  /** When the bookmark was added (ms epoch). */
+  createdAt: number;
+  preview: string;
+};
+
 export type ModelOption = {
   value: string;
   label: string;

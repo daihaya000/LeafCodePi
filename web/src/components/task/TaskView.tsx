@@ -13,6 +13,7 @@ import {
   PanelRight,
   Plus,
   RotateCcw,
+  Search,
   Shrink,
   WandSparkles,
   Square,
@@ -43,6 +44,8 @@ import { NextAction } from "@/components/task/NextAction";
 import { TaskProgressAsk } from "@/components/task/TaskProgressAsk";
 import { GraphPanel } from "@/components/task/GraphPanel";
 import { ProjectExplorerButton } from "@/components/task/ProjectExplorerButton";
+import { TaskFindPanel } from "@/components/task/TaskFindPanel";
+import { useTaskFind } from "@/components/task/use-task-find";
 import { useForkDraft } from "@/components/task/use-fork-draft";
 import { ProjectFilePicker } from "@/components/ProjectFilePicker";
 import { SessionLabelBadge } from "@/components/SessionLabelBadge";
@@ -142,6 +145,7 @@ import {
   writeStoredAgent,
 } from "@/lib/default-agent";
 import { messageNavigationTarget } from "@/lib/message-navigation";
+import { isStableMessageId } from "@shared/task-search.mjs";
 import {
   EMPTY_TASK_MESSAGE_HISTORY,
   isInvalidTaskMessageCursorError,
@@ -1748,10 +1752,11 @@ export const TaskView = memo(function TaskView({
     };
   }, [active, cachedSession, taskId, applyDetail, notifySidebarIfNeeded]);
 
-  const loadOlderMessages = useCallback(async () => {
-    if (historyLoadingRef.current) return;
+  /** Loads the next older page. Resolves to that page's messages, or null when nothing was loaded. */
+  const loadOlderMessages = useCallback(async (): Promise<UiMessage[] | null> => {
+    if (historyLoadingRef.current) return null;
     const history = messageHistoryRef.current;
-    if (!history.hasMore || !history.nextCursor) return;
+    if (!history.hasMore || !history.nextCursor) return null;
     const requestEpoch = historyRequestEpochRef.current;
     const viewport = scrollRef.current;
     const previousHeight = viewport?.scrollHeight ?? 0;
@@ -1764,7 +1769,7 @@ export const TaskView = memo(function TaskView({
         `/api/tasks/${encodeURIComponent(taskId)}/messages`,
         { before: history.nextCursor },
       );
-      if (requestEpoch !== historyRequestEpochRef.current) return;
+      if (requestEpoch !== historyRequestEpochRef.current) return null;
       setMessages((current) => prependOlderTaskMessages(current, page.messages));
       historyLoadedRef.current = true;
       messageHistoryRef.current = page.messageHistory;
@@ -1775,18 +1780,19 @@ export const TaskView = memo(function TaskView({
         currentViewport.scrollTop = previousTop + currentViewport.scrollHeight - previousHeight;
         lastScrollTopRef.current = currentViewport.scrollTop;
       });
+      return page.messages;
     } catch (error) {
       if (requestEpoch === historyRequestEpochRef.current && isInvalidTaskMessageCursorError(error)) {
         try {
           const latest = await getJson<TaskMessagePage>(
             `/api/tasks/${encodeURIComponent(taskId)}/messages`,
           );
-          if (requestEpoch !== historyRequestEpochRef.current) return;
+          if (requestEpoch !== historyRequestEpochRef.current) return null;
           historyLoadedRef.current = false;
           messageHistoryRef.current = latest.messageHistory;
           setMessageHistory(latest.messageHistory);
           setMessages(() => stabilizeUiMessages([], latest.messages));
-          return;
+          return null;
         } catch (refreshError) {
           error = refreshError;
         }
@@ -1794,6 +1800,7 @@ export const TaskView = memo(function TaskView({
       if (requestEpoch === historyRequestEpochRef.current) {
         setHistoryError(error instanceof Error ? error.message : "過去の履歴を読み込めませんでした");
       }
+      return null;
     } finally {
       if (requestEpoch === historyRequestEpochRef.current) {
         historyLoadingRef.current = false;
@@ -1862,6 +1869,21 @@ export const TaskView = memo(function TaskView({
     stickRef.current = true;
     el.scrollTo({ top, behavior: "smooth" });
   }, []);
+
+  // セッション内検索とメッセージのブックマーク。状態とDOM連携は use-task-find に閉じる。
+  const find = useTaskFind({
+    taskId,
+    active,
+    rootRef: taskViewRef,
+    scrollRef,
+    contentRef,
+    stickRef,
+    messagesRef,
+    historyRef: messageHistoryRef,
+    historyLoadingRef,
+    loadOlder: loadOlderMessages,
+    onError: setError,
+  });
 
   useLayoutEffect(() => {
     // A reused pane must not evaluate the previous task's messages as a
@@ -3461,12 +3483,22 @@ export const TaskView = memo(function TaskView({
   const hasEligibleSupervisorBot = supervisorBots.some((bot) => bot.enabled && bot.permissionMode !== "deny");
   const supervisorControlDisabled = supervisorBusy || (!hasSupervisor && (!working || !hasEligibleSupervisorBot));
   const mobilePanelOpen = !mdUp && (graphOpen || diffOpen);
+  const toggleFind = () => {
+    if (find.open) {
+      find.closePanel();
+      return;
+    }
+    // 狭幅ではグラフ/Diffパネルがタイムラインを覆うので、検索を始めるときに閉じる。
+    if (mobilePanelOpen) setPanelState({ graphOpen: false, diffOpen: false });
+    find.openPanel();
+  };
 
   return (
     // min-h-0 flex-1: ペイン section が TaskTabs を持つ場合でも残り高さに収める。
     // h-full だとタブバー分だけはみ出し composer 下端が overflow-hidden で欠ける。
     <div
       ref={taskViewRef}
+      data-task-view=""
       className={cx("@container/task flex min-h-0 min-w-0 flex-1 flex-col bg-bot-chat", !active && "hidden")}
     >
       <header
@@ -3560,6 +3592,20 @@ export const TaskView = memo(function TaskView({
               {usageStats("shrink-0")}
             </div>
           </div>
+          <div className="@min-[500px]/task:hidden">
+            <Button
+              variant="ghost"
+              size="icon"
+              aria-label="セッション内を検索"
+              title="セッション内を検索"
+              aria-pressed={find.open}
+              className={cx("h-11 w-11", find.open && "bg-surface-2 text-text")}
+              disabled={!task}
+              onClick={toggleFind}
+            >
+              <Search className="h-4 w-4" />
+            </Button>
+          </div>
           <div className="hidden @min-[500px]/task:flex">
             <Button
               variant="ghost"
@@ -3611,6 +3657,21 @@ export const TaskView = memo(function TaskView({
           aria-label="タスク操作"
           className="flex items-center justify-end col-start-2 row-start-2"
         >
+          <Button
+            variant="ghost"
+            size="icon"
+            title="セッション内を検索（Ctrl+F）"
+            aria-label="セッション内を検索"
+            aria-pressed={find.open}
+            disabled={!task}
+            className={cx(
+              "h-9 w-9 @max-[500px]/task:hidden",
+              find.open && "bg-surface-2 text-text",
+            )}
+            onClick={toggleFind}
+          >
+            <Search className="h-4 w-4" />
+          </Button>
           {onAddPane && (
             <Button
               variant="ghost"
@@ -3743,6 +3804,7 @@ export const TaskView = memo(function TaskView({
           </Button>
         </div>
       </header>
+      {find.open && <TaskFindPanel key={taskId} taskId={taskId} find={find} />}
       <div className="relative flex min-h-0 flex-1 flex-col lg:flex-row">
         <div
           ref={scrollRef}
@@ -3912,6 +3974,12 @@ export const TaskView = memo(function TaskView({
                       : messageRenderKey(block.message)
                   }
                   className="task-message-row"
+                  // 検索・ブックマークのジャンプ用。作業ログは畳まれていても、含むメッセージを引ける。
+                  data-message-ids={
+                    block.kind === "tool-group"
+                      ? block.entries.map((entry) => entry.message.id).join(" ")
+                      : block.message.id
+                  }
                   ref={(el) => {
                     const messagesToTrack =
                       block.kind === "tool-group"
@@ -3936,6 +4004,11 @@ export const TaskView = memo(function TaskView({
                       active={active}
                       running={runningLog}
                       renderChildren={renderActivityContents}
+                      revealNonce={
+                        find.reveal && block.entries.some((entry) => entry.message.id === find.reveal?.messageId)
+                          ? find.reveal.nonce
+                          : undefined
+                      }
                     />
                   ) : showResume &&
                     resumeInsideExistingBanner &&
@@ -3971,6 +4044,8 @@ export const TaskView = memo(function TaskView({
                       reasoningActive={working && renderedMessages.at(-1)?.id === block.message.id && block.message.parts.at(-1)?.type === "thinking"}
                       streaming={working && renderedMessages.at(-1)?.id === block.message.id && block.message.role === "assistant"}
                       onRevert={block.message.role === "user" ? requestRevert : undefined}
+                      bookmarked={find.bookmarkedIds.has(block.message.id)}
+                      onToggleBookmark={isStableMessageId(block.message.id) ? find.toggleBookmark : undefined}
                     />
                   )}
                 </div>

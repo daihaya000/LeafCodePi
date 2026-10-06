@@ -51,6 +51,7 @@ import { isSkillRead, toolInputFields, toolLabel, toolSummary } from "@/lib/tool
 import { truncateUiToolOutput } from "@/lib/pi/messages";
 import { subagentAgentNames, useSubagentRuns } from "@/components/task/use-subagent-runs";
 import { ForkButton } from "@/components/task/ForkButton";
+import { BookmarkButton } from "@/components/task/BookmarkButton";
 import {
   saveReasoningTranslationOverride,
   useReasoningTranslation,
@@ -193,17 +194,20 @@ const MarkdownBody = memo(function MarkdownBody({
   className,
   allowStructuredResult,
   taskId,
+  searchable = false,
 }: {
   text: string;
   className?: string;
   allowStructuredResult: boolean;
   taskId?: string;
+  /** Conversation text: in-session search highlights it (tool output and summaries stay out). */
+  searchable?: boolean;
 }) {
   const text = useThrottledText(liveText, MARKDOWN_STREAM_THROTTLE_MS);
   const structuredResult = allowStructuredResult ? parseStructuredResult(text) : null;
   if (structuredResult) return <StructuredResultCard result={structuredResult} />;
   return (
-    <div className={cx("md", className ?? "text-sm")}>
+    <div className={cx("md", className ?? "text-sm")} data-search-text={searchable ? "" : undefined}>
       <MarkdownImageScope taskId={taskId}>
         <Markdown
           remarkPlugins={[remarkGfm]}
@@ -236,6 +240,7 @@ function AssistantTextPart({
         className="text-base"
         allowStructuredResult={Boolean(goalLoopTurn)}
         taskId={taskId}
+        searchable
       />
       {streaming ? (
         <span
@@ -278,7 +283,7 @@ const UserTextPart = memo(function UserTextPart({
 
   if (!invocation) {
     return (
-      <div className="whitespace-pre-wrap break-words">
+      <div className="whitespace-pre-wrap break-words" data-search-text="">
         {renderText(text)}
       </div>
     );
@@ -289,7 +294,7 @@ const UserTextPart = memo(function UserTextPart({
     agents: [],
   };
   return (
-    <div className="whitespace-pre-wrap break-words">
+    <div className="whitespace-pre-wrap break-words" data-search-text="">
       <ReferenceHighlight text={`/skill:${invocation.name}`} references={skillReference} />
       {invocation.userMessage && (
         <>{" "}{renderText(invocation.userMessage)}</>
@@ -1209,6 +1214,8 @@ export const PartView = memo(
     hideMeta = false,
     onRevert,
     references,
+    bookmarked = false,
+    onToggleBookmark,
   }: {
     message: UiMessage;
     modelLabel?: string;
@@ -1234,14 +1241,22 @@ export const PartView = memo(
     onRevert?: (message: UiMessage) => void;
     /** 送信済みメッセージ内でハイライトする既知のスキル・エージェント。 */
     references?: ReferenceHighlightReferences;
+    /** このメッセージがブックマーク済みか。 */
+    bookmarked?: boolean;
+    /** 指定時のみ操作行にブックマークボタンを出す（永続化済みのトップレベルメッセージ）。 */
+    onToggleBookmark?: (message: UiMessage) => void;
   }) {
     if (message.role === "compaction") {
       return <CompactionNotice message={message} taskId={taskId} />;
     }
 
     const isUser = message.role === "user";
+    const bookmarkButton = onToggleBookmark && !nested && !hideMeta ? (
+      <BookmarkButton bookmarked={bookmarked} onToggle={() => onToggleBookmark(message)} />
+    ) : null;
+    const userActions = isUser && !nested && (onRevert || bookmarkButton || (taskId && !taskId.startsWith("bot:")));
     return (
-      <article className={messageRowClassFor(isUser)}>
+      <article className={messageRowClassFor(isUser)} data-message-id={message.id}>
         {!hideMeta && (
           <MessageHeader user={isUser} wide={!isUser}>
             {isUser ? (
@@ -1326,15 +1341,17 @@ export const PartView = memo(
             return <ToolCard key={cardKey} part={part} taskId={taskId} nested={nested} tabActive={active} />;
           })
         )}
-        {isUser && !nested && (onRevert || (taskId && !taskId.startsWith("bot:"))) && (
+        {userActions && (
           <div className="flex max-w-full flex-wrap items-center justify-end gap-2">
             {onRevert && <BotRevertButton
               title="このコメントを入力欄に戻して巻き戻す"
               onClick={() => onRevert(message)}
             />}
             {taskId && !taskId.startsWith("bot:") && <ForkButton taskId={taskId} entryId={message.id} />}
+            {bookmarkButton}
           </div>
         )}
+        {!isUser && bookmarkButton}
         {message.error && (
           <p
             role="alert"
@@ -1362,5 +1379,7 @@ export const PartView = memo(
     prev.reasoningActive === next.reasoningActive &&
     prev.nested === next.nested &&
     prev.hideMeta === next.hideMeta &&
-    prev.onRevert === next.onRevert,
+    prev.onRevert === next.onRevert &&
+    prev.bookmarked === next.bookmarked &&
+    prev.onToggleBookmark === next.onToggleBookmark,
 );

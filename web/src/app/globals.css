@@ -41,6 +41,10 @@
   --bot-bubble-assistant: var(--surface-2);
   --bot-outline: #e4e4e7;
   --bot-composer-shadow: 0 1px 4px rgb(24 24 27 / 0.08);
+  /* In-session search matches keep dark text so they stay legible on a user bubble's blue as well. */
+  --find-match-bg: #fde68a;
+  --find-match-fg: #1c1917;
+  --find-active-bg: #fb923c;
 }
 
 .oyster {
@@ -201,6 +205,18 @@ select {
 .task-message-row {
   width: 100%;
   min-width: 0;
+}
+
+/*
+ * The message a search hit or bookmark jumped to. Match colors (--find-*) also style the in-session
+ * search highlights; those ::highlight() rules are injected by lib/dom-find.ts because the CSS build
+ * pipeline cannot parse that pseudo-element.
+ */
+.task-message-row[data-find-active] {
+  border-radius: 1rem;
+  background-color: color-mix(in srgb, var(--find-active-bg) 14%, transparent);
+  box-shadow: 0 0 0 6px color-mix(in srgb, var(--find-active-bg) 14%, transparent);
+  transition: background-color 0.3s ease, box-shadow 0.3s ease;
 }
 
 .task-message-row article > [class~="group/reasoning"],
