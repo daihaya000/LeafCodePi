@@ -744,14 +744,64 @@ describe("todowrite enforcement core", () => {
     expect(settleEvent(quiet)).toBeUndefined();
   });
 
-  it("requires a review item after file changes before the run may settle", async () => {
+  it("requires a review started after the latest mutation before the run may settle", async () => {
     const run = fixture();
-    await run.writeTodos(open);
+    const priorReview = { content: "レビュー・問題修正", status: "completed", priority: "high" };
+    await run.writeTodos([priorReview, ...open]);
     run.callTool("edit");
-    await run.writeTodos(done);
+    await run.writeTodos([priorReview, ...done]);
     expect(settleEvent(run)?.entries?.[0]?.content).toContain("レビュー");
-    await run.writeTodos([...done, { content: "レビュー・問題修正", status: "completed", priority: "high" }]);
+
+    const cancelledReview = { ...priorReview, status: "cancelled" };
+    await run.writeTodos([cancelledReview, ...done]);
+    expect(settleEvent(run)?.entries?.[0]?.content).toContain("レビュー");
+
+    const reviewInProgress = { ...priorReview, status: "in_progress" };
+    await run.writeTodos([reviewInProgress, ...done]);
+    await run.writeTodos([priorReview, ...done]);
     expect(settleEvent(run)).toBeUndefined();
+
+    const shellRun = fixture();
+    await shellRun.writeTodos(open);
+    expect(shellRun.callTool("powershell", { command: "python modify.py" })).toBeUndefined();
+    await shellRun.writeTodos(done);
+    expect(settleEvent(shellRun)?.entries?.[0]?.content).toContain("レビュー");
+    await shellRun.writeTodos([{ content: "レビュー", status: "in_progress", priority: "high" }, ...done]);
+    await shellRun.writeTodos([{ content: "レビュー", status: "completed", priority: "high" }, ...done]);
+    expect(settleEvent(shellRun)).toBeUndefined();
+
+    const swappedReview = fixture();
+    const oldReview = { content: "レビューA", status: "in_progress", priority: "high" };
+    const nextReview = { content: "レビューB", status: "in_progress", priority: "high" };
+    await swappedReview.writeTodos([
+      oldReview,
+      { content: "実装", status: "pending", priority: "high" },
+    ]);
+    swappedReview.callTool("edit");
+    await swappedReview.writeTodos([
+      { ...oldReview, status: "completed" },
+      nextReview,
+      ...done,
+    ]);
+    expect(settleEvent(swappedReview)?.entries?.[0]?.content).toContain("レビュー");
+    swappedReview.callTool("edit");
+    await swappedReview.writeTodos([
+      { ...oldReview, status: "completed" },
+      { ...nextReview, status: "completed" },
+      ...done,
+    ]);
+    expect(settleEvent(swappedReview)?.entries?.[0]?.content).toContain("レビュー");
+    await swappedReview.writeTodos([
+      { ...oldReview, status: "completed" },
+      nextReview,
+      ...done,
+    ]);
+    await swappedReview.writeTodos([
+      { ...oldReview, status: "completed" },
+      { ...nextReview, status: "completed" },
+      ...done,
+    ]);
+    expect(settleEvent(swappedReview)).toBeUndefined();
   });
 
   it("asks for a list when work was stopped and never registered", () => {

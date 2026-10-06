@@ -14,6 +14,10 @@ export const STOP_CONTINUATION_LIMIT = 2;
 const MAX_LISTED_ITEMS = 5;
 const MAX_ITEM_CHARS = 80;
 const REVIEW_PATTERN = /レビュー|review/i;
+
+export function isReviewTodo(todo: TodoItem): boolean {
+  return REVIEW_PATTERN.test(todo.content);
+}
 const SHELL_TOOLS = new Set(["bash", "powershell"]);
 /** Git subcommands that belong to the commit / confirm phase after every item is completed. */
 const CLOSING_GIT_SUBCOMMANDS = new Set([
@@ -24,9 +28,6 @@ const CLOSING_GIT_SUBCOMMANDS = new Set([
 /** Pipe targets that only shape or filter output. */
 const OUTPUT_FILTER = /^(select-object|select|select-string|out-string|measure-object|sort-object|where-object|head|tail|findstr|grep|wc|sort|more)\b/i;
 const GIT_FORBIDDEN_FLAGS = /(^|\s)(--force(?:-with-lease|-if-includes)?(?:=[^\s]+)?|--hard|--amend|--rebase|--abort|--quit|-f)(?=\s|$)/i;
-
-/** File-changing tools. A task that used one is a "change task" and owes a review step. */
-export const FILE_CHANGE_TOOLS = new Set(["edit", "write"]);
 
 export function isShellTool(toolName: string): boolean {
   return SHELL_TOOLS.has(toolName);
@@ -169,8 +170,8 @@ export type AuditInput = {
   violationObserved: boolean;
   /** A Jev waiver is active for this task. */
   waived: boolean;
-  /** edit / write calls admitted during this task. */
-  fileChanges: number;
+  /** A mutation-capable call was admitted, including opaque shell / custom tools. */
+  reviewRequired: boolean;
 };
 
 /** The reasons the run may not settle yet. Empty when the task is in good order. */
@@ -189,9 +190,9 @@ export function auditTask(input: AuditInput): string[] {
     reasons.push(
       `未完了のToDoが残っています（${unfinished}）。実施して completed にするか、不要なら cancelled にして todowrite を更新してから報告してください。`,
     );
-  } else if (input.fileChanges > 0 && !input.todos.some((todo) => REVIEW_PATTERN.test(todo.content))) {
+  } else if (input.reviewRequired) {
     reasons.push(
-      "ファイルを変更したがレビュー工程のToDoがありません。差分・要件・テストをレビューし、結果を todowrite のレビュー項目（completed）に反映してから報告してください。",
+      "変更系ツール実行後のレビューが未完了です。レビュー項目を in_progress にして差分・要件・テストを確認し、確認後に completed へ更新してから報告してください。新しい変更を行った場合はレビュー項目も改めて着手してください。",
     );
   }
   return reasons;

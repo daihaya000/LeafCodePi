@@ -14,7 +14,7 @@ import { hasJevNoulJudge } from "./jev-bridge.ts";
 import {
   STOP_CONTINUATION_LIMIT,
   WAIVER_MUTATION_LIMIT,
-  FILE_CHANGE_TOOLS,
+  isReviewTodo,
   auditTask,
   blockedWhenClosedReason,
   buildStateNote,
@@ -75,10 +75,11 @@ const SUBSTANTIVE_READ_TOOLS = new Set([
 type TodoGateState = {
   /** A list with an in_progress item was registered during this task. */
   openedThisTask: boolean;
-  /** Admitted side-effect / shell / unclassified calls (the work the list is meant to track). */
-  mutations: number;
-  /** Admitted edit / write calls. A task with these owes a review step. */
-  fileChanges: number;
+  /** Mutation generation; a review must start after the latest admitted mutation. */
+  mutationVersion: number;
+  reviewStartedVersion: number;
+  reviewStartedTodoId: string | undefined;
+  reviewRequired: boolean;
   /** Mutating calls admitted while a Jev waiver was active. */
   waivedMutations: number;
   /** The waiver ran past its mutation budget: the task outgrew "no list needed" and Jev is not asked again. */
@@ -121,8 +122,10 @@ function asRecord(value: unknown): RecordLike | null {
 function createTodoGateState(): TodoGateState {
   return {
     openedThisTask: false,
-    mutations: 0,
-    fileChanges: 0,
+    mutationVersion: 0,
+    reviewStartedVersion: -1,
+    reviewStartedTodoId: undefined,
+    reviewRequired: false,
     waivedMutations: 0,
     waiverExpired: false,
     stopContinuations: 0,
@@ -252,10 +255,10 @@ export default function (pi: ExtensionAPI): void {
   });
   const hasInProgress = () => todos.some((todo) => todo.status === "in_progress");
   // Work the list is meant to track. Counted when a call is admitted, for the end-of-run audit.
-  const admit = (task: TodoGateState, toolName: string, action: TodoGateAction) => {
+  const admit = (task: TodoGateState, _toolName: string, action: TodoGateAction) => {
     if (action !== "block") return;
-    task.mutations += 1;
-    if (FILE_CHANGE_TOOLS.has(toolName)) task.fileChanges += 1;
+    task.mutationVersion += 1;
+    task.reviewRequired = true;
   };
   pi.on("tool_call", (event, ctx) => {
     const task = gate;
@@ -331,7 +334,7 @@ export default function (pi: ExtensionAPI): void {
       openedThisTask: task.openedThisTask,
       violationObserved: task.violationObserved,
       waived: task.waived,
-      fileChanges: task.fileChanges,
+      reviewRequired: task.reviewRequired,
     });
     if (reasons.length === 0) return;
     task.stopContinuations += 1;
@@ -415,6 +418,26 @@ export default function (pi: ExtensionAPI): void {
           } satisfies TodoDetails,
         };
       }
+      const startedReview = normalized.todos.find((next) =>
+        isReviewTodo(next) &&
+        next.status === "in_progress" &&
+        todos.find((previous) => previous.id === next.id)?.status !== "in_progress",
+      );
+      if (startedReview) {
+        gate.reviewStartedVersion = gate.mutationVersion;
+        gate.reviewStartedTodoId = startedReview.id;
+      }
+      const completedReview = normalized.todos.find((next) =>
+        isReviewTodo(next) &&
+        next.status === "completed" &&
+        todos.find((previous) => previous.id === next.id)?.status === "in_progress",
+      );
+      if (
+        gate.reviewRequired &&
+        completedReview?.id === gate.reviewStartedTodoId &&
+        gate.reviewStartedVersion === gate.mutationVersion
+      ) gate.reviewRequired = false;
+
       todos = normalized.todos;
       if (todos.some((todo) => todo.status === "in_progress")) gate.openedThisTask = true;
       const details = {
