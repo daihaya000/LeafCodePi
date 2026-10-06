@@ -76,6 +76,40 @@ it("uses identical closed, scroll-bounded logs with full-width nested cards and 
   expect(content.classList.contains("max-h-[min(19.6rem,35dvh)]")).toBe(true);
 });
 
+it("mounts large activity groups in recent-first batches and reveals older items on demand", () => {
+  const items = Array.from({ length: 50 }, (_, index) => (
+    <MessageBubble key={`item-${index}`}>entry-{index}</MessageBubble>
+  ));
+  const { container, getByRole } = render(
+    <ActivityLog kind="task" count={50} parts={[]} active={false}>{items}</ActivityLog>,
+  );
+  const log = container.querySelector("details")!;
+  expect(log.querySelector("summary")!.nextElementSibling).toBeNull();
+
+  fireEvent.click(log.querySelector("summary")!);
+  const content = log.querySelector("summary")!.nextElementSibling!;
+  expect(content.textContent).toContain("entry-30");
+  expect(content.textContent).toContain("entry-49");
+  expect(content.textContent).not.toContain("entry-29");
+  fireEvent.click(getByRole("button", { name: "過去のログをさらに表示（30件）" }));
+  expect(content.textContent).toContain("entry-10");
+  expect(content.textContent).not.toContain("entry-9");
+  fireEvent.click(getByRole("button", { name: "過去のログをさらに表示（10件）" }));
+  expect(content.textContent).toContain("entry-0");
+  expect(container.querySelector("button")).toBeNull();
+});
+
+it("keeps every item mounted for a small group below the large-log threshold", () => {
+  const items = Array.from({ length: 24 }, (_, index) => (
+    <MessageBubble key={`item-${index}`}>entry-{index}</MessageBubble>
+  ));
+  const { container } = render(
+    <ActivityLog kind="task" count={24} parts={[]} active={false}>{items}</ActivityLog>,
+  );
+  expect(container.querySelector("details summary")!.nextElementSibling!.querySelectorAll(".rounded-card")).toHaveLength(24);
+  expect(container.querySelector("button")).toBeNull();
+});
+
 it.each(["task", "bot"] as const)("shows a finished single %s activity directly without a work log", (kind) => {
   const { container } = render(<ActivityLog kind={kind} header={<MessageHeader>Metadata</MessageHeader>} count={1} parts={[]} active={false}>
     <MessageBubble>Only item</MessageBubble>
