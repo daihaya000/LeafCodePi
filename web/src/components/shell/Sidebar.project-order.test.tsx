@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
 import type { ReactNode } from "react";
-import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, cleanup, createEvent, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
@@ -63,6 +63,7 @@ vi.mock("@/components/ui", () => ({
 import { SIDEBAR_TASK_RENDER_STEP, Sidebar } from "./Sidebar";
 import { resetUnreadStateForTests } from "@/lib/bot-unread";
 import { DEFAULT_SESSION_LABELS, writeSessionLabels } from "@/lib/session-label-settings";
+import { isTaskDrag, taskDragIdFrom, TASK_DRAG_MIME } from "@/lib/task-drag";
 
 const projects = [
   { id: "project-a", name: "Project A", rootPath: "C:\\repo-a", favorite: false, archived: false, createdAt: "", lastOpenedAt: null },
@@ -836,6 +837,111 @@ describe("Sidebar project ordering", () => {
     fireEvent.click(await screen.findByRole("button", { name: "Project Aのタスクを表示" }));
 
     expect(await screen.findByRole("menuitem", { name: "Project Aの設定" })).toBeTruthy();
+  });
+
+  describe("collapsed project popup task dragging", () => {
+    beforeEach(() => {
+      localStorage.setItem("webui.sidebar.collapsed", "1");
+      const defaultGetJson = mocks.getJson.getMockImplementation()!;
+      mocks.getJson.mockImplementation((path: string) => {
+        if (path === "/api/tasks?kind=all&view=sidebar" || path === "/api/tasks?archived=1&kind=all&view=sidebar") {
+          return Promise.resolve({ tasks: [{
+            id: "popup-task", projectId: "project-a", projectName: "Project A", title: "Popup session",
+            directory: "C:\\repo-a", isolation: "current_folder", status: "ready", sessionId: "popup-task",
+            sessionFile: null, createdAt: "", updatedAt: "2026-10-06T00:00:00.000Z",
+          }] });
+        }
+        return defaultGetJson(path);
+      });
+    });
+
+    async function openPopupTask(hoverCapable = false) {
+      vi.stubGlobal("matchMedia", (query: string) => ({
+        matches: query.includes("min-width") || (hoverCapable && query === "(hover: hover)"),
+        media: query,
+        onchange: null,
+        addEventListener: vi.fn(),
+        removeEventListener: vi.fn(),
+      }));
+      render(<Sidebar mobileOpen={false} onClose={vi.fn()} />);
+      const project = await screen.findByRole("button", {
+        name: hoverCapable ? "Project Aを選択" : "Project Aのタスクを表示",
+      });
+      if (hoverCapable) fireEvent.mouseEnter(project);
+      else fireEvent.click(project);
+      const menu = screen.getByRole("menu", { name: "Project Aのタスク" });
+      const task = within(menu).getByRole("menuitem", { name: /^Popup session/ });
+      return { project, menu, task };
+    }
+
+    function startTaskDrag(task: HTMLElement) {
+      const dataTransfer = new DataTransfer();
+      const event = createEvent.dragStart(task);
+      // Testing Library copies supplied DataTransfer fields as read-only properties.
+      Object.defineProperty(event, "dataTransfer", { value: dataTransfer });
+      fireEvent(task, event);
+      return dataTransfer;
+    }
+
+    it.each([false, true])("exposes the pane drag payload with hover=%s without navigating", async (hoverCapable) => {
+      const { task } = await openPopupTask(hoverCapable);
+
+      expect(task.getAttribute("draggable")).toBe("true");
+      const dataTransfer = startTaskDrag(task);
+
+      expect(dataTransfer.effectAllowed).toBe("move");
+      expect(dataTransfer.getData(TASK_DRAG_MIME)).toBe("popup-task");
+      expect(dataTransfer.getData("text/plain")).toBe("popup-task");
+      expect(dataTransfer.getData("application/x-leafcode-project")).toBe("");
+      expect(isTaskDrag(dataTransfer.types)).toBe(true);
+      expect(taskDragIdFrom(dataTransfer)).toBe("popup-task");
+      expect(mocks.push).not.toHaveBeenCalled();
+      expect(mocks.retargetToUrl).not.toHaveBeenCalled();
+      expect(mocks.dispatch).not.toHaveBeenCalled();
+
+      fireEvent.dragEnd(task, { dataTransfer });
+      expect(screen.queryByRole("menu", { name: "Project Aのタスク" })).toBeNull();
+    });
+
+    it("keeps the native drag source mounted past the hover timeout and closes on cancellation", async () => {
+      const { project, menu, task } = await openPopupTask(true);
+      vi.useFakeTimers();
+      try {
+        // Cancel an already queued hide, then ignore mouse/blur hides while dragging.
+        fireEvent.mouseLeave(project);
+        startTaskDrag(task);
+        fireEvent.mouseLeave(menu);
+        fireEvent.blur(task, { relatedTarget: document.body });
+        act(() => vi.advanceTimersByTime(250));
+
+        expect(task.isConnected).toBe(true);
+        expect(screen.getByRole("menu", { name: "Project Aのタスク" })).toBe(menu);
+
+        // Cancelled native drags can expose no DataTransfer types at dragend.
+        fireEvent.dragEnd(task, { dataTransfer: { types: [] } });
+        expect(screen.queryByRole("menu", { name: "Project Aのタスク" })).toBeNull();
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it("still opens a popup task by clicking and closes normally on hover leave", async () => {
+      const { project, menu, task } = await openPopupTask(true);
+      fireEvent.click(task);
+      expect(mocks.retargetToUrl).toHaveBeenCalledWith("popup-task");
+      expect(screen.queryByRole("menu", { name: "Project Aのタスク" })).toBeNull();
+
+      fireEvent.mouseEnter(project);
+      vi.useFakeTimers();
+      try {
+        fireEvent.mouseLeave(screen.getByRole("menu", { name: "Project Aのタスク" }));
+        act(() => vi.advanceTimersByTime(250));
+        expect(menu.isConnected).toBe(false);
+        expect(screen.queryByRole("menu", { name: "Project Aのタスク" })).toBeNull();
+      } finally {
+        vi.useRealTimers();
+      }
+    });
   });
 
   it("reorders projects with native DnD and persists the order", async () => {

@@ -2431,7 +2431,8 @@ const SidebarView = memo(function SidebarView({
   }, []);
 
   const scheduleProjectTaskMenuHide = useCallback(() => {
-    if (!hoverCapable) return;
+    // Keep the native drag source mounted until drop/cancellation finishes.
+    if (!hoverCapable || taskDragActiveRef.current) return;
     cancelProjectTaskMenuHide();
     projectTaskMenuHideTimerRef.current = setTimeout(() => {
       setProjectTaskMenu(null);
@@ -3290,6 +3291,15 @@ const SidebarView = memo(function SidebarView({
                     role="menuitem"
                     aria-current={task.id === activeTaskId ? "page" : undefined}
                     title={task.title}
+                    draggable={mdUp}
+                    onDragStart={(event) => {
+                      cancelProjectTaskMenuHide();
+                      handleTaskDragStart(event, task.id);
+                    }}
+                    onDragEnd={() => {
+                      cancelProjectTaskMenuHide();
+                      setProjectTaskMenu(null);
+                    }}
                     onClick={() => {
                       cancelProjectTaskMenuHide();
                       setProjectTaskMenu(null);
