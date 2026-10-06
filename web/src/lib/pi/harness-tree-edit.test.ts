@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { insertTask, upsertProject, getTask, patchTask } from "@/lib/store";
 import { beginTaskPreparation } from "./task-operation-guard";
+import * as promptFileStore from "@/lib/prompt-file-store";
 import { abortTask, compactTask, goalLoopCommand, isTaskRuntimeBusyForDestructiveEdit, promptTask, revertTask, setTaskAgent, setTaskModel, setTaskThinkingLevel, unrevertTask } from "./harness";
 const globals = globalThis as Record<string, unknown>;
 let root: string;
@@ -50,7 +51,7 @@ beforeEach(() => {
 });
 afterEach(() => {
   if (previous === undefined) delete globals.__leafcodePiHarness; else globals.__leafcodePiHarness = previous;
-  vi.unstubAllEnvs(); rmSync(root, { recursive: true, force: true });
+  vi.restoreAllMocks(); vi.unstubAllEnvs(); rmSync(root, { recursive: true, force: true });
 });
 it("a pending preparer blocks destructive replacement and Goal resume", async () => {
   const preparation = beginTaskPreparation(id);
@@ -106,10 +107,54 @@ it("rewinding stops an owned Goal Loop between turns then navigates", async () =
   expect(getTask(id)?.revertLeafId).toBe("tip");
   expect(leaf).toBe("early");
 });
+it.each([
+  ["missing", 404], ["tip", 400],
+])("an invalid rewind target %s leaves the owned Goal Loop untouched", async (target, status) => {
+  const { file } = seedLoop("queued");
+  await expect(revertTask(id, String(target))).rejects.toMatchObject({ status });
+  expect(session.extensionRunner.getCommand).not.toHaveBeenCalled();
+  expect(JSON.parse(readFileSync(file, "utf8")).status).toBe("queued");
+  expect(session.navigateTree).not.toHaveBeenCalled();
+  expect(leaf).toBe("tip");
+});
+it("restore without an undo target leaves the owned Goal Loop untouched", async () => {
+  const { file } = seedLoop("queued");
+  await expect(unrevertTask(id)).rejects.toMatchObject({ status: 400 });
+  expect(session.extensionRunner.getCommand).not.toHaveBeenCalled();
+  expect(JSON.parse(readFileSync(file, "utf8")).status).toBe("queued");
+  expect(session.navigateTree).not.toHaveBeenCalled();
+});
+it("a stale undo target is rejected without stopping the Goal Loop or losing the marker", async () => {
+  const { file } = seedLoop("queued");
+  runtime.revertLeafId = "removed-entry";
+  patchTask(id, { revertLeafId: "removed-entry" });
+  await expect(unrevertTask(id)).rejects.toMatchObject({ status: 404 });
+  expect(session.extensionRunner.getCommand).not.toHaveBeenCalled();
+  expect(JSON.parse(readFileSync(file, "utf8")).status).toBe("queued");
+  expect(session.navigateTree).not.toHaveBeenCalled();
+  expect(getTask(id)?.revertLeafId).toBe("removed-entry");
+});
 it("an SDK-aborted navigation does not report success or set a restore marker", async () => {
   session.navigateTree.mockImplementation(async () => ({ cancelled: false, aborted: true, editorText: "" }));
   await expect(revertTask(id, "late")).rejects.toMatchObject({ status: 400 });
   expect(leaf).toBe("tip"); expect(getTask(id)?.revertLeafId).toBeFalsy();
+});
+it("reads a stored attachment once and returns matching text and file payload", async () => {
+  const file = { name: "note.txt", mimeType: "text/plain", data: Buffer.from("contents").toString("base64") };
+  const path = promptFileStore.storePromptFileContent(file, "contents");
+  const text = `review\n\n<leafcode-file>\n${JSON.stringify({ name: file.name, mimeType: file.mimeType, path })}\n</leafcode-file>`;
+  const lookup = session.sessionManager.getEntry;
+  vi.spyOn(session.sessionManager, "getEntry").mockImplementation((entryId) => entryId === "late"
+    ? { ...entries[1], message: { role: "user", content: text } } : lookup(entryId));
+  session.navigateTree.mockImplementation(async () => {
+    leaf = "early";
+    return { cancelled: false, aborted: false, editorText: text };
+  });
+  const read = vi.spyOn(promptFileStore, "readStoredPromptFileContent");
+  const result = await revertTask(id, "late");
+  expect(result.text).toBe("review");
+  expect(result.files).toEqual([{ uri: `data:text/plain;base64,${file.data}`, mime: file.mimeType, name: file.name }]);
+  expect(read).toHaveBeenCalledExactlyOnceWith(path);
 });
 it("multiple rewinds preserve the original full transcript for undo", async () => {
   await revertTask(id, "late");

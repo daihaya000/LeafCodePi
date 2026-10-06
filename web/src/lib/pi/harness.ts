@@ -11513,10 +11513,7 @@ export async function revertTask(
   assertLocalRuntimeAllowed();
   return withTaskTreeEdit(id, async () => {
   const live = await ensureLive(id);
-  // Goal Loop ownership alone blocks tree edits even between turns (task looks idle).
-  // Rewinding the transcript implies ending that autonomous run first.
-  await stopGoalLoopForTask(live);
-  assertIdleForSessionTreeEdit(id);
+  // Validate before stopping: a stale/invalid request must not end an autonomous run.
   const entry = messageEntryById(live.session, messageId);
   if (!entry) {
     throw Object.assign(new Error("対象メッセージが見つかりません"), {
@@ -11528,6 +11525,9 @@ export async function revertTask(
       status: 400,
     });
   }
+  // Goal Loop ownership alone blocks tree edits even between turns (task looks idle).
+  await stopGoalLoopForTask(live);
+  assertIdleForSessionTreeEdit(id);
   const previousLeafId = live.session.sessionManager.getLeafId();
   const result = await live.session.navigateTree(entry.id);
   if (result.cancelled || result.aborted) {
@@ -11557,7 +11557,11 @@ export async function revertTask(
     task: taskDetail,
     text: restoredPrompt.text,
     images: imagesFromEntry(entry),
-    files: filesFromEntry(entry),
+    files: restoredPrompt.files.map((file) => ({
+      uri: `data:${file.mimeType};base64,${file.data}`,
+      mime: file.mimeType,
+      name: file.name,
+    })),
   };
   });
 }
@@ -11568,7 +11572,11 @@ export function messageEntryById(
   messageId: string,
 ): { id: string; message: { role: string; content: unknown }; editorText?: string } | null {
   try {
-    const entries = session.sessionManager.getEntries();
+    const manager = session.sessionManager;
+    // SDK getEntry uses its id index; getEntries copies the entire append-only history.
+    const indexed = typeof manager.getEntry === "function";
+    const directEntry = indexed ? manager.getEntry(messageId) : undefined;
+    const entries = indexed ? (directEntry ? [directEntry] : []) : manager.getEntries();
     // 通常経路: snapshotMessages が UiMessage.id へ設定したエントリ id
     for (const entry of entries) {
       if (entry.id !== messageId) continue;
@@ -11593,8 +11601,8 @@ export function messageEntryById(
     // フォールバック: 旧スナップショットの仮 id `msg-N`（ブランチ上のメッセージ順）
     const fallback = /^msg-(\d+)$/.exec(messageId);
     if (fallback) {
-      const activeBranch = typeof session.sessionManager.getBranch === "function"
-        ? session.sessionManager.getBranch() : entries;
+      const activeBranch = typeof manager.getBranch === "function"
+        ? manager.getBranch() : indexed ? manager.getEntries() : entries;
       const branch = activeBranch.filter((entry) => entry.type === "message");
       const entry = branch[Number(fallback[1])];
       const message = entry
@@ -11716,15 +11724,18 @@ export async function unrevertTask(id: string): Promise<TaskDetail> {
   assertLocalRuntimeAllowed();
   return withTaskTreeEdit(id, async () => {
   const live = await ensureLive(id);
-  // Same as revert: a still-owned Goal Loop must not leave restore stuck behind a 409.
-  await stopGoalLoopForTask(live);
-  assertIdleForSessionTreeEdit(id);
   const target = live.revertLeafId ?? getTask(id)?.revertLeafId ?? null;
   if (!target) {
     throw Object.assign(new Error("巻き戻しの対象がありません"), {
       status: 400,
     });
   }
+  if (typeof live.session.sessionManager.getEntry === "function" && !live.session.sessionManager.getEntry(target)) {
+    throw Object.assign(new Error("復元対象のメッセージが見つかりません"), { status: 404 });
+  }
+  // Do not stop autonomous work for a request that cannot restore anything.
+  await stopGoalLoopForTask(live);
+  assertIdleForSessionTreeEdit(id);
   const result = await live.session.navigateTree(target);
   if (result.cancelled || result.aborted) {
     throw Object.assign(new Error("巻き戻しの復元がキャンセルされました"), {
