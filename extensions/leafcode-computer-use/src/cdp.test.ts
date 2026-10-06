@@ -25,6 +25,8 @@ describe("chooseVisibleCdpCandidate", () => {
 class FakeWebSocket {
 	static readonly OPEN = 1;
 	static readonly CLOSED = 3;
+	static lastInstance?: FakeWebSocket;
+	readonly requests: Array<{ id: number; method: string; params: Record<string, unknown> }> = [];
 	readyState = FakeWebSocket.OPEN;
 	onopen?: () => void;
 	onmessage?: (event: { data: string }) => void;
@@ -32,13 +34,16 @@ class FakeWebSocket {
 	onerror?: () => void;
 
 	constructor(_url: string) {
+		FakeWebSocket.lastInstance = this;
 		queueMicrotask(() => this.onopen?.());
 	}
 
 	send(raw: string): void {
-		const request = JSON.parse(raw) as { id: number; method: string };
+		const request = JSON.parse(raw) as { id: number; method: string; params: Record<string, unknown> };
+		this.requests.push(request);
 		queueMicrotask(() => {
-			this.onmessage?.({ data: JSON.stringify({ id: request.id, result: {} }) });
+			const result = request.method === "DOM.resolveNode" ? { object: { objectId: "object-1" } } : {};
+			this.onmessage?.({ data: JSON.stringify({ id: request.id, result }) });
 			if (request.method === "Page.navigate") this.onmessage?.({ data: JSON.stringify({ method: "Page.loadEventFired" }) });
 		});
 	}
@@ -61,6 +66,51 @@ describe("CdpTab.navigate", () => {
 		} finally {
 			tab?.close();
 			vi.useRealTimers();
+			vi.unstubAllGlobals();
+		}
+	});
+});
+
+describe("CdpTab text input", () => {
+	async function openTab(): Promise<CdpTab> {
+		vi.stubGlobal("WebSocket", FakeWebSocket as unknown as typeof WebSocket);
+		return await CdpTab.connect("ws://127.0.0.1:9222/devtools/page/test", "test", "title");
+	}
+
+	it("uses CDP text insertion after focusing a backend node", async () => {
+		let tab: CdpTab | undefined;
+		try {
+			tab = await openTab();
+			await tab.typeIntoBackendNode(7, "hello", false);
+
+			const requests = FakeWebSocket.lastInstance!.requests;
+			const focusCall = requests.find((request) => request.method === "Runtime.callFunctionOn")!;
+			expect(focusCall.params.functionDeclaration).toContain("this.focus()");
+			expect(focusCall.params.functionDeclaration).not.toContain("this.value =");
+			expect(requests.find((request) => request.method === "Input.insertText")?.params).toEqual({ text: "hello" });
+		} finally {
+			tab?.close();
+			vi.unstubAllGlobals();
+		}
+	});
+
+	it("selects before replacement and clears selected text for an empty value", async () => {
+		let tab: CdpTab | undefined;
+		try {
+			tab = await openTab();
+			await tab.typeIntoBackendNode(7, "replacement", true);
+			const requests = FakeWebSocket.lastInstance!.requests;
+			const selectAll = requests.find((request) => request.method === "Input.dispatchKeyEvent")!;
+			expect(selectAll.params).toMatchObject({ type: "keyDown", key: "a", code: "KeyA", windowsVirtualKeyCode: 65, modifiers: process.platform === "darwin" ? 4 : 2 });
+			expect(requests.find((request) => request.method === "Input.insertText")?.params).toEqual({ text: "replacement" });
+
+			requests.length = 0;
+			await tab.typeIntoBackendNode(7, "", true);
+			const emptyReplacement = requests.filter((request) => request.method === "Input.dispatchKeyEvent");
+			expect(emptyReplacement.map((request) => request.params.key)).toEqual(["a", "a", "Backspace", "Backspace"]);
+			expect(requests.some((request) => request.method === "Input.insertText")).toBe(false);
+		} finally {
+			tab?.close();
 			vi.unstubAllGlobals();
 		}
 	});
