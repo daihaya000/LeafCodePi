@@ -42,7 +42,7 @@ async function waitFor(
 async function startBroker(agentDir: string): Promise<ChildProcessWithoutNullStreams> {
   const broker = spawn(
     process.execPath,
-    [path.join(repoDir, "node_modules", "tsx", "dist", "cli.mjs"), path.join(repoDir, "broker", "broker.ts")],
+    ["--import", "tsx", path.join(repoDir, "broker", "broker.ts")],
     {
       cwd: repoDir,
       env: { ...process.env, PI_CODING_AGENT_DIR: agentDir },
