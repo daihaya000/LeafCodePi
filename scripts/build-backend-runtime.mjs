@@ -164,6 +164,10 @@ export async function buildBackendRuntime({ log = console.log, force = false } =
         "const require = __createRequire(import.meta.url);",
       ].join(String.fromCharCode(10)),
     },
+  }).finally(() => {
+    // The Host imports this module in-process: without stop() the esbuild service child (and its
+    // keep-alive ping) stays resident for the Host's whole lifetime after a one-off bundle build.
+    try { void Promise.resolve(esbuild.stop?.()).catch(() => {}); } catch { /* exits with its parent */ }
   });
   if (result.errors.length > 0) {
     for (const error of result.errors) log(`[backend-runtime] ${error.text}`);

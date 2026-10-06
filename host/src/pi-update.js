@@ -316,7 +316,9 @@ export function updatePiBeforeStartup({
       else if (lockPath) error(`Pi synchronization worker may still be alive; leaving ${DEPS_LOCK_NAME} in place`);
       settle({ attempted: true, updated: false, skipped: false, safeToStart: false, error: reason });
     }, timeoutMs);
-    timer.unref?.();
+    // Keep the timer referenced: it is the deadline that unblocks startup. An unref'd deadline let
+    // the event loop drain while a wedged worker (or an injected one) held nothing open, so the
+    // await never settled and the caller was abandoned instead of told the worker timed out.
     child.stdout?.on("data", (chunk) => log(String(chunk).trim()));
     child.stderr?.on("data", (chunk) => error(String(chunk).trim()));
     child.on("message", (message) => { result = message; });

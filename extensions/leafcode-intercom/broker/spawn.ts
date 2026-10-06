@@ -149,6 +149,17 @@ export function writeWindowsHiddenLauncher(
   return launcherPath;
 }
 
+/**
+ * Whether this Node runs `.ts` files natively (type stripping, unflagged since Node 22.18).
+ * The broker graph is erasable TypeScript importing only builtins, so such a Node can run it
+ * directly instead of through the tsx CLI.
+ */
+export function supportsNativeTypeStripping(
+  features: { typescript?: unknown } = process.features as { typescript?: unknown },
+): boolean {
+  return features.typescript === "strip" || features.typescript === "transform";
+}
+
 export function getBrokerLaunchSpec(
   brokerPath: string,
   brokerCommand: string,
@@ -157,6 +168,7 @@ export function getBrokerLaunchSpec(
   platform: NodeJS.Platform = process.platform,
   intercomDir: string = INTERCOM_DIR,
   nodePath: string = process.execPath,
+  nativeTypeScript: boolean = supportsNativeTypeStripping(),
 ): BrokerLaunchSpec {
   if (platform === "win32") {
     const launcherPath = getWindowsHiddenLauncherPath(intercomDir);
@@ -171,9 +183,16 @@ export function getBrokerLaunchSpec(
   }
 
   if (usesDefaultBrokerCommand(brokerCommand, brokerArgs)) {
+    const command = getNodeCommand(nodePath);
+    // The tsx CLI keeps a second Node process alive as a signal relay plus an esbuild service
+    // (~50 MB RSS, ~2x startup). When the broker runs on this very Node binary and it strips types
+    // natively, launch broker.ts directly. A PATH `node` has an unknown version, so it keeps tsx.
+    if (nativeTypeScript && command === nodePath) {
+      return { kind: "direct", command, args: [brokerPath], captureStartupStderr: true };
+    }
     return {
       kind: "direct",
-      command: getNodeCommand(nodePath),
+      command,
       args: [getTsxCliPath(extensionDir), brokerPath],
       captureStartupStderr: true,
     };

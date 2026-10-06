@@ -16,7 +16,18 @@ LOG_ROOT=${XDG_STATE_HOME:-"$HOME/.local/state"}
 LOG_DIR="$LOG_ROOT/leafcode-pi"
 LOG_FILE="$LOG_DIR/launcher.log"
 mkdir -p "$LOG_DIR"
-: >> "$LOG_FILE"
+# Every launch (and every Host restart) appends here, and nothing else trims it: it grew without
+# bound (12+ MiB of Next build output). Keep one previous generation, like host.log does.
+LOG_MAX_BYTES=${LEAFCODE_PI_LAUNCHER_LOG_MAX_BYTES:-8388608}
+if [ -f "$LOG_FILE" ]; then
+  LOG_SIZE=$(wc -c < "$LOG_FILE" | tr -d '[:space:]')
+  if [ "${LOG_SIZE:-0}" -gt "$LOG_MAX_BYTES" ] 2>/dev/null; then
+    mv -f "$LOG_FILE" "$LOG_FILE.1" 2>/dev/null || :
+  fi
+fi
+# The launcher log mirrors host.log (0600): Host output can include local URLs and paths.
+( umask 077 && : >> "$LOG_FILE" )
+chmod 600 "$LOG_FILE" "$LOG_FILE.1" 2>/dev/null || :
 LOG_OFFSET=$(wc -c < "$LOG_FILE" | tr -d '[:space:]')
 printf '\n[%s] Starting LeafCodePi\n' "$(date '+%Y-%m-%d %H:%M:%S %z')" >> "$LOG_FILE"
 

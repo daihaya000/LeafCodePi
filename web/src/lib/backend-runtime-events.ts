@@ -61,7 +61,7 @@ export async function forwardRuntimeEventStream(signal: AbortSignal, { env = pro
     const response = await fetchImpl(`${backendBaseUrl(env)}${BACKEND_RUNTIME_EVENTS_PATH}`, {
       headers: { authorization: `Bearer ${token}`, [BACKEND_PROTOCOL_HEADER]: String(BACKEND_PROTOCOL_VERSION) },
       signal: AbortSignal.any([signal, deadline.signal]), cache: "no-store",
-      // undici-specific; Node's fetch and Next's undici both honor it. Test doubles ignore it.
+      // undici-specific; only the matching undici fetch (runtimeEventsFetch) honors it. Test doubles ignore it.
       dispatcher,
     } as RequestInit);
     if (!response.ok || !response.body || response.headers.get(BACKEND_PROTOCOL_HEADER) !== String(BACKEND_PROTOCOL_VERSION)

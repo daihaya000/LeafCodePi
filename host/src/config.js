@@ -146,3 +146,14 @@ export function webUiUrl(bind, port, deps = {}) {
   const formattedHost = host.includes(":") && !host.startsWith("[") ? `[${host}]` : host;
   return `http://${formattedHost}:${port}`;
 }
+
+/**
+ * Child Node env with ExperimentalWarning silenced. `node:sqlite` (file locks, cookie readers) prints
+ * one per process, and `next build` forks ~15 workers: that warning was the most frequent line in
+ * host.log / launcher.log. An explicit NODE_OPTIONS choice (e.g. --trace-warnings) is preserved.
+ */
+export function withQuietExperimentalWarnings(env = process.env) {
+  const options = String(env.NODE_OPTIONS ?? "");
+  if (/--(?:disable-warning=ExperimentalWarning|no-warnings|trace-warnings)\b/.test(options)) return env;
+  return { ...env, NODE_OPTIONS: `${options} --disable-warning=ExperimentalWarning`.trim() };
+}

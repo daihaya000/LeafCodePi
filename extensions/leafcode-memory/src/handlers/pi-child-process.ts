@@ -387,16 +387,20 @@ export function resolveChildPiInvocation(
   options: ResolveChildPiInvocationOptions = {},
 ): ChildPiInvocation {
   const platform = options.platform ?? process.platform;
-  if (platform !== "win32") {
-    return { command: "pi", args };
-  }
 
+  // Prefer running the bundled Pi CLI with this Node on every platform. LeafCodePi installs Pi
+  // as a package dependency, not a global `pi` command, so on Linux/macOS a bare `pi` used to fail
+  // with `spawn pi ENOENT` and every memory consolidation exited 254.
   const piCliPath = resolvedPiCliPath(options);
   if (piCliPath) {
     return {
       command: options.execPath ?? process.execPath,
       args: [piCliPath, ...args],
     };
+  }
+
+  if (platform !== "win32") {
+    return { command: "pi", args };
   }
 
   const fallback = resolvedWindowsPiInvocation(args, options.execPath ?? process.execPath);

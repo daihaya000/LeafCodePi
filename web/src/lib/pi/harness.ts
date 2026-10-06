@@ -7861,13 +7861,68 @@ export function getTaskSummaries(
 type OfflineSessionSnapshot = {
   messages: UiMessage[];
   todos: TodoDto[];
+  /**
+   * File identity the projection was built from (`offline:` + dev/ino/size/mtime/ctime). Idle remote
+   * polls compare it like a live `messageRevision`, so an unchanged transcript is not re-paged.
+   * Absent when the file changed while it was being read.
+   */
+  revision?: string;
 };
-// ponytail: retain at most eight transcripts (LRU) up to 2 MiB each; larger histories stay uncached.
+/**
+ * LRU of offline transcript projections (at most eight, ~32 MiB of projected JSON in total).
+ * The budget counts the projection, not the JSONL: a compacted 20 MiB session projects to ~1 MiB,
+ * and re-parsing it on every 5s remote poll cost ~150ms CPU plus GC each time.
+ */
+const OFFLINE_SNAPSHOT_MAX_ENTRIES = 8;
+const OFFLINE_SNAPSHOT_MAX_ENTRY_BYTES = 16 * 1024 * 1024;
+const OFFLINE_SNAPSHOT_TOTAL_BYTES = 32 * 1024 * 1024;
+/** Files up to this size are charged their file size; larger ones are measured once by stringify. */
+const OFFLINE_SNAPSHOT_FILE_ESTIMATE_BYTES = 2 * 1024 * 1024;
 const offlineSessionSnapshots = new Map<string, {
   pi: PiModule;
   version: string;
+  bytes: number;
   snapshot: OfflineSessionSnapshot;
 }>();
+
+function offlineSnapshotCachedBytes(): number {
+  let total = 0;
+  for (const entry of offlineSessionSnapshots.values()) total += entry.bytes;
+  return total;
+}
+
+/** Projected size used for the cache budget; small files are charged their (larger) file size. */
+function offlineSnapshotBytes(fileSize: bigint, snapshot: OfflineSessionSnapshot): number {
+  if (fileSize <= BigInt(OFFLINE_SNAPSHOT_FILE_ESTIMATE_BYTES)) return Number(fileSize);
+  try {
+    return JSON.stringify(snapshot.messages).length + JSON.stringify(snapshot.todos).length;
+  } catch {
+    return Number.POSITIVE_INFINITY;
+  }
+}
+
+function rememberOfflineSnapshot(
+  sessionFile: string,
+  entry: { pi: PiModule; version: string; bytes: number; snapshot: OfflineSessionSnapshot },
+): void {
+  if (!(entry.bytes <= OFFLINE_SNAPSHOT_MAX_ENTRY_BYTES)) return;
+  offlineSessionSnapshots.delete(sessionFile);
+  while (
+    offlineSessionSnapshots.size > 0
+    && (offlineSessionSnapshots.size >= OFFLINE_SNAPSHOT_MAX_ENTRIES
+      || offlineSnapshotCachedBytes() + entry.bytes > OFFLINE_SNAPSHOT_TOTAL_BYTES)
+  ) {
+    const oldest = offlineSessionSnapshots.keys().next().value;
+    if (oldest === undefined) break;
+    offlineSessionSnapshots.delete(oldest);
+  }
+  offlineSessionSnapshots.set(sessionFile, entry);
+}
+
+/** Test hook: drop cached offline projections. */
+export function resetOfflineSessionSnapshotsForTests(): void {
+  offlineSessionSnapshots.clear();
+}
 
 function offlineSessionFileVersion(file: string) {
   const stat = statSync(file, { bigint: true });
@@ -7919,23 +7974,26 @@ function readOfflineSessionSnapshot(sessionFile: string): OfflineSessionSnapshot
       },
     },
   } as AgentSession, throughput);
-  const snapshot = { messages, todos: todosFromPiMessages(raw) };
   // A concurrent append/rewrite must not label an older projection with a newer file version.
-  if (before.size <= 2n * 1024n * 1024n && offlineSessionFileVersion(sessionFile).version === before.version) {
-    if (offlineSessionSnapshots.size >= 8) {
-      const oldest = offlineSessionSnapshots.keys().next().value;
-      if (oldest !== undefined) offlineSessionSnapshots.delete(oldest);
-    }
-    offlineSessionSnapshots.set(sessionFile, { pi, version: before.version, snapshot });
+  if (offlineSessionFileVersion(sessionFile).version !== before.version) {
+    return { messages, todos: todosFromPiMessages(raw) };
   }
+  const snapshot: OfflineSessionSnapshot = {
+    messages,
+    todos: todosFromPiMessages(raw),
+    revision: `offline:${before.version}`,
+  };
+  rememberOfflineSnapshot(sessionFile, {
+    pi,
+    version: before.version,
+    bytes: offlineSnapshotBytes(before.size, snapshot),
+    snapshot,
+  });
   return snapshot;
 }
 
-async function readArchivedTaskSnapshot(task: TaskSummary): Promise<{
-  messages: UiMessage[];
-  todos: TodoDto[];
-}> {
-  if (!task.sessionFile) return { messages: [], todos: [] };
+async function readArchivedTaskSnapshot(task: TaskSummary): Promise<OfflineSessionSnapshot> {
+  if (!task.sessionFile) return { messages: [], todos: [], revision: "offline:none" };
   try {
     await loadPi();
     return readOfflineSessionSnapshot(task.sessionFile);
@@ -8209,6 +8267,7 @@ async function offlineDetailParts(
   hangRetryCount: number;
   revertLeafId: string | null;
   manualAbortedAssistantId: string | null;
+  messageRevision?: string;
 }> {
   const startedAt = onTiming ? performance.now() : 0;
   const offline = await readArchivedTaskSnapshot(task);
@@ -8216,6 +8275,8 @@ async function offlineDetailParts(
   return {
     messages: offline.messages,
     todos: offline.todos,
+    // Lets idle `messages=omit` polls of a transcript keep their cached page (see backend-event-stream).
+    ...(offline.revision ? { messageRevision: offline.revision } : {}),
     // The bookkeeping fields of a transcript read live in backend core.
     ...offlineDetailFlags(task),
   };

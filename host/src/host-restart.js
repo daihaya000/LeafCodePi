@@ -1,3 +1,5 @@
+import { readlinkSync, statSync } from "node:fs";
+
 /** Replacement hosts rebuild both services once; do not leak the request to children. */
 export function consumeHostRestartBuild(env) {
   // Older running Hosts pass the skip flag when launching their replacement.
@@ -52,7 +54,7 @@ export function buildHostRestartWaitProgram({
   maxWaitAttempts = 1200,
   relaunchGraceMs = 15_000,
   pollMs = 100,
-}) {
+} = {}) {
   return [
     "const fs = require('node:fs');",
     "const { spawn } = require('node:child_process');",
@@ -62,7 +64,9 @@ export function buildHostRestartWaitProgram({
     `const interval = ${Number(pollMs)};`,
     "let attempts = 0;",
     "let relaunched = false;",
-    "const launch = () => { const child = spawn(executable, [entry], { detached: true, stdio: 'ignore', env: process.env }); child.unref(); };",
+    // Inherit the waiter's stdio: the Host hands it the launcher log (or /dev/null), so the
+    // replacement's startup output lands where the user is already looking.
+    "const launch = () => { const child = spawn(executable, [entry], { detached: true, stdio: 'inherit', env: process.env }); child.unref(); };",
     // Phase 1: our lock clears on quit. Bound the wait so a lock left behind by a
     // killed host cannot strand the restart.
     "const waitForLock = () => {",
@@ -82,4 +86,25 @@ export function buildHostRestartWaitProgram({
     "};",
     "waitForLock();",
   ].join("\n");
+}
+
+/**
+ * Where a POSIX Host's own stdout goes when it is a regular file (start.sh / launch-linux.sh
+ * redirect it to launcher.log). The restart waiter writes the replacement's output there so a
+ * Host restart does not silently drop every later startup line. Anything else (a terminal, a
+ * pipe, /dev/null, no /proc) returns null and the caller falls back to "ignore".
+ */
+export function hostStdoutLogFile({
+  platform = process.platform,
+  readlink = (path) => readlinkSync(path),
+  stat = (path) => statSync(path),
+} = {}) {
+  if (platform !== "linux") return null;
+  try {
+    const target = readlink("/proc/self/fd/1");
+    if (typeof target !== "string" || !target.startsWith("/")) return null;
+    return stat(target).isFile() ? target : null;
+  } catch {
+    return null;
+  }
 }

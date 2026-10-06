@@ -12,6 +12,7 @@ import {
   getWindowsBrokerCommandLine,
   getWindowsHiddenLauncherPath,
   isBrokerHealthOkMessage,
+  supportsNativeTypeStripping,
   writeWindowsHiddenLauncher,
 } from "./spawn.ts";
 
@@ -156,7 +157,7 @@ test("getBrokerLaunchSpec uses custom broker command on Windows", () => {
 });
 
 test("getBrokerLaunchSpec uses node + resolved tsx for the default non-Windows launch", () => {
-  const spec = getBrokerLaunchSpec("C:/repo/broker.ts", "npx", ["--no-install", "tsx"], "C:/repo", "linux", "/tmp/intercom", "/usr/bin/node");
+  const spec = getBrokerLaunchSpec("C:/repo/broker.ts", "npx", ["--no-install", "tsx"], "C:/repo", "linux", "/tmp/intercom", "/usr/bin/node", false);
   assert.equal(spec.command, "/usr/bin/node");
   assert.deepEqual(spec.args, [
     getTsxCliPath("C:/repo"),
@@ -164,6 +165,27 @@ test("getBrokerLaunchSpec uses node + resolved tsx for the default non-Windows l
   ]);
   assert.equal(spec.kind, "direct");
   assert.equal(spec.captureStartupStderr, true);
+});
+
+test("getBrokerLaunchSpec runs broker.ts directly on a Node with native type stripping", () => {
+  const spec = getBrokerLaunchSpec("/repo/broker.ts", "npx", ["--no-install", "tsx"], "/repo", "linux", "/tmp/intercom", "/usr/bin/node", true);
+  assert.equal(spec.command, "/usr/bin/node");
+  assert.deepEqual(spec.args, ["/repo/broker.ts"]);
+  assert.equal(spec.kind, "direct");
+  assert.equal(spec.captureStartupStderr, true);
+});
+
+test("getBrokerLaunchSpec keeps tsx for a PATH node even when this Node strips types", () => {
+  const spec = getBrokerLaunchSpec("/repo/broker.ts", "npx", ["--no-install", "tsx"], "/repo", "linux", "/tmp/intercom", "/opt/pi/pi", true);
+  assert.equal(spec.command, "node");
+  assert.deepEqual(spec.args, [getTsxCliPath("/repo"), "/repo/broker.ts"]);
+});
+
+test("supportsNativeTypeStripping reads process.features.typescript", () => {
+  assert.equal(supportsNativeTypeStripping({ typescript: "strip" }), true);
+  assert.equal(supportsNativeTypeStripping({ typescript: "transform" }), true);
+  assert.equal(supportsNativeTypeStripping({ typescript: false }), false);
+  assert.equal(supportsNativeTypeStripping({}), false);
 });
 
 test("getBrokerLaunchSpec falls back to PATH node for a standalone Pi executable on non-Windows", () => {
@@ -231,7 +253,9 @@ test("spawnBrokerIfNeeded includes stderr from default broker startup failures",
     mkdirSync(brokerDir, { recursive: true });
     mkdirSync(path.dirname(fakeTsxCli), { recursive: true });
     writeFileSync(path.join(extensionDir, "package.json"), JSON.stringify({ type: "module" }));
-    writeFileSync(fakeTsxCli, "process.stderr.write('fake tsx failed\\n'); process.exit(1);\n");
+    writeFileSync(fakeTsxCli, "process.stderr.write('fake broker failed\\n'); process.exit(1);\n");
+    // A Node with native type stripping launches broker.ts directly instead of the tsx CLI.
+    writeFileSync(path.join(brokerDir, "broker.ts"), "process.stderr.write('fake broker failed\\n'); process.exit(1);\n");
 
     const sourceDir = path.dirname(fileURLToPath(import.meta.url));
     for (const fileName of ["spawn.ts", "framing.ts", "paths.ts"]) {
@@ -247,7 +271,7 @@ test("spawnBrokerIfNeeded includes stderr from default broker startup failures",
       (error: unknown) => {
         assert.ok(error instanceof Error);
         assert.match(error.message, /Intercom broker exited before startup with code 1/);
-        assert.match(error.message, /Broker stderr:\nfake tsx failed/);
+        assert.match(error.message, /Broker stderr:\nfake broker failed/);
         return true;
       },
     );

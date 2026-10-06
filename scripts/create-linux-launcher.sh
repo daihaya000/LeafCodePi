@@ -25,8 +25,13 @@ install -m 0644 "$ICON_SOURCE" "$ICON_TARGET"
 # Keep the executable path quoted so spaces in the checkout path are valid in
 # the desktop entry. The path is generated from the current checkout, making
 # the launcher continue to work even when the repository is outside $HOME.
-EXEC_PATH=$(printf '%s' "$LAUNCHER" | sed 's/[\\"]/\\&/g')
-WORKING_DIR=$(printf '%s' "$ROOT_DIR" | sed 's/[\\"]/\\&/g')
+# Desktop-entry escaping is two layers: inside a quoted Exec argument `"`, `` ` ``, `$` and `\`
+# take a backslash, and then every backslash of the value is doubled by the string-escape rule.
+# Escaping only the first layer produced `\"` sequences GLib cannot read (no launcher at all).
+EXEC_PATH=$(printf '%s' "$LAUNCHER" | sed -e 's/[\\"`$]/\\&/g' -e 's/\\/\\\\/g')
+# Path= and Icon= are plain strings: only the string-escape layer applies.
+WORKING_DIR=$(printf '%s' "$ROOT_DIR" | sed 's/\\/\\\\/g')
+ICON_VALUE=$(printf '%s' "$ICON_SOURCE" | sed 's/\\/\\\\/g')
 {
   printf '%s\n' '[Desktop Entry]'
   printf '%s\n' 'Version=1.0'
@@ -35,7 +40,7 @@ WORKING_DIR=$(printf '%s' "$ROOT_DIR" | sed 's/[\\"]/\\&/g')
   printf '%s\n' 'Comment=LeafCodePi Pi Coding Agent'
   printf 'Exec="%s"\n' "$EXEC_PATH"
   # Use the source image directly to avoid GNOME theme/icon-cache color changes.
-  printf 'Icon=%s\n' "$ICON_SOURCE"
+  printf 'Icon=%s\n' "$ICON_VALUE"
   printf 'Path=%s\n' "$WORKING_DIR"
   printf '%s\n' 'Terminal=false'
   printf '%s\n' 'StartupNotify=false'

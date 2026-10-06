@@ -1,11 +1,11 @@
 import { spawn, spawnSync } from "node:child_process";
 import { randomBytes } from "node:crypto";
-import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, unlinkSync, writeFileSync } from "node:fs";
+import { closeSync, existsSync, mkdirSync, openSync, readFileSync, renameSync, rmSync, unlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import SysTrayImport from "systray2";
-import { bindHost, dataDir, DEFAULT_HOST_CONTROL_PORT, DEFAULT_LLAMA_SERVER_PORT, DEFAULT_WEBUI_PORT, readPort, shouldOpenBrowser as envAllowsBrowser, shouldRebindWebUi, shouldUseTray, webUiUrl } from "./config.js";
+import { bindHost, dataDir, DEFAULT_HOST_CONTROL_PORT, DEFAULT_LLAMA_SERVER_PORT, DEFAULT_WEBUI_PORT, readPort, shouldOpenBrowser as envAllowsBrowser, shouldRebindWebUi, shouldUseTray, webUiUrl, withQuietExperimentalWarnings } from "./config.js";
 import { readBrowserConfig, writeBrowserConfig } from "./browser-config.js";
 import { isThisModuleEntrypoint } from "./entry.js";
 import { createLlamaControlServer, closeControlServer, listenControlServer } from "./llama-control-server.js";
@@ -17,7 +17,7 @@ import { createLogFileWriter, formatLogLine } from "./log-file.js";
 import { getListeningPids, getPortListenerStatus } from "./port-scanner.js";
 import { hardKillTree, stopProcessTreeGracefully } from "./process-stop.js";
 import { stopOrphanedWebUi } from "./stale-webui.js";
-import { buildHostRestartScript, buildHostRestartWaitProgram, consumeHostRestartBuild } from "./host-restart.js";
+import { buildHostRestartScript, buildHostRestartWaitProgram, consumeHostRestartBuild, hostStdoutLogFile } from "./host-restart.js";
 import { serviceRestartBusyReason } from "./runtime-restart-guard.js";
 import { DEFAULT_BACKEND_PORT } from "../../shared/backend-protocol.mjs";
 import { createBackendService, shouldRunBackend } from "./backend-service.js";
@@ -420,6 +420,7 @@ function runNodeScript(args, options) {
     windowsHide: true,
     stdio: "pipe",
     ...options,
+    env: withQuietExperimentalWarnings(options?.env ?? process.env),
   });
 }
 
@@ -821,19 +822,52 @@ async function restartHost() {
   log("Host restart requested; spawning replacement…");
   await pullLatestSourcesAsync({ repoRoot: REPO_ROOT, log, error });
   if (process.platform !== "win32") {
-    const waitProgram = buildHostRestartWaitProgram();
-    const child = spawn(
-      process.execPath,
-      ["-e", waitProgram, LOCK_FILE, process.execPath, fileURLToPath(import.meta.url)],
-      {
-        detached: true,
-        stdio: "ignore",
-        env: { ...process.env, LEAFCODE_PI_NO_BROWSER: "1", LEAFCODE_PI_REBUILD_SERVICES: "1" },
-      },
-    );
-    child.once("error", (err) => error(`Host restart failed: ${err.message}`));
-    child.unref();
-    log(`Replacement host waiter spawned (PID ${child.pid ?? "unknown"})`);
+    // Any throw before quit() used to leave `restarting` claimed forever: the Host kept running,
+    // the overlay waited for a replacement that never came, and every later restart was refused.
+    let logFd = null;
+    try {
+      const waitProgram = buildHostRestartWaitProgram();
+      const logFile = hostStdoutLogFile();
+      if (logFile) {
+        try {
+          logFd = openSync(logFile, "a");
+        } catch {
+          logFd = null;
+        }
+      }
+      const output = logFd ?? "ignore";
+      const child = spawn(
+        process.execPath,
+        ["-e", waitProgram, LOCK_FILE, process.execPath, fileURLToPath(import.meta.url)],
+        {
+          detached: true,
+          stdio: ["ignore", output, output],
+          env: { ...process.env, LEAFCODE_PI_NO_BROWSER: "1", LEAFCODE_PI_REBUILD_SERVICES: "1" },
+        },
+      );
+      const spawned = await new Promise((resolveSpawn) => {
+        child.once("spawn", () => resolveSpawn(true));
+        child.once("error", (err) => {
+          error(`Host restart failed: ${err.message}`);
+          resolveSpawn(false);
+        });
+      });
+      if (!spawned) throw new Error("replacement host waiter did not start");
+      child.unref();
+      log(`Replacement host waiter spawned (PID ${child.pid ?? "unknown"})`);
+    } catch (err) {
+      restarting = false;
+      error(`Host restart failed: ${err instanceof Error ? err.message : String(err)}`);
+      throw err;
+    } finally {
+      if (logFd !== null) {
+        try {
+          closeSync(logFd);
+        } catch {
+          /* ignore */
+        }
+      }
+    }
     await quit();
     return;
   }
@@ -893,6 +927,13 @@ async function refreshStatusMenu() {
   await publishStatusWebItem();
 }
 
+/** Tray clicks are fire-and-forget; a rejected restart must be logged, not crash the Host as an unhandled rejection. */
+function trayRequestRestartSafely(target) {
+  return trayRequestRestart(target).catch((err) => {
+    error(`Tray ${target} restart failed: ${err instanceof Error ? err.message : String(err)}`);
+  });
+}
+
 async function trayRequestRestart(target) {
   let blocked = null;
   if (target === "webui") blocked = await webUiRestartBlockReason();
@@ -936,7 +977,7 @@ function buildTrayMenu() {
         checked: false,
         enabled: true,
         click: () => {
-          void trayRequestRestart("webui");
+          void trayRequestRestartSafely("webui");
         },
       },
       {
@@ -945,7 +986,7 @@ function buildTrayMenu() {
         checked: false,
         enabled: true,
         click: () => {
-          void trayRequestRestart("backend");
+          void trayRequestRestartSafely("backend");
         },
       },
       {
@@ -954,7 +995,7 @@ function buildTrayMenu() {
         checked: false,
         enabled: true,
         click: () => {
-          void trayRequestRestart("host");
+          void trayRequestRestartSafely("host");
         },
       },
       {

@@ -358,12 +358,22 @@ describe("buildChildPiPromptArgs", () => {
 });
 
 describe("resolveChildPiInvocation", () => {
-  it("keeps non-Windows child pi invocations unchanged", () => {
+  it("falls back to a PATH pi on non-Windows only when no Pi CLI path resolves", () => {
     const args = ["-p", "--no-session", "hello"];
 
     assert.deepStrictEqual(
-      resolveChildPiInvocation(args, { platform: "linux" }),
+      resolveChildPiInvocation(args, { platform: "linux", piCliPath: null }),
       { command: "pi", args },
+    );
+  });
+
+  it("runs node with the bundled cli.js on Linux instead of a global pi (spawn pi ENOENT)", () => {
+    const args = ["-p", "--no-session", "hello"];
+    const cli = "/home/u/デスクトップ/LeafCodePi/web/node_modules/@earendil-works/pi-coding-agent/dist/cli.js";
+
+    assert.deepStrictEqual(
+      resolveChildPiInvocation(args, { platform: "linux", execPath: "/usr/bin/node", piCliPath: cli }),
+      { command: "/usr/bin/node", args: [cli, ...args] },
     );
   });
 
