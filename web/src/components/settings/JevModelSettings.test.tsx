@@ -1,5 +1,5 @@
 // @vitest-environment happy-dom
-import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { DEFAULT_JEV_MODEL_SETTINGS } from "@/lib/jev-model-settings";
 import { JevModelSettings } from "./JevModelSettings";
@@ -27,6 +27,48 @@ function expand(provider: string) {
 }
 
 describe("JevModelSettings", () => {
+  it.each([
+    [undefined, "Jev形式", "/systemone"],
+    ["systemone", "Jev形式", "/systemone"],
+    ["decisions", "Decisions形式", "/decisions"],
+  ])("shows the resolved wire format without inferring it from the model name (%s)", async (api, label, endpoint) => {
+    mocks.get.mockResolvedValue({ ...dto, models: [typesafe, { ...candidate, api }] });
+    await ready();
+    expand("OpenRouter");
+    const row = screen.getByRole("switch", { name: "OpenRouter · Main / Jev 1.13 を有効化" }).closest("li")!;
+    expect(within(row).getByText(label)).toBeTruthy();
+    expect(within(row).getByTitle(`API形式: ${label} (${endpoint})`)).toBeTruthy();
+    expect(within(row).getByText(label).className).toContain("bg-surface-2");
+    expect(mocks.send).not.toHaveBeenCalled();
+  });
+
+  it("shows both formats within a provider and allows filtering by format or endpoint", async () => {
+    const decisions = { ...candidate, modelId: "vendor/future-judge", name: "Future Judge", api: "decisions" };
+    mocks.get.mockResolvedValue({ ...dto, models: [typesafe, candidate, decisions] });
+    await ready();
+    expand("TypeSafe");
+    expand("OpenRouter");
+    expect(screen.getAllByText("Jev形式")).toHaveLength(2);
+    expect(screen.getAllByText("Decisions形式")).toHaveLength(1);
+    fireEvent.change(screen.getByRole("searchbox"), { target: { value: "Decisions形式" } });
+    expect(screen.getByRole("switch", { name: "OpenRouter · Main / Future Judge を有効化" })).toBeTruthy();
+    expect(screen.queryByText("Jev形式")).toBeNull();
+    fireEvent.change(screen.getByRole("searchbox"), { target: { value: "/systemone" } });
+    expect(screen.getAllByText("Jev形式")).toHaveLength(2);
+    expect(screen.queryByText("Decisions形式")).toBeNull();
+    expect(mocks.send).not.toHaveBeenCalled();
+  });
+
+  it("keeps the API format visible for paused models", async () => {
+    mocks.get.mockResolvedValue({ ...dto, models: [typesafe, { ...candidate, api: "decisions", providerEnabled: false }] });
+    await ready();
+    expand("OpenRouter");
+    const row = screen.getByRole("switch", { name: "OpenRouter · Main / Jev 1.13 を有効化" }).closest("li")!;
+    expect(within(row).getByText("Decisions形式")).toBeTruthy();
+    expect(within(row).getByTitle("API形式: Decisions形式 (/decisions)")).toBeTruthy();
+    expect(row.className).toContain("opacity-50");
+  });
+
   it("uses the same provider cards without a second connection/credential form", async () => {
     await ready();
     expect(screen.getByRole("heading", { name: "Jevモデル" })).toBeTruthy();

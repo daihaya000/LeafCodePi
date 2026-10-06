@@ -24,6 +24,15 @@ function latencyText(entry: JevLatencyEntry | undefined): string | null {
   return entry ? `平均 ${entry.averageMs} ms（${entry.count} 回）` : null;
 }
 
+/** Catalogs without api retain the legacy System One contract. */
+function modelApiLabel(model: JevCatalogModel): string {
+  return model.api === "decisions" ? "Decisions形式" : "Jev形式";
+}
+
+function modelApiEndpoint(model: JevCatalogModel): string {
+  return model.api === "decisions" ? "/decisions" : "/systemone";
+}
+
 type ProviderRow = { key: string; id: string; name: string; accountId?: string; accountLabel?: string; enabled: boolean; models: JevCatalogModel[] };
 
 function moveItem<T>(items: T[], from: number, to: number): T[] {
@@ -166,7 +175,7 @@ export function JevModelSettings({ refreshToken = 0, onProviderCatalogChange }: 
   const visibleRows = rows.flatMap((row) => {
     const matchesProvider = [row.name, row.id, row.accountLabel].some((value) => value?.toLowerCase().includes(searchTerm));
     const matches = searchTerm && !matchesProvider
-      ? row.models.filter((model) => [model.name, model.modelId, model.accountLabel].some((value) => value?.toLowerCase().includes(searchTerm)))
+      ? row.models.filter((model) => [model.name, model.modelId, model.accountLabel, modelApiLabel(model), modelApiEndpoint(model)].some((value) => value?.toLowerCase().includes(searchTerm)))
       : row.models;
     return matches.length ? [{ row, models: matches, open: expanded.has(row.key) || Boolean(searchTerm) }] : [];
   });
@@ -361,6 +370,9 @@ export function JevModelSettings({ refreshToken = 0, onProviderCatalogChange }: 
                     <div className="col-span-2 flex min-w-0 flex-1 items-center gap-3 @xl:col-auto">
                       <span className="flex min-w-0 flex-1 flex-wrap items-center gap-2">
                         <span className="min-w-0 truncate text-sm font-medium">{model.name}</span>
+                        <span title={`API形式: ${modelApiLabel(model)} (${modelApiEndpoint(model)})`}>
+                          <Badge tone="neutral">{modelApiLabel(model)}</Badge>
+                        </span>
                         {model.integrated && model.accountLabel && <span className="text-xs text-muted">アカウント: {model.accountLabel}</span>}
                         <Badge tone={checked && modelEnabled ? "success" : "neutral"}>{checked
                           ? modelEnabled ? active ? "有効" : "有効（未反映）" : active ? "停止中（プロバイダー無効）" : "停止中（未反映）"
