@@ -419,8 +419,7 @@ describe("/api/tasks/[id]/events", () => {
       await vi.advanceTimersByTimeAsync(2_000);
       expect(eventData(await readChunk(reader)).eventType).toBe("remote_poll");
 
-      // Same detail again: the poll still probes ownership but sends nothing,
-      // so the next event the client sees is the later real change.
+      // Same detail again: ownership is still probed, but the next poll backs off to 4s.
       await vi.advanceTimersByTimeAsync(2_000);
       expect(mocks.getTaskDetail).toHaveBeenCalledTimes(3);
 
@@ -428,7 +427,7 @@ describe("/api/tasks/[id]/events", () => {
         ...first,
         messages: [...first.messages, { id: "next", role: "assistant", createdAt: 2, parts: [] }],
       });
-      await vi.advanceTimersByTimeAsync(2_000);
+      await vi.advanceTimersByTimeAsync(4_000);
       const changed = eventData(await readChunk(reader));
       expect(changed.eventType).toBe("remote_poll");
       expect((changed.messages as Array<{ id: string }>).at(-1)?.id).toBe("next");

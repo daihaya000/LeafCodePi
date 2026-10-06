@@ -29,6 +29,8 @@ export const dynamic = "force-dynamic";
 const TASK_SSE_PERF_ENABLED = process.env.NODE_ENV === "development";
 /** Bound ready-path session opens so a hung ensureLive cannot block SSE forever. */
 const TASK_SSE_DETAIL_TIMEOUT_MS = 30_000;
+const REMOTE_TASK_POLL_BASE_MS = 2_000;
+const REMOTE_TASK_POLL_MAX_MS = 10_000;
 
 /**
  * Change key for the foreign-owner poll. Task writes bump `updatedAt`, and the
@@ -86,12 +88,15 @@ export async function GET(
   const stream = new ReadableStream({
     async start(controller) {
       let unsubscribe = () => {};
-      let remotePollTimer: ReturnType<typeof setInterval> | undefined;
+      let remotePollTimer: ReturnType<typeof setTimeout> | undefined;
       let remotePollBusy = false;
+      let remotePollStopped = false;
+      let unchangedRemotePolls = 0;
       /** Last remote snapshot signature, so an unchanged poll costs no send. */
       let lastRemoteSignature: string | undefined;
       const stopRemotePoll = () => {
-        if (remotePollTimer) clearInterval(remotePollTimer);
+        remotePollStopped = true;
+        if (remotePollTimer) clearTimeout(remotePollTimer);
         remotePollTimer = undefined;
       };
       let ready = false;
@@ -292,9 +297,18 @@ export async function GET(
 
         if (isTaskRuntimeOwnedElsewhere(getTask(id) ?? bootstrap)) {
           const writer = sse!;
+          const scheduleRemotePoll = (delayMs: number) => {
+            if (remotePollStopped || writer.closed) return;
+            remotePollTimer = setTimeout(() => {
+              remotePollTimer = undefined;
+              void pollRemoteTask();
+            }, delayMs);
+            remotePollTimer.unref?.();
+          };
           const pollRemoteTask = async () => {
             if (remotePollBusy || writer.closed) return;
             remotePollBusy = true;
+            let nextPollDelayMs = REMOTE_TASK_POLL_BASE_MS;
             try {
               const task = getTask(id);
               if (!task) {
@@ -323,15 +337,14 @@ export async function GET(
                 delete (taskSummary as Record<string, unknown>)[key];
               }
               const messagePage = pageTaskMessages(detail.messages, undefined, readHistoryPageSize());
-              // The poll runs every 2s for as long as another worker owns the task, but an
-              // unchanged detail produces a byte-identical snapshot. Skip the send and keep
-              // only the ownership probe, so an idle foreign task costs no SSE traffic.
+              // Keep active foreign tasks responsive, then back off unchanged details up to
+              // 10s. Skip byte-identical snapshots so idle remote sessions cost fewer reads and no SSE traffic.
               const signature = remotePollSignature(taskSummary, detail, messagePage.messages.length);
               if (signature !== lastRemoteSignature) {
                 lastRemoteSignature = signature;
-                // offline detail always nulls permission/question. Omit them so a
-                // buffered live control event (or local pending at ready) is not
-                // wiped every 2s while another worker holds the lease.
+                unchangedRemotePolls = 0;
+                // Offline detail always nulls permission/question. Omit them so a buffered
+                // live control event (or local pending at ready) is not wiped by remote polls.
                 writer.send("snapshot", {
                   type: "snapshot",
                   task: taskSummary,
@@ -348,16 +361,22 @@ export async function GET(
                   revertLeafId: detail.revertLeafId ?? null,
                   eventType: "remote_poll",
                 });
+              } else {
+                unchangedRemotePolls = Math.min(unchangedRemotePolls + 1, 3);
+                nextPollDelayMs = Math.min(
+                  REMOTE_TASK_POLL_MAX_MS,
+                  REMOTE_TASK_POLL_BASE_MS * 2 ** unchangedRemotePolls,
+                );
               }
               if (!isTaskRuntimeOwnedElsewhere(getTask(id) ?? task)) stopRemotePoll();
             } catch {
               // The owner may be replacing the append-only session file; the next poll retries.
             } finally {
               remotePollBusy = false;
+              if (!remotePollStopped && !writer.closed) scheduleRemotePoll(nextPollDelayMs);
             }
           };
-          remotePollTimer = setInterval(() => void pollRemoteTask(), 2_000);
-          remotePollTimer.unref?.();
+          scheduleRemotePoll(REMOTE_TASK_POLL_BASE_MS);
         }
       } catch (error) {
         sse.send("error", { error: error instanceof Error ? error.message : String(error) });
