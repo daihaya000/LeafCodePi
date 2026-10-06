@@ -53,6 +53,19 @@ describe("GET /api/tasks/[id]", () => {
     expect(mocks.forwardTaskDetail).not.toHaveBeenCalled();
   });
 
+  it("returns an empty 304 when a polled task detail is unchanged", async () => {
+    const first = await GET(request(), params);
+    const etag = first.headers.get("etag");
+    expect(etag?.startsWith("W/")).toBe(true);
+
+    const second = await GET(new NextRequest("http://localhost/api/tasks/task-1", {
+      headers: { "if-none-match": etag! },
+    }), params);
+    expect(second.status).toBe(304);
+    expect(await second.text()).toBe("");
+    expect(mocks.getTaskDetailBounded).toHaveBeenCalledTimes(2);
+  });
+
   it("pages the local detail with the configured history page size", async () => {
     mocks.localRuntimeBlocked.mockReturnValue(false);
     mocks.getTaskDetailBounded.mockResolvedValue({

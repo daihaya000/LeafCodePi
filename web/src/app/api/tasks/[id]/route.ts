@@ -10,6 +10,7 @@ import { readHistoryPageSize } from "@/lib/pi/history-page-size";
 import { localRuntimeBlocked } from "@/lib/pi/runtime-ownership";
 import { forwardTaskDetail, forwardTaskTeardown } from "@/lib/backend-forward";
 import { pageTaskMessages } from "@/lib/task-history";
+import { etagJsonResponse } from "@/lib/etag-json";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -29,7 +30,7 @@ export async function GET(
     // fallback: reading a session this process does not own would report stale state as current.
     if (localRuntimeBlocked()) {
       const forwarded = await forwardTaskDetail(id, detailMessages);
-      if (forwarded.ok) return NextResponse.json({ task: forwarded.detail });
+      if (forwarded.ok) return etagJsonResponse(req, { task: forwarded.detail });
       if (forwarded.reason === "not-found") {
         return NextResponse.json({ error: "タスクが見つかりません" }, { status: 404 });
       }
@@ -48,9 +49,10 @@ export async function GET(
     const detail = await getTaskDetailBounded(id);
     if (messages === "page") {
       const page = pageTaskMessages(detail.messages, undefined, readHistoryPageSize());
-      return NextResponse.json({ task: { ...detail, ...page } });
+      return etagJsonResponse(req, { task: { ...detail, ...page } });
     }
-    return NextResponse.json({ task: detail });
+    // The expanded CodeRequestCard polls full details every 5s while a run is active.
+    return etagJsonResponse(req, { task: detail });
   } catch (error) {
     const { error: message, status } = jsonError(error);
     return NextResponse.json({ error: message }, { status });
