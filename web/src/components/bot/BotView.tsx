@@ -126,8 +126,7 @@ function BotToolActivityGroup({ messages, bot, botId, active, running, modelLabe
       statusMessages={messages}
       active={active}
       running={running}
-    >
-      {messages.map((message, messageIndex) => {
+      renderChildren={() => messages.map((message, messageIndex) => {
         const { tools } = botMessageDisplayData(message);
         return <div key={messageRenderKey(message)} className="min-w-0 space-y-2">
           {messageIndex > 0 && !botMessageHasBubble(message) && <MessageHeader><BotMessageSender {...bot} name={bot?.name ?? "ボット"} createdAt={message.createdAt} providerID={message.provider} modelLabel={botMessageModelLabel(message, modelLabels)} responseDurationMs={message.responseDurationMs} /></MessageHeader>}
@@ -138,7 +137,7 @@ function BotToolActivityGroup({ messages, bot, botId, active, running, modelLabe
           })}
         </div>;
       })}
-    </ActivityLog>
+    />
   );
 }
 

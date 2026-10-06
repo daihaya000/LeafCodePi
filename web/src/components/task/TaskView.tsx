@@ -3774,9 +3774,9 @@ export const TaskView = memo(function TaskView({
                       };
                     })()
                   : undefined;
-              const activityContents =
+              const renderActivityContents =
                 block.kind === "tool-group"
-                  ? block.entries.flatMap((entry, entryIndex) => {
+                  ? () => block.entries.flatMap((entry, entryIndex) => {
                       const message = entry.activityMessage;
                       const modelLabel = messageModelLabel(message, modelLabels);
                       const accountLabel = message.accountId
@@ -3845,7 +3845,7 @@ export const TaskView = memo(function TaskView({
                         />,
                       ];
                     })
-                  : [];
+                  : undefined;
               const activityCount =
                 block.kind === "tool-group"
                   ? block.entries.reduce((count, entry) => count + taskActivityCount(entry), 0)
@@ -3886,7 +3886,8 @@ export const TaskView = memo(function TaskView({
                       statusMessages={block.entries.map((entry) => entry.message)}
                       active={active}
                       running={runningLog}
-                    >{activityContents}</ActivityLog>
+                      renderChildren={renderActivityContents}
+                    />
                   ) : showResume &&
                     resumeInsideExistingBanner &&
                     resumeTarget?.messageId === block.message.id ? (

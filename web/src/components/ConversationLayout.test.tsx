@@ -80,13 +80,16 @@ it("mounts large activity groups in recent-first batches and reveals older items
   const items = Array.from({ length: 50 }, (_, index) => (
     <MessageBubble key={`item-${index}`}>entry-{index}</MessageBubble>
   ));
+  const renderItems = vi.fn(() => items);
   const { container, getByRole } = render(
-    <ActivityLog kind="task" count={50} parts={[]} active={false}>{items}</ActivityLog>,
+    <ActivityLog kind="task" count={50} parts={[]} active={false} renderChildren={renderItems} />,
   );
   const log = container.querySelector("details")!;
   expect(log.querySelector("summary")!.nextElementSibling).toBeNull();
+  expect(renderItems).not.toHaveBeenCalled();
 
   fireEvent.click(log.querySelector("summary")!);
+  expect(renderItems).toHaveBeenCalledTimes(1);
   const content = log.querySelector("summary")!.nextElementSibling!;
   expect(content.textContent).toContain("entry-30");
   expect(content.textContent).toContain("entry-49");
