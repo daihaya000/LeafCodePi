@@ -271,7 +271,7 @@ export default function (pi: ExtensionAPI): void {
       }
       if (action === "count") return;
       const command = asRecord(event.input)?.command;
-      if (isShellTool(event.toolName) && isClosingShellCommand(command)) {
+      if (isShellTool(event.toolName) && isClosingShellCommand(command, event.toolName)) {
         admit(task, event.toolName, action);
         return;
       }

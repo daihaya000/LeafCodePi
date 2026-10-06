@@ -19,13 +19,11 @@ const SHELL_TOOLS = new Set(["bash", "powershell"]);
 const CLOSING_GIT_SUBCOMMANDS = new Set([
   "status", "diff", "log", "show", "add", "commit", "push", "rev-parse", "ls-files", "check-ignore",
   // A rejected push is resolved by fetching and merging the remote before pushing again.
-  "fetch", "pull", "merge",
+  "fetch", "merge",
 ]);
-/** Directory changes that commonly prefix a git call. */
-const DIRECTORY_CHANGE = /^(cd|set-location|pushd|sl)\s+\S/i;
 /** Pipe targets that only shape or filter output. */
 const OUTPUT_FILTER = /^(select-object|select|select-string|out-string|measure-object|sort-object|where-object|head|tail|findstr|grep|wc|sort|more)\b/i;
-const GIT_FORBIDDEN_FLAGS = /(^|\s)(--force|--force-with-lease|-f|--hard|--amend)(\s|$)/;
+const GIT_FORBIDDEN_FLAGS = /(^|\s)(--force(?:-with-lease|-if-includes)?(?:=[^\s]+)?|--hard|--amend|--rebase|--abort|--quit|-f)(?=\s|$)/i;
 
 /** File-changing tools. A task that used one is a "change task" and owes a review step. */
 export const FILE_CHANGE_TOOLS = new Set(["edit", "write"]);
@@ -38,22 +36,112 @@ export function isShellTool(toolName: string): boolean {
  * True when every statement of a shell command is an allowed git status / commit / push call.
  * Used to let the commit and confirmation steps through once every ToDo item is completed.
  */
-export function isClosingShellCommand(command: unknown): boolean {
+type ShellCommandShape = { statements: string[][]; malformed: boolean; dangerous: boolean };
+
+/** Split on shell operators outside quotes and replace quoted arguments with neutral data. */
+function parseShellCommand(command: string, toolName: string): ShellCommandShape {
+  const statements: string[][] = [];
+  let pipeline: string[] = [];
+  let part = "";
+  let quote: "single" | "double" | undefined;
+  let malformed = false;
+  let dangerous = false;
+  const pushPart = () => {
+    const trimmed = part.trim();
+    if (trimmed) pipeline.push(trimmed);
+    part = "";
+  };
+  const pushStatement = () => {
+    pushPart();
+    if (pipeline.length) statements.push(pipeline);
+    pipeline = [];
+  };
+  const powershell = toolName === "powershell";
+
+  for (let i = 0; i < command.length; i += 1) {
+    const char = command[i]!;
+    const next = command[i + 1];
+    if (quote === "single") {
+      if (powershell && char === "'" && next === "'") i += 1;
+      else if (char === "'") quote = undefined;
+      continue;
+    }
+    if (quote === "double") {
+      if (!powershell && char === "\\") i += 1;
+      else if (powershell && char === "`") i += 1;
+      else if (char === '`' && !powershell) dangerous = true;
+      else if (char === '"') quote = undefined;
+      else if (char === "$" && (next === "(" || next === "{")) dangerous = true;
+      continue;
+    }
+    if (char === "'") {
+      quote = "single";
+      part += " '' ";
+      continue;
+    }
+    if (char === '"') {
+      quote = "double";
+      part += " '' ";
+      continue;
+    }
+    if (char === "`") {
+      // PowerShell uses this as an escape; POSIX uses it for command substitution. Reject conservatively.
+      dangerous = true;
+      continue;
+    }
+    if (char === "$" && (next === "(" || next === "{")) {
+      dangerous = true;
+      continue;
+    }
+    if (!powershell && char === "\\" && next !== undefined) {
+      part += " ";
+      i += 1;
+      continue;
+    }
+    if (command.slice(i, i + 4) === "2>&1") {
+      i += 3;
+      continue;
+    }
+    if (char === "&" && next === "&") {
+      pushStatement();
+      i += 1;
+      continue;
+    }
+    if (char === "<" || char === ">" || char === "(" || char === ")" || char === "&") {
+      // A single ampersand backgrounds a POSIX command or invokes PowerShell's call operator.
+      dangerous = true;
+      continue;
+    }
+    if (char === "|") {
+      if (next === "|") {
+        pushStatement();
+        i += 1;
+      } else pushPart();
+      continue;
+    }
+    if (char === ";" || char === "\n" || char === "\r") {
+      pushStatement();
+      if (char === "\r" && next === "\n") i += 1;
+      continue;
+    }
+    part += char;
+  }
+  if (quote) malformed = true;
+  pushStatement();
+  return { statements, malformed, dangerous };
+}
+
+export function isClosingShellCommand(command: unknown, toolName = "powershell"): boolean {
   if (typeof command !== "string" || !command.trim()) return false;
-  // Command substitution, redirection and subshells can hide work behind a git prefix.
-  if (/[`]|\$\(|\$\{/.test(command)) return false;
-  // Quoted text (commit messages, paths) is data: drop it before looking for operators.
-  const bare = command
-    .replace(/'[^'\r\n]*'|"[^"\r\n]*"/g, "''")
-    .replace(/2>&1/g, "");
-  if (/[<>]/.test(bare)) return false;
-  const statements = bare.split(/\r?\n|;|&&|\|\|/).map((part) => part.trim()).filter(Boolean);
-  if (statements.length === 0) return false;
-  return statements.every((statement) => {
-    // A pipe into Select-Object / head / findstr only shapes git output.
-    if (DIRECTORY_CHANGE.test(statement)) return true;
-    const [head = "", ...filters] = statement.split("|").map((part) => part.trim());
+  const parsed = parseShellCommand(command, toolName);
+  if (parsed.malformed || parsed.dangerous || parsed.statements.length === 0) return false;
+  const directoryChange = toolName === "powershell"
+    ? /^(cd|set-location|pushd|sl)\s+\S/i
+    : /^(cd|pushd)\s+\S/i;
+  return parsed.statements.every((pipeline) => {
+    const [head = "", ...filters] = pipeline;
     if (!filters.every((filter) => OUTPUT_FILTER.test(filter))) return false;
+    if (directoryChange.test(head)) return true;
     const match = /^git(?:\s+-C\s+\S+)?\s+([a-z-]+)(.*)$/i.exec(head);
     if (!match) return false;
     const subcommand = match[1]!.toLowerCase();
