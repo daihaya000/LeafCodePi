@@ -1533,7 +1533,8 @@ const SidebarView = memo(function SidebarView({
     const [projectRes, taskRes, healthRes, botRes] = await Promise.allSettled([
       unreadOnly ? Promise.resolve(null) : getJson<{ projects: ProjectDto[] }>("/api/projects?archived=1"),
       getJson<{ tasks: TaskSummary[] }>(
-        includeArchivedTasks ? "/api/tasks?archived=1&kind=all" : "/api/tasks?kind=all",
+        // view=sidebar omits fields the sidebar never reads (about half of the list).
+        includeArchivedTasks ? "/api/tasks?archived=1&kind=all&view=sidebar" : "/api/tasks?kind=all&view=sidebar",
       ),
       unreadOnly ? Promise.resolve(null) : getJson<HealthDto>("/api/health"),
       modeOverride === "code" && !unreadOnly
@@ -2354,7 +2355,7 @@ const SidebarView = memo(function SidebarView({
   }
 
   async function markProjectTasksRead(projectId: string) {
-    const { tasks: allTasks } = await getJson<{ tasks: TaskSummary[] }>("/api/tasks?archived=1&kind=all");
+    const { tasks: allTasks } = await getJson<{ tasks: TaskSummary[] }>("/api/tasks?archived=1&kind=all&view=sidebar");
     for (const task of allTasks) {
       if (task.projectId === projectId && task.status !== "working") {
         markRead("task", task.id, Date.parse(task.updatedAt));

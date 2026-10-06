@@ -113,7 +113,7 @@ beforeEach(() => {
   localStorage.setItem("leafcodepi.mode", "code");
   mocks.getJson.mockReset().mockImplementation((path: string) => {
     if (path === "/api/projects?archived=1") return Promise.resolve({ projects });
-    if (path === "/api/tasks?kind=all" || path === "/api/tasks?archived=1&kind=all") return Promise.resolve({ tasks: [] });
+    if (path === "/api/tasks?kind=all&view=sidebar" || path === "/api/tasks?archived=1&kind=all&view=sidebar") return Promise.resolve({ tasks: [] });
     if (path === "/api/browse/icon") {
       return Promise.resolve({
         path: "C:\\repo-a",
@@ -237,7 +237,7 @@ describe("Sidebar project ordering", () => {
       if (path === "/api/settings/sidebar-project-order") return Promise.resolve({ value: JSON.stringify(order) });
       if (path === "/api/settings/sidebar-pinned-tasks") return Promise.resolve({ value: JSON.stringify(pinned) });
       if (path === "/api/projects?archived=1") return Promise.resolve({ projects });
-      if (path === "/api/tasks?kind=all" || path === "/api/tasks?archived=1&kind=all") return Promise.resolve({ tasks: workingTasks });
+      if (path === "/api/tasks?kind=all&view=sidebar" || path === "/api/tasks?archived=1&kind=all&view=sidebar") return Promise.resolve({ tasks: workingTasks });
       if (path === "/api/health") {
         return Promise.resolve({
           ok: true,
@@ -285,7 +285,7 @@ describe("Sidebar project ordering", () => {
     }];
     mocks.getJson.mockImplementation((path: string) => {
       if (path === "/api/projects?archived=1") return Promise.resolve({ projects });
-      if (path === "/api/tasks?kind=all" || path === "/api/tasks?archived=1&kind=all") return Promise.resolve({ tasks: projectTasks });
+      if (path === "/api/tasks?kind=all&view=sidebar" || path === "/api/tasks?archived=1&kind=all&view=sidebar") return Promise.resolve({ tasks: projectTasks });
       if (path === "/api/health") return Promise.resolve({ ok: true, engineOk: true, version: "1", modelCount: 0 });
       return Promise.reject(new Error(`Unexpected request: ${path}`));
     });
@@ -303,7 +303,7 @@ describe("Sidebar project ordering", () => {
     }];
     mocks.getJson.mockImplementation((path: string) => {
       if (path === "/api/projects?archived=1") return Promise.resolve({ projects: [projects[0]!, archivedProject] });
-      if (path === "/api/tasks?kind=all" || path === "/api/tasks?archived=1&kind=all") return Promise.resolve({ tasks: projectTasks });
+      if (path === "/api/tasks?kind=all&view=sidebar" || path === "/api/tasks?archived=1&kind=all&view=sidebar") return Promise.resolve({ tasks: projectTasks });
       if (path === "/api/health") return Promise.resolve({ ok: true, engineOk: true, version: "1", modelCount: 0 });
       return Promise.reject(new Error(`Unexpected request: ${path}`));
     });
@@ -344,7 +344,7 @@ describe("Sidebar project ordering", () => {
     ];
     mocks.getJson.mockImplementation((path: string) => {
       if (path === "/api/projects?archived=1") return Promise.resolve({ projects });
-      if (path === "/api/tasks?kind=all" || path === "/api/tasks?archived=1&kind=all") return Promise.resolve({ tasks: projectTasks });
+      if (path === "/api/tasks?kind=all&view=sidebar" || path === "/api/tasks?archived=1&kind=all&view=sidebar") return Promise.resolve({ tasks: projectTasks });
       if (path === "/api/health") {
         return Promise.resolve({
           ok: true,
@@ -406,7 +406,7 @@ describe("Sidebar project ordering", () => {
     }));
     mocks.getJson.mockImplementation((path: string) => {
       if (path === "/api/projects?archived=1") return Promise.resolve({ projects });
-      if (path === "/api/tasks?kind=all" || path === "/api/tasks?archived=1&kind=all") return Promise.resolve({ tasks: labeledTasks });
+      if (path === "/api/tasks?kind=all&view=sidebar" || path === "/api/tasks?archived=1&kind=all&view=sidebar") return Promise.resolve({ tasks: labeledTasks });
       if (path === "/api/health") return Promise.resolve({ ok: true, engineOk: true, version: "1", modelCount: 0 });
       return Promise.reject(new Error(`Unexpected request: ${path}`));
     });
@@ -450,8 +450,8 @@ describe("Sidebar project ordering", () => {
     };
     mocks.getJson.mockImplementation((path: string) => {
       if (path === "/api/projects?archived=1") return Promise.resolve({ projects });
-      if (path === "/api/tasks?kind=all") return Promise.resolve({ tasks: [ungrouped] });
-      if (path === "/api/tasks?archived=1&kind=all") return Promise.resolve({ tasks: [ungrouped, archived] });
+      if (path === "/api/tasks?kind=all&view=sidebar") return Promise.resolve({ tasks: [ungrouped] });
+      if (path === "/api/tasks?archived=1&kind=all&view=sidebar") return Promise.resolve({ tasks: [ungrouped, archived] });
       if (path === "/api/health") return Promise.resolve({ ok: true, engineOk: true, version: "1", modelCount: 0 });
       return Promise.reject(new Error(`Unexpected request: ${path}`));
     });
@@ -501,7 +501,7 @@ describe("Sidebar project ordering", () => {
     );
     mocks.getJson.mockImplementation((path: string) => {
       if (path === "/api/projects?archived=1") return Promise.resolve({ projects: benchProjects });
-      if (path === "/api/tasks?kind=all" || path === "/api/tasks?archived=1&kind=all") return Promise.resolve({ tasks: benchTasks });
+      if (path === "/api/tasks?kind=all&view=sidebar" || path === "/api/tasks?archived=1&kind=all&view=sidebar") return Promise.resolve({ tasks: benchTasks });
       if (path === "/api/health") return Promise.resolve({ ok: true, engineOk: true, version: "1", modelCount: 0 });
       return Promise.reject(new Error(`Unexpected request: ${path}`));
     });
@@ -711,7 +711,7 @@ describe("Sidebar project ordering", () => {
       if (path === "/api/projects?archived=1") {
         return Promise.resolve({ projects: [{ ...projects[0], icon: "data:image/png;base64,eA==" }, ...projects.slice(1)] });
       }
-      if (path === "/api/tasks?kind=all" || path === "/api/tasks?archived=1&kind=all") return Promise.resolve({ tasks: [] });
+      if (path === "/api/tasks?kind=all&view=sidebar" || path === "/api/tasks?archived=1&kind=all&view=sidebar") return Promise.resolve({ tasks: [] });
       if (path === "/api/health") return Promise.resolve({ ok: true, engineOk: true, version: "1", modelCount: 0 });
       return Promise.reject(new Error(`Unexpected request: ${path}`));
     });
@@ -737,7 +737,7 @@ describe("Sidebar project ordering", () => {
     ];
     mocks.getJson.mockImplementation((path: string) => {
       if (path === "/api/projects?archived=1") return Promise.resolve({ projects });
-      if (path === "/api/tasks?kind=all" || path === "/api/tasks?archived=1&kind=all") return Promise.resolve({ tasks: projectTasks });
+      if (path === "/api/tasks?kind=all&view=sidebar" || path === "/api/tasks?archived=1&kind=all&view=sidebar") return Promise.resolve({ tasks: projectTasks });
       if (path === "/api/unread") return Promise.resolve({ markers: [{ kind: "task", id: "other", readAt: Date.parse(projectTasks[3]!.updatedAt) }] });
       if (path === "/api/health") return Promise.resolve({ ok: true, engineOk: true, version: "1", modelCount: 0 });
       return Promise.reject(new Error(`Unexpected request: ${path}`));
@@ -789,7 +789,7 @@ describe("Sidebar project ordering", () => {
     let currentProject = { ...projects[0], iconColor: undefined as string | undefined };
     mocks.getJson.mockImplementation((path: string) => {
       if (path === "/api/projects?archived=1") return Promise.resolve({ projects: [currentProject, ...projects.slice(1)] });
-      if (path === "/api/tasks?kind=all" || path === "/api/tasks?archived=1&kind=all") return Promise.resolve({ tasks: [] });
+      if (path === "/api/tasks?kind=all&view=sidebar" || path === "/api/tasks?archived=1&kind=all&view=sidebar") return Promise.resolve({ tasks: [] });
       if (path === "/api/health") return Promise.resolve({ ok: true, engineOk: true, version: "1", modelCount: 0 });
       return Promise.reject(new Error(`Unexpected request: ${path}`));
     });
@@ -971,7 +971,7 @@ describe("Sidebar project ordering", () => {
     }));
     mocks.getJson.mockImplementation((path: string) => {
       if (path === "/api/projects?archived=1") return Promise.resolve({ projects });
-      if (path === "/api/tasks?kind=all" || path === "/api/tasks?archived=1&kind=all") return Promise.resolve({ tasks: projectTasks });
+      if (path === "/api/tasks?kind=all&view=sidebar" || path === "/api/tasks?archived=1&kind=all&view=sidebar") return Promise.resolve({ tasks: projectTasks });
       if (path === "/api/health") {
         return Promise.resolve({
           ok: true,
@@ -1011,7 +1011,7 @@ describe("Sidebar project ordering", () => {
     mocks.activeTaskId = "task-1";
     mocks.getJson.mockImplementation((path: string) => {
       if (path === "/api/projects?archived=1") return Promise.resolve({ projects });
-      if (path === "/api/tasks?kind=all" || path === "/api/tasks?archived=1&kind=all") return Promise.resolve({ tasks: projectTasks });
+      if (path === "/api/tasks?kind=all&view=sidebar" || path === "/api/tasks?archived=1&kind=all&view=sidebar") return Promise.resolve({ tasks: projectTasks });
       if (path === "/api/health") {
         return Promise.resolve({
           ok: true,
@@ -1056,7 +1056,7 @@ describe("Sidebar project ordering", () => {
     mocks.activeTaskId = "task-1";
     mocks.getJson.mockImplementation((path: string) => {
       if (path === "/api/projects?archived=1") return Promise.resolve({ projects });
-      if (path === "/api/tasks?kind=all" || path === "/api/tasks?archived=1&kind=all") return Promise.resolve({ tasks: projectTasks });
+      if (path === "/api/tasks?kind=all&view=sidebar" || path === "/api/tasks?archived=1&kind=all&view=sidebar") return Promise.resolve({ tasks: projectTasks });
       if (path === "/api/health") {
         return Promise.resolve({ ok: true, engineOk: true, version: "1", modelCount: 0 });
       }
@@ -1073,7 +1073,7 @@ describe("Sidebar project ordering", () => {
   it("shows a user-facing error when sidebar data loading fails", async () => {
     mocks.getJson.mockImplementation((path: string) => {
       if (path === "/api/projects?archived=1") return Promise.reject(new Error("プロジェクト取得に失敗しました"));
-      if (path === "/api/tasks?kind=all" || path === "/api/tasks?archived=1&kind=all") return Promise.resolve({ tasks: [] });
+      if (path === "/api/tasks?kind=all&view=sidebar" || path === "/api/tasks?archived=1&kind=all&view=sidebar") return Promise.resolve({ tasks: [] });
       if (path === "/api/health") {
         return Promise.resolve({ ok: true, engineOk: true, version: "1", modelCount: 0 });
       }
@@ -1116,7 +1116,7 @@ describe("Sidebar project ordering", () => {
     localStorage.setItem("leafcodepi.mode", "bot");
     mocks.getJson.mockImplementation((path: string) => {
       if (path === "/api/projects?archived=1") return Promise.resolve({ projects: [] });
-      if (path === "/api/tasks?kind=all" || path === "/api/tasks?archived=1&kind=all") return Promise.resolve({ tasks: [] });
+      if (path === "/api/tasks?kind=all&view=sidebar" || path === "/api/tasks?archived=1&kind=all&view=sidebar") return Promise.resolve({ tasks: [] });
       if (path === "/api/health") {
         return Promise.resolve({
           ok: true,
@@ -1168,7 +1168,7 @@ describe("Sidebar project ordering", () => {
     let currentBots = [initialBot];
     mocks.getJson.mockImplementation((path: string) => {
       if (path === "/api/projects?archived=1") return Promise.resolve({ projects: [] });
-      if (path === "/api/tasks?kind=all" || path === "/api/tasks?archived=1&kind=all") return Promise.resolve({ tasks: [] });
+      if (path === "/api/tasks?kind=all&view=sidebar" || path === "/api/tasks?archived=1&kind=all&view=sidebar") return Promise.resolve({ tasks: [] });
       if (path === "/api/health") {
         return Promise.resolve({
           ok: true,
@@ -1215,7 +1215,7 @@ describe("Sidebar project ordering", () => {
     let currentBots = [initialBot];
     mocks.getJson.mockImplementation((path: string) => {
       if (path === "/api/projects?archived=1") return Promise.resolve({ projects: [] });
-      if (path === "/api/tasks?kind=all" || path === "/api/tasks?archived=1&kind=all") return Promise.resolve({ tasks: [] });
+      if (path === "/api/tasks?kind=all&view=sidebar" || path === "/api/tasks?archived=1&kind=all&view=sidebar") return Promise.resolve({ tasks: [] });
       if (path === "/api/health") {
         return Promise.resolve({
           ok: true,
@@ -1278,7 +1278,7 @@ describe("Sidebar project ordering", () => {
     ];
     mocks.getJson.mockImplementation((path: string) => {
       if (path === "/api/projects?archived=1") return Promise.resolve({ projects: [] });
-      if (path === "/api/tasks?kind=all" || path === "/api/tasks?archived=1&kind=all") return Promise.resolve({ tasks });
+      if (path === "/api/tasks?kind=all&view=sidebar" || path === "/api/tasks?archived=1&kind=all&view=sidebar") return Promise.resolve({ tasks });
       if (path === "/api/health") {
         return Promise.resolve({
           ok: true,
@@ -1352,7 +1352,7 @@ describe("Sidebar project ordering", () => {
     }];
     mocks.getJson.mockImplementation((path: string) => {
       if (path === "/api/projects?archived=1") return Promise.resolve({ projects: [] });
-      if (path === "/api/tasks?kind=all" || path === "/api/tasks?archived=1&kind=all") return Promise.resolve({ tasks });
+      if (path === "/api/tasks?kind=all&view=sidebar" || path === "/api/tasks?archived=1&kind=all&view=sidebar") return Promise.resolve({ tasks });
       if (path === "/api/settings/sidebar-pinned-tasks") {
         return Promise.resolve({ value: JSON.stringify(["session-a"]) });
       }
@@ -1388,7 +1388,7 @@ describe("Sidebar project ordering", () => {
   it("shows the no-project entry even before the first no-project task exists", async () => {
     mocks.getJson.mockImplementation((path: string) => {
       if (path === "/api/projects?archived=1") return Promise.resolve({ projects: [] });
-      if (path === "/api/tasks?kind=all" || path === "/api/tasks?archived=1&kind=all") return Promise.resolve({ tasks: [] });
+      if (path === "/api/tasks?kind=all&view=sidebar" || path === "/api/tasks?archived=1&kind=all&view=sidebar") return Promise.resolve({ tasks: [] });
       if (path === "/api/health") {
         return Promise.resolve({
           ok: true,
@@ -1413,12 +1413,12 @@ describe("Sidebar project ordering", () => {
   it("loads archived sessions only after the archive is expanded", async () => {
     render(<Sidebar mobileOpen={false} onClose={vi.fn()} />);
 
-    await waitFor(() => expect(mocks.getJson).toHaveBeenCalledWith("/api/tasks?kind=all"));
-    expect(mocks.getJson).not.toHaveBeenCalledWith("/api/tasks?archived=1&kind=all");
+    await waitFor(() => expect(mocks.getJson).toHaveBeenCalledWith("/api/tasks?kind=all&view=sidebar"));
+    expect(mocks.getJson).not.toHaveBeenCalledWith("/api/tasks?archived=1&kind=all&view=sidebar");
 
     fireEvent.click(screen.getByRole("button", { name: "アーカイブを展開" }));
     await waitFor(() => {
-      expect(mocks.getJson).toHaveBeenCalledWith("/api/tasks?archived=1&kind=all");
+      expect(mocks.getJson).toHaveBeenCalledWith("/api/tasks?archived=1&kind=all&view=sidebar");
     });
   });
 });
@@ -1453,8 +1453,8 @@ describe("Sidebar task render limit", () => {
   function mockData(tasks: ReturnType<typeof taskFixture>[], archived: ReturnType<typeof taskFixture>[]) {
     mocks.getJson.mockImplementation((path: string) => {
       if (path === "/api/projects?archived=1") return Promise.resolve({ projects });
-      if (path === "/api/tasks?kind=all") return Promise.resolve({ tasks });
-      if (path === "/api/tasks?archived=1&kind=all") return Promise.resolve({ tasks: archived });
+      if (path === "/api/tasks?kind=all&view=sidebar") return Promise.resolve({ tasks });
+      if (path === "/api/tasks?archived=1&kind=all&view=sidebar") return Promise.resolve({ tasks: archived });
       if (path === "/api/health") return Promise.resolve(health);
       return Promise.reject(new Error(`Unexpected request: ${path}`));
     });

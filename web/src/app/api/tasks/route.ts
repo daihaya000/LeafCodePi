@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { etagJsonResponse } from "@/lib/etag-json";
+import { sidebarTaskView } from "@/lib/sidebar-task-view";
 import { relayFallbackAllowed, relayTaskRows } from "@/lib/backend-relay";
 import { forwardPendingAttention } from "@/lib/backend-forward";
 import { createTaskOnBackend } from "@/lib/backend-client";
@@ -95,7 +96,10 @@ export async function GET(req: NextRequest) {
     }
     return etagJsonResponse(req, { tasks: relayedTitles ?? listTasks(includeArchived, kind) });
   }
-  return etagJsonResponse(req, { tasks: await getTaskSummariesWithTodoProgress(includeArchived, kind) });
+  const summaries = await getTaskSummariesWithTodoProgress(includeArchived, kind);
+  return etagJsonResponse(req, {
+    tasks: req.nextUrl.searchParams.get("view") === "sidebar" ? sidebarTaskView(summaries) : summaries,
+  });
 }
 
 export async function DELETE(req: NextRequest) {

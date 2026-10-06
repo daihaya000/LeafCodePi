@@ -122,6 +122,22 @@ describe("GET /api/tasks", () => {
     expect(mocks.autoArchiveOldTasks).toHaveBeenCalledOnce();
     expect(mocks.getTaskSummariesWithTodoProgress).toHaveBeenCalledWith(true, "all");
   });
+
+  it("drops fields the sidebar never reads for view=sidebar only", async () => {
+    const task = {
+      id: "t1", kind: "code", status: "idle", title: "T", projectId: "p", updatedAt: "u", todoProgress: { done: 1, total: 2 },
+      sessionFile: "C:\\s.jsonl", directory: "C:\\repo", sessionId: "s", createdAt: "c", isolation: "none",
+    };
+    mocks.getTaskSummariesWithTodoProgress.mockResolvedValue([task]);
+
+    const sidebar = await (await GET(new NextRequest("http://localhost/api/tasks?kind=all&view=sidebar"))).json();
+    const full = await (await GET(new NextRequest("http://localhost/api/tasks?kind=all"))).json();
+
+    expect(sidebar.tasks).toEqual([{
+      id: "t1", kind: "code", status: "idle", title: "T", projectId: "p", updatedAt: "u", todoProgress: { done: 1, total: 2 },
+    }]);
+    expect(full.tasks).toEqual([task]);
+  });
 });
 
 describe("POST /api/tasks", () => {

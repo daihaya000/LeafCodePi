@@ -73,7 +73,7 @@ beforeEach(() => {
       });
     }
     if (path === "/api/projects?archived=1") return Promise.resolve({ projects: [] });
-    if (path === "/api/tasks?archived=1&kind=all") return Promise.resolve({ tasks: [] });
+    if (path === "/api/tasks?archived=1&kind=all&view=sidebar") return Promise.resolve({ tasks: [] });
     if (path === "/api/health") return Promise.resolve({ ok: true, engineOk: true, version: "1", modelCount: 0 });
     if (path === "/api/notifications") return Promise.resolve({ enabled: true });
     return Promise.reject(new Error(`Unexpected request: ${path}`));
@@ -269,7 +269,7 @@ describe("Bot mode list", () => {
     mocks.getJson.mockImplementation((path: string) => {
       if (path === "/api/bots/sidebar") return Promise.resolve({ bots: [], rooms: [] });
       if (path === "/api/projects?archived=1") return Promise.resolve({ projects: [] });
-      if (path === "/api/tasks?kind=all") return Promise.resolve({ tasks: [{ id: "code-a", kind: "code", status: "idle", updatedAt: "2026-09-22T00:00:00.000Z" }] });
+      if (path === "/api/tasks?kind=all&view=sidebar") return Promise.resolve({ tasks: [{ id: "code-a", kind: "code", status: "idle", updatedAt: "2026-09-22T00:00:00.000Z" }] });
       if (path === "/api/health") return Promise.resolve({ ok: true, engineOk: true, version: "1", modelCount: 0 });
       return Promise.reject(new Error(`Unexpected request: ${path}`));
     });
@@ -289,7 +289,7 @@ describe("Bot mode list", () => {
         rooms: [{ id: "title-room", name: "Room", lastMessageAt: updatedAt }],
       });
       if (path === "/api/projects?archived=1") return Promise.resolve({ projects: [] });
-      if (path === "/api/tasks?kind=all") return Promise.resolve({ tasks: [
+      if (path === "/api/tasks?kind=all&view=sidebar") return Promise.resolve({ tasks: [
         { id: "title-code", kind: "code", status: "idle", updatedAt },
         { id: "title-working", kind: "code", status: "working", updatedAt },
       ] });
@@ -315,7 +315,7 @@ describe("Bot mode list", () => {
     mocks.getJson.mockImplementation((path: string) => {
       if (path === "/api/bots/sidebar") return Promise.resolve({ bots: [], rooms: [] });
       if (path === "/api/projects?archived=1") return Promise.resolve({ projects: [] });
-      if (path === "/api/tasks?kind=all") return Promise.resolve({ tasks: [
+      if (path === "/api/tasks?kind=all&view=sidebar") return Promise.resolve({ tasks: [
         { id: "title-active-code", kind: "code", status: "idle", updatedAt },
       ] });
       if (path === "/api/health") return Promise.resolve({ ok: true, engineOk: true, version: "1", modelCount: 0 });
@@ -324,7 +324,7 @@ describe("Bot mode list", () => {
     const hidden = vi.spyOn(document, "hidden", "get").mockReturnValue(false);
     try {
       render(<Sidebar mobileOpen={false} onClose={vi.fn()} />);
-      await waitFor(() => expect(mocks.getJson.mock.calls.some(([path]) => path === "/api/tasks?kind=all")).toBe(true));
+      await waitFor(() => expect(mocks.getJson.mock.calls.some(([path]) => path === "/api/tasks?kind=all&view=sidebar")).toBe(true));
       expect(document.title).toBe("LCP X870");
       hidden.mockReturnValue(true);
       act(() => document.dispatchEvent(new Event("visibilitychange")));
@@ -345,7 +345,7 @@ describe("Bot mode list", () => {
         { id: "title-active-bot", name: "Bot", lastMessageAt: updatedAt },
       ], rooms: [] });
       if (path === "/api/projects?archived=1") return Promise.resolve({ projects: [] });
-      if (path === "/api/tasks?kind=all") return Promise.resolve({ tasks: [] });
+      if (path === "/api/tasks?kind=all&view=sidebar") return Promise.resolve({ tasks: [] });
       if (path === "/api/health") return Promise.resolve({ ok: true, engineOk: true, version: "1", modelCount: 0 });
       return Promise.reject(new Error(`Unexpected request: ${path}`));
     });
@@ -398,18 +398,18 @@ describe("Bot mode list", () => {
     let releaseTasks: (value: unknown) => void = () => undefined;
     const baseGetJson = mocks.getJson.getMockImplementation()!;
     mocks.getJson.mockImplementation((path: string) => {
-      if (path === "/api/tasks?kind=all") return new Promise((resolve) => { releaseTasks = resolve; });
+      if (path === "/api/tasks?kind=all&view=sidebar") return new Promise((resolve) => { releaseTasks = resolve; });
       if (path === "/api/bots") return Promise.resolve({ bots: [] });
       return baseGetJson(path);
     });
     render(<Sidebar mobileOpen={false} onClose={vi.fn()} />);
-    await waitFor(() => expect(mocks.getJson).toHaveBeenCalledWith("/api/tasks?kind=all"));
+    await waitFor(() => expect(mocks.getJson).toHaveBeenCalledWith("/api/tasks?kind=all&view=sidebar"));
 
     fireEvent.click(screen.getByRole("button", { name: "Code" }));
     expect(mocks.getJson).not.toHaveBeenCalledWith("/api/bots");
 
     mocks.getJson.mockImplementation((path: string) => {
-      if (path === "/api/tasks?kind=all") return Promise.resolve({ tasks: [] });
+      if (path === "/api/tasks?kind=all&view=sidebar") return Promise.resolve({ tasks: [] });
       if (path === "/api/bots") return Promise.resolve({ bots: [] });
       return baseGetJson(path);
     });
@@ -427,7 +427,7 @@ describe("Bot mode list", () => {
       await screen.findByText("Bot A");
       // 初期refreshの完了（in-flight中に次のpollを呼ばない）を待ってから履歴を消す。
       await waitFor(() =>
-        expect(mocks.getJson.mock.calls.some(([path]) => path === "/api/tasks?kind=all")).toBe(true),
+        expect(mocks.getJson.mock.calls.some(([path]) => path === "/api/tasks?kind=all&view=sidebar")).toBe(true),
       );
       await act(async () => {
         await new Promise((resolve) => setTimeout(resolve, 0));
@@ -450,7 +450,7 @@ describe("Bot mode list", () => {
         botPoll?.();
       });
       expect(mocks.getJson.mock.calls.filter(([path]) => path === "/api/bots/sidebar")).toHaveLength(1);
-      expect(mocks.getJson.mock.calls.filter(([path]) => path === "/api/tasks?kind=all")).toHaveLength(1);
+      expect(mocks.getJson.mock.calls.filter(([path]) => path === "/api/tasks?kind=all&view=sidebar")).toHaveLength(1);
       expect(mocks.getJson.mock.calls.filter(([path]) => path === "/api/projects?archived=1")).toHaveLength(0);
       expect(mocks.getJson.mock.calls.filter(([path]) => path === "/api/health")).toHaveLength(0);
     } finally {
@@ -485,7 +485,7 @@ describe("Bot mode list", () => {
       if (path === "/api/bots/sidebar") return Promise.resolve({ bots: [{ id: "bot-a", name: "Alpha" }], rooms: [] });
       if (path === "/api/projects?archived=1") return Promise.resolve({ projects: [] });
       // アーカイブ済みタスクは展開時のみ取得するため、通常表示は kind=all が作業中タスクを運ぶ。
-      if (path === "/api/tasks?kind=all" || path === "/api/tasks?archived=1&kind=all") {
+      if (path === "/api/tasks?kind=all&view=sidebar" || path === "/api/tasks?archived=1&kind=all&view=sidebar") {
         return Promise.resolve({
           tasks: [
             { id: "bot:bot-a", kind: "bot", status: "working", updatedAt: "2026-01-01T00:02:00.000Z" },
@@ -498,7 +498,7 @@ describe("Bot mode list", () => {
     });
 
     render(<Sidebar mobileOpen={false} onClose={vi.fn()} />);
-    await waitFor(() => expect(mocks.getJson).toHaveBeenCalledWith("/api/tasks?kind=all"));
+    await waitFor(() => expect(mocks.getJson).toHaveBeenCalledWith("/api/tasks?kind=all&view=sidebar"));
     fireEvent.click(await screen.findByRole("button", { name: "進行中タスクを分割表示" }));
     await waitFor(() => expect(mocks.dispatch).toHaveBeenCalledWith({
       type: "showWorkingTasks",
@@ -511,7 +511,7 @@ describe("Bot mode list", () => {
     mocks.getJson.mockImplementation((path: string) => {
       if (path === "/api/bots/sidebar") return Promise.resolve({ bots: [{ id: "bot-a", name: "Alpha" }], rooms: [] });
       if (path === "/api/projects?archived=1") return Promise.resolve({ projects: [] });
-      if (path === "/api/tasks?kind=all" || path === "/api/tasks?archived=1&kind=all") {
+      if (path === "/api/tasks?kind=all&view=sidebar" || path === "/api/tasks?archived=1&kind=all&view=sidebar") {
         return Promise.resolve({
           tasks: [
             { id: "code-linked", kind: "code", botId: "bot-a", status: "working", updatedAt: "2026-01-01T00:03:00.000Z" },
@@ -524,7 +524,7 @@ describe("Bot mode list", () => {
     });
 
     render(<Sidebar mobileOpen={false} onClose={vi.fn()} />);
-    await waitFor(() => expect(mocks.getJson).toHaveBeenCalledWith("/api/tasks?kind=all"));
+    await waitFor(() => expect(mocks.getJson).toHaveBeenCalledWith("/api/tasks?kind=all&view=sidebar"));
     fireEvent.click(await screen.findByRole("button", { name: "進行中タスクを分割表示" }));
     await waitFor(() => expect(mocks.dispatch).toHaveBeenCalledWith({
       type: "showWorkingTasks",
@@ -536,7 +536,7 @@ describe("Bot mode list", () => {
     mocks.getJson.mockImplementation((path: string) => {
       if (path === "/api/bots/sidebar") return Promise.resolve({ bots: [{ id: "bot-a", name: "Alpha", codeInProgress: true }], rooms: [] });
       if (path === "/api/projects?archived=1") return Promise.resolve({ projects: [] });
-      if (path === "/api/tasks?archived=1&kind=all") return Promise.resolve({ tasks: [] });
+      if (path === "/api/tasks?archived=1&kind=all&view=sidebar") return Promise.resolve({ tasks: [] });
       if (path === "/api/health") return Promise.resolve({ ok: true, engineOk: true, version: "1", modelCount: 0 });
       return Promise.reject(new Error(`Unexpected request: ${path}`));
     });
@@ -564,7 +564,7 @@ describe("Bot mode list", () => {
         });
       }
       if (path === "/api/projects?archived=1") return Promise.resolve({ projects: [] });
-      if (path === "/api/tasks?archived=1&kind=all") return Promise.resolve({ tasks: [] });
+      if (path === "/api/tasks?archived=1&kind=all&view=sidebar") return Promise.resolve({ tasks: [] });
       if (path === "/api/health") return Promise.resolve({ ok: true, engineOk: true, version: "1", modelCount: 0 });
       return Promise.reject(new Error(`Unexpected request: ${path}`));
     });
@@ -632,7 +632,7 @@ describe("Bot mode collapsed rail", () => {
           : Promise.reject(new Error("一覧更新に失敗しました"));
       }
       if (path === "/api/projects?archived=1") return Promise.resolve({ projects: [] });
-      if (path === "/api/tasks?archived=1&kind=all") return Promise.resolve({ tasks: [] });
+      if (path === "/api/tasks?archived=1&kind=all&view=sidebar") return Promise.resolve({ tasks: [] });
       if (path === "/api/health") return Promise.resolve({ ok: true, engineOk: true, version: "1", modelCount: 0 });
       return Promise.reject(new Error(`Unexpected request: ${path}`));
     });
@@ -670,7 +670,7 @@ describe("Bot mode collapsed rail", () => {
       if (path === "/api/bots/sidebar") return Promise.resolve({ bots: [{ id: "bot-a", name: "Bot A", enabled: true, codeInProgress: true, lastMessageSummary: null, lastMessageAt: null }], rooms: [] });
       if (path === "/api/health") return Promise.resolve({ ok: true, engineOk: true, version: "1", modelCount: 0 });
       if (path === "/api/projects?archived=1") return Promise.resolve({ projects: [] });
-      if (path === "/api/tasks?archived=1&kind=all") return Promise.resolve({ tasks: [] });
+      if (path === "/api/tasks?archived=1&kind=all&view=sidebar") return Promise.resolve({ tasks: [] });
       return Promise.reject(new Error(`Unexpected request: ${path}`));
     });
     render(<Sidebar mobileOpen={false} onClose={vi.fn()} />);
