@@ -4084,7 +4084,8 @@ export function sessionExtensionFactories(input: {
           getSetting(JEV_COMPACTION_ENABLED_SETTING_KEY), getSetting(JEV_COMPACTION_THRESHOLD_SETTING_KEY),
         ]);
         return {
-          enabled: settings.enabled && parseCompactionAction(getSetting(COMPACTION_ACTION_SETTING_KEY)) === "auto" &&
+          enabled: settings.enabled && !live.goalLoopTurnActive && !isActiveGoalLoopSession(live.session) &&
+            parseCompactionAction(getSetting(COMPACTION_ACTION_SETTING_KEY)) === "auto" &&
             getSetting(COMPACTION_BACKGROUND_SETTING_KEY) !== "0",
           startPercent: parseBackgroundCompactionThreshold(getSetting(COMPACTION_BACKGROUND_THRESHOLD_SETTING_KEY)),
           settings,

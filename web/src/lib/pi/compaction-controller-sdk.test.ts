@@ -89,8 +89,8 @@ it("the real SDK applies a ready boundary draft without extra model turns and ca
       tokensBefore: request.preparation.tokensBefore, usage: fauxAssistantMessage("x").usage };
   });
   const env = await runtime((api) => registerCompactionController(api, {
-    config: () => ({ enabled: allowBackground, startPercent: 0, key: "stable",
-      settings: { enabled: true, reserveTokens: 0, keepRecentTokens: 10 } }),
+    config: (ctx) => ({ enabled: allowBackground, startPercent: 0, key: "stable",
+      settings: { enabled: true, reserveTokens: Math.ceil(ctx.model!.contextWindow * 0.1), keepRecentTokens: 10 } }),
     prepare: async (branch, settings) => prepareBackgroundCompaction(sdk, branch, settings),
     summarize, minDeltaTokens: 0,
   }));
@@ -99,9 +99,12 @@ it("the real SDK applies a ready boundary draft without extra model turns and ca
   try {
     await env.session.prompt("continue");
     await ready.promise;
-    // If generation finishes after final settlement, the next ordinary turn is the
-    // commit boundary. Neither readiness nor the compaction itself may create a turn.
-    await env.session.prompt("next ordinary turn");
+    expect(env.manager.getBranch().filter((entry) => entry.type === "compaction")).toHaveLength(0);
+    expect(env.session.getContextUsage()!.percent).toBeLessThan(90);
+    // Readiness below the native threshold must not change the cached prefix.
+    // Real faux providers estimate usage themselves; drive pressure with a large
+    // incoming tail instead of injecting synthetic usage into their response.
+    await env.session.prompt("next ordinary turn " + "delta ".repeat(env.faux.getModel().contextWindow));
     allowBackground = false;
     expect(main).toHaveBeenCalledTimes(2);
     const branch = env.manager.getBranch();

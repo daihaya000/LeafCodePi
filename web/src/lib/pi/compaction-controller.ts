@@ -154,16 +154,23 @@ export function registerCompactionController(pi: ExtensionAPI, options: Compacti
         return;
       }
       const branch = ctx.sessionManager.getBranch();
-      const ready = takeReady(ctx, config, branch);
+      if (job && !matches(job, ctx, config, branch)) cancel();
+      const usage = ctx.getContextUsage();
+      if (typeof usage?.percent !== "number" || !Number.isFinite(usage.percent) ||
+        typeof usage.tokens !== "number" || !Number.isFinite(usage.tokens) ||
+        !Number.isFinite(usage.contextWindow) || usage.contextWindow <= 0) return;
+      // Preparation is speculative, application is not. Match Pi's strict
+      // native trigger; a ready checkpoint must not lower the user's threshold.
+      const atNativeThreshold = usage.tokens > usage.contextWindow - config.settings.reserveTokens;
+      const ready = atNativeThreshold ? takeReady(ctx, config, branch) : undefined;
       if (ready) return {
         entries: [...event.entries, {
           type: "compaction", summary: ready.summary, firstKeptEntryId: ready.firstKeptEntryId,
           details: ready.details, usage: ready.usage,
         }],
       };
-      if (job || inFlight || foreground || now() - lastAttempt < (options.cooldownMs ?? 30_000)) return;
-      const usage = ctx.getContextUsage();
-      if (typeof usage?.percent !== "number" || !Number.isFinite(usage.percent) || usage.contextWindow <= 0) return;
+      if (job || inFlight || foreground || atNativeThreshold ||
+        now() - lastAttempt < (options.cooldownMs ?? 30_000)) return;
       const nativeThreshold = 100 * (1 - config.settings.reserveTokens / usage.contextWindow);
       const startPercent = Math.max(0, Math.min(config.startPercent, nativeThreshold - 5));
       if (usage.percent < startPercent) return;

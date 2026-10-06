@@ -4,11 +4,14 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { ModelSelect, modelOptionForValue } from "@/components/ModelSelect";
 import { GenerationEffortSelect } from "@/components/settings/GenerationModelSettings";
 import { JevSettingCard } from "@/components/settings/JevSettingCard";
-import { Button } from "@/components/ui";
+import { Button, Switch } from "@/components/ui";
 import { getJson, sendJson } from "@/lib/client";
 import { formatTokens } from "@/lib/context-usage";
 import {
   COMPACTION_ACTION_SETTING_KEY,
+  COMPACTION_BACKGROUND_SETTING_KEY,
+  COMPACTION_BACKGROUND_THRESHOLD_SETTING_KEY,
+  parseBackgroundCompactionThreshold,
   COMPACTION_MODEL_EFFORT_SETTING_KEY,
   COMPACTION_MODEL_SETTING_KEY,
   COMPACTION_THRESHOLD_SETTING_KEY,
@@ -32,6 +35,10 @@ export function CompactionSettings() {
   const [settings, setSettings] = useState<CompactionSettingsDto | null>(null);
   const [action, setAction] = useState<CompactionAction>("auto");
   const [threshold, setThreshold] = useState(DEFAULT_COMPACTION_THRESHOLD);
+  const [backgroundEnabled, setBackgroundEnabled] = useState(true);
+  const [backgroundThreshold, setBackgroundThreshold] = useState(70);
+  const [backgroundThresholdInput, setBackgroundThresholdInput] = useState("70");
+  const [backgroundSaving, setBackgroundSaving] = useState(false);
   const [cacheWarmingMode, setCacheWarmingMode] = useState<CacheWarmingMode>("streaming");
   const [jevEnabled, setJevEnabled] = useState(false);
   const [jevThreshold, setJevThreshold] = useState(DEFAULT_JEV_COMPACTION_THRESHOLD);
@@ -68,13 +75,15 @@ export function CompactionSettings() {
 
   const reload = useCallback(async () => {
     try {
-      const [compaction, actionResult, thresholdResult, cacheWarmingResult, jevEnabledResult, jevThresholdResult] = await Promise.all([
+      const [compaction, actionResult, thresholdResult, cacheWarmingResult, jevEnabledResult, jevThresholdResult, backgroundResult, backgroundThresholdResult] = await Promise.all([
         getJson<{ settings: CompactionSettingsDto }>("/api/compaction-settings"),
         getJson<{ value: string | null }>(`/api/settings/${COMPACTION_ACTION_SETTING_KEY}`),
         getJson<{ value: string | null }>(`/api/settings/${COMPACTION_THRESHOLD_SETTING_KEY}`),
         getJson<{ mode?: unknown }>("/api/cache-warming"),
         getJson<{ value: string | null }>(`/api/settings/${JEV_COMPACTION_ENABLED_SETTING_KEY}`),
         getJson<{ value: string | null }>(`/api/settings/${JEV_COMPACTION_THRESHOLD_SETTING_KEY}`),
+        getJson<{ value: string | null }>(`/api/settings/${COMPACTION_BACKGROUND_SETTING_KEY}`),
+        getJson<{ value: string | null }>(`/api/settings/${COMPACTION_BACKGROUND_THRESHOLD_SETTING_KEY}`),
       ]);
       setSettings(compaction.settings);
       setAction(parseCompactionAction(actionResult.value));
@@ -82,6 +91,10 @@ export function CompactionSettings() {
       setCacheWarmingMode(parseCacheWarmingMode(cacheWarmingResult.mode) ?? "streaming");
       setJevEnabled(isJevCompactionEnabled(jevEnabledResult.value));
       setJevThreshold(parseJevCompactionThreshold(jevThresholdResult.value));
+      setBackgroundEnabled(backgroundResult.value !== "0");
+      const start = parseBackgroundCompactionThreshold(backgroundThresholdResult.value);
+      setBackgroundThreshold(start);
+      setBackgroundThresholdInput(String(start));
     } catch (err) {
       setError(err instanceof Error ? err.message : "圧縮設定の読み込みに失敗しました");
     }
@@ -93,9 +106,32 @@ export function CompactionSettings() {
     try {
       await sendJson(`/api/settings/${key}`, { value }, "PUT");
       setError(null);
+      return true;
     } catch (err) {
       setError(err instanceof Error ? err.message : "圧縮設定の保存に失敗しました");
+      return false;
     }
+  }
+
+  async function changeBackgroundEnabled() {
+    setBackgroundSaving(true);
+    const next = !backgroundEnabled;
+    if (await save(COMPACTION_BACKGROUND_SETTING_KEY, next ? "1" : "0")) setBackgroundEnabled(next);
+    setBackgroundSaving(false);
+  }
+
+  async function changeBackgroundThreshold() {
+    const next = Number(backgroundThresholdInput);
+    if (!Number.isInteger(next) || next < 50 || next > 85) {
+      setBackgroundThresholdInput(String(backgroundThreshold));
+      setError("先行生成の開始閾値は50〜85%の整数で指定してください");
+      return;
+    }
+    if (next === backgroundThreshold) return;
+    setBackgroundSaving(true);
+    if (await save(COMPACTION_BACKGROUND_THRESHOLD_SETTING_KEY, String(next))) setBackgroundThreshold(next);
+    else setBackgroundThresholdInput(String(backgroundThreshold));
+    setBackgroundSaving(false);
   }
 
   async function changeAction(value: CompactionAction) {
@@ -177,7 +213,44 @@ export function CompactionSettings() {
           </span>
         </div>
       </div>
-      <p className="mt-3 text-xs text-muted">使用率が{threshold}%に達したら設定した動作を実行します（70〜95%）。</p>
+      <p className="mt-3 text-xs text-muted">
+        {action === "auto" ? `自動圧縮の設定閾値は${threshold}%です（70〜95%）。` : `使用率が${threshold}%に達したら設定した動作を実行します（70〜95%）。`}
+      </p>
+      {action === "auto" && (
+        <p className="mt-1 text-xs text-muted">
+          自動圧縮は安全余白を最低10%確保するため、指定閾値より早く最大90%相当で動く場合があります。
+        </p>
+      )}
+      <div className="mt-4 border-t border-border pt-4">
+        <div className="flex items-start justify-between gap-3">
+          <div className="min-w-0">
+            <h4 className="text-sm font-semibold">圧縮要約の先行生成</h4>
+            <p className="mt-1 text-xs text-muted">
+              要約を裏で準備し、反映は既存の圧縮閾値まで待ちます。準備だけでは履歴やキャッシュを変更しません。
+            </p>
+          </div>
+          <Switch checked={backgroundEnabled} onChange={() => void changeBackgroundEnabled()}
+            label={`圧縮要約の先行生成を${backgroundEnabled ? "無効化" : "有効化"}`}
+            disabled={action !== "auto"} busy={backgroundSaving} />
+        </div>
+        {backgroundEnabled && (
+          <div className="mt-3">
+            <label htmlFor="compaction-background-threshold" className="mb-1.5 block text-sm text-muted">先行生成の開始閾値</label>
+            <span className="flex min-w-0 items-center gap-2">
+              <input id="compaction-background-threshold" type="number" min={50} max={85} step={1}
+                className="h-9 min-w-0 flex-1 rounded-lg border border-border bg-bg px-3 text-sm text-text outline-none focus:border-border-strong disabled:opacity-40"
+                value={backgroundThresholdInput} disabled={action !== "auto" || backgroundSaving}
+                onChange={(event) => setBackgroundThresholdInput(event.target.value)}
+                onBlur={() => void changeBackgroundThreshold()} />
+              <span className="shrink-0 text-sm text-muted">%</span>
+            </span>
+          </div>
+        )}
+        <p className="mt-2 text-xs text-muted">
+          自動圧縮でのみ有効です。手動圧縮・Goal Loopには適用しません。開始は実効圧縮閾値の5ポイント手前までに調整されます。
+          未採用の要約にもAPI利用料が発生する場合があります。
+        </p>
+      </div>
       <div className="mt-4 border-t border-border pt-4">
         <h4 className="text-sm font-semibold">コンパクションモデル</h4>
         <p className="mt-1 text-xs text-muted">

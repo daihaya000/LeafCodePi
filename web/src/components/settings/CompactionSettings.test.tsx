@@ -46,6 +46,74 @@ describe("CompactionSettings", () => {
     sendJson.mockReset();
   });
 
+  it("先行生成の既定値と反映を待つ説明を表示し、ON/OFFを保存する", async () => {
+    render(<CompactionSettings />);
+    const toggle = await screen.findByRole("switch", { name: "圧縮要約の先行生成を無効化" });
+    expect(toggle.getAttribute("aria-checked")).toBe("true");
+    expect((screen.getByLabelText("先行生成の開始閾値") as HTMLInputElement).value).toBe("70");
+    expect(screen.getByText(/反映は既存の圧縮閾値まで待ちます/)).toBeTruthy();
+    expect(screen.getByText(/安全余白を最低10%/)).toBeTruthy();
+    fireEvent.click(toggle);
+    await waitFor(() => expect(sendJson).toHaveBeenCalledWith(
+      "/api/settings/compaction-background-enabled", { value: "0" }, "PUT",
+    ));
+    await waitFor(() => expect(screen.queryByLabelText("先行生成の開始閾値")).toBeNull());
+  });
+
+  it("サーバの先行生成設定を読み込み、開始閾値だけを保存する", async () => {
+    const fallback = getJson.getMockImplementation()!;
+    getJson.mockImplementation((path: string) => {
+      if (path === "/api/settings/compaction-background-threshold") return Promise.resolve({ value: "80" });
+      return fallback(path);
+    });
+    render(<CompactionSettings />);
+    const input = await screen.findByLabelText("先行生成の開始閾値");
+    await waitFor(() => expect((input as HTMLInputElement).value).toBe("80"));
+    fireEvent.change(input, { target: { value: "75" } });
+    fireEvent.blur(input);
+    await waitFor(() => expect(sendJson).toHaveBeenCalledWith(
+      "/api/settings/compaction-background-threshold", { value: "75" }, "PUT",
+    ));
+    expect(sendJson).not.toHaveBeenCalledWith("/api/settings/compactionThreshold", expect.anything(), "PUT");
+  });
+
+  it("無効な先行生成閾値を保存せず、保存失敗時も元の値に戻す", async () => {
+    render(<CompactionSettings />);
+    const input = await screen.findByLabelText("先行生成の開始閾値");
+    fireEvent.change(input, { target: { value: "90" } }); fireEvent.blur(input);
+    expect(sendJson).not.toHaveBeenCalled();
+    expect((input as HTMLInputElement).value).toBe("70");
+    expect(screen.getByRole("alert").textContent).toContain("50〜85%");
+    sendJson.mockRejectedValueOnce(new Error("save failed"));
+    fireEvent.change(input, { target: { value: "75" } }); fireEvent.blur(input);
+    await waitFor(() => expect(screen.getByRole("alert").textContent).toBe("save failed"));
+    expect((input as HTMLInputElement).value).toBe("70");
+  });
+
+  it("提案・無効モードでは先行生成を操作できない", async () => {
+    const fallback = getJson.getMockImplementation()!;
+    getJson.mockImplementation((path: string) => path === "/api/settings/compactionAction"
+      ? Promise.resolve({ value: "suggest" }) : fallback(path));
+    render(<CompactionSettings />);
+    const action = await screen.findByLabelText("動作");
+    await waitFor(() => expect((action as HTMLSelectElement).value).toBe("suggest"));
+    expect((screen.getByRole("switch", { name: "圧縮要約の先行生成を無効化" }) as HTMLButtonElement).disabled).toBe(true);
+    expect((screen.getByLabelText("先行生成の開始閾値") as HTMLInputElement).disabled).toBe(true);
+    expect(screen.queryByText(/安全余白を最低10%/)).toBeNull();
+    fireEvent.change(action, { target: { value: "off" } });
+    await waitFor(() => expect(sendJson).toHaveBeenCalledWith("/api/settings/compactionAction", { value: "off" }, "PUT"));
+    expect((screen.getByLabelText("先行生成の開始閾値") as HTMLInputElement).disabled).toBe(true);
+  });
+
+  it("先行生成スイッチの保存失敗時はON状態を維持する", async () => {
+    render(<CompactionSettings />);
+    const toggle = await screen.findByRole("switch", { name: "圧縮要約の先行生成を無効化" });
+    sendJson.mockRejectedValueOnce(new Error("save failed"));
+    fireEvent.click(toggle);
+    await waitFor(() => expect(screen.getByRole("alert").textContent).toBe("save failed"));
+    expect(toggle.getAttribute("aria-checked")).toBe("true");
+  });
+
   it("Jev設定も共通カードのSwitchと割合表示を使う", async () => {
     render(<CompactionSettings />);
 

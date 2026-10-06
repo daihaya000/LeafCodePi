@@ -80,6 +80,11 @@ describe("background compaction controller", () => {
     expect(f.phases).toContain("ready");
     expect(f.state.branch).toHaveLength(3); // Completion never writes the log itself.
     const existing: SessionBoundaryDraft = { type: "custom", customType: "other" };
+    expect(await f.boundary([existing])).toBeUndefined(); // Ready at 75%, but not due.
+    f.state.percent = 90;
+    expect(await f.boundary()).toBeUndefined(); // Pi uses a strict > trigger.
+    expect(f.phases).not.toContain("applied");
+    f.state.percent = 91;
     const applied = await f.boundary([existing]);
     expect(applied?.entries).toEqual([existing, { type: "compaction", summary: "checkpoint",
       firstKeptEntryId: "keep", details: { test: true }, usage: undefined }]);
@@ -177,6 +182,55 @@ describe("background compaction controller", () => {
     f.options.prepare.mockResolvedValueOnce(undefined as never);
     await f.boundary(); await flush();
     expect(f.options.summarize).not.toHaveBeenCalled();
+  });
+
+  it("starts preparation five points before a lower native threshold", async () => {
+    const f = fixture();
+    f.config.settings.reserveTokens = 30_000; // Effective application threshold: 70%.
+    f.state.percent = 64;
+    await f.boundary(); await flush();
+    expect(f.options.prepare).not.toHaveBeenCalled();
+    f.state.percent = 65;
+    await f.boundary(); await flush();
+    expect(f.options.summarize).toHaveBeenCalledOnce();
+  });
+
+  it.each([
+    undefined,
+    { tokens: null, percent: null, contextWindow: 100_000 },
+    { tokens: Number.NaN, percent: 91, contextWindow: 100_000 },
+    { tokens: 91_000, percent: Number.NaN, contextWindow: 100_000 },
+    { tokens: 91_000, percent: 91, contextWindow: Number.POSITIVE_INFINITY },
+  ])("keeps the checkpoint pending when pressure is unknown or invalid: %j", async (usage) => {
+    const f = fixture();
+    await f.boundary(); await flush(); f.pending.resolve(f.result); await flush();
+    const original = f.ctx.getContextUsage;
+    f.ctx.getContextUsage = () => usage;
+    expect(await f.boundary()).toBeUndefined();
+    expect(f.phases).not.toContain("applied");
+    f.ctx.getContextUsage = original;
+    f.state.percent = 91;
+    expect((await f.boundary())?.entries?.at(-1)?.type).toBe("compaction");
+    expect(f.options.summarize).toHaveBeenCalledOnce();
+  });
+
+  it("does not speculate when native compaction is already due", async () => {
+    const f = fixture();
+    f.state.percent = 91;
+    await f.boundary(); await flush();
+    expect(f.options.prepare).not.toHaveBeenCalled();
+    expect(f.options.summarize).not.toHaveBeenCalled();
+  });
+
+  it("waits for the effective threshold after the context pressure changes", async () => {
+    const f = fixture();
+    await f.boundary(); await flush(); f.pending.resolve(f.result); await flush();
+    f.state.percent = 50;
+    expect(await f.boundary()).toBeUndefined();
+    expect(f.phases).not.toContain("applied");
+    f.state.percent = 95;
+    expect((await f.boundary())?.entries?.at(-1)?.type).toBe("compaction");
+    expect(f.options.summarize).toHaveBeenCalledOnce();
   });
 
   it("catches provider failure and enforces a retry cooldown", async () => {
