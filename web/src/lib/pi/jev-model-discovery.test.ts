@@ -13,6 +13,42 @@ const reply = (models: unknown[]) => vi.fn().mockImplementation(async () => new 
 beforeEach(clearJevDiscoveryCache);
 
 describe("Jev discovery", () => {
+  it.each([false, true])("discovers OpenAI Decisions before or after the chat catalog update (native: %s)", async (native) => {
+    const rt = { ...runtime(native ? [{ id: "gpt-6-luna", name: "GPT-6 Luna" }] : []),
+      getProviders: () => [{ id: "openai", name: "OpenAI" }] };
+    const fetchImpl = reply([]);
+    const models = await discoverJevModels(rt, { accountId: "one", accountLabel: "Main" }, fetchImpl);
+    expect(models).toMatchObject([{
+      providerId: "openai", providerName: "OpenAI", modelId: "gpt-6-luna", accountId: "one", accountLabel: "Main",
+      baseUrl: "https://api.openai.com/v1", source: native ? "catalog" : "documented",
+    }]);
+    expect(registeredJevEndpoint(rt, models[0])).toBe("https://api.openai.com/v1");
+    expect(fetchImpl).not.toHaveBeenCalled();
+    // Luna also supports chat; adding a Decisions adapter must not remove its chat capability.
+    expect(isJevModel({ id: "gpt-6-luna", api: "openai-responses" })).toBe(false);
+  });
+
+  it("never discovers Decisions using Codex OAuth, unrelated providers or absent API auth", async () => {
+    const fetchImpl = reply([]);
+    for (const id of ["openai-codex", "custom"]) {
+      const rt = { ...runtime([{ id: "gpt-6-luna" }]), getProviders: () => [{ id, name: id }] };
+      expect(await discoverJevModels(rt, {}, fetchImpl)).toEqual([]);
+      expect(registeredJevEndpoint(rt, { providerId: id, modelId: "gpt-6-luna" })).toBeUndefined();
+    }
+    const rt = { ...runtime(), getProviders: () => [{ id: "openai", name: "OpenAI" }], checkAuth: async () => undefined };
+    expect(await discoverJevModels(rt, {}, fetchImpl)).toEqual([]);
+    expect(fetchImpl).not.toHaveBeenCalled();
+  });
+
+  it("preserves OpenAI native endpoints and rejects invalid overrides without rerouting credentials", async () => {
+    const rt = { ...runtime(), getProviders: () => [{ id: "openai", name: "OpenAI" }],
+      getModels: () => [{ id: "gpt-6-luna", baseUrl: "https://custom.example/v1" }] };
+    expect((await discoverJevModels(rt, {}, reply([])))[0].baseUrl).toBe("https://custom.example/v1");
+    const invalid = { ...rt, getModels: () => [{ id: "gpt-6-luna", baseUrl: "https://user:password@example.com/v1" }] };
+    expect(await discoverJevModels(invalid, {}, reply([]))).toEqual([]);
+    expect(registeredJevEndpoint(invalid, { providerId: "openai", modelId: "gpt-6-luna" })).toBeUndefined();
+  });
+
   it("supplements the chat catalog with OpenRouter's decisions catalog without sending credentials", async () => {
     const fetchImpl = reply([jev, alias, { id: "ordinary-chat" }]);
     const models = await discoverJevModels(runtime([jev]), { accountId: "account-1", accountLabel: "Main" }, fetchImpl);

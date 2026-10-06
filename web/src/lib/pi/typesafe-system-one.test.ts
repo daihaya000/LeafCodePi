@@ -38,6 +38,107 @@ beforeEach(() => {
 });
 
 describe("evaluateTypeSafe", () => {
+  function useOpenAi() {
+    const ref = { providerId: "openai", modelId: "gpt-6-luna", accountId: "openai-one" };
+    mocks.readSettings.mockReturnValue({ ...DEFAULT_JEV_MODEL_SETTINGS, provider: "registered", registeredModel: ref });
+    mocks.resolve.mockResolvedValue({ baseUrl: "https://api.openai.com/v1", model: ref.modelId,
+      apiKey: "openai-test-key", headers: { "OpenAI-Project": "test-project" } });
+    return ref;
+  }
+
+  it("routes OpenAI Decisions through existing account auth and exposes Jev-compatible judgments", async () => {
+    useOpenAi();
+    const fetchImpl = respond({ model: "gpt-6-luna", answers: [{ type: "predicate", name: "connected", probability: 0.9 }],
+      usage: { input_tokens: 42, output_tokens: 0 } });
+    await expect(evaluateTypeSafe(request, { fetchImpl, apiKey: "unrelated-key" })).resolves.toEqual({
+      model: "gpt-6-luna", answers: result.answers, usage: { input_tokens: 42, output_tokens: 0 },
+    });
+    expect(fetchImpl).toHaveBeenCalledWith("https://api.openai.com/v1/decisions", expect.objectContaining({
+      method: "POST", redirect: "error",
+      headers: { Authorization: "Bearer openai-test-key", "Content-Type": "application/json", "OpenAI-Project": "test-project" },
+      body: JSON.stringify({ model: "gpt-6-luna", input: request.state,
+        questions: [{ type: "predicate", name: "connected", instructions: "Is this a test?" }] }),
+    }));
+    expect(mocks.recordLatency).toHaveBeenCalledWith("gpt-6-luna", expect.any(Number));
+    expect(mocks.recordUsage).not.toHaveBeenCalled();
+  });
+
+  it("validates converted Decisions choice and score scalars at the shared boundary", async () => {
+    useOpenAi();
+    const typedRequest = { state: { message: "test" }, questions: {
+      team: { type: "choice" as const, instructions: "Which?", criteria: { a: null, none: null } },
+      severity: { type: "score" as const, instructions: "Rate?", criteria: ["low", "high"] },
+    } };
+    const answers = [
+      { type: "choice", name: "team", choice: "a", confidence: 0.8,
+        probabilities: [{ value: "a", probability: 0.9 }, { value: "none", probability: 0.1 }] },
+      { type: "score", name: "severity", score: 0.7, confidence: 0.4,
+        probabilities: [{ value: 0, probability: 0.3 }, { value: 1, probability: 0.7 }] },
+    ];
+    const body = { model: "gpt-6-luna", answers, usage: { input_tokens: 42, output_tokens: 0 } };
+    await expect(evaluateTypeSafe(typedRequest, { fetchImpl: respond(body) })).resolves.toMatchObject({ answers: {
+      team: { type: "choice", choice: "a", confidence: 0.8, probabilities: { a: 0.9, none: 0.1 } },
+      severity: { type: "score", score: 0.7, confidence: 0.4, probabilities: { "0": 0.3, "1": 0.7 } },
+    } });
+    for (const invalid of [
+      { ...body, model: undefined },
+      { ...body, usage: undefined },
+      { ...body, usage: { input_tokens: 42, output_tokens: -1 } },
+      { ...body, answers: [{ ...answers[0], choice: "unknown" }, answers[1]] },
+      { ...body, answers: [{ ...answers[0], confidence: 2 }, answers[1]] },
+      { ...body, answers: [answers[0], { ...answers[1], score: 2 }] },
+    ]) {
+      await expect(evaluateTypeSafe(typedRequest, { fetchImpl: respond(invalid) })).rejects.toThrow("Jev API returned");
+    }
+    expect(mocks.recordLatency).toHaveBeenCalledTimes(1);
+  });
+
+  it("retains Decisions cancellation and timeout without contacting a fallback", async () => {
+    const first = useOpenAi();
+    const second = { providerId: "typesafe", modelId: "jev-latest" };
+    mocks.readSettings.mockReturnValue({ ...DEFAULT_JEV_MODEL_SETTINGS, provider: "registered", enabledModels: [first, second] });
+    const controller = new AbortController();
+    const timeout = vi.spyOn(AbortSignal, "timeout");
+    const fetchImpl = vi.fn().mockImplementation(async (_url, init) => {
+      expect(init.signal.aborted).toBe(false);
+      controller.abort();
+      expect(init.signal.aborted).toBe(true);
+      throw new Error("cancelled");
+    });
+    try {
+      await expect(evaluateTypeSafe(request, { fetchImpl, signal: controller.signal })).rejects.toThrow("cancelled");
+      expect(timeout).toHaveBeenCalledWith(DEFAULT_JEV_MODEL_SETTINGS.timeoutMs);
+      expect(fetchImpl).toHaveBeenCalledTimes(1);
+    } finally {
+      timeout.mockRestore();
+    }
+  });
+
+  it.each([
+    { type: "predicate", name: "connected", probability: 1.5 },
+    { type: "predicate", name: "connected", probability: "0.9" },
+    { type: "refusal", name: "connected" },
+  ])("rejects invalid Decisions answers before consumers and latency accounting", async (answer) => {
+    useOpenAi();
+    await expect(evaluateTypeSafe(request, { fetchImpl: respond({ model: "gpt-6-luna", answers: [answer],
+      usage: { input_tokens: 42, output_tokens: 0 } }) })).rejects.toThrow();
+    expect(mocks.recordLatency).not.toHaveBeenCalled();
+  });
+
+  it("falls back from a Decisions refusal only to another explicitly enabled model", async () => {
+    const first = useOpenAi();
+    const second = { providerId: "typesafe", modelId: "jev-latest" };
+    mocks.readSettings.mockReturnValue({ ...DEFAULT_JEV_MODEL_SETTINGS, provider: "registered", enabledModels: [first, second] });
+    mocks.resolve.mockResolvedValueOnce({ baseUrl: "https://api.openai.com/v1", model: first.modelId, apiKey: "openai-test-key" })
+      .mockResolvedValueOnce({ baseUrl: "https://api.typesafe.ai/v1", model: second.modelId, apiKey: "typesafe-test-key" });
+    const fetchImpl = vi.fn().mockResolvedValueOnce(new Response(JSON.stringify({ model: first.modelId,
+      answers: [{ type: "refusal", name: "connected" }], usage: { input_tokens: 42, output_tokens: 0 } })))
+      .mockResolvedValueOnce(new Response(JSON.stringify(result)));
+    await expect(evaluateTypeSafe(request, { fetchImpl })).resolves.toEqual(result);
+    expect(fetchImpl.mock.calls.map(([url]) => url)).toEqual(["https://api.openai.com/v1/decisions", "https://api.typesafe.ai/v1/systemone"]);
+    expect(mocks.recordLatency).toHaveBeenCalledTimes(1);
+  });
+
   it("preserves the default TypeSafe endpoint, model, auth and usage accounting", async () => {
     const fetchImpl = respond();
     await expect(evaluateTypeSafe(request, { fetchImpl })).resolves.toEqual(result);

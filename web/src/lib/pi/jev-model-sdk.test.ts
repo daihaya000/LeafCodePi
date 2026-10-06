@@ -38,6 +38,32 @@ function classifier(id = "judge-v1", baseUrl = "https://model.example/v1"): Clas
 const noNetwork = () => vi.fn().mockResolvedValue(new Response(JSON.stringify({ data: [] })));
 
 describe("Jev discovery against the installed SDK contract", () => {
+  it("discovers and resolves the documented OpenAI Decisions model with the installed runtime", async () => {
+    const rt = await runtime();
+    rt.registerProvider("openai", { apiKey: "openai-test-key", models: [] });
+    const fetchImpl = noNetwork();
+    const models = await discoverJevModels(rt, { providerIds: ["openai"], accountId: "one" }, fetchImpl);
+    expect(models).toMatchObject([{ providerId: "openai", modelId: "gpt-6-luna", accountId: "one", source: "documented" }]);
+    expect(await resolveRegisteredJevConnection(rt, models[0], fetchImpl)).toEqual({
+      baseUrl: "https://api.openai.com/v1", model: "gpt-6-luna", apiKey: "openai-test-key", headers: {},
+    });
+    expect(fetchImpl).not.toHaveBeenCalled();
+  });
+
+  it("resolves OpenAI's native chat row for Decisions without changing the chat registry", async () => {
+    const rt = await runtime();
+    rt.registerProvider("openai", { apiKey: "openai-test-key", models: [{
+      id: "gpt-6-luna", name: "GPT-6 Luna", type: "chat", api: "openai-responses", baseUrl: "https://gateway.example/v1",
+      reasoning: false, input: ["text"], cost: { input: 0.1, output: 0, cacheRead: 0, cacheWrite: 0 }, contextWindow: 32_000, maxTokens: 1024,
+    }] });
+    const fetchImpl = noNetwork();
+    const models = await discoverJevModels(rt, { providerIds: ["openai"] }, fetchImpl);
+    expect(models).toMatchObject([{ modelId: "gpt-6-luna", baseUrl: "https://gateway.example/v1" }]);
+    expect((await resolveRegisteredJevConnection(rt, models[0], fetchImpl)).baseUrl).toBe("https://gateway.example/v1");
+    expect(rt.getModels("openai").map((model) => model.id)).toEqual(["gpt-6-luna"]);
+    expect(fetchImpl).not.toHaveBeenCalled();
+  });
+
   it("registers both LeafJev models only as classifiers using LeafCodeCloud URL and credentials across refreshes", async () => {
     const rt = await runtime();
     const dir = dirs[dirs.length - 1];

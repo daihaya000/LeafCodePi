@@ -48,12 +48,19 @@ export function selectNativeJevModel<T extends { id: string }>(models: readonly 
   return supported.find(hasSystemOneEndpoint) ?? supported[0] ?? matching[0];
 }
 
+export const OPENAI_DECISIONS_MODEL = "gpt-6-luna";
+
+/** Decisions uses API-key OpenAI auth, not the separate Codex subscription. */
+export function isOpenAiDecisionsModel(providerId: string, modelId: unknown): boolean {
+  return providerId === "openai" && modelId === OPENAI_DECISIONS_MODEL;
+}
+
 /** Only explicit System One support or a documented provider establishes compatibility. */
 export function supportsJevModel(providerId: string, value: unknown): boolean {
   const model = record(value);
   if (model.type !== undefined && model.type !== "chat" && model.type !== "classifier") return false;
   // Other classifier APIs have incompatible request/response contracts despite a Jev-like name.
   if (model.type === "classifier") return hasSystemOneEndpoint(value);
-  return hasSystemOneEndpoint(value) ||
+  return hasSystemOneEndpoint(value) || isOpenAiDecisionsModel(providerId, model.id) ||
     (["typesafe", "openrouter", "commandcode"].includes(providerId) && isJevModel(value));
 }

@@ -1,5 +1,6 @@
 import { recordTypesafeUsage } from "@/lib/codexbar/providers/typesafe";
-import { jevModelKey } from "@/lib/jev-model-catalog";
+import { isOpenAiDecisionsModel, jevModelKey } from "@/lib/jev-model-catalog";
+import { toDecisionsRequest, fromDecisionsResponse } from "./openai-decisions";
 import { enabledJevModelKeys } from "@/lib/jev-model-settings";
 import { accountProviderModelKey, readProviderModelState } from "@/lib/provider-model-state";
 import { accountRoutingMode, readProviderRouting } from "@/lib/provider-routing";
@@ -12,7 +13,7 @@ type TypeSafeQuestion = {
   criteria?: Record<string, string | null> | readonly string[];
 };
 
-type TypeSafeRequest = {
+export type TypeSafeRequest = {
   state: string | object | readonly unknown[];
   questions: Record<string, TypeSafeQuestion>;
 };
@@ -23,6 +24,8 @@ export type TypeSafeAnswer = {
   choice?: string;
   confidence?: number;
   score?: number;
+  probabilities?: Record<string, number>;
+  legend?: Record<string, string>;
 };
 
 export type TypeSafeResponse = {
@@ -120,7 +123,9 @@ export async function evaluateTypeSafe(
       const apiKey = ref ? storedKey : options.apiKey ?? storedKey;
       // 認証解決は含めず、HTTP往復と本文検証だけを計測する。
       const startedAt = performance.now();
-      const response = await (options.fetchImpl ?? fetch)(`${baseUrl}/systemone`, {
+      const decisions = isOpenAiDecisionsModel(ref?.providerId ?? "", model);
+      const body = decisions ? toDecisionsRequest(request, model) : { ...request, model };
+      const response = await (options.fetchImpl ?? fetch)(`${baseUrl}/${decisions ? "decisions" : "systemone"}`, {
         method: "POST",
         headers: {
           ...headers,
@@ -128,13 +133,14 @@ export async function evaluateTypeSafe(
           "Content-Type": "application/json",
         },
         redirect: "error",
-        body: JSON.stringify({ ...request, model }),
+        body: JSON.stringify(body),
         signal: options.signal
           ? AbortSignal.any([options.signal, AbortSignal.timeout(settings.timeoutMs)])
           : AbortSignal.timeout(settings.timeoutMs),
       });
       if (!response.ok) throw new Error(`Jev API error: ${response.status}`);
-      const result: unknown = await response.json();
+      const raw: unknown = await response.json();
+      const result: unknown = decisions ? fromDecisionsResponse(raw, request) : raw;
       validateResponse(result, request);
       recordJevLatency(result.model, performance.now() - startedAt);
       if (ref?.providerId === "typesafe" || !ref && settings.provider === "typesafe") recordTypesafeUsage(result.usage);

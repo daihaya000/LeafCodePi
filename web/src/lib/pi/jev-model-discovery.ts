@@ -1,4 +1,4 @@
-import { jevModelKey, selectNativeJevModel, supportsJevModel, type JevCatalogModel, type JevModelRef } from "@/lib/jev-model-catalog";
+import { isOpenAiDecisionsModel, OPENAI_DECISIONS_MODEL, jevModelKey, selectNativeJevModel, supportsJevModel, type JevCatalogModel, type JevModelRef } from "@/lib/jev-model-catalog";
 import { DEFAULT_JEV_MODEL_SETTINGS } from "@/lib/jev-model-settings";
 import { TYPESAFE_API_BASE_URL, TYPESAFE_PROVIDER_ID } from "./typesafe-provider";
 
@@ -45,7 +45,8 @@ function providerBaseUrl(provider: Provider): string | undefined {
   }
   // Credential-only providers have no model from which the SDK can expose baseUrl.
   const defaultBaseUrl = provider.id === TYPESAFE_PROVIDER_ID ? TYPESAFE_API_BASE_URL
-    : provider.id === "openrouter" ? "https://openrouter.ai/api/v1" : undefined;
+    : provider.id === "openrouter" ? "https://openrouter.ai/api/v1"
+    : provider.id === "openai" ? "https://api.openai.com/v1" : undefined;
   return validJevBaseUrl(provider.baseUrl ?? defaultBaseUrl);
 }
 
@@ -54,7 +55,8 @@ export function registeredJevEndpoint(runtime: JevDiscoveryRuntime, ref: JevMode
   if (!provider) return undefined;
   const local = selectNativeJevModel(nativeModels(runtime, ref.providerId), ref);
   const documented = provider.id === TYPESAFE_PROVIDER_ID && ref.modelId === DEFAULT_JEV_MODEL_SETTINGS.typesafeModel
-    || provider.id === "commandcode" && ref.modelId === "typesafe/jev";
+    || provider.id === "commandcode" && ref.modelId === "typesafe/jev"
+    || isOpenAiDecisionsModel(provider.id, ref.modelId);
   if (local ? !supportsJevModel(ref.providerId, local) : !documented) return undefined;
   // Native model configuration is authoritative; invalid overrides must not reroute credentials.
   return local?.baseUrl !== undefined ? validJevBaseUrl(local.baseUrl) : providerBaseUrl(provider);
@@ -118,6 +120,16 @@ export async function discoverJevModels(
           name: typeof model.name === "string" ? model.name.slice(0, 256) : model.id,
           baseUrl: endpoint,
           source: "catalog",
+          ...(scope.accountId ? { accountId: scope.accountId, accountLabel: scope.accountLabel } : {}),
+        };
+        found.set(jevModelKey(row), row);
+      }
+      // Public beta may precede the SDK catalog; preserve account-scoped OpenAI credentials.
+      if (provider.id === "openai" && baseUrl && !localIds.has(OPENAI_DECISIONS_MODEL)) {
+        const row: JevCatalogModel = {
+          providerId: provider.id, providerName: provider.name,
+          modelId: OPENAI_DECISIONS_MODEL, name: "GPT-6 Luna (Decisions)",
+          baseUrl, source: "documented",
           ...(scope.accountId ? { accountId: scope.accountId, accountLabel: scope.accountLabel } : {}),
         };
         found.set(jevModelKey(row), row);
