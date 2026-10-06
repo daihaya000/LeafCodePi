@@ -14,6 +14,8 @@ function fakeSpawn() {
   const children = [];
   const spawn = (command, args, options) => {
     const child = new EventEmitter();
+    child.stdout = new EventEmitter();
+    child.stderr = new EventEmitter();
     child.kill = () => {
       child.killed = true;
       child.emit("exit", 0, null);
@@ -63,18 +65,17 @@ test("starting spawns the planned Backend once, with the pinned generation", () 
 });
 
 test("Backend stdout and stderr are consumed and forwarded to the output sink", () => {
-  const child = new EventEmitter();
-  child.stdout = new EventEmitter();
-  child.stderr = new EventEmitter();
+  const { spawn, children } = fakeSpawn();
   const output = [];
   const service = createBackendService({
     repoRoot: REPO_ROOT,
     token: "t",
-    spawn: () => child,
+    spawn,
     generation: "gen-a",
     onOutput: (level, text) => output.push({ level, text }),
   });
   service.start();
+  const child = children[0];
 
   child.stdout.emit("data", Buffer.from("ready\n"));
   child.stderr.emit("data", Buffer.from("warning\n"));
@@ -85,45 +86,69 @@ test("Backend stdout and stderr are consumed and forwarded to the output sink", 
   ]);
   assert.equal(child.stdout.listenerCount("data"), 1);
   assert.equal(child.stderr.listenerCount("data"), 1);
+
+  child.emit("exit", 1, null);
+  const replacement = children[1];
+  replacement.stdout.emit("data", "restarted\n");
+  replacement.stderr.emit("data", "new warning\n");
+  assert.deepEqual(output.slice(2), [
+    { level: "log", text: "restarted\n" },
+    { level: "error", text: "new warning\n" },
+  ]);
+  assert.equal(replacement.stdout.listenerCount("data"), 1);
+  assert.equal(replacement.stderr.listenerCount("data"), 1);
   service.stop();
 });
 
-test("Backend output pipes drain data beyond the Windows pipe capacity", { timeout: 10_000 }, async (t) => {
-  const payloadBytes = 256 * 1024;
-  const fixture = `
-    const payload = Buffer.alloc(${payloadBytes}, 0x78);
-    const write = (stream) => new Promise((resolve, reject) => {
-      stream.write(payload, (error) => error ? reject(error) : resolve());
-    });
-    Promise.all([write(process.stdout), write(process.stderr)])
-      .then(() => process.exit(0), () => process.exit(2));
-  `;
-  let child;
-  let exited;
-  const capturedBytes = { log: 0, error: 0 };
-  const service = createBackendService({
-    repoRoot: REPO_ROOT,
-    token: "t",
-    env: process.env,
-    spawn: (_command, _args, options) => {
-      child = nodeSpawn(process.execPath, ["-e", fixture], { ...options, cwd: process.cwd() });
-      exited = new Promise((resolve, reject) => {
-        child.once("error", reject);
-        child.once("exit", (code, signal) => resolve({ code, signal }));
+for (const sinkMode of ["capture", "absent", "throw"]) {
+  test(`Backend output pipes drain beyond capacity with ${sinkMode} sink`, { timeout: 10_000 }, async (t) => {
+    const payloadBytes = 256 * 1024;
+    const fixture = `
+      const payload = Buffer.alloc(${payloadBytes}, 0x78);
+      const write = (stream) => new Promise((resolve, reject) => {
+        stream.write(payload, (error) => error ? reject(error) : resolve());
       });
-      return child;
-    },
-    generation: "gen-a",
-    restartMax: 0,
-    error: () => {},
-    onOutput: (level, text) => { capturedBytes[level] += Buffer.byteLength(text); },
-  });
-  service.start();
-  t.after(() => service.stop());
+      Promise.all([write(process.stdout), write(process.stderr)])
+        .then(() => process.exit(0), () => process.exit(2));
+    `;
+    let child;
+    let closed;
+    const capturedBytes = { log: 0, error: 0 };
+    const service = createBackendService({
+      repoRoot: REPO_ROOT,
+      token: "t",
+      env: process.env,
+      spawn: (_command, _args, options) => {
+        child = nodeSpawn(process.execPath, ["-e", fixture], { ...options, cwd: process.cwd() });
+        closed = new Promise((resolve, reject) => {
+          child.once("error", reject);
+          // exit can precede the final data events; close follows stdio drainage.
+          child.once("close", (code, signal) => resolve({ code, signal }));
+        });
+        return child;
+      },
+      generation: "gen-a",
+      restartMax: 0,
+      error: () => {},
+      ...(sinkMode === "absent" ? {} : {
+        onOutput: (level, text) => {
+          capturedBytes[level] += Buffer.byteLength(text);
+          if (sinkMode === "throw") throw new Error("logging sink failed");
+        },
+      }),
+    });
+    service.start();
+    t.after(async () => {
+      service.stop();
+      await closed;
+    });
 
-  assert.deepEqual(await exited, { code: 0, signal: null });
-  assert.deepEqual(capturedBytes, { log: payloadBytes, error: payloadBytes });
-});
+    assert.deepEqual(await closed, { code: 0, signal: null });
+    if (sinkMode !== "absent") {
+      assert.deepEqual(capturedBytes, { log: payloadBytes, error: payloadBytes });
+    }
+  });
+}
 
 test("a cutover can attach after a confirmed stop on the same service", async () => {
   const { spawn, calls, children } = fakeSpawn();
