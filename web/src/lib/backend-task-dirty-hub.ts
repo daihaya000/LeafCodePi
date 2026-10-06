@@ -11,8 +11,8 @@ import {
  * Falls back silently when the Backend is unreachable; callers keep their idle poll safety net.
  *
  * The hub opts into `task_stream` (throttled streaming-text wakes, reason `"stream"`) so cutover
- * task streams refresh while a reply is being written instead of on their 2s poll. Listeners that
- * only care about lifecycle changes should ignore `reason === "stream"`.
+ * task streams can forward the included latest-message delta without a Backend detail read. Listeners
+ * that only care about lifecycle changes should ignore `reason === "stream"`.
  *
  * Wakes are not replayed across a reconnect, so every listener gets one `reason: "resync"` wake
  * when the stream (re)connects: a prompt accepted while the hub was down then shows at once
@@ -20,7 +20,12 @@ import {
  * a short safety-net poll while the hub is down.
  */
 
-export type BackendTaskDirtyPayload = { taskId: string; reason?: string };
+export type BackendTaskDirtyPayload = {
+  taskId: string;
+  reason?: string;
+  /** Compact message/status delta piggybacked on throttled stream wakes. */
+  delta?: Record<string, unknown>;
+};
 /** Streaming-text wake reason; lifecycle-only consumers ignore it. */
 export const BACKEND_TASK_STREAM_REASON = "stream";
 /** Synthetic wake sent to every listener after the hub (re)connects. */
@@ -138,7 +143,7 @@ async function runPump(signal: AbortSignal, env: BackendEnv, fetchImpl: typeof f
         const payload = JSON.parse(frame.data) as BackendTaskDirtyPayload;
         if (typeof payload?.taskId !== "string" || !payload.taskId) continue;
         notify(frame.event === "task_stream"
-          ? { taskId: payload.taskId, reason: BACKEND_TASK_STREAM_REASON }
+          ? { ...payload, reason: BACKEND_TASK_STREAM_REASON }
           : payload);
       } catch {
         // Malformed frames are dropped; the next dirty or idle poll recovers.

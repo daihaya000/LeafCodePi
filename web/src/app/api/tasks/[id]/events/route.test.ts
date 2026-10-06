@@ -213,9 +213,14 @@ describe("/api/tasks/[id]/events", () => {
       task: task({ status: "working" }),
       message: { id: "live", role: "assistant", createdAt: 2, parts: [] },
     });
+    const readyTaskSummary = { ...detail } as Record<string, unknown>;
+    for (const key of [
+      "messages", "isStreaming", "isCompacting", "contextUsage", "compactionSuggested", "goalLoop", "todos",
+      "permissionRequest", "questionRequest", "manualAbortedAssistantId", "hangRetryCount",
+    ]) delete readyTaskSummary[key];
     listener({
       type: "snapshot",
-      task: task({ status: "working" }),
+      task: readyTaskSummary,
       messages: [{ id: "intermediate", role: "user", createdAt: 2, parts: [] }],
       eventType: "intermediate",
     });
@@ -232,7 +237,9 @@ describe("/api/tasks/[id]/events", () => {
     expect(readyPayload.task).not.toHaveProperty("isStreaming");
     const pendingSnapshotChunk = await readChunk(reader);
     expect(pendingSnapshotChunk).toContain("event: snapshot\n");
-    expect(eventData(pendingSnapshotChunk).eventType).toBe("intermediate");
+    const pendingSnapshot = eventData(pendingSnapshotChunk);
+    expect(pendingSnapshot).toMatchObject({ eventType: "intermediate", taskReused: true });
+    expect(pendingSnapshot).not.toHaveProperty("task");
     const deltaChunk = await readChunk(reader);
     expect(deltaChunk).toContain("event: delta\n");
     const deltaPayload = eventData(deltaChunk);
@@ -241,6 +248,39 @@ describe("/api/tasks/[id]/events", () => {
     expect(deltaPayload).not.toHaveProperty("messages");
     expect(deltaPayload).not.toHaveProperty("task");
 
+    await reader.cancel();
+  });
+
+  it("suppresses high-frequency delta events when the client disables background streaming", async () => {
+    const bootstrap = task({ messages: [], status: "working", isStreaming: true });
+    let listener!: (payload: Record<string, unknown>) => void;
+    mocks.getTaskBootstrap.mockReturnValue(bootstrap);
+    mocks.getTaskDetail.mockResolvedValue(bootstrap);
+    mocks.subscribeTask.mockImplementation((_id: string, callback: typeof listener) => {
+      listener = callback;
+      return vi.fn();
+    });
+    const response = await GET(
+      new NextRequest("http://127.0.0.1:3010/api/tasks/task-1/events?streamDeltas=0&streamMessages=0"),
+      { params: Promise.resolve({ id: "task-1" }) },
+    );
+    const reader = response.body!.getReader();
+    const bootstrapPayload = eventData(await readChunk(reader));
+    expect(bootstrapPayload).not.toHaveProperty("messages");
+    const readyPayload = eventData(await readChunk(reader));
+    expect(readyPayload).not.toHaveProperty("messages");
+    expect(mocks.getTaskDetail).toHaveBeenCalledWith("task-1", expect.objectContaining({ includeMessages: false }));
+
+    listener({ type: "delta", message: { id: "high-frequency", role: "assistant", createdAt: 2, parts: [] } });
+    listener({
+      type: "snapshot", eventType: "permission_request", permissionRequest: { requestId: "req-1" },
+      messages: [{ id: "hidden-history", role: "assistant", createdAt: 2, parts: [] }],
+    });
+    const controlChunk = await readChunk(reader);
+    expect(controlChunk).toContain("event: snapshot\n");
+    expect(eventData(controlChunk).eventType).toBe("permission_request");
+    expect(eventData(controlChunk).permissionRequest).toEqual({ requestId: "req-1" });
+    expect(eventData(controlChunk)).not.toHaveProperty("messages");
     await reader.cancel();
   });
 
@@ -267,6 +307,8 @@ describe("/api/tasks/[id]/events", () => {
     const cachedReadyPayload = eventData(await readChunk(reader));
     expect(cachedReadyPayload.eventType).toBe("cache_ready");
     expect(cachedReadyPayload.messagesReused).toBe(true);
+    expect(cachedReadyPayload.taskReused).toBe(true);
+    expect(cachedReadyPayload).not.toHaveProperty("task");
     const readyPayload = eventData(await readChunk(reader));
     expect(readyPayload.eventType).toBe("ready");
     expect(readyPayload.messagesReused).toBe(true);
@@ -337,11 +379,70 @@ describe("/api/tasks/[id]/events", () => {
     const cachedReady = eventData(await readChunk(reader));
     expect(cachedReady.eventType).toBe("cache_ready");
     expect(cachedReady.messagesReused).toBe(true);
-    expect(cachedReady.task).toHaveProperty("messages", []);
+    expect(cachedReady.taskReused).toBe(true);
+    expect(cachedReady).not.toHaveProperty("task");
     expect(mocks.getTaskDetail).toHaveBeenCalledWith("task-1", { includeMessages: false });
 
     resolveDetail(detail);
     expect(eventData(await readChunk(reader)).eventType).toBe("ready");
+    await reader.cancel();
+  });
+
+  it("reuses unchanged Goal Loop and attention payloads in an in-process snapshot", async () => {
+    const bootstrap = task({ messages: [], isStreaming: false, status: "idle" });
+    const goalLoop = {
+      id: "loop-1", status: "running", goal: "繰り返し確認する", acceptance: ["状態が安定"],
+      maxTurns: 5, turnCount: 1, progress: [],
+    } as unknown as NonNullable<TaskDetail["goalLoop"]>;
+    const todos = Array.from({ length: 8 }, (_, index) => ({
+      id: `todo-${index}`, content: `変更内容を確認する ${index}`, status: "in_progress" as const, priority: "high" as const,
+    })) as NonNullable<TaskDetail["todos"]>;
+    const contextUsage = { tokens: 20, contextWindow: 100, percent: 20 };
+    const permissionRequest = {
+      id: "req-1", sessionId: "session-1", message: "許可を確認する", command: "echo ".repeat(80), labels: [],
+    };
+    const questionRequest = {
+      id: "question-1", sessionId: "session-1", questions: [{ question: "どちらですか", options: ["A", "B"] }],
+    };
+    const detail = task({ messages: [], isStreaming: false, status: "idle", goalLoop, todos, contextUsage });
+    let listener!: (payload: Record<string, unknown>) => void;
+    mocks.getTaskBootstrap.mockReturnValue(bootstrap);
+    mocks.getTaskDetail.mockResolvedValue(detail);
+    mocks.pendingPermissionForTask.mockReturnValue(permissionRequest);
+    mocks.pendingQuestionForTask.mockReturnValue(questionRequest);
+    mocks.subscribeTask.mockImplementation((_id: string, callback: typeof listener) => {
+      listener = callback;
+      return vi.fn();
+    });
+
+    const response = await GET(
+      new NextRequest("http://127.0.0.1:3010/api/tasks/task-1/events"),
+      { params: Promise.resolve({ id: "task-1" }) },
+    );
+    const reader = response.body!.getReader();
+    expect(eventData(await readChunk(reader)).eventType).toBe("bootstrap");
+    const ready = eventData(await readChunk(reader));
+    expect(ready.eventType).toBe("ready");
+
+    listener({
+      type: "snapshot",
+      task: ready.task as Record<string, unknown>,
+      messages: [],
+      isStreaming: false,
+      contextUsage,
+      goalLoop,
+      todos,
+      permissionRequest,
+      questionRequest,
+      eventType: "context_update",
+    });
+    const updated = eventData(await readChunk(reader));
+    expect(updated).toMatchObject({ eventType: "context_update", taskReused: true });
+    for (const field of ["task", "goalLoop", "todos", "permissionRequest", "questionRequest", "contextUsage"]) {
+      expect(updated).not.toHaveProperty(field);
+    }
+    const fullEquivalent = { ...updated, goalLoop, todos, permissionRequest, questionRequest, contextUsage };
+    expect(JSON.stringify(updated).length).toBeLessThan(JSON.stringify(fullEquivalent).length);
     await reader.cancel();
   });
 
@@ -398,9 +499,12 @@ describe("/api/tasks/[id]/events", () => {
     vi.useFakeTimers();
     try {
       const bootstrap = task({ kind: "code", botId: "bot-1", status: "working", isStreaming: true });
+      const earlierMessages = Array.from({ length: 5 }, (_, index) => ({
+        id: `history-${index}`, role: "user" as const, createdAt: index + 1, parts: [],
+      }));
       const first = task({
         kind: "code", botId: "bot-1", status: "idle", isStreaming: false,
-        messages: [{ id: "final", role: "assistant", createdAt: 1, parts: [] }],
+        messages: [...earlierMessages, { id: "final", role: "assistant", createdAt: 6, parts: [] }],
       });
       mocks.getTaskBootstrap.mockReturnValue(bootstrap);
       mocks.getTask.mockReturnValue(bootstrap);
@@ -409,29 +513,117 @@ describe("/api/tasks/[id]/events", () => {
       mocks.subscribeTask.mockReturnValue(vi.fn());
 
       const response = await GET(
-        new NextRequest("http://127.0.0.1:3010/api/tasks/task-1/events"),
+        new NextRequest("http://127.0.0.1:3010/api/tasks/task-1/events?delta=1"),
         { params: Promise.resolve({ id: "task-1" }) },
       );
       const reader = response.body!.getReader();
       await readChunk(reader);
       expect(eventData(await readChunk(reader)).eventType).toBe("ready");
 
+      // The ready snapshot is already authoritative, so an identical first poll sends no duplicate.
       await vi.advanceTimersByTimeAsync(2_000);
-      expect(eventData(await readChunk(reader)).eventType).toBe("remote_poll");
+      expect(mocks.getTaskDetail).toHaveBeenCalledTimes(2);
 
-      // Same detail again: the poll still probes ownership but sends nothing,
-      // so the next event the client sees is the later real change.
+      const updatedMessage = {
+        id: "final", role: "assistant", createdAt: 6,
+        parts: [{ id: "p1", type: "text", text: "updated" }],
+      };
+      const updatedTask = {
+        ...first,
+        updatedAt: "2026-01-01T00:00:01.000Z",
+        messages: [...earlierMessages, updatedMessage],
+      };
+      mocks.getTaskDetail.mockResolvedValue(updatedTask);
+      await vi.advanceTimersByTimeAsync(4_000);
+      const changed = eventData(await readChunk(reader));
+      expect(changed.eventType).toBe("remote_poll");
+      expect(changed.messagesDelta).toBe(true);
+      expect(changed.messages).toEqual([updatedMessage]);
+
+      mocks.getTaskDetail.mockResolvedValue({
+        ...updatedTask,
+        messages: [...earlierMessages, updatedMessage, { id: "next", role: "assistant", createdAt: 7, parts: [] }],
+      });
+      await vi.advanceTimersByTimeAsync(2_000);
+      const appended = eventData(await readChunk(reader));
+      expect(appended.messagesDelta).toBe(true);
+      expect(appended.messages).toEqual([{ id: "next", role: "assistant", createdAt: 7, parts: [] }]);
+
+      // A last-row re-identification is detected even when updatedAt and page length are stable.
+      mocks.getTaskDetail.mockResolvedValue({
+        ...updatedTask,
+        messages: [...earlierMessages, updatedMessage, { id: "rewritten", role: "assistant", createdAt: 7, parts: [] }],
+      });
+      await vi.advanceTimersByTimeAsync(2_000);
+      const rewritten = eventData(await readChunk(reader));
+      expect(rewritten.eventType).toBe("remote_poll");
+      expect(rewritten).not.toHaveProperty("messagesDelta");
+      expect((rewritten.messages as Array<{ id: string }>).at(-1)?.id).toBe("rewritten");
+
+      await reader.cancel();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("does not resend a foreign-owner page when cached-ready revision still matches", async () => {
+    vi.useFakeTimers();
+    try {
+      const updatedAt = "2026-01-01T00:00:00.000Z";
+      const bootstrap = task({ status: "idle", isStreaming: false, updatedAt, messages: [] });
+      const history = Array.from({ length: 5 }, (_, index) => ({
+        id: `history-${index}`, role: "user" as const, createdAt: index + 1, parts: [],
+      }));
+      const lastMessage = { id: "final", role: "assistant" as const, createdAt: 6, parts: [] };
+      const cachedMessages = [...history, lastMessage];
+      const cachedContext = { tokens: 50, contextWindow: 1_000, percent: 5 };
+      const remoteContext = { tokens: 60, contextWindow: 1_000, percent: 6 };
+      const cachedDetail = task({ status: "idle", isStreaming: false, updatedAt, contextUsage: cachedContext, messages: [] });
+      const remoteDetail = task({ status: "idle", isStreaming: false, updatedAt, contextUsage: remoteContext, messages: cachedMessages });
+      mocks.getTaskBootstrap.mockReturnValue(bootstrap);
+      mocks.getTask.mockReturnValue(bootstrap);
+      mocks.getTaskDetail
+        .mockResolvedValueOnce(cachedDetail)
+        .mockResolvedValueOnce(remoteDetail);
+      mocks.isTaskRuntimeOwnedElsewhere.mockReturnValue(true);
+      mocks.subscribeTask.mockReturnValue(vi.fn());
+
+      const response = await GET(
+        new NextRequest(
+          `http://127.0.0.1:3010/api/tasks/task-1/events?delta=1&cachedTaskUpdatedAt=${encodeURIComponent(updatedAt)}&cachedSessionId=session-1`,
+        ),
+        { params: Promise.resolve({ id: "task-1" }) },
+      );
+      const reader = response.body!.getReader();
+      expect(eventData(await readChunk(reader)).eventType).toBe("bootstrap");
+      expect(eventData(await readChunk(reader)).eventType).toBe("cache_ready");
+      expect(eventData(await readChunk(reader))).toMatchObject({ eventType: "ready", messagesReused: true });
+
+      // The first offline read fills the message baseline and sends only changed state, not history.
+      await vi.advanceTimersByTimeAsync(2_000);
+      const stateOnly = eventData(await readChunk(reader));
+      expect(stateOnly).toMatchObject({
+        eventType: "remote_poll", taskReused: true, messagesDelta: true, messages: [], contextUsage: remoteContext,
+      });
+      expect(stateOnly).not.toHaveProperty("task");
+      mocks.getTaskDetail.mockResolvedValue(remoteDetail);
       await vi.advanceTimersByTimeAsync(2_000);
       expect(mocks.getTaskDetail).toHaveBeenCalledTimes(3);
 
+      const changedMessage = {
+        ...lastMessage,
+        parts: [{ id: "p1", type: "text" as const, text: "new output" }],
+      };
       mocks.getTaskDetail.mockResolvedValue({
-        ...first,
-        messages: [...first.messages, { id: "next", role: "assistant", createdAt: 2, parts: [] }],
+        ...remoteDetail,
+        updatedAt: "2026-01-01T00:00:01.000Z",
+        messages: [...history, changedMessage],
       });
-      await vi.advanceTimersByTimeAsync(2_000);
+      await vi.advanceTimersByTimeAsync(4_000);
       const changed = eventData(await readChunk(reader));
       expect(changed.eventType).toBe("remote_poll");
-      expect((changed.messages as Array<{ id: string }>).at(-1)?.id).toBe("next");
+      expect(changed.messagesDelta).toBe(true);
+      expect(changed.messages).toEqual([changedMessage]);
 
       await reader.cancel();
     } finally {

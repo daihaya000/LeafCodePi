@@ -9,9 +9,11 @@ const mocks = vi.hoisted(() => ({
   })),
   forwardTaskModel: vi.fn(),
   localRuntimeBlocked: vi.fn(() => false),
+  clearGoalLoopAutoModel: vi.fn(),
 }));
 
 vi.mock("@/lib/pi/harness", () => mocks);
+vi.mock("@/lib/pi/goal-loop-auto-model", () => ({ clearGoalLoopAutoModel: mocks.clearGoalLoopAutoModel }));
 vi.mock("@/lib/backend-forward", () => ({ forwardTaskModel: mocks.forwardTaskModel }));
 vi.mock("@/lib/pi/runtime-ownership", () => ({
   localRuntimeBlocked: mocks.localRuntimeBlocked,
@@ -35,6 +37,16 @@ describe("POST /api/tasks/[id]/model", () => {
     mocks.forwardTaskModel.mockReset();
     mocks.forwardTaskModel.mockResolvedValue({ ok: true, task: { id: "task-1", modelID: "chosen" } });
     mocks.localRuntimeBlocked.mockReturnValue(false);
+    mocks.clearGoalLoopAutoModel.mockReset();
+  });
+
+  it("drops a running Goal Loop's Auto-per-turn marker once a concrete model is set", async () => {
+    await POST(request({ model: "chosen" }), { params: Promise.resolve({ id: "task-1" }) });
+    expect(mocks.clearGoalLoopAutoModel).toHaveBeenCalledWith("task-1");
+    mocks.clearGoalLoopAutoModel.mockReset();
+    mocks.setTaskModel.mockRejectedValue(new Error("fail"));
+    await POST(request({ model: "chosen" }), { params: Promise.resolve({ id: "task-1" }) });
+    expect(mocks.clearGoalLoopAutoModel).not.toHaveBeenCalled();
   });
 
   it("rejects a non-string model before calling the harness", async () => {

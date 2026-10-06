@@ -78,7 +78,7 @@ describe("backend-task-dirty-hub", () => {
     const encoder = new TextEncoder();
     const chunks = [
       ": connected\n\n",
-      "event: task_stream\ndata: {\"taskId\":\"task-1\",\"reason\":\"stream\"}\n\n",
+      "event: task_stream\ndata: {\"taskId\":\"task-1\",\"reason\":\"stream\",\"delta\":{\"message\":{\"id\":\"m1\"},\"isStreaming\":true}}\n\n",
     ];
     let index = 0;
     const fetchImpl = vi.fn().mockResolvedValue(new Response(new ReadableStream({
@@ -106,7 +106,11 @@ describe("backend-task-dirty-hub", () => {
     await Promise.resolve();
     expect(String(fetchImpl.mock.calls[0]?.[0])).toMatch(/\?stream=1$/);
     expect(isBackendTaskDirtyConnected()).toBe(true);
-    expect(listener).toHaveBeenCalledWith({ taskId: "task-1", reason: "stream" });
+    expect(listener).toHaveBeenCalledWith({
+      taskId: "task-1",
+      reason: "stream",
+      delta: { message: { id: "m1" }, isStreaming: true },
+    });
     release();
     await vi.advanceTimersByTimeAsync(0);
     await Promise.resolve();

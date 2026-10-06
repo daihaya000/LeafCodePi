@@ -7,6 +7,7 @@ const mocks = vi.hoisted(() => ({
   getTaskDetail: vi.fn(),
   localRuntimeBlocked: vi.fn(() => false),
   forwardTaskDetail: vi.fn(),
+  readHistoryPageSize: vi.fn(() => 50),
   jsonError: vi.fn((error: unknown) => ({
     error: error instanceof Error ? error.message : String(error),
     status: 500,
@@ -14,6 +15,7 @@ const mocks = vi.hoisted(() => ({
 }));
 
 vi.mock("@/lib/pi/harness", () => mocks);
+vi.mock("@/lib/pi/history-page-size", () => ({ readHistoryPageSize: mocks.readHistoryPageSize }));
 vi.mock("@/lib/pi/runtime-ownership", () => ({
   localRuntimeBlocked: mocks.localRuntimeBlocked,
   assertLocalRuntimeAllowed: vi.fn(),
@@ -41,6 +43,23 @@ describe("/api/tasks/[id]/messages", () => {
     mocks.localRuntimeBlocked.mockReset();
     mocks.localRuntimeBlocked.mockReturnValue(false);
     mocks.forwardTaskDetail.mockReset();
+    mocks.readHistoryPageSize.mockReturnValue(50);
+  });
+
+  it("pages by the configured history page size", async () => {
+    const messages = Array.from({ length: 120 }, (_, index) => message(`m${index + 1}`, index));
+    mocks.getTaskDetail.mockResolvedValue({ messages } as TaskDetail);
+    mocks.readHistoryPageSize.mockReturnValue(100);
+
+    const response = await GET(
+      new NextRequest("http://127.0.0.1:3010/api/tasks/task-1/messages"),
+      { params: Promise.resolve({ id: "task-1" }) },
+    );
+
+    expect(await response.json()).toEqual({
+      messages: messages.slice(20),
+      messageHistory: { hasMore: true, nextCursor: "m21" },
+    });
   });
 
   it("returns the page before the cursor", async () => {
@@ -114,6 +133,7 @@ describe("/api/tasks/[id]/messages after the cutover", () => {
     mocks.localRuntimeBlocked.mockReturnValue(true);
     mocks.forwardTaskDetail.mockReset();
     mocks.getTaskDetail.mockReset();
+    mocks.readHistoryPageSize.mockReturnValue(50);
   });
 
   it("requests an older page from the Backend and preserves its cursor", async () => {
@@ -125,7 +145,9 @@ describe("/api/tasks/[id]/messages after the cutover", () => {
     });
     expect(response.status).toBe(200);
     expect(await response.json()).toEqual({ messages, messageHistory });
-    expect(mocks.forwardTaskDetail).toHaveBeenCalledWith("task-1", { messages: "page", before: "m150" });
+    expect(mocks.forwardTaskDetail).toHaveBeenCalledWith("task-1", {
+      messages: "page", limit: 50, before: "m150",
+    });
     expect(mocks.getTaskDetail).not.toHaveBeenCalled();
   });
 

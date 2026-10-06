@@ -80,6 +80,9 @@ function PaneResizeHandle({
   axis: "x" | "y";
   label?: string;
 }) {
+  const finishResizeRef = useRef<(() => void) | null>(null);
+  useEffect(() => () => finishResizeRef.current?.(), []);
+
   const pairTotal = widths[boundaryIndex]! + widths[boundaryIndex + 1]!;
   const currentSize = widths[boundaryIndex]!;
   const sizeLabel = axis === "x" ? "幅" : "高さ";
@@ -118,6 +121,7 @@ function PaneResizeHandle({
         const containerSize = axis === "x" ? rect.width : rect.height;
         const startPos = axis === "x" ? event.clientX : event.clientY;
         const startSizes = [...widths];
+        finishResizeRef.current?.();
         const previousUserSelect = document.body.style.userSelect;
         const previousCursor = document.body.style.cursor;
         document.body.style.userSelect = "none";
@@ -134,7 +138,9 @@ function PaneResizeHandle({
           window.removeEventListener("blur", onUp);
           document.body.style.userSelect = previousUserSelect;
           document.body.style.cursor = previousCursor;
+          finishResizeRef.current = null;
         };
+        finishResizeRef.current = onUp;
         window.addEventListener("pointermove", onMove);
         window.addEventListener("pointerup", onUp);
         window.addEventListener("pointercancel", onUp);
@@ -246,6 +252,7 @@ type PaneBranchProps = {
   onPaneDragOver: (event: DragEvent<HTMLElement>, pane: TaskPane) => void;
   onPaneDragLeave: (event: DragEvent<HTMLElement>, pane: TaskPane) => void;
   onPaneDrop: (event: DragEvent<HTMLElement>, pane: TaskPane) => void;
+  onResetPaneDrag: () => void;
   onActivatePane: (paneId: string) => void;
   onActivateTab: (paneId: string, taskId: string) => void;
   onCloseTab: (paneId: string, taskId: string) => void;
@@ -296,6 +303,7 @@ function PaneSection({
   onPaneDragOver,
   onPaneDragLeave,
   onPaneDrop,
+  onResetPaneDrag,
   onActivatePane,
   onActivateTab,
   onCloseTab,
@@ -328,7 +336,22 @@ function PaneSection({
         if (!isActivePane) onActivatePane(pane.id);
       }}
     >
-      <div className="flex min-h-9 min-w-0 shrink-0 items-stretch bg-surface">
+      <div
+        className="flex min-h-9 min-w-0 shrink-0 items-stretch bg-surface"
+        // タブは bubbling を止めるため、capture で本体の分割プレビューを解除する。
+        onDragOverCapture={onResetPaneDrag}
+        onDropCapture={onResetPaneDrag}
+        onDragOver={(event) => {
+          if (!isTaskDrag(event.dataTransfer.types)) return;
+          event.preventDefault();
+          event.stopPropagation();
+        }}
+        onDrop={(event) => {
+          if (!isTaskDrag(event.dataTransfer.types)) return;
+          event.preventDefault();
+          event.stopPropagation();
+        }}
+      >
         {pane.id === firstPaneId && (
           <>
             <WorkingTasksButton
@@ -600,19 +623,20 @@ export function TaskPanesHost() {
     setSplitRatios({});
   }, [paneLayoutKey]);
 
+  const resetPaneDrag = useCallback(() => {
+    setDragOverPaneId(null);
+    setDragEdge(null);
+  }, []);
+
   // dragend/drop でリング解除（Escape キャンセル・ブラウザ外での drop 漏れ対策）
   useEffect(() => {
-    const reset = () => {
-      setDragOverPaneId(null);
-      setDragEdge(null);
-    };
-    window.addEventListener("dragend", reset);
-    window.addEventListener("drop", reset);
+    window.addEventListener("dragend", resetPaneDrag);
+    window.addEventListener("drop", resetPaneDrag);
     return () => {
-      window.removeEventListener("dragend", reset);
-      window.removeEventListener("drop", reset);
+      window.removeEventListener("dragend", resetPaneDrag);
+      window.removeEventListener("drop", resetPaneDrag);
     };
-  }, []);
+  }, [resetPaneDrag]);
 
   // 開封済みタブ集合の同期: アクティブタブを追加、閉じられたタブを除去。
   // タブ切替の初回のみ読み込みが走り、以降は hidden mount で維持される。
@@ -781,6 +805,7 @@ export function TaskPanesHost() {
         onPaneDragOver={onPaneDragOver}
         onPaneDragLeave={onPaneDragLeave}
         onPaneDrop={onPaneDrop}
+        onResetPaneDrag={resetPaneDrag}
         onActivatePane={(paneId) => dispatch({ type: "activatePane", paneId })}
         onActivateTab={(paneId, taskId) => dispatch({ type: "activateTab", paneId, taskId })}
         onCloseTab={(paneId, taskId) => dispatch({ type: "closeTab", paneId, taskId })}

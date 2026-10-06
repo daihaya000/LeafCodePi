@@ -1,4 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
+import { etagJsonResponse } from "@/lib/etag-json";
+import { sidebarTaskView } from "@/lib/sidebar-task-view";
 import { relayFallbackAllowed, relayTaskRows } from "@/lib/backend-relay";
 import { forwardPendingAttention } from "@/lib/backend-forward";
 import { createTaskOnBackend } from "@/lib/backend-client";
@@ -61,9 +63,9 @@ export async function GET(req: NextRequest) {
       if (!forwarded.ok) {
         return NextResponse.json({ error: "Backendの注意一覧を取得できません" }, { status: 503 });
       }
-      return NextResponse.json({ attention: forwarded.items });
+      return etagJsonResponse(req, { attention: forwarded.items });
     }
-    return NextResponse.json({ attention: listPendingAttention() });
+    return etagJsonResponse(req, { attention: listPendingAttention() });
   }
   // ペインヘッダーの操作はタスクの ID・状態・時刻だけ必要。Todo 進捗の
   // セッション走査や自動アーカイブを待たず、ボタンをすぐ反応させる。
@@ -77,7 +79,7 @@ export async function GET(req: NextRequest) {
     if (!relayedRows && !relayFallbackAllowed()) {
       return NextResponse.json({ error: "Backendのタスク一覧を取得できません" }, { status: 503 });
     }
-    return NextResponse.json({
+    return etagJsonResponse(req, {
       tasks: (relayedRows ?? listTasks(false, "all")).map(({ id, status, updatedAt, kind, botId, projectId }) => ({
         id, status, updatedAt, kind, botId, projectId,
       })),
@@ -92,9 +94,12 @@ export async function GET(req: NextRequest) {
     if (!relayedTitles && !relayFallbackAllowed()) {
       return NextResponse.json({ error: "Backendのタスク一覧を取得できません" }, { status: 503 });
     }
-    return NextResponse.json({ tasks: relayedTitles ?? listTasks(includeArchived, kind) });
+    return etagJsonResponse(req, { tasks: relayedTitles ?? listTasks(includeArchived, kind) });
   }
-  return NextResponse.json({ tasks: await getTaskSummariesWithTodoProgress(includeArchived, kind) });
+  const summaries = await getTaskSummariesWithTodoProgress(includeArchived, kind);
+  return etagJsonResponse(req, {
+    tasks: req.nextUrl.searchParams.get("view") === "sidebar" ? sidebarTaskView(summaries) : summaries,
+  });
 }
 
 export async function DELETE(req: NextRequest) {

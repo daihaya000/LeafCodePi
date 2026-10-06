@@ -1,6 +1,23 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { InvalidTaskMessageCursorError, pageTaskMessages } from "./task-history.mjs";
+import {
+  clampTaskMessagePageSize,
+  InvalidTaskMessageCursorError,
+  MAX_TASK_MESSAGE_PAGE_SIZE,
+  MIN_TASK_MESSAGE_PAGE_SIZE,
+  pageTaskMessages,
+  TASK_MESSAGE_PAGE_SIZE,
+} from "./task-history.mjs";
+
+test("page size is clamped and invalid values use the default", () => {
+  assert.equal(clampTaskMessagePageSize(200), 200);
+  assert.equal(clampTaskMessagePageSize("300"), 300);
+  assert.equal(clampTaskMessagePageSize(1), MIN_TASK_MESSAGE_PAGE_SIZE);
+  assert.equal(clampTaskMessagePageSize(10 ** 9), MAX_TASK_MESSAGE_PAGE_SIZE);
+  assert.equal(clampTaskMessagePageSize(Number.NaN), TASK_MESSAGE_PAGE_SIZE);
+  assert.equal(clampTaskMessagePageSize(""), TASK_MESSAGE_PAGE_SIZE);
+  assert.equal(clampTaskMessagePageSize(undefined), TASK_MESSAGE_PAGE_SIZE);
+});
 
 test("shared pagination preserves turn boundaries and older-page cursors", () => {
   const messages = [
@@ -24,9 +41,9 @@ test("latest-page transport excludes old history without mutating the source", (
   const page = pageTaskMessages(messages);
   const fullBytes = Buffer.byteLength(JSON.stringify({ messages }));
   const pageBytes = Buffer.byteLength(JSON.stringify(page));
-  assert.equal(page.messages.length, 50);
+  assert.equal(page.messages.length, 150);
   assert.equal(messages.length, 5000);
-  assert.deepEqual(page.messageHistory, { hasMore: true, nextCursor: "m4950" });
-  assert.ok(pageBytes < fullBytes / 90);
+  assert.deepEqual(page.messageHistory, { hasMore: true, nextCursor: "m4850" });
+  assert.ok(pageBytes < fullBytes / 25);
   t.diagnostic(`synthetic history JSON: full=${fullBytes} bytes, latest page=${pageBytes} bytes`);
 });

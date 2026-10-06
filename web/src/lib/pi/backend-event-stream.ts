@@ -1,5 +1,6 @@
 import { pageTaskDetailMessages } from "@/lib/task-history";
 import { forwardTaskDetail, forwardTaskPendingRequests } from "@/lib/backend-forward";
+import { readHistoryPageSize } from "@/lib/pi/history-page-size";
 import {
   BACKEND_TASK_STREAM_REASON,
   isBackendTaskDirtyConnected,
@@ -38,6 +39,8 @@ export type BackendEventSink = {
 };
 
 export const BACKEND_EVENT_POLL_MS = 2_000;
+/** Streaming safety fallback when the direct dirty/task-stream connection is healthy. */
+export const BACKEND_EVENT_STREAMING_POLL_MS = 5_000;
 /**
  * Bound dirty bursts without postponing refresh indefinitely under continuous updates. The Backend
  * already coalesces dirty (50ms) and throttles stream wakes (200ms), so this only merges the
@@ -66,10 +69,15 @@ type CachedPage = {
 const inFlightReads = new Map<string, Promise<BackendSnapshotRead>>();
 
 function readBackendSnapshot(id: string, messages: DetailMessages): Promise<BackendSnapshotRead> {
-  const key = `${id}:${messages}`;
+  // The page size is a live setting, so a read in flight under another size must not be shared.
+  const limit = messages === "page" ? readHistoryPageSize() : undefined;
+  const key = `${id}:${messages}:${limit ?? ""}`;
   const existing = inFlightReads.get(key);
   if (existing) return existing;
-  const read = Promise.allSettled([forwardTaskDetail(id, { messages }), forwardTaskPendingRequests(id)])
+  const read = Promise.allSettled([
+    forwardTaskDetail(id, limit === undefined ? { messages } : { messages, limit }),
+    forwardTaskPendingRequests(id),
+  ])
     .then(([detail, pending]): BackendSnapshotRead => {
       // Keep a rejected read coalesced until its sibling finishes too.
       if (detail.status === "rejected") throw detail.reason;
@@ -90,7 +98,7 @@ function detailRevision(detail: Record<string, unknown> | null | undefined): str
 function cachePageFromDetail(detail: Record<string, unknown> | null): CachedPage | undefined {
   const messageRevision = detailRevision(detail);
   if (!detail || !messageRevision) return undefined;
-  const paged = pageTaskDetailMessages(detail);
+  const paged = pageTaskDetailMessages(detail, undefined, readHistoryPageSize());
   return {
     messages: paged.messages,
     messageHistory: paged.messageHistory,
@@ -110,6 +118,39 @@ function mergeOmitWithCache(
     detail: { ...detail, messages: cache.messages, messageHistory: cache.messageHistory },
     needsPage: false,
   };
+}
+
+export type SentMessagePage = { ids: string[]; jsonById: Map<string, string> };
+
+/**
+ * Indices of the rows in a new page that the client does not already hold verbatim, or undefined when
+ * the page is not "previous page, trimmed at the front, with rows appended at the end". Anything else
+ * (re-identified rows, removals in the middle, rewinds) needs a full page.
+ */
+export function messagePageDelta(
+  previous: SentMessagePage,
+  ids: readonly string[],
+  jsons: readonly string[],
+): number[] | undefined {
+  if (ids.length === 0 || previous.ids.length === 0) return undefined;
+  if (new Set(ids).size !== ids.length) return undefined;
+  const start = previous.ids.indexOf(ids[0]!);
+  if (start < 0) return undefined;
+  const retained = previous.ids.length - start;
+  if (ids.length < retained) return undefined;
+  const changed: number[] = [];
+  for (let index = 0; index < ids.length; index += 1) {
+    const id = ids[index]!;
+    if (index < retained) {
+      if (previous.ids[start + index] !== id) return undefined;
+      if (previous.jsonById.get(id) !== jsons[index]) changed.push(index);
+    } else {
+      // An appended row must be new; an id seen earlier would be a reorder.
+      if (previous.jsonById.has(id)) return undefined;
+      changed.push(index);
+    }
+  }
+  return changed;
 }
 
 /** The task-detail fields that are sent separately, so they are not duplicated inside `task`. */
@@ -134,15 +175,15 @@ export function backendTaskSnapshot(
   detail: Record<string, unknown> | null,
   pending: { permissionRequest: unknown; questionRequest: unknown },
   extra: Record<string, unknown> = {},
+  streamMessages = true,
 ): Record<string, unknown> {
   const summary: Record<string, unknown> = { ...(detail ?? {}) };
   for (const key of DETAIL_ONLY_FIELDS) delete summary[key];
-  const page = pageTaskDetailMessages(detail);
+  const page = streamMessages ? pageTaskDetailMessages(detail, undefined, readHistoryPageSize()) : undefined;
   return {
     type: "snapshot",
     task: summary,
-    messages: page.messages,
-    messageHistory: page.messageHistory,
+    ...(page ? { messages: page.messages, messageHistory: page.messageHistory } : {}),
     isStreaming: detail?.isStreaming ?? false,
     isCompacting: detail?.isCompacting ?? false,
     contextUsage: detail?.contextUsage,
@@ -176,17 +217,23 @@ export async function startBackendTaskStream({
   sse,
   extra = {},
   intervalMs = BACKEND_EVENT_POLL_MS,
+  streamingIntervalMs = intervalMs,
   idleIntervalMs = BACKEND_EVENT_IDLE_POLL_MS,
   dirtyIdleIntervalMs = BACKEND_EVENT_DIRTY_IDLE_POLL_MS,
   setTimeoutImpl = setTimeout,
   clearTimeoutImpl = clearTimeout,
   subscribeDirty = subscribeBackendTaskDirty,
   dirtyConnected = isBackendTaskDirtyConnected,
+  messageDelta = false,
+  streamDeltas = true,
+  streamMessages = true,
 }: {
   id: string;
   sse: BackendEventSink;
   extra?: Record<string, unknown> | (() => Record<string, unknown>);
   intervalMs?: number;
+  /** Slower streaming fallback; only used while the dirty event connection is healthy. */
+  streamingIntervalMs?: number;
   idleIntervalMs?: number;
   dirtyIdleIntervalMs?: number;
   setTimeoutImpl?: typeof setTimeout;
@@ -194,8 +241,17 @@ export async function startBackendTaskStream({
   subscribeDirty?: (taskId: string, listener: (payload?: BackendTaskDirtyPayload) => void) => () => void;
   /** Whether dirty wakes are currently being delivered; the long idle poll requires it. */
   dirtyConnected?: () => boolean;
+  /**
+   * The client opted in (`delta=1`) to snapshots whose `messages` carry only the changed or appended
+   * rows (`messagesDelta: true`). Streaming then costs one message per wake instead of a full page.
+   */
+  messageDelta?: boolean;
+  /** Whether the client accepts high-frequency direct stream wakes; snapshot polling remains active. */
+  streamDeltas?: boolean;
+  /** Whether snapshots include transcript pages; false keeps only state during hidden-tab connections. */
+  streamMessages?: boolean;
 }): Promise<{ ok: true; stop: () => void } | { ok: false; reason: string }> {
-  const [detail, pending] = await readBackendSnapshot(id, "page");
+  const [detail, pending] = await readBackendSnapshot(id, streamMessages ? "page" : "omit");
   if (!detail.ok) return { ok: false, reason: detail.reason };
   let stopped = false;
   let busy = false;
@@ -204,13 +260,13 @@ export async function startBackendTaskStream({
   let timer: ReturnType<typeof setTimeout> | undefined;
   let wake: (() => void) | undefined;
   let dirtyAttached = false;
-  let cachedPage = cachePageFromDetail(detail.detail);
+  let cachedPage = streamMessages ? cachePageFromDetail(detail.detail) : undefined;
   let lastStreaming = detail.detail?.isStreaming === true || detail.detail?.isCompacting === true;
   /** Accepted prompt / running turn: poll at the short interval even before the stream opens. */
   const isWorking = (current: Record<string, unknown> | null | undefined) =>
     current?.status === "working" || current?.isStreaming === true || current?.isCompacting === true;
   let lastWorking = isWorking(detail.detail);
-  /** A streaming-text wake arrived: the next read needs bodies, never an omit probe. */
+  /** Older Backend stream wakes without a delta need a paged read, never an omit probe. */
   let forcePage = false;
   const stop = () => {
     stopped = true;
@@ -228,6 +284,108 @@ export async function startBackendTaskStream({
     }
   };
   let lastSnapshot: string | undefined;
+  let lastTaskSummaryJson: string | undefined;
+  const lastSnapshotFieldJson = new Map<string, string>();
+  const reusableSnapshotFields = ["goalLoop", "todos", "permissionRequest", "questionRequest", "contextUsage"] as const;
+  const prepareTaskSummaryForWire = (snapshot: Record<string, unknown>) => {
+    const task = snapshot.task;
+    const taskJson = task && typeof task === "object" ? JSON.stringify(task) : undefined;
+    const taskReused = taskJson !== undefined && taskJson === lastTaskSummaryJson;
+    const payload: Record<string, unknown> = { ...snapshot };
+    const omittedFields: [string, string][] = [];
+    const changedFields: [string, string][] = [];
+    if (taskReused) {
+      delete payload.task;
+      payload.taskReused = true;
+    }
+    for (const field of reusableSnapshotFields) {
+      if (!Object.prototype.hasOwnProperty.call(snapshot, field)) continue;
+      const fieldJson = JSON.stringify(snapshot[field]);
+      if (fieldJson === undefined) continue;
+      if (lastSnapshotFieldJson.get(field) === fieldJson) {
+        delete payload[field];
+        omittedFields.push([field, fieldJson]);
+      } else changedFields.push([field, fieldJson]);
+    }
+    return { payload, taskJson, taskReused, omittedFields, changedFields };
+  };
+  const rememberSentSnapshot = (prepared: ReturnType<typeof prepareTaskSummaryForWire>) => {
+    if (!prepared.taskReused && prepared.taskJson !== undefined) lastTaskSummaryJson = prepared.taskJson;
+    for (const [field, fieldJson] of prepared.changedFields) lastSnapshotFieldJson.set(field, fieldJson);
+  };
+  const rewriteSerializedSnapshot = (
+    serialized: string,
+    prepared: ReturnType<typeof prepareTaskSummaryForWire>,
+  ) => {
+    if (!prepared.taskReused && prepared.omittedFields.length === 0) return serialized;
+    const skipString = (source: string, start: number) => {
+      for (let index = start + 1; index < source.length; index += 1) {
+        if (source[index] === "\\") index += 1;
+        else if (source[index] === '"') return index + 1;
+      }
+      return source.length;
+    };
+    const skipValue = (source: string, start: number) => {
+      if (source[start] === '"') return skipString(source, start);
+      if (source[start] !== "{" && source[start] !== "[") {
+        let index = start;
+        while (index < source.length && !",}]".includes(source[index]!)) index += 1;
+        return index;
+      }
+      let depth = 0;
+      for (let index = start; index < source.length; index += 1) {
+        const char = source[index];
+        if (char === '"') index = skipString(source, index) - 1;
+        else if (char === "{" || char === "[") depth += 1;
+        else if (char === "}" || char === "]") {
+          depth -= 1;
+          if (depth === 0) return index + 1;
+        }
+      }
+      return source.length;
+    };
+    const entries: { key: string; start: number; end: number }[] = [];
+    let cursor = 0;
+    while (/\s/.test(serialized[cursor] ?? "")) cursor += 1;
+    if (serialized[cursor] !== "{") return serialized;
+    cursor += 1;
+    while (cursor < serialized.length) {
+      while (/\s/.test(serialized[cursor] ?? "")) cursor += 1;
+      if (serialized[cursor] === "}") break;
+      const start = cursor;
+      const keyEnd = skipString(serialized, cursor);
+      let key: string;
+      try {
+        key = JSON.parse(serialized.slice(start, keyEnd)) as string;
+      } catch {
+        return serialized;
+      }
+      cursor = keyEnd;
+      while (/\s/.test(serialized[cursor] ?? "")) cursor += 1;
+      if (serialized[cursor] !== ":") return serialized;
+      cursor += 1;
+      while (/\s/.test(serialized[cursor] ?? "")) cursor += 1;
+      const end = skipValue(serialized, cursor);
+      entries.push({ key, start, end });
+      cursor = end;
+      while (/\s/.test(serialized[cursor] ?? "")) cursor += 1;
+      if (serialized[cursor] !== ",") break;
+      cursor += 1;
+    }
+
+    const omittedFields = new Set(prepared.omittedFields.map(([field]) => field));
+    const serializedEntries: string[] = [];
+    for (const entry of entries) {
+      if (omittedFields.has(entry.key)) continue;
+      if (prepared.taskReused && entry.key === "taskReused") continue;
+      serializedEntries.push(
+        prepared.taskReused && entry.key === "task"
+          ? '"taskReused":true'
+          : serialized.slice(entry.start, entry.end),
+      );
+    }
+    return `{${serializedEntries.join(",")}}`;
+  };
   let lastPending: PendingRequests = pending.ok
     ? { permissionRequest: pending.permissionRequest, questionRequest: pending.questionRequest }
     : { permissionRequest: null, questionRequest: null };
@@ -239,13 +397,93 @@ export async function startBackendTaskStream({
     };
     return lastPending;
   };
+  /** Last page actually delivered on this connection; the base for message deltas. */
+  let lastPage: SentMessagePage | undefined;
+  let lastRestJson: string | undefined;
+  let lastDirectMessage: unknown;
+  const sendWithMessageDelta = (snapshot: Record<string, unknown>) => {
+    if (!streamMessages) {
+      const serialized = JSON.stringify(snapshot);
+      if (serialized === lastSnapshot) return;
+      const prepared = prepareTaskSummaryForWire(snapshot);
+      if (sse.sendSerialized) sse.sendSerialized("snapshot", rewriteSerializedSnapshot(serialized, prepared));
+      else sse.send("snapshot", prepared.payload);
+      rememberSentSnapshot(prepared);
+      lastSnapshot = serialized;
+      lastPage = undefined;
+      lastRestJson = serialized;
+      return;
+    }
+    const messages = Array.isArray(snapshot.messages) ? snapshot.messages as Array<{ id?: unknown }> : [];
+    const rest: Record<string, unknown> = { ...snapshot };
+    delete rest.messages;
+    const restJson = JSON.stringify(rest);
+    const messageJsons = messages.map((message) => JSON.stringify(message));
+    const key = `${restJson}\n${messageJsons.join(",")}`;
+    if (key === lastSnapshot) return;
+    const ids = messages.map((message) => message?.id);
+    const page = ids.every((value): value is string => typeof value === "string")
+      ? { ids, jsonById: new Map(ids.map((value, index) => [value, messageJsons[index]!])) }
+      : undefined;
+    // Deltas only while a turn streams: idle snapshots are rare and carry the full page, so any row a
+    // client replaced from a REST read heals at the end of every turn.
+    const live = snapshot.isStreaming === true || snapshot.isCompacting === true;
+    if (!live) lastDirectMessage = undefined;
+    if (live && lastPage && page && lastDirectMessage && typeof lastDirectMessage === "object") {
+      const direct = lastDirectMessage as { id?: unknown };
+      const directId = typeof direct.id === "string" ? direct.id : undefined;
+      const directIndex = directId === undefined ? -1 : page.ids.indexOf(directId);
+      if (directId !== undefined && directIndex >= 0) {
+        if (JSON.stringify(direct) === messageJsons[directIndex]) {
+          const ids = [...lastPage.ids];
+          const jsonById = new Map(lastPage.jsonById);
+          if (!jsonById.has(directId)) {
+            ids.push(directId);
+            while (ids.length > readHistoryPageSize()) {
+              const removed = ids.shift();
+              if (removed) jsonById.delete(removed);
+            }
+          }
+          jsonById.set(directId, messageJsons[directIndex]!);
+          lastPage = { ids, jsonById };
+        }
+        lastDirectMessage = undefined;
+      }
+    }
+    const changed = live && lastPage && page ? messagePageDelta(lastPage, page.ids, messageJsons) : undefined;
+    if (live && changed?.length === 0 && restJson === lastRestJson) {
+      // Direct task_stream deltas may already have delivered this exact row and state.
+      lastSnapshot = key;
+      lastPage = page;
+      return;
+    }
+    // restJson is a non-empty object (`type` is always set), so its body can follow the messages.
+    const prepared = prepareTaskSummaryForWire(snapshot);
+    const wireRestJson = rewriteSerializedSnapshot(restJson, prepared);
+    const body = changed !== undefined
+      ? `{"messagesDelta":true,"messages":[${changed.map((index) => messageJsons[index]).join(",")}],${wireRestJson.slice(1)}`
+      : `{"messages":[${messageJsons.join(",")}],${wireRestJson.slice(1)}`;
+    if (sse.sendSerialized) sse.sendSerialized("snapshot", body);
+    else sse.send("snapshot", JSON.parse(body));
+    rememberSentSnapshot(prepared);
+    lastSnapshot = key;
+    lastPage = page;
+    lastRestJson = restJson;
+  };
   const send = (current: Record<string, unknown> | null, requests: BackendSnapshotRead[1]) => {
     if (stopped || sse.closed) return;
-    const snapshot = backendTaskSnapshot(current, resolvePending(requests), extraFields());
+    const snapshot = backendTaskSnapshot(current, resolvePending(requests), extraFields(), streamMessages);
+    if (messageDelta) {
+      sendWithMessageDelta(snapshot);
+      lastStreaming = current?.isStreaming === true || current?.isCompacting === true;
+      return;
+    }
     const serialized = JSON.stringify(snapshot);
     if (serialized === lastSnapshot) return;
-    if (sse.sendSerialized) sse.sendSerialized("snapshot", serialized);
-    else sse.send("snapshot", snapshot);
+    const prepared = prepareTaskSummaryForWire(snapshot);
+    if (sse.sendSerialized) sse.sendSerialized("snapshot", rewriteSerializedSnapshot(serialized, prepared));
+    else sse.send("snapshot", prepared.payload);
+    rememberSentSnapshot(prepared);
     lastSnapshot = serialized;
     lastStreaming = current?.isStreaming === true || current?.isCompacting === true;
   };
@@ -254,10 +492,11 @@ export async function startBackendTaskStream({
     lastWorking = isWorking(current);
   };
   const readNext = async (): Promise<{ detail: Record<string, unknown> | null; pending: BackendSnapshotRead[1] } | null> => {
-    const mode: DetailMessages = lastStreaming || forcePage || !cachedPage ? "page" : "omit";
+    const mode: DetailMessages = streamMessages && (lastStreaming || forcePage || !cachedPage) ? "page" : "omit";
     forcePage = false;
     const [next, requests] = await readBackendSnapshot(id, mode);
     if (stopped || sse.closed || !next.ok) return null;
+    if (!streamMessages) return { detail: next.detail, pending: requests };
     if (mode === "page") {
       cachedPage = cachePageFromDetail(next.detail) ?? cachedPage;
       return { detail: next.detail, pending: requests };
@@ -299,11 +538,14 @@ export async function startBackendTaskStream({
     if (busy || (dirtyPending && dirtyScheduled && timer !== undefined)) return;
     if (timer !== undefined) clearTimeoutImpl(timer);
     dirtyScheduled = dirtyPending;
+    const streamingFallback = lastStreaming && dirtyAttached && dirtyConnectedSafe() ? streamingIntervalMs : intervalMs;
     const delay = dirtyPending
       ? BACKEND_EVENT_DIRTY_COALESCE_MS
-      : lastStreaming || lastWorking
-        ? intervalMs
-        : dirtyAttached && dirtyConnectedSafe() ? dirtyIdleIntervalMs : idleIntervalMs;
+      : lastStreaming
+        ? streamingFallback
+        : lastWorking
+          ? intervalMs
+          : dirtyAttached && dirtyConnectedSafe() ? dirtyIdleIntervalMs : idleIntervalMs;
     timer = setTimeoutImpl(() => {
       timer = undefined;
       dirtyScheduled = false;
@@ -323,6 +565,22 @@ export async function startBackendTaskStream({
   try {
     wake = subscribeDirty(id, (payload) => {
       if (stopped || sse.closed) return;
+      if (payload?.reason === BACKEND_TASK_STREAM_REASON && payload.delta) {
+        // The Backend already projected the newest message. Hidden clients can disable this
+        // high-frequency path and rely on the independent snapshot poll until they return.
+        if (streamDeltas) {
+          sse.send("delta", payload.delta);
+          const message = payload.delta.message;
+          if (messageDelta && streamMessages && message && typeof message === "object" && typeof (message as { id?: unknown }).id === "string") {
+            lastDirectMessage = message;
+          }
+        }
+        if (typeof payload.delta.isStreaming === "boolean" || typeof payload.delta.isCompacting === "boolean") {
+          lastStreaming = payload.delta.isStreaming === true || payload.delta.isCompacting === true;
+        }
+        return;
+      }
+      // Older Backend bundles send only a wake, so retain the full-page refresh fallback.
       if (payload?.reason === BACKEND_TASK_STREAM_REASON) forcePage = true;
       dirtyPending = true;
       schedule();

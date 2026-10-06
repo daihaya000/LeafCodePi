@@ -23,6 +23,10 @@ type RequestCacheEntry = { requests: RequestSummary[]; fetchedAt: number; subscr
 const REQUEST_CACHE_TTL_MS = 500;
 const requestCache = new Map<string, RequestCacheEntry>();
 
+function isDocumentHidden(): boolean {
+  return document.visibilityState === "hidden";
+}
+
 function fetchCodeRequests(botId: string, force = false): Promise<RequestSummary[]> {
   const cached = requestCache.get(botId);
   if (!force && cached?.pending) return cached.pending;
@@ -73,27 +77,48 @@ export function BotCodeRequests({ botId, requestIds, active = true }: { botId: s
     if (!active) return;
     const unsubscribe = subscribeCodeRequests(botId);
     let closed = false;
+    let polling = false;
     let timer: number | undefined;
     const poll = async () => {
-      if (closed) return;
-      if (document.visibilityState === "hidden") {
-        timer = window.setTimeout(() => void poll(), 2_000);
-        return;
+      if (closed || polling || isDocumentHidden()) return;
+      polling = true;
+      try {
+        const next = await load();
+        if (closed || isDocumentHidden()) return;
+        const byId = new Map((next ?? []).map((request) => [request.id, request]));
+        // Every requested id must be terminal — missing siblings stay non-terminal.
+        const terminal =
+          pollingRequestIds.size > 0 &&
+          [...pollingRequestIds].every((id) => {
+            const request = byId.get(id);
+            return request?.state === "delivered" || request?.state === "cancelled";
+          });
+        if (!terminal) {
+          timer = window.setTimeout(() => {
+            timer = undefined;
+            void poll();
+          }, 2_000);
+        }
+      } finally {
+        polling = false;
       }
-      const next = await load();
-      if (closed) return;
-      const byId = new Map((next ?? []).map((request) => [request.id, request]));
-      // Every requested id must be terminal — missing siblings stay non-terminal.
-      const terminal =
-        pollingRequestIds.size > 0 &&
-        [...pollingRequestIds].every((id) => {
-          const request = byId.get(id);
-          return request?.state === "delivered" || request?.state === "cancelled";
-        });
-      if (!terminal) timer = window.setTimeout(() => void poll(), 2_000);
     };
+    const onVisibilityChange = () => {
+      if (isDocumentHidden()) {
+        if (timer !== undefined) window.clearTimeout(timer);
+        timer = undefined;
+      } else {
+        void poll();
+      }
+    };
+    document.addEventListener("visibilitychange", onVisibilityChange);
     void poll();
-    return () => { closed = true; if (timer !== undefined) window.clearTimeout(timer); unsubscribe(); };
+    return () => {
+      closed = true;
+      if (timer !== undefined) window.clearTimeout(timer);
+      document.removeEventListener("visibilitychange", onVisibilityChange);
+      unsubscribe();
+    };
   }, [active, botId, load, pollingRequestIds]);
   const stop = async (requestId: string) => {
     if (stopping) return;

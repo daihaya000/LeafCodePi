@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   BACKEND_EVENT_DIRTY_COALESCE_MS,
   backendTaskSnapshot,
+  messagePageDelta,
   startBackendTaskStream,
 } from "./backend-event-stream";
 import { createSseWriter } from "@/lib/sse-writer";
@@ -9,8 +10,10 @@ import { createSseWriter } from "@/lib/sse-writer";
 const mocks = vi.hoisted(() => ({
   forwardTaskDetail: vi.fn(),
   forwardTaskPendingRequests: vi.fn(),
+  readHistoryPageSize: vi.fn(() => 150),
 }));
 vi.mock("@/lib/backend-forward", () => mocks);
+vi.mock("@/lib/pi/history-page-size", () => ({ readHistoryPageSize: mocks.readHistoryPageSize }));
 vi.mock("@/lib/backend-task-dirty-hub", () => ({
   BACKEND_TASK_STREAM_REASON: "stream",
   isBackendTaskDirtyConnected: () => false,
@@ -41,20 +44,28 @@ async function start(
   options: {
     idleIntervalMs?: number;
     intervalMs?: number;
+    streamingIntervalMs?: number;
     dirtyIdleIntervalMs?: number;
-    subscribeDirty?: (taskId: string, listener: (payload?: { taskId: string; reason?: string }) => void) => () => void;
+    subscribeDirty?: (taskId: string, listener: (payload?: { taskId: string; reason?: string; delta?: Record<string, unknown> }) => void) => () => void;
     dirtyConnected?: () => boolean;
+    streamDeltas?: boolean;
+    streamMessages?: boolean;
+    messageDelta?: boolean;
   } = {},
 ) {
   const stream = await startBackendTaskStream({
     id: "task-1",
     sse,
     intervalMs: options.intervalMs ?? 2_000,
+    streamingIntervalMs: options.streamingIntervalMs,
     idleIntervalMs: options.idleIntervalMs ?? 2_000,
     // Keep dirty idle aligned with the test's idle interval unless a case opts in.
     dirtyIdleIntervalMs: options.dirtyIdleIntervalMs ?? options.idleIntervalMs ?? 2_000,
     subscribeDirty: options.subscribeDirty ?? (() => () => {}),
     dirtyConnected: options.dirtyConnected ?? (() => true),
+    streamDeltas: options.streamDeltas,
+    streamMessages: options.streamMessages,
+    messageDelta: options.messageDelta,
   });
   if (!stream.ok) throw new Error(stream.reason);
   return stream;
@@ -65,10 +76,37 @@ describe("Backend task stream polling", () => {
     vi.useFakeTimers();
     mocks.forwardTaskDetail.mockReset().mockResolvedValue(result(0));
     mocks.forwardTaskPendingRequests.mockReset().mockResolvedValue(pending);
+    mocks.readHistoryPageSize.mockReset().mockReturnValue(150);
   });
   afterEach(() => {
     vi.clearAllTimers();
     vi.useRealTimers();
+  });
+
+  it("reuses an unchanged task summary for later state-only snapshots", async () => {
+    const firstContext = { tokens: 10, contextWindow: 100, percent: 10 };
+    const goalLoop = { id: "loop-1", status: "running", goal: "goal", progress: Array(8).fill("same") };
+    const todos = Array.from({ length: 8 }, (_, index) => ({ id: `todo-${index}`, content: "same", status: "pending" }));
+    const permissionRequest = { id: "request-1", message: "permission", command: "echo ".repeat(80) };
+    const questionRequest = { id: "question-1", questions: [{ question: "which?", options: ["A", "B"] }] };
+    mocks.forwardTaskDetail
+      .mockResolvedValueOnce(result(0, { isStreaming: true, contextUsage: firstContext, goalLoop, todos, hangRetryCount: 1 }))
+      .mockResolvedValue(result(0, { isStreaming: true, contextUsage: firstContext, goalLoop, todos, hangRetryCount: 2 }));
+    mocks.forwardTaskPendingRequests.mockResolvedValue({ ok: true, permissionRequest, questionRequest });
+    const sse = sink();
+    const stream = await start(sse, { messageDelta: true });
+    await vi.advanceTimersByTimeAsync(2_000);
+    stream.stop();
+
+    expect(sse.send).toHaveBeenCalledTimes(2);
+    const first = sse.send.mock.calls[0]![1] as Record<string, unknown>;
+    const second = sse.send.mock.calls[1]![1] as Record<string, unknown>;
+    expect(first).toMatchObject({ task: { id: "task-1" }, goalLoop, todos, permissionRequest, questionRequest, contextUsage: firstContext });
+    expect(second).toMatchObject({ taskReused: true, hangRetryCount: 2 });
+    for (const field of ["task", "goalLoop", "todos", "permissionRequest", "questionRequest", "contextUsage"]) {
+      expect(second).not.toHaveProperty(field);
+    }
+    expect(JSON.stringify(second).length).toBeLessThan(JSON.stringify(first).length);
   });
 
   it("asks the Backend for a page first, then omit while idle and unchanged", async () => {
@@ -76,7 +114,7 @@ describe("Backend task stream polling", () => {
     await vi.advanceTimersByTimeAsync(2_000);
     stream.stop();
     expect(mocks.forwardTaskDetail.mock.calls).toEqual([
-      ["task-1", { messages: "page" }],
+      ["task-1", { messages: "page", limit: 150 }],
       ["task-1", { messages: "omit" }],
     ]);
   });
@@ -95,9 +133,9 @@ describe("Backend task stream polling", () => {
     await vi.advanceTimersByTimeAsync(2_000);
     stream.stop();
     expect(mocks.forwardTaskDetail.mock.calls).toEqual([
-      ["task-1", { messages: "page" }],
+      ["task-1", { messages: "page", limit: 150 }],
       ["task-1", { messages: "omit" }],
-      ["task-1", { messages: "page" }],
+      ["task-1", { messages: "page", limit: 150 }],
     ]);
     expect(sse.send).toHaveBeenLastCalledWith(
       "snapshot",
@@ -122,7 +160,7 @@ describe("Backend task stream polling", () => {
     await vi.advanceTimersByTimeAsync(2_000);
     stream.stop();
     expect(mocks.forwardTaskDetail.mock.calls).toEqual([
-      ["task-1", { messages: "page" }],
+      ["task-1", { messages: "page", limit: 150 }],
       ["task-1", { messages: "omit" }],
     ]);
     expect(sse.send).toHaveBeenLastCalledWith(
@@ -149,9 +187,48 @@ describe("Backend task stream polling", () => {
     await vi.advanceTimersByTimeAsync(2_000);
     expect(mocks.forwardTaskDetail).toHaveBeenCalledTimes(2);
     expect(mocks.forwardTaskDetail.mock.calls).toEqual([
-      ["task-1", { messages: "page" }],
-      ["task-1", { messages: "page" }],
+      ["task-1", { messages: "page", limit: 150 }],
+      ["task-1", { messages: "page", limit: 150 }],
     ]);
+    stream.stop();
+  });
+
+  it("uses the slower streaming fallback only with a connected dirty hub and keeps dirty wakes immediate", async () => {
+    let wake: ((payload?: { taskId: string; reason?: string; delta?: Record<string, unknown> }) => void) | undefined;
+    const sse = sink();
+    mocks.forwardTaskDetail.mockResolvedValue(result(0, { status: "working", isStreaming: true }));
+    const stream = await start(sse, {
+      intervalMs: 2_000,
+      streamingIntervalMs: 5_000,
+      idleIntervalMs: 30_000,
+      dirtyIdleIntervalMs: 30_000,
+      dirtyConnected: () => true,
+      subscribeDirty: (_id, listener) => { wake = listener; return () => {}; },
+    });
+    await vi.advanceTimersByTimeAsync(2_000);
+    expect(mocks.forwardTaskDetail).toHaveBeenCalledTimes(1);
+    await vi.advanceTimersByTimeAsync(3_000);
+    expect(mocks.forwardTaskDetail).toHaveBeenCalledTimes(2);
+
+    wake?.({ taskId: "task-1", reason: "task_dirty" });
+    await vi.advanceTimersByTimeAsync(BACKEND_EVENT_DIRTY_COALESCE_MS - 1);
+    expect(mocks.forwardTaskDetail).toHaveBeenCalledTimes(2);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(mocks.forwardTaskDetail).toHaveBeenCalledTimes(3);
+    stream.stop();
+  });
+
+  it("keeps the short streaming fallback while the dirty hub is disconnected", async () => {
+    mocks.forwardTaskDetail.mockResolvedValue(result(0, { status: "working", isStreaming: true }));
+    const stream = await start(sink(), {
+      intervalMs: 2_000,
+      streamingIntervalMs: 5_000,
+      idleIntervalMs: 30_000,
+      dirtyIdleIntervalMs: 30_000,
+      dirtyConnected: () => false,
+    });
+    await vi.advanceTimersByTimeAsync(2_000);
+    expect(mocks.forwardTaskDetail).toHaveBeenCalledTimes(2);
     stream.stop();
   });
 
@@ -250,8 +327,8 @@ describe("Backend task stream polling", () => {
     expect(vi.getTimerCount()).toBe(0);
   });
 
-  it("reads a page directly on a streaming-text wake instead of an omit probe", async () => {
-    let wake: ((payload?: { taskId: string; reason?: string }) => void) | undefined;
+  it("falls back to a page read for a streaming wake from an older Backend", async () => {
+    let wake: ((payload?: { taskId: string; reason?: string; delta?: Record<string, unknown> }) => void) | undefined;
     mocks.forwardTaskDetail.mockResolvedValue(result(0));
     const stream = await start(sink(), {
       idleIntervalMs: 30_000,
@@ -261,9 +338,121 @@ describe("Backend task stream polling", () => {
     wake?.({ taskId: "task-1", reason: "stream" });
     await vi.advanceTimersByTimeAsync(BACKEND_EVENT_DIRTY_COALESCE_MS);
     expect(mocks.forwardTaskDetail.mock.calls).toEqual([
-      ["task-1", { messages: "page" }],
-      ["task-1", { messages: "page" }],
+      ["task-1", { messages: "page", limit: 150 }],
+      ["task-1", { messages: "page", limit: 150 }],
     ]);
+    stream.stop();
+  });
+
+  it("forwards a Backend-projected delta without fetching a page for the wake", async () => {
+    let wake: ((payload?: { taskId: string; reason?: string; delta?: Record<string, unknown> }) => void) | undefined;
+    const sse = sink();
+    mocks.forwardTaskDetail.mockResolvedValue(result(0, { status: "working", isStreaming: true }));
+    const stream = await start(sse, {
+      intervalMs: 2_000,
+      idleIntervalMs: 30_000,
+      dirtyIdleIntervalMs: 30_000,
+      subscribeDirty: (_id, listener) => { wake = listener; return () => {}; },
+    });
+    const delta = {
+      type: "delta",
+      message: { id: "m1", role: "assistant", parts: [] },
+      isStreaming: true,
+      eventType: "text_delta",
+    };
+
+    wake?.({ taskId: "task-1", reason: "stream", delta });
+    expect(sse.send).toHaveBeenLastCalledWith("delta", delta);
+    await vi.advanceTimersByTimeAsync(BACKEND_EVENT_DIRTY_COALESCE_MS);
+    expect(mocks.forwardTaskDetail).toHaveBeenCalledTimes(1);
+
+    // The independent 2s fallback is still armed for missed or metadata-only events.
+    await vi.advanceTimersByTimeAsync(2_000 - BACKEND_EVENT_DIRTY_COALESCE_MS);
+    expect(mocks.forwardTaskDetail).toHaveBeenCalledTimes(2);
+    stream.stop();
+  });
+
+  it("does not resend a direct stream message in the next safety snapshot", async () => {
+    let wake: ((payload?: { taskId: string; reason?: string; delta?: Record<string, unknown> }) => void) | undefined;
+    const sse = sink();
+    const message = {
+      id: "m1", role: "assistant", createdAt: 1,
+      parts: [{ id: "p1", type: "text", text: "streamed once" }],
+    };
+    mocks.forwardTaskDetail.mockResolvedValue(result(0, { status: "working", isStreaming: true, messages: [] }));
+    const stream = await start(sse, {
+      intervalMs: 2_000,
+      idleIntervalMs: 30_000,
+      dirtyIdleIntervalMs: 30_000,
+      messageDelta: true,
+      subscribeDirty: (_id, listener) => { wake = listener; return () => {}; },
+    });
+    wake?.({
+      taskId: "task-1",
+      reason: "stream",
+      delta: { type: "delta", message, isStreaming: true },
+    });
+    expect(sse.send).toHaveBeenCalledWith("delta", expect.objectContaining({ message }));
+
+    mocks.forwardTaskDetail.mockResolvedValue(result(1, { status: "working", isStreaming: true, messages: [message] }));
+    await vi.advanceTimersByTimeAsync(2_000);
+    const snapshots = sse.send.mock.calls.filter(([event]) => event === "snapshot");
+    expect(snapshots.at(-1)?.[1]).toMatchObject({ messagesDelta: true, messages: [] });
+    stream.stop();
+  });
+
+  it("still sends a poll row when Backend content is newer than the last direct delta", async () => {
+    let wake: ((payload?: { taskId: string; reason?: string; delta?: Record<string, unknown> }) => void) | undefined;
+    const sse = sink();
+    const previous = { id: "m1", role: "assistant", createdAt: 1, parts: [{ id: "p1", type: "text", text: "old" }] };
+    const streamed = { ...previous, parts: [{ id: "p1", type: "text", text: "partial" }] };
+    const latest = { ...previous, parts: [{ id: "p1", type: "text", text: "latest" }] };
+    mocks.forwardTaskDetail.mockResolvedValue(result(0, { status: "working", isStreaming: true, messages: [previous] }));
+    const stream = await start(sse, {
+      intervalMs: 2_000,
+      idleIntervalMs: 30_000,
+      dirtyIdleIntervalMs: 30_000,
+      messageDelta: true,
+      subscribeDirty: (_id, listener) => { wake = listener; return () => {}; },
+    });
+    wake?.({ taskId: "task-1", reason: "stream", delta: { type: "delta", message: streamed, isStreaming: true } });
+    mocks.forwardTaskDetail.mockResolvedValue(result(1, { status: "working", isStreaming: true, messages: [latest] }));
+    await vi.advanceTimersByTimeAsync(2_000);
+    const snapshots = sse.send.mock.calls.filter(([event]) => event === "snapshot");
+    expect(snapshots.at(-1)?.[1]).toMatchObject({ messagesDelta: true, messages: [latest] });
+    stream.stop();
+  });
+
+  it("suppresses direct stream wakes for a background client while keeping the safety poll", async () => {
+    let wake: ((payload?: { taskId: string; reason?: string; delta?: Record<string, unknown> }) => void) | undefined;
+    const sse = sink();
+    mocks.forwardTaskDetail.mockResolvedValue(result(0, {
+      status: "working", isStreaming: true,
+      messages: [{ id: "existing", role: "assistant", parts: [] }],
+    }));
+    const stream = await start(sse, {
+      idleIntervalMs: 30_000,
+      dirtyIdleIntervalMs: 30_000,
+      streamDeltas: false,
+      streamMessages: false,
+      messageDelta: true,
+      subscribeDirty: (_id, listener) => { wake = listener; return () => {}; },
+    });
+    wake?.({
+      taskId: "task-1",
+      reason: "stream",
+      delta: { type: "delta", message: { id: "m1", role: "assistant", parts: [] }, isStreaming: true },
+    });
+    expect(sse.send).not.toHaveBeenCalledWith("delta", expect.anything());
+    expect(mocks.forwardTaskDetail).toHaveBeenCalledTimes(1);
+    expect(mocks.forwardTaskDetail).toHaveBeenNthCalledWith(1, "task-1", { messages: "omit" });
+    expect(sse.send.mock.calls.filter(([event]) => event === "snapshot").every(([, payload]) => !("messages" in (payload as Record<string, unknown>)))).toBe(true);
+
+    mocks.forwardTaskDetail.mockResolvedValue(result(1, { status: "working", isStreaming: true, messages: [] }));
+    await vi.advanceTimersByTimeAsync(2_000);
+    expect(mocks.forwardTaskDetail).toHaveBeenCalledTimes(2);
+    expect(mocks.forwardTaskDetail).toHaveBeenNthCalledWith(2, "task-1", { messages: "omit" });
+    expect(sse.send.mock.calls.filter(([event]) => event === "snapshot").every(([, payload]) => !("messages" in (payload as Record<string, unknown>)))).toBe(true);
     stream.stop();
   });
 
@@ -321,11 +510,59 @@ describe("Backend task stream polling", () => {
   });
 
   it("still pages full history from an older Backend that ignores the query", () => {
-    const messages = Array.from({ length: 100 }, (_, index) => ({ id: `m${index}`, role: "user", parts: [] }));
+    const messages = Array.from({ length: 200 }, (_, index) => ({ id: `m${index}`, role: "user", parts: [] }));
     const snapshot = backendTaskSnapshot({ id: "task-1", messages }, pending);
-    expect(snapshot.messages).toEqual(messages.slice(-50));
+    expect(snapshot.messages).toEqual(messages.slice(-150));
     expect(snapshot.messageHistory).toEqual({ hasMore: true, nextCursor: "m50" });
-    expect(messages).toHaveLength(100);
+    expect(messages).toHaveLength(200);
+  });
+
+  it("asks the Backend for the configured page size", async () => {
+    mocks.readHistoryPageSize.mockReturnValue(300);
+    const stream = await start(sink());
+    stream.stop();
+    expect(mocks.forwardTaskDetail.mock.calls).toEqual([["task-1", { messages: "page", limit: 300 }]]);
+  });
+
+  it("omits an unchanged task summary in the real SSE frame", async () => {
+    const enqueue = vi.fn();
+    const controller = { enqueue } as unknown as ReadableStreamDefaultController<Uint8Array>;
+    const sse = createSseWriter(controller);
+    const goalLoop = { id: "loop-1", status: "running", goal: "goal", progress: Array(8).fill("same") };
+    const todos = Array.from({ length: 8 }, (_, index) => ({ id: `todo-${index}`, content: "same", status: "pending" }));
+    const permissionRequest = { requestId: "approval-1", message: "permission" };
+    const questionRequest = { requestId: "question-1", message: "question" };
+    mocks.forwardTaskDetail
+      .mockResolvedValueOnce(result(0, { goalLoop, todos, contextUsage: { tokens: 1, contextWindow: 100, percent: 1 } }))
+      .mockResolvedValue(result(0, { goalLoop, todos, contextUsage: { tokens: 2, contextWindow: 100, percent: 2 } }));
+    mocks.forwardTaskPendingRequests.mockResolvedValue({ ok: true, permissionRequest, questionRequest });
+    const stream = await startBackendTaskStream({
+      id: "task-1", sse, intervalMs: 2_000, idleIntervalMs: 2_000,
+      dirtyIdleIntervalMs: 2_000, subscribeDirty: () => () => {},
+      extra: { nestedState: { goalLoop, todos, permissionRequest } },
+    });
+    if (!stream.ok) throw new Error(stream.reason);
+    try {
+      await vi.advanceTimersByTimeAsync(2_000);
+      const frames = enqueue.mock.calls.map(([chunk]) => new TextDecoder().decode(chunk as Uint8Array));
+      expect(frames).toHaveLength(2);
+      const payloads = frames.map((frame) => {
+        const line = frame.split("\n").find((value) => value.startsWith("data: "));
+        return JSON.parse(line!.slice("data: ".length)) as Record<string, unknown>;
+      });
+      expect(payloads[0]).toHaveProperty("task");
+      expect(payloads[0]).toHaveProperty("goalLoop");
+      expect(payloads[0]).toHaveProperty("todos");
+      expect(payloads[0]).toHaveProperty("permissionRequest");
+      expect(payloads[1]).toMatchObject({ taskReused: true, contextUsage: { tokens: 2 } });
+      for (const field of ["task", "goalLoop", "todos", "permissionRequest", "questionRequest"]) {
+        expect(payloads[1]).not.toHaveProperty(field);
+      }
+      expect(payloads[1].nestedState).toEqual({ goalLoop, todos, permissionRequest });
+    } finally {
+      stream.stop();
+      sse.cleanup();
+    }
   });
 
   it("serializes each snapshot only once with the real SSE writer", async () => {
@@ -447,8 +684,8 @@ describe("Backend task stream polling", () => {
     await vi.advanceTimersByTimeAsync(2_000);
     expect(sse.send).toHaveBeenLastCalledWith("snapshot", expect.objectContaining({
       task: expect.objectContaining({ updatedAt: 1 }),
-      permissionRequest: { requestId: "approval-1" },
     }));
+    expect(sse.send.mock.calls.at(-1)?.[1]).not.toHaveProperty("permissionRequest");
     stream.stop();
   });
 
@@ -520,7 +757,7 @@ describe("Backend task stream polling", () => {
     if (one.ok) one.stop();
     if (two.ok) two.stop();
     expect(mocks.forwardTaskDetail).toHaveBeenCalledTimes(2);
-    expect(mocks.forwardTaskDetail).toHaveBeenCalledWith("task-2", { messages: "page" });
+    expect(mocks.forwardTaskDetail).toHaveBeenCalledWith("task-2", { messages: "page", limit: 150 });
     expect(mocks.forwardTaskPendingRequests).toHaveBeenCalledTimes(2);
   });
 
@@ -558,7 +795,7 @@ describe("Backend task stream polling", () => {
       subscribeDirty: () => () => {},
     });
     if (streaming.ok) {
-      expect(mocks.forwardTaskDetail).toHaveBeenCalledWith("task-1", { messages: "page" });
+      expect(mocks.forwardTaskDetail).toHaveBeenCalledWith("task-1", { messages: "page", limit: 150 });
       streaming.stop();
     }
   });
@@ -709,5 +946,108 @@ describe("Backend task stream polling", () => {
     expect(sse.send).not.toHaveBeenCalled();
     expect(mocks.forwardTaskPendingRequests).toHaveBeenCalledTimes(1);
     expect(vi.getTimerCount()).toBe(0);
+  });
+});
+
+describe("message page deltas", () => {
+  const page = (rows: Array<[string, string]>) => ({
+    ids: rows.map(([id]) => id),
+    jsonById: new Map(rows),
+  });
+
+  it("returns only changed and appended rows of a front-trimmed page", () => {
+    const previous = page([["a", "A"], ["b", "B"], ["c", "C"]]);
+    expect(messagePageDelta(previous, ["b", "c", "d"], ["B", "C2", "D"])).toEqual([1, 2]);
+    expect(messagePageDelta(previous, ["a", "b", "c"], ["A", "B", "C"])).toEqual([]);
+  });
+
+  it("falls back to a full page for re-identified, removed, reordered or unknown rows", () => {
+    const previous = page([["a", "A"], ["b", "B"], ["c", "C"]]);
+    expect(messagePageDelta(previous, ["a", "b", "c2"], ["A", "B", "C"])).toBeUndefined();
+    expect(messagePageDelta(previous, ["a", "b"], ["A", "B"])).toBeUndefined();
+    expect(messagePageDelta(previous, ["a", "c", "b"], ["A", "C", "B"])).toBeUndefined();
+    expect(messagePageDelta(previous, ["x", "a"], ["X", "A"])).toBeUndefined();
+    expect(messagePageDelta(previous, ["b", "c", "a"], ["B", "C", "A"])).toBeUndefined();
+    expect(messagePageDelta(previous, [], [])).toBeUndefined();
+  });
+});
+
+describe("Backend task stream message deltas", () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+    mocks.forwardTaskPendingRequests.mockReset().mockResolvedValue(pending);
+    mocks.readHistoryPageSize.mockReset().mockReturnValue(150);
+  });
+  afterEach(() => {
+    vi.clearAllTimers();
+    vi.useRealTimers();
+  });
+  const message = (id: string, text: string) => ({ id, role: "assistant", parts: [{ id: `${id}:0`, type: "text", text }] });
+  const streaming = (revision: number, messages: unknown[]) => ({
+    ok: true as const,
+    detail: { ...detail(revision, { isStreaming: true, status: "working" }), messages },
+  });
+
+  it("sends the full page first, then only the changed row while streaming", async () => {
+    mocks.forwardTaskDetail.mockReset().mockResolvedValue(streaming(0, [message("u1", "hi"), message("a1", "he")]));
+    const sends: Array<[string, string]> = [];
+    const sse = { closed: false, send: vi.fn(), sendSerialized: (event: string, json: string) => { sends.push([event, json]); } };
+    const stream = await startBackendTaskStream({
+      id: "task-1", sse, intervalMs: 2_000, idleIntervalMs: 2_000, dirtyIdleIntervalMs: 2_000,
+      subscribeDirty: () => () => {}, messageDelta: true,
+    });
+    if (!stream.ok) throw new Error(stream.reason);
+    mocks.forwardTaskDetail.mockResolvedValue(streaming(1, [message("u1", "hi"), message("a1", "hello")]));
+    await vi.advanceTimersByTimeAsync(2_000);
+    // Unchanged poll: nothing is resent.
+    await vi.advanceTimersByTimeAsync(2_000);
+    // The turn ends: the idle snapshot carries the full page again.
+    mocks.forwardTaskDetail.mockResolvedValue({
+      ok: true,
+      detail: { ...detail(2, { status: "idle" }), messages: [message("u1", "hi"), message("a1", "hello")] },
+    });
+    await vi.advanceTimersByTimeAsync(2_000);
+    stream.stop();
+    expect(sends).toHaveLength(3);
+    const idle = JSON.parse(sends[2]![1]);
+    expect(idle.messagesDelta).toBeUndefined();
+    expect(idle.messages).toHaveLength(2);
+    const first = JSON.parse(sends[0]![1]);
+    const second = JSON.parse(sends[1]![1]);
+    expect(first.messagesDelta).toBeUndefined();
+    expect(first.messages.map((row: { id: string }) => row.id)).toEqual(["u1", "a1"]);
+    expect(second.messagesDelta).toBe(true);
+    expect(second.messages).toEqual([message("a1", "hello")]);
+    expect(second).toMatchObject({ type: "snapshot", isStreaming: true, task: { id: "task-1", updatedAt: 1 } });
+    expect(sends[1]![1].length).toBeLessThan(sends[0]![1].length);
+  });
+
+  it("falls back to a full page when a row is re-identified", async () => {
+    mocks.forwardTaskDetail.mockReset().mockResolvedValue(streaming(0, [message("u1", "hi"), message("tmp", "he")]));
+    const sends: string[] = [];
+    const sse = { closed: false, send: vi.fn(), sendSerialized: (_event: string, json: string) => { sends.push(json); } };
+    const stream = await startBackendTaskStream({
+      id: "task-1", sse, intervalMs: 2_000, idleIntervalMs: 2_000, dirtyIdleIntervalMs: 2_000,
+      subscribeDirty: () => () => {}, messageDelta: true,
+    });
+    if (!stream.ok) throw new Error(stream.reason);
+    mocks.forwardTaskDetail.mockResolvedValue(streaming(1, [message("u1", "hi"), message("a1", "hello")]));
+    await vi.advanceTimersByTimeAsync(2_000);
+    stream.stop();
+    const second = JSON.parse(sends[1]!);
+    expect(second.messagesDelta).toBeUndefined();
+    expect(second.messages.map((row: { id: string }) => row.id)).toEqual(["u1", "a1"]);
+  });
+
+  it("keeps full pages for clients that did not opt in", async () => {
+    mocks.forwardTaskDetail.mockReset().mockResolvedValue(streaming(0, [message("u1", "hi"), message("a1", "he")]));
+    const sse = sink();
+    const stream = await start(sse);
+    mocks.forwardTaskDetail.mockResolvedValue(streaming(1, [message("u1", "hi"), message("a1", "hello")]));
+    await vi.advanceTimersByTimeAsync(2_000);
+    stream.stop();
+    expect(sse.send).toHaveBeenCalledTimes(2);
+    expect(sse.send.mock.calls[1]![1]).not.toHaveProperty("messagesDelta");
+    expect((sse.send.mock.calls[1]![1] as { messages: unknown[] }).messages).toHaveLength(2);
   });
 });

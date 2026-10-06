@@ -11,7 +11,7 @@ import { isThisModuleEntrypoint } from "./entry.js";
 import { createLlamaControlServer, closeControlServer, listenControlServer } from "./llama-control-server.js";
 import { createLoopbackWebUiProxy, listenLoopbackWebUiProxy, closeLoopbackWebUiProxy } from "./loopback-webui-proxy.js";
 import { createLlamaServerService } from "./llama-server-service.js";
-import { awaitLockOwner, lockOwnerAlive, processStartKey, readLock, removeLock, writeLock } from "./lock.js";
+import { awaitLockOwner, lockOwnerAlive, pidAlive, processStartKey, readLock, removeLock, writeLock } from "./lock.js";
 import { createRateLimitedReporter } from "./rate-limited-report.js";
 import { createLogFileWriter, formatLogLine } from "./log-file.js";
 import { getListeningPids, getPortListenerStatus } from "./port-scanner.js";
@@ -791,6 +791,7 @@ async function restartWeb() {
     return;
   }
   log("Restarting LeafCodePi WebUI...");
+  let failed = false;
   try {
     await pullLatestSourcesAsync({ repoRoot: REPO_ROOT, log, error });
     await stopWeb();
@@ -798,10 +799,18 @@ async function restartWeb() {
     // Always rebuild, even without a Pull update. spawnWeb launches the restored
     // previous build on failure without making a second stale-build attempt.
     await spawnWeb({ pull: false, forceBuild: true });
+  } catch (err) {
+    // The control plane already answered 202 and swallows handler rejections, so an
+    // unlogged throw here leaves the WebUI stopped with no trace in host.log.
+    failed = true;
+    error(`WebUI restart failed: ${err instanceof Error ? err.stack ?? err.message : String(err)}`);
   } finally {
     restarting = false;
-    await refreshStatusMenu();
+    await refreshStatusMenu().catch(() => {});
   }
+  // A failure after stopWeb leaves nothing serving: fall back to the crash-restart path
+  // (bounded by MAX_WEB_RESTARTS) instead of waiting for the operator to notice.
+  if (failed && !quitting && !webProc) scheduleWebRestart();
 }
 
 /**

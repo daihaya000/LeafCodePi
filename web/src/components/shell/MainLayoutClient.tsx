@@ -10,6 +10,8 @@ import {
   INITIAL_RESTART_PROBE,
   isRestartOverlayVisible,
   nextRestartProbe,
+  nextRestartProbeDelayMs,
+  RESTART_PROBE_FAST_MS,
   restartOverlayMessage,
   WEBUI_RESTART_ABORTED_EVENT,
   WEBUI_RESTART_EVENT,
@@ -55,7 +57,19 @@ function WebUiRestartOverlay() {
       }
       // リロードが効かなかった場合に取り残されないよう、ポーリングは止めない。
       if (reload) window.location.reload();
-      timer = setTimeout(() => void check(), 1_500);
+      schedule(nextRestartProbeDelayMs(state, document.visibilityState === "hidden"));
+    };
+    const schedule = (delayMs: number) => {
+      if (cancelled) return;
+      if (timer) clearTimeout(timer);
+      timer = setTimeout(() => {
+        timer = undefined;
+        void check();
+      }, delayMs);
+    };
+    const handleVisibility = () => {
+      // Back in front: probe now instead of waiting out the hidden-tab interval.
+      if (document.visibilityState === "visible" && timer) schedule(0);
     };
 
     const handleRestartRequested = (event: Event) => {
@@ -69,13 +83,17 @@ function WebUiRestartOverlay() {
         requestedAt: Date.now(),
       };
       setRestarting(true);
+      // Switch to the fast cadence now; an idle probe may be up to a minute away.
+      if (timer) schedule(RESTART_PROBE_FAST_MS);
     };
     window.addEventListener(WEBUI_RESTART_EVENT, handleRestartRequested);
+    document.addEventListener("visibilitychange", handleVisibility);
     void check();
     return () => {
       cancelled = true;
       if (timer) clearTimeout(timer);
       window.removeEventListener(WEBUI_RESTART_EVENT, handleRestartRequested);
+      document.removeEventListener("visibilitychange", handleVisibility);
     };
   }, []);
 

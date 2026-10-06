@@ -346,13 +346,19 @@ test("task detail pages history before HTTP serialization only when requested", 
   const paged = await response.text();
   assert.equal(response.status, 200);
   assert.deepEqual(JSON.parse(paged), { detail: {
-    ...detail, messages: messages.slice(-50), messageHistory: { hasMore: true, nextCursor: "m4950" },
+    ...detail, messages: messages.slice(-150), messageHistory: { hasMore: true, nextCursor: "m4850" },
   } });
-  assert.ok(Buffer.byteLength(paged) < Buffer.byteLength(full) / 90);
-  const older = await request(`${url}?messages=page&before=m4950`, { headers });
+  assert.ok(Buffer.byteLength(paged) < Buffer.byteLength(full) / 25);
+  const older = await request(`${url}?messages=page&before=m4850`, { headers });
   const olderBody = await older.json();
   assert.equal(older.status, 200);
-  assert.deepEqual(olderBody.detail.messages, messages.slice(4900, 4950));
+  assert.deepEqual(olderBody.detail.messages, messages.slice(4700, 4850));
+  // The WebUI passes its configured page size; the Backend clamps it into the supported range.
+  const sized = await (await request(`${url}?messages=page&limit=300`, { headers })).json();
+  assert.deepEqual(sized.detail.messages, messages.slice(-300));
+  assert.deepEqual(sized.detail.messageHistory, { hasMore: true, nextCursor: "m4700" });
+  const clamped = await (await request(`${url}?messages=page&limit=1`, { headers })).json();
+  assert.equal(clamped.detail.messages.length, 20);
   assert.equal(detail.messages.length, 5000, "the cached runtime detail must not be mutated");
   t.diagnostic(`HTTP detail bytes: full=${Buffer.byteLength(full)}, page=${Buffer.byteLength(paged)}`);
 });
@@ -364,7 +370,7 @@ test("rejects invalid pagination inputs before executing the detail reader", asy
     return { messages: [] };
   } });
   const url = snapshotsUrl.replace("pending-snapshots", "tasks") + "/task-1/detail";
-  for (const query of ["messages=bad", "messages=", "messages=page&messages=page", "messages=page&before=", "messages=page&before=%20", `messages=page&before=${"x".repeat(513)}`, "messages=page&before=a&before=b", "messages=omit&before=m1"]) {
+  for (const query of ["messages=bad", "messages=", "messages=page&messages=page", "messages=page&before=", "messages=page&before=%20", `messages=page&before=${"x".repeat(513)}`, "messages=page&before=a&before=b", "messages=omit&before=m1", "messages=page&limit=", "messages=page&limit=abc", "messages=page&limit=-5", "messages=page&limit=1.5", "messages=page&limit=1&limit=2", "messages=omit&limit=100", "limit=100"]) {
     const response = await request(`${url}?${query}`, { headers });
     await response.arrayBuffer();
     assert.equal(response.status, 400, query);

@@ -142,7 +142,7 @@ test("task wakes deferred under backpressure coalesce per task and replay once o
     { heartbeatMs: 60_000, stallMs: 60_000, includeStream: true, maxDeferredTaskWakes: 2 });
   const afterConnect = response.chunks.length;
   for (let i = 0; i < 5; i++) owner.emit("event", { event: "task_dirty", payload: { taskId: "a", reason: `r${i}` } });
-  owner.emit("event", { event: "task_stream", payload: { taskId: "a", reason: "stream" } });
+  owner.emit("event", { event: "task_stream", payload: { taskId: "a", reason: "stream", delta: { type: "delta", message: { id: "m1" }, isStreaming: true } } });
   owner.emit("event", { event: "task_dirty", payload: { taskId: "overflow" } });
   assert.equal(response.chunks.length, afterConnect);
   response.writableLength = 0;
@@ -152,7 +152,30 @@ test("task wakes deferred under backpressure coalesce per task and replay once o
   assert.equal(replay.match(/event: task_dirty/g)?.length, 1, "one dirty per task");
   assert.match(replay, /"reason":"r4"/, "newest wake wins");
   assert.match(replay, /event: task_stream/);
+  assert.match(replay, /\"delta\":\{\"type\":\"delta\",\"message\":\{\"id\":\"m1\"\},\"isStreaming\":true\}/);
   assert.doesNotMatch(replay, /overflow/, "bounded: the safety-net poll covers overflow");
+  response.destroy();
+});
+
+test("deferred stream deltas respect a byte budget and leave oversized wakes to the safety poll", () => {
+  const owner = new EventEmitter();
+  const response = fakeResponse();
+  streamRuntimeEvents(response, (listener) => { owner.on("event", listener); return () => owner.off("event", listener); },
+    { heartbeatMs: 60_000, includeStream: true, maxDeferredTaskWakeBytes: 128 });
+  const afterConnect = response.chunks.length;
+
+  owner.emit("event", {
+    event: "task_stream",
+    payload: { taskId: "large", reason: "stream", delta: { message: { parts: [{ text: "x".repeat(512) }] } } },
+  });
+  owner.emit("event", { event: "task_dirty", payload: { taskId: "small" } });
+  response.writableLength = 0;
+  response.emit("drain");
+
+  const replay = response.chunks.slice(afterConnect).join("");
+  assert.match(replay, /event: task_dirty/);
+  assert.doesNotMatch(replay, /event: task_stream/);
+  assert.equal(response.destroyed, false);
   response.destroy();
 });
 

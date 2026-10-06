@@ -90,6 +90,8 @@ import {
   TTS_PLAYBACK_VOLUME_SETTING_KEY,
 } from "@/lib/tts-playback";
 
+import { clampHistoryPageSize, HISTORY_PAGE_SIZE_SETTING_KEY } from "@/lib/history-page-size";
+
 /** task-panes.ts / reasoning-translation.ts はクライアント依存が重いので、キーだけ同値で持つ。 */
 export const TASK_PANE_PREFER_NEW_SETTING_KEY = "task-pane-prefer-new";
 export const REASONING_TRANSLATION_MODE_SETTING_KEY = "reasoning-translation-mode";
@@ -140,6 +142,7 @@ export const ALLOWED_SETTING_KEYS: ReadonlySet<string> = new Set<string>([
   REASONING_TRANSLATION_MODE_SETTING_KEY,
   TTS_PLAYBACK_RATE_SETTING_KEY,
   TTS_PLAYBACK_VOLUME_SETTING_KEY,
+  HISTORY_PAGE_SIZE_SETTING_KEY,
 ]);
 
 function normalizedGenerationModelValue(value: string, importedAccountIds: readonly string[] = []): string | null {
@@ -294,6 +297,10 @@ export function validateSettingValue(key: string, value: string, importedAccount
   if (key === SCROLL_BUTTON_OPACITY_SETTING_KEY) {
     const opacity = finiteNumber(value);
     return opacity === null ? null : String(clampScrollButtonOpacity(opacity));
+  }
+  if (key === HISTORY_PAGE_SIZE_SETTING_KEY) {
+    const size = finiteNumber(value);
+    return size === null ? null : String(clampHistoryPageSize(size));
   }
   if (key === TASK_PANE_PREFER_NEW_SETTING_KEY) {
     return value === "0" || value === "1" ? value : null;

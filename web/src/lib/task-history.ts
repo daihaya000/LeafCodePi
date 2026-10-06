@@ -13,6 +13,7 @@ export const EMPTY_TASK_MESSAGE_HISTORY: TaskMessageHistory = {
 export function pageTaskDetailMessages(
   detail: { messages?: unknown; messageHistory?: unknown } | null | undefined,
   before?: string | null,
+  limit?: number,
 ): ReturnType<typeof pageTaskMessages> {
   const messages = Array.isArray(detail?.messages) ? detail.messages as UiMessage[] : [];
   const history = detail?.messageHistory as Partial<TaskMessageHistory> | null | undefined;
@@ -20,7 +21,7 @@ export function pageTaskDetailMessages(
     && (history.nextCursor === null || typeof history.nextCursor === "string")) {
     return { messages, messageHistory: { hasMore: history.hasMore, nextCursor: history.nextCursor } };
   }
-  return pageTaskMessages(messages, before);
+  return pageTaskMessages(messages, before, limit);
 }
 
 /** API clients expose invalid cursors as HTTP 409 errors. */
@@ -50,9 +51,12 @@ export function remapTaskMessageCursor(
 }
 
 /** Page a live snapshot while preserving rewind markers for the client. */
-export function pageTaskSnapshotPayload(payload: Record<string, unknown>): Record<string, unknown> {
+export function pageTaskSnapshotPayload(
+  payload: Record<string, unknown>,
+  limit?: number,
+): Record<string, unknown> {
   if (payload.type !== "snapshot" || !Array.isArray(payload.messages)) return payload;
-  const page = pageTaskMessages(payload.messages as UiMessage[]);
+  const page = pageTaskMessages(payload.messages as UiMessage[], undefined, limit);
   return {
     ...payload,
     messages: page.messages,

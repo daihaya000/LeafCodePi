@@ -1,4 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
+import { etagJsonResponse } from "@/lib/etag-json";
+import { withProjectIconUrls } from "@/lib/project-icon-url";
 import {
   addProject,
   archiveProjectAndStopTasks,
@@ -36,7 +38,7 @@ async function teardownOnBackend(
 
 export async function GET(req: NextRequest) {
   const includeArchived = req.nextUrl.searchParams.get("archived") === "1";
-  return NextResponse.json({ projects: getProjects(includeArchived) });
+  return etagJsonResponse(req, { projects: withProjectIconUrls(getProjects(includeArchived)) });
 }
 
 export async function POST(req: NextRequest) {

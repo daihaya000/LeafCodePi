@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
+import { NextRequest } from "next/server";
 import type { BotDto, RoomDto, TaskSummary } from "@/lib/types";
 
 const mocks = vi.hoisted(() => ({
@@ -13,7 +14,10 @@ const mocks = vi.hoisted(() => ({
 vi.mock("@/lib/bots", () => ({ listBots: mocks.listBots, botTaskId: mocks.botTaskId }));
 vi.mock("@/lib/rooms", () => ({ listRooms: mocks.listRooms }));
 vi.mock("@/lib/store", () => ({ getTask: mocks.getTask, listTasks: mocks.listTasks }));
-vi.mock("@/lib/direct-session", () => ({ readSessionLastMessage: mocks.readSessionLastMessage }));
+vi.mock("@/lib/direct-session", () => ({
+  createSessionPreviewBudget: () => ({ tryConsume: () => true }),
+  readSessionLastMessage: mocks.readSessionLastMessage,
+}));
 vi.mock("@/lib/pi/bot-code-relay", () => ({ listBotCodeRequestsForBots: mocks.listBotCodeRequestsForBots }));
 
 import { GET } from "./route";
@@ -118,6 +122,23 @@ describe("GET /api/bots/sidebar", () => {
       lastMessageAt: new Date(1_700_000_000_000).toISOString(),
     });
     expect(body.rooms[1]).toMatchObject({ id: "r2", lastMessageSummary: "壊れた時刻", lastMessageAt: null });
+  });
+
+  it("returns 304 for an unchanged conditional sidebar poll", async () => {
+    mocks.listTasks.mockReturnValue([]);
+    mocks.listBots.mockReturnValue([bot("one")]);
+    mocks.getTask.mockReturnValue(undefined);
+    mocks.listBotCodeRequestsForBots.mockReturnValue(new Map());
+    mocks.listRooms.mockReturnValue([]);
+
+    const first = await GET(new NextRequest("http://localhost/api/bots/sidebar"));
+    const etag = first.headers.get("etag");
+    expect(etag?.startsWith('W/')).toBe(true);
+    const second = await GET(new NextRequest("http://localhost/api/bots/sidebar", {
+      headers: { "if-none-match": etag! },
+    }));
+    expect(second.status).toBe(304);
+    expect(await second.text()).toBe("");
   });
 
   it("keeps the preview null when the session file has no readable last message", async () => {

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { gitBranchRefs, gitDirectoryError, gitLogGraph } from "@/lib/git";
 import type { GraphLogPayload } from "@/lib/types";
+import { etagJsonResponse } from "@/lib/etag-json";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -30,7 +31,7 @@ export async function GET(req: NextRequest) {
       currentBranch,
       hasMore,
     };
-    return NextResponse.json(payload);
+    return etagJsonResponse(req, payload);
   } catch (err) {
     return NextResponse.json(
       {

@@ -115,3 +115,19 @@ export function nextRestartProbe(
     gaveUp: Boolean(giveUp),
   };
 }
+
+/** Probe cadence while a restart is requested or the server stopped answering. */
+export const RESTART_PROBE_FAST_MS = 1_500;
+/** Idle cadence: only detects restarts started elsewhere (another tab, tray), so seconds are fine. */
+export const RESTART_PROBE_IDLE_MS = 10_000;
+/** Hidden tabs barely probe; becoming visible probes immediately. */
+export const RESTART_PROBE_HIDDEN_MS = 60_000;
+
+/**
+ * Next health-probe delay. The overlay used to probe every 1.5s forever, which made `/api/health`
+ * the most frequent request of an idle tab (about 40/min, also in background tabs) for remote clients.
+ */
+export function nextRestartProbeDelayMs(state: RestartProbeState, hidden: boolean): number {
+  if (state.requested || state.offline || state.failures > 0) return RESTART_PROBE_FAST_MS;
+  return hidden ? RESTART_PROBE_HIDDEN_MS : RESTART_PROBE_IDLE_MS;
+}

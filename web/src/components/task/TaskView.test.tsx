@@ -102,6 +102,37 @@ it("shares the footer notification switch with Code task browser notifications",
   }
 });
 
+it("applies state updates when an SSE snapshot reuses the current task summary", async () => {
+  class TestEventSource extends EventTarget {
+    static latest: TestEventSource;
+    constructor() { super(); TestEventSource.latest = this; }
+    close() {}
+  }
+  const messages: UiMessage[] = [
+    { id: "prompt", role: "user", createdAt: 1, parts: [{ id: "text", type: "text", text: "指示" }] },
+  ];
+  const cachedTask = { ...task, sessionId: "session-1" };
+  saveTaskSessionCache({ task: cachedTask, messages, isStreaming: false, isCompacting: false });
+  vi.stubGlobal("EventSource", TestEventSource);
+  render(<TaskView taskId={task.id} mdUp />);
+  await waitFor(() => expect(TestEventSource.latest).toBeTruthy());
+
+  await act(async () => {
+    TestEventSource.latest.dispatchEvent(new MessageEvent("snapshot", {
+      data: JSON.stringify({ eventType: "ready", task: cachedTask, messages, isStreaming: false }),
+    }));
+  });
+  expect(screen.getByRole("button", { name: "次の指示を提案" })).toBeTruthy();
+
+  await act(async () => {
+    TestEventSource.latest.dispatchEvent(new MessageEvent("snapshot", {
+      data: JSON.stringify({ eventType: "remote_poll", taskReused: true, isStreaming: true, isCompacting: false }),
+    }));
+  });
+  expect(screen.getByRole("button", { name: "進捗を確認" })).toBeTruthy();
+  expect(screen.queryByRole("button", { name: "次の指示を提案" })).toBeNull();
+});
+
 it.each([true, false])("shows the Pi session ID only at the top of the Diff panel (mdUp: %s)", async (mdUp) => {
   const sessionId = "01a0efee-1234-5678-9012-123456789abc";
   saveTaskSessionCache({ task: { ...task, sessionId, directory: "C:\\repo" }, messages: [], isStreaming: false, isCompacting: false });
@@ -195,6 +226,42 @@ it("keeps the suggestion when a mobile side panel is opened and closed", async (
 
   expect(screen.getByText("次にテストを追加する")).toBeTruthy();
   expect(mocks.sendJson).toHaveBeenCalledTimes(1);
+});
+
+it("runs scroll pinning only for active visible task panes", () => {
+  const originalVisibility = Object.getOwnPropertyDescriptor(document, "visibilityState");
+  const setIntervalSpy = vi.spyOn(window, "setInterval");
+  const clearIntervalSpy = vi.spyOn(window, "clearInterval");
+  vi.stubGlobal("ResizeObserver", undefined);
+  const setVisibility = (state: "visible" | "hidden") => {
+    Object.defineProperty(document, "visibilityState", { configurable: true, value: state });
+    act(() => document.dispatchEvent(new Event("visibilitychange")));
+  };
+  try {
+    Object.defineProperty(document, "visibilityState", { configurable: true, value: "visible" });
+    const view = render(<TaskView taskId={task.id} mdUp active={false} />);
+    const pinTimers = () => setIntervalSpy.mock.calls
+      .map((call, index) => ({ delay: call[1], id: setIntervalSpy.mock.results[index]?.value }))
+      .filter((timer) => timer.delay === 200);
+    expect(pinTimers()).toHaveLength(0);
+
+    view.rerender(<TaskView taskId={task.id} mdUp active />);
+    expect(pinTimers()).toHaveLength(1);
+    const firstTimer = pinTimers()[0]!.id;
+    setVisibility("hidden");
+    expect(clearIntervalSpy).toHaveBeenCalledWith(firstTimer);
+
+    setVisibility("visible");
+    expect(pinTimers()).toHaveLength(2);
+    const resumedTimer = pinTimers()[1]!.id;
+    view.unmount();
+    expect(clearIntervalSpy).toHaveBeenCalledWith(resumedTimer);
+  } finally {
+    if (originalVisibility) Object.defineProperty(document, "visibilityState", originalVisibility);
+    else Reflect.deleteProperty(document, "visibilityState");
+    setIntervalSpy.mockRestore();
+    clearIntervalSpy.mockRestore();
+  }
 });
 
 it("keeps a document-hidden active task unread until the document is visible", async () => {
@@ -625,6 +692,71 @@ it("does not render a user message twice when SSE reprojects its ids", async () 
 
   await waitFor(() => expect(document.querySelectorAll("[data-task-message]")).toHaveLength(1));
   expect(document.querySelector("[data-task-message]")?.getAttribute("data-task-message")).toBe("entry-42");
+});
+
+it("skips hidden-page deltas and resyncs the latest snapshot when visible", async () => {
+  const originalHidden = Object.getOwnPropertyDescriptor(document, "hidden");
+  class TestEventSource extends EventTarget {
+    static sources: TestEventSource[] = [];
+    constructor(readonly url: string) { super(); TestEventSource.sources.push(this); }
+    close() {}
+  }
+  const message: UiMessage = {
+    id: "hidden-stream-message",
+    role: "assistant",
+    createdAt: 1,
+    parts: [{ id: "hidden-stream-text", type: "text", text: "latest hidden output" }],
+  };
+  vi.stubGlobal("EventSource", TestEventSource);
+  mocks.partView.mockImplementation(({ message: item }: { message: UiMessage }) => (
+    <div data-task-message={item.id}>{item.parts[0]?.type === "text" ? item.parts[0].text : ""}</div>
+  ));
+  try {
+    render(<TaskView taskId={task.id} mdUp />);
+    await waitFor(() => expect(TestEventSource.sources).toHaveLength(1));
+    expect(TestEventSource.sources[0]!.url).toContain("streamDeltas=1");
+    expect(TestEventSource.sources[0]!.url).toContain("streamMessages=1");
+    Object.defineProperty(document, "hidden", { configurable: true, value: true });
+    act(() => document.dispatchEvent(new Event("visibilitychange")));
+    await waitFor(() => expect(TestEventSource.sources).toHaveLength(2));
+    const hiddenSource = TestEventSource.sources[1]!;
+    expect(hiddenSource.url).toContain("streamDeltas=0");
+    expect(hiddenSource.url).toContain("streamMessages=0");
+    await act(async () => {
+      hiddenSource.dispatchEvent(new MessageEvent("delta", { data: JSON.stringify({ message }) }));
+      hiddenSource.dispatchEvent(new MessageEvent("snapshot", {
+        data: JSON.stringify({
+          eventType: "remote_poll",
+          task: { ...task, status: "working", isStreaming: true },
+          messages: [message],
+          isStreaming: true,
+        }),
+      }));
+      await Promise.resolve();
+    });
+    expect(screen.queryByText("latest hidden output")).toBeNull();
+
+    Object.defineProperty(document, "hidden", { configurable: true, value: false });
+    act(() => document.dispatchEvent(new Event("visibilitychange")));
+    await waitFor(() => expect(TestEventSource.sources).toHaveLength(3));
+    expect(TestEventSource.sources[2]!.url).toContain("streamDeltas=1");
+    expect(TestEventSource.sources[2]!.url).toContain("streamMessages=1");
+    await act(async () => {
+      TestEventSource.sources[2]!.dispatchEvent(new MessageEvent("snapshot", {
+        data: JSON.stringify({
+          eventType: "ready",
+          task: { ...task, status: "working", isStreaming: true },
+          messages: [message],
+          isStreaming: true,
+        }),
+      }));
+      await Promise.resolve();
+    });
+    expect(screen.getByText("latest hidden output")).toBeTruthy();
+  } finally {
+    if (originalHidden) Object.defineProperty(document, "hidden", originalHidden);
+    else Reflect.deleteProperty(document, "hidden");
+  }
 });
 
 it("stops following the bottom after the user scrolls up from a programmatic follow", async () => {

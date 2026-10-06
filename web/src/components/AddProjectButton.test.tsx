@@ -74,6 +74,90 @@ describe("AddProjectButton", () => {
     expect(await screen.findByDisplayValue("D:\\")).toBeTruthy();
   });
 
+  it("selects the clicked home folder rather than the previous directory", async () => {
+    const home = "C:\\Users\\Daichi";
+    const folder = `${home}\\Desktop`;
+    getJson.mockResolvedValueOnce({
+      path: home,
+      parent: null,
+      quickAccess: [{ name: "ホーム", path: home, kind: "home" }],
+      entries: [{ name: "Desktop", path: folder }],
+    }).mockResolvedValueOnce({ path: folder, parent: home, entries: [] });
+    const onSelect = vi.fn();
+
+    render(<AddProjectButton label="参照" onSelect={onSelect} />);
+    fireEvent.click(screen.getByRole("button", { name: "参照" }));
+    fireEvent.click(await screen.findByRole("button", { name: /Desktop/ }));
+    await screen.findByDisplayValue(folder);
+    await act(async () => { await Promise.resolve(); });
+    expect(getJson).toHaveBeenLastCalledWith("/api/browse/dirs", { path: folder });
+    fireEvent.click(screen.getByRole("button", { name: "選択" }));
+    expect(onSelect).toHaveBeenCalledWith(folder);
+  });
+
+  it.each(["request", "listing"])("does not select the old home path after a %s failure", async (failure) => {
+    const home = "C:\\Users\\Daichi";
+    const folder = `${home}\\Desktop`;
+    getJson.mockResolvedValueOnce({
+      path: home,
+      parent: null,
+      entries: [{ name: "Desktop", path: folder }],
+    });
+    if (failure === "request") getJson.mockRejectedValueOnce(new Error("参照できません"));
+    else getJson.mockResolvedValueOnce({ path: folder, parent: home, entries: [], error: "参照できません" });
+    const onSelect = vi.fn();
+
+    render(<AddProjectButton label="参照" onSelect={onSelect} />);
+    fireEvent.click(screen.getByRole("button", { name: "参照" }));
+    fireEvent.click(await screen.findByRole("button", { name: /Desktop/ }));
+    await screen.findByRole("alert");
+    expect((screen.getByLabelText("フォルダーのパス") as HTMLInputElement).value).toBe(folder);
+    const select = screen.getByRole("button", { name: "選択" }) as HTMLButtonElement;
+    expect(select.disabled).toBe(true);
+    fireEvent.click(select);
+    expect(onSelect).not.toHaveBeenCalled();
+
+    getJson.mockResolvedValueOnce({ path: folder, parent: home, entries: [] });
+    fireEvent.click(screen.getByRole("button", { name: "移動" }));
+    await act(async () => { await Promise.resolve(); });
+    expect(select.disabled).toBe(false);
+    fireEvent.click(select);
+    expect(onSelect).toHaveBeenCalledWith(folder);
+  });
+
+  it("does not add the old home directory after a navigation failure", async () => {
+    getJson.mockResolvedValueOnce({
+      path: "C:\\Users\\Daichi",
+      parent: null,
+      entries: [{ name: "Desktop", path: "C:\\Users\\Daichi\\Desktop" }],
+    }).mockRejectedValueOnce(new Error("参照できません"));
+    sendJson.mockRejectedValueOnce(new Error("Native picker unavailable"));
+
+    render(<AddProjectButton />);
+    fireEvent.click(screen.getByRole("button", { name: "プロジェクトを追加" }));
+    fireEvent.click(await screen.findByRole("button", { name: /Desktop/ }));
+    await screen.findByRole("alert");
+    const add = screen.getByRole("button", { name: "追加" }) as HTMLButtonElement;
+    expect(add.disabled).toBe(true);
+    fireEvent.click(add);
+    expect(sendJson).not.toHaveBeenCalledWith("/api/projects", expect.anything());
+  });
+
+  it("still permits a manually entered path after a failed navigation", async () => {
+    getJson.mockResolvedValueOnce({ path: "C:\\Users\\Daichi", parent: null, entries: [] });
+    getJson.mockRejectedValueOnce(new Error("参照できません"));
+    const onSelect = vi.fn();
+
+    render(<AddProjectButton label="参照" onSelect={onSelect} />);
+    fireEvent.click(screen.getByRole("button", { name: "参照" }));
+    await screen.findByDisplayValue("C:\\Users\\Daichi");
+    fireEvent.click(screen.getByRole("button", { name: "移動" }));
+    await screen.findByRole("alert");
+    fireEvent.change(screen.getByLabelText("フォルダーのパス"), { target: { value: "D:\\Projects" } });
+    fireEvent.click(screen.getByRole("button", { name: "選択" }));
+    expect(onSelect).toHaveBeenCalledWith("D:\\Projects");
+  });
+
   it("ignores a directory response from a dialog opened before the current one", async () => {
     let resolveFirst!: (value: { path: string; parent: null; entries: never[] }) => void;
     let resolveSecond!: (value: { path: string; parent: null; entries: never[] }) => void;

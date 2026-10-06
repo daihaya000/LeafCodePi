@@ -10,6 +10,8 @@ import {
 } from "@/lib/pi/harness";
 import { getTaskDetailBounded } from "@/lib/pi/get-task-detail-bounded";
 import { createSseWriter } from "@/lib/sse-writer";
+import { sseResponse } from "@/lib/sse-response";
+import { readHistoryPageSize } from "@/lib/pi/history-page-size";
 import { localRuntimeBlocked } from "@/lib/pi/runtime-ownership";
 import { startBackendTaskStream } from "@/lib/pi/backend-event-stream";
 import {
@@ -51,7 +53,7 @@ export async function GET(
       const pendingPayloads: Record<string, unknown>[] = [];
       const botId = taskId.slice("bot:".length);
       const sub = subscribeTask(taskId, (payload) => {
-        const safePayload = pageTaskSnapshotPayload(payload);
+        const safePayload = pageTaskSnapshotPayload(payload, readHistoryPageSize());
         if (!ready) {
           bufferPendingSsePayload(pendingPayloads, safePayload);
           return;
@@ -74,6 +76,7 @@ export async function GET(
           const started = await startBackendTaskStream({
             id: taskId,
             sse,
+            messageDelta: req.nextUrl.searchParams.get("delta") === "1",
             // Read per poll: the mailbox is shared files this process still owns, and the local
             // inbox subscription is gated until `ready`, which never happens on this path.
             extra: () => ({ intercomInbox: getBotIntercomInbox(botId) }),
@@ -139,7 +142,7 @@ export async function GET(
         ) => {
           const writer = sse;
           if (!writer || writer.closed) return;
-          const page = reuseMessages ? null : pageTaskMessages(detail.messages);
+          const page = reuseMessages ? null : pageTaskMessages(detail.messages, undefined, readHistoryPageSize());
           writer.send("snapshot", {
             type: "snapshot",
             task: { ...detail, messages: undefined },
@@ -205,11 +208,5 @@ export async function GET(
       sse?.cleanup();
     },
   });
-  return new Response(stream, {
-    headers: {
-      "Content-Type": "text/event-stream; charset=utf-8",
-      "Cache-Control": "no-store, no-cache, no-transform",
-      Connection: "keep-alive",
-    },
-  });
+  return sseResponse(req.headers.get("accept-encoding"), stream);
 }

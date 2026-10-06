@@ -49,7 +49,7 @@ it.each([true, false])("keeps Bot and Code bubble geometry while aligning assist
 
 it("uses identical closed, scroll-bounded logs with full-width nested cards and headers", () => {
   const parts = [{ id: "tool", type: "tool" as const, tool: "read", callID: "call", state: { status: "completed" as const, input: {}, startedAtMs: 1000, endedAtMs: 3000 } }];
-  const { container } = render(<>{(["bot", "task"] as const).map((kind) => <ActivityLog key={kind} kind={kind} count={2} parts={parts} active={false}>
+  const { container } = render(<>{(["bot", "task"] as const).map((kind) => <ActivityLog key={kind} kind={kind} count={100} parts={parts} active={false}>
     <MessageHeader>Metadata</MessageHeader><MessageBubble>Tool content</MessageBubble>
   </ActivityLog>)}</>);
   const [bot, task] = [...container.querySelectorAll("details")];
@@ -62,14 +62,55 @@ it("uses identical closed, scroll-bounded logs with full-width nested cards and 
   expect(bot.querySelector('summary [role="img"][aria-label="完了"]')?.classList.contains("lucide-check")).toBe(true);
   expect(bot.querySelector('summary [role="img"][aria-label="完了"]')?.nextElementSibling).toBe(bot.querySelector("summary")?.lastElementChild);
   expect(bot.open).toBe(false);
-  expect(bot.querySelector("summary")?.textContent).toBe("作業ログ2件");
-  const content = bot.querySelector("summary")!.nextElementSibling!;
-  expect(content.classList.contains("[&_.max-w-bubble]:max-w-full")).toBe(true);
-  expect(content.classList.contains("overflow-y-auto")).toBe(true);
-  expect(content.classList.contains("max-h-[min(19.6rem,35dvh)]")).toBe(true);
+  expect(bot.querySelector("summary")?.textContent).toBe("作業ログ100件");
+  // Large collapsed work logs leave their thousands of potential output nodes unmounted.
+  expect(bot.querySelector("summary")!.nextElementSibling).toBeNull();
+  expect(task.querySelector("summary")!.nextElementSibling).toBeNull();
   fireEvent.click(bot.querySelector("summary")!);
   expect(bot.open).toBe(true);
   expect(task.open).toBe(false);
+  const content = bot.querySelector("summary")!.nextElementSibling!;
+  expect(content.textContent).toContain("Tool content");
+  expect(content.classList.contains("[&_.max-w-bubble]:max-w-full")).toBe(true);
+  expect(content.classList.contains("overflow-y-auto")).toBe(true);
+  expect(content.classList.contains("max-h-[min(19.6rem,35dvh)]")).toBe(true);
+});
+
+it("mounts large activity groups in recent-first batches and reveals older items on demand", () => {
+  const items = Array.from({ length: 50 }, (_, index) => (
+    <MessageBubble key={`item-${index}`}>entry-{index}</MessageBubble>
+  ));
+  const renderItems = vi.fn(() => items);
+  const { container, getByRole } = render(
+    <ActivityLog kind="task" count={50} parts={[]} active={false} renderChildren={renderItems} />,
+  );
+  const log = container.querySelector("details")!;
+  expect(log.querySelector("summary")!.nextElementSibling).toBeNull();
+  expect(renderItems).not.toHaveBeenCalled();
+
+  fireEvent.click(log.querySelector("summary")!);
+  expect(renderItems).toHaveBeenCalledTimes(1);
+  const content = log.querySelector("summary")!.nextElementSibling!;
+  expect(content.textContent).toContain("entry-30");
+  expect(content.textContent).toContain("entry-49");
+  expect(content.textContent).not.toContain("entry-29");
+  fireEvent.click(getByRole("button", { name: "過去のログをさらに表示（30件）" }));
+  expect(content.textContent).toContain("entry-10");
+  expect(content.textContent).not.toContain("entry-9");
+  fireEvent.click(getByRole("button", { name: "過去のログをさらに表示（10件）" }));
+  expect(content.textContent).toContain("entry-0");
+  expect(container.querySelector("button")).toBeNull();
+});
+
+it("keeps every item mounted for a small group below the large-log threshold", () => {
+  const items = Array.from({ length: 24 }, (_, index) => (
+    <MessageBubble key={`item-${index}`}>entry-{index}</MessageBubble>
+  ));
+  const { container } = render(
+    <ActivityLog kind="task" count={24} parts={[]} active={false}>{items}</ActivityLog>,
+  );
+  expect(container.querySelector("details summary")!.nextElementSibling!.querySelectorAll(".rounded-card")).toHaveLength(24);
+  expect(container.querySelector("button")).toBeNull();
 });
 
 it.each(["task", "bot"] as const)("shows a finished single %s activity directly without a work log", (kind) => {

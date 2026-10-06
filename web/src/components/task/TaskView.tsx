@@ -1318,7 +1318,13 @@ export const TaskView = memo(function TaskView({
       // 古いストリームを返すことがあるため、接続ごとに URL を変える。
       // 安定したアイドル履歴は、キャッシュの revision が一致すれば ready
       // で再送しない。working/compacting のキャッシュは提示しない。
-      const eventParams = new URLSearchParams({ epoch: String(Date.now()) });
+      // delta=1: Backend-owned streams send only changed rows (messagesDelta) after the first page.
+      const eventParams = new URLSearchParams({
+        epoch: String(Date.now()),
+        delta: "1",
+        streamDeltas: document.hidden ? "0" : "1",
+        streamMessages: document.hidden ? "0" : "1",
+      });
       if (
         cachedSession &&
         cachedSession.sessionId &&
@@ -1351,6 +1357,8 @@ export const TaskView = memo(function TaskView({
         setError((current) => (current === TASK_SSE_DISCONNECTED_MESSAGE ? null : current));
         let payload: {
           task?: TaskSummary;
+          /** The summary was sent earlier on this SSE connection; reuse the current client value. */
+          taskReused?: boolean;
           messages?: UiMessage[];
           isStreaming?: boolean;
           isCompacting?: boolean;
@@ -1365,6 +1373,8 @@ export const TaskView = memo(function TaskView({
           questionRequest?: QuestionRequestDto | null;
           eventType?: string;
           messagesReused?: boolean;
+          /** `messages` holds only changed/appended rows; merge, never replace. */
+          messagesDelta?: boolean;
           messageHistory?: TaskMessageHistory;
           historyReset?: boolean;
           compactionSuggested?: boolean;
@@ -1374,6 +1384,12 @@ export const TaskView = memo(function TaskView({
         } catch {
           setError("イベントデータの解析に失敗しました");
           return;
+        }
+        if (document.hidden && payload.eventType !== "agent_settled") {
+          payload.messages = undefined;
+          payload.messageHistory = undefined;
+          payload.messagesDelta = undefined;
+          payload.historyReset = false;
         }
         const snapshotTask = payload.task;
         const snapshotTaskWithSuggestion = snapshotTask as
@@ -1432,30 +1448,34 @@ export const TaskView = memo(function TaskView({
               settled?.reason === "silent" ? settled.messageId : null,
             );
           }
-          if (snapshotTask) {
-            const nextAgent = snapshotTask.agent?.trim() || DEFAULT_AGENT;
-            setAgent(nextAgent);
-            setAgentSelection((current) =>
-              current === AUTO_AGENT_VALUE ? current : nextAgent,
-            );
+          if (snapshotTask || payload.taskReused) {
+            if (snapshotTask) {
+              const nextAgent = snapshotTask.agent?.trim() || DEFAULT_AGENT;
+              setAgent(nextAgent);
+              setAgentSelection((current) =>
+                current === AUTO_AGENT_VALUE ? current : nextAgent,
+              );
+            }
             setTask((current) => {
+              const summary = snapshotTask ?? current;
+              if (!summary) return current;
               const base: TaskDetail = current ?? {
-                ...snapshotTask,
+                ...summary,
                 messages: [],
-                isStreaming: payload.isStreaming ?? snapshotTask.status === "working",
+                isStreaming: payload.isStreaming ?? summary.status === "working",
                 isCompacting: Boolean(payload.isCompacting),
               };
               const keepExistingMessages = shouldKeepCachedBootstrapMessages({
                 currentTaskId: base.id,
-                snapshotTaskId: snapshotTask.id,
+                snapshotTaskId: summary.id,
                 isBootstrap,
                 snapshotMessages: payload.messages,
                 currentMessageCount: base.messages.length,
               });
               const next: TaskDetail = {
                 ...base,
-                ...snapshotTask,
-                messages: keepExistingMessages
+                ...summary,
+                messages: keepExistingMessages || payload.messagesDelta
                   ? base.messages
                   : payload.messages ?? base.messages ?? [],
                 messageHistory: payload.messageHistory ?? base.messageHistory,
@@ -1470,9 +1490,13 @@ export const TaskView = memo(function TaskView({
               return sameTaskDetail(current, next) ? current : next;
             });
           }
-          if (resetHistory) {
+          if (resetHistory && !payload.messagesDelta) {
             setMessages(stabilizeUiMessages([], payload.messages ?? []));
-          } else if (payload.messages && (!isBootstrap || payload.messages.length > 0)) {
+          } else if (
+            payload.messages &&
+            (!isBootstrap || payload.messages.length > 0) &&
+            !(payload.messagesDelta && payload.messages.length === 0)
+          ) {
             if (!payload.messageHistory || historyLoadedRef.current) {
               const remapped = remapTaskMessageCursor(
                 messageHistoryRef.current,
@@ -1550,7 +1574,7 @@ export const TaskView = memo(function TaskView({
         if (status) onStatusRef.current?.(taskId, status);
       });
       nextSource.addEventListener("delta", (event) => {
-        if (!isCurrentSource()) return;
+        if (!isCurrentSource() || document.hidden) return;
         const rawData = (event as MessageEvent).data as string;
         if (TASK_PERF_ENABLED && perf) {
           perf.deltaCount += 1;
@@ -1660,6 +1684,11 @@ export const TaskView = memo(function TaskView({
       });
     };
 
+    const onVisibilityChange = () => {
+      // Reconnect with streamDeltas=0 while hidden and restore the fast path when visible.
+      connect();
+    };
+    document.addEventListener("visibilitychange", onVisibilityChange);
     // The SSE endpoint sends the initial timeline page; avoid a duplicate task-detail request.
     connect();
     // Skip the rest of a backoff wait when the network / tab comes back.
@@ -1712,6 +1741,7 @@ export const TaskView = memo(function TaskView({
     });
     return () => {
       closed = true;
+      document.removeEventListener("visibilitychange", onVisibilityChange);
       stopReconnectWake();
       retryTimer = cancelPendingSseReconnect(retryTimer);
       source = closeSseSource(source);
@@ -1967,25 +1997,51 @@ export const TaskView = memo(function TaskView({
   }, [messages.length, sessionHydrating, taskId]);
 
   useEffect(() => {
+    if (!active) return;
     const scroller = scrollRef.current;
     const content = contentRef.current;
     if (!scroller || !content) return;
     lastScrollTopRef.current = scroller.scrollTop;
     lastScrollHeightRef.current = scroller.scrollHeight;
     const pinned = () => {
-      if (!stickRef.current) return;
+      if (document.visibilityState !== "visible" || !stickRef.current) return;
       if (isNearBottom(scroller.scrollTop, scroller.clientHeight, scroller.scrollHeight)) return;
       scheduleScrollToBottom();
     };
-    if (typeof ResizeObserver !== "undefined") {
-      const observer = new ResizeObserver(pinned);
-      observer.observe(content);
-      pinned();
-      return () => observer.disconnect();
-    }
-    const id = window.setInterval(pinned, 200);
-    return () => window.clearInterval(id);
-  }, [scheduleScrollToBottom, taskId]);
+    let observer: ResizeObserver | undefined;
+    let interval: number | undefined;
+    const stop = () => {
+      observer?.disconnect();
+      observer = undefined;
+      if (interval !== undefined) window.clearInterval(interval);
+      interval = undefined;
+    };
+    const start = () => {
+      if (document.visibilityState !== "visible") return;
+      if (typeof ResizeObserver !== "undefined") {
+        if (observer) return;
+        observer = new ResizeObserver(pinned);
+        observer.observe(content);
+        pinned();
+      } else if (interval === undefined) {
+        interval = window.setInterval(pinned, 200);
+      }
+    };
+    const onVisibilityChange = () => {
+      if (document.visibilityState === "visible") {
+        if (typeof ResizeObserver === "undefined") pinned();
+        start();
+      } else {
+        stop();
+      }
+    };
+    start();
+    document.addEventListener("visibilitychange", onVisibilityChange);
+    return () => {
+      document.removeEventListener("visibilitychange", onVisibilityChange);
+      stop();
+    };
+  }, [active, scheduleScrollToBottom, taskId]);
 
   function addFiles(files: FileList) {
     if (!canAttachComposerImages({ goalLoopEnabled, compacting: isCompacting, archived: task?.status === "archived" })) return;
@@ -3767,9 +3823,9 @@ export const TaskView = memo(function TaskView({
                       };
                     })()
                   : undefined;
-              const activityContents =
+              const renderActivityContents =
                 block.kind === "tool-group"
-                  ? block.entries.flatMap((entry, entryIndex) => {
+                  ? () => block.entries.flatMap((entry, entryIndex) => {
                       const message = entry.activityMessage;
                       const modelLabel = messageModelLabel(message, modelLabels);
                       const accountLabel = message.accountId
@@ -3838,7 +3894,7 @@ export const TaskView = memo(function TaskView({
                         />,
                       ];
                     })
-                  : [];
+                  : undefined;
               const activityCount =
                 block.kind === "tool-group"
                   ? block.entries.reduce((count, entry) => count + taskActivityCount(entry), 0)
@@ -3879,7 +3935,8 @@ export const TaskView = memo(function TaskView({
                       statusMessages={block.entries.map((entry) => entry.message)}
                       active={active}
                       running={runningLog}
-                    >{activityContents}</ActivityLog>
+                      renderChildren={renderActivityContents}
+                    />
                   ) : showResume &&
                     resumeInsideExistingBanner &&
                     resumeTarget?.messageId === block.message.id ? (
@@ -4478,13 +4535,23 @@ export const TaskView = memo(function TaskView({
                 loading={modelsLoading}
                 onChange={(value) => {
                   const changeId = ++modelChangeRef.current;
+                  const previous = modelValue;
                   if (value === AUTO_MODEL_VALUE) {
                     if (!autoModelEnabled) return;
                     setModelSelection(AUTO_MODEL_VALUE);
                     writeStoredModel(AUTO_MODEL_VALUE);
+                    // A running Goal Loop re-resolves Auto before each next turn.
+                    if (goalLoopVisible) {
+                      void sendJson(`/api/tasks/${taskId}/goal-loop-auto-model`, { enabled: true }, "PUT").catch((err) => {
+                        if (modelChangeRef.current !== changeId) return;
+                        const fallback = previous === plainTaskModelValue ? "" : previous;
+                        setModelSelection(fallback);
+                        writeStoredModel(fallback);
+                        setError(err instanceof Error ? err.message : "Auto の切替に失敗しました");
+                      });
+                    }
                     return;
                   }
-                  const previous = modelValue;
                   setModelSelection(value);
                   void (async () => {
                     try {

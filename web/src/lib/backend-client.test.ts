@@ -156,11 +156,15 @@ describe("readers", () => {
     await readBackendTaskDetail("task/1", options);
     await readBackendTaskDetail("task/1", { ...options, messages: "page" });
     await readBackendTaskDetail("task/1", { ...options, messages: "page", before: "cursor?&+/ 日本語" });
+    await readBackendTaskDetail("task/1", { ...options, messages: "page", limit: 300 });
     expect(fetchImpl.mock.calls[0][0]).toBe("http://127.0.0.1:19999/internal/tasks/task%2F1/detail");
     expect(fetchImpl.mock.calls[1][0]).toBe("http://127.0.0.1:19999/internal/tasks/task%2F1/detail?messages=page");
     const older = new URL(fetchImpl.mock.calls[2][0]);
     expect(older.searchParams.get("messages")).toBe("page");
     expect(older.searchParams.get("before")).toBe("cursor?&+/ 日本語");
+    const sized = new URL(fetchImpl.mock.calls[3][0]);
+    expect(sized.searchParams.get("messages")).toBe("page");
+    expect(sized.searchParams.get("limit")).toBe("300");
   });
 
   it("reads health and the task list from their paths", async () => {

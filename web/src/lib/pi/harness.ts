@@ -321,6 +321,7 @@ import {
 } from "@/lib/pi/question-prompt";
 import { registerWebUiQuestionHandler } from "@/lib/pi/webui-question-bridge";
 import { getSetting } from "@/lib/pi/web-settings";
+import { isGoalLoopAutoModel } from "@/lib/pi/goal-loop-auto-model";
 import { listSubagentRuns } from "@/lib/pi/subagent-runs";
 import { stopRunningSubagentRuns } from "@/lib/pi/stop-subagent-runs";
 import { getCachedUsage, invalidateCachedUsage } from "@/lib/codexbar/cache";
@@ -1727,19 +1728,23 @@ const TASK_STREAM_EVENT_CHANNEL = "__task_stream__";
  * refreshed on its 2s poll and replies appeared in 2-second jumps.
  */
 const throttledTaskStreamWake = createTaskStreamWake({
-  emit: (taskId) => state().events.emit(TASK_STREAM_EVENT_CHANNEL, { taskId, reason: "stream" }),
+  emit: (taskId, delta) => state().events.emit(TASK_STREAM_EVENT_CHANNEL, {
+    taskId,
+    reason: "stream",
+    ...(delta ? { delta } : {}),
+  }),
 });
-function publishTaskStream(taskId: string): void {
+function publishTaskStream(taskId: string, delta: () => Record<string, unknown>): void {
   // No cutover consumer (in-process WebUI): nothing to wake, and no timers to arm.
   if (state().events.listenerCount(TASK_STREAM_EVENT_CHANNEL) === 0) return;
-  throttledTaskStreamWake(taskId);
+  throttledTaskStreamWake(taskId, delta);
 }
 
-/** Backend→Web cutover: throttled "streaming text changed" notices (never on the dirty channel). */
+/** Backend→Web cutover: throttled message deltas (never on the dirty channel). */
 export function subscribeTaskStream(
-  listener: (payload: { taskId: string; reason?: string }) => void,
+  listener: (payload: { taskId: string; reason?: string; delta?: Record<string, unknown> }) => void,
 ): () => void {
-  const handler = (payload: { taskId: string; reason?: string }) => listener(payload);
+  const handler = (payload: { taskId: string; reason?: string; delta?: Record<string, unknown> }) => listener(payload);
   state().events.on(TASK_STREAM_EVENT_CHANNEL, handler);
   return () => state().events.off(TASK_STREAM_EVENT_CHANNEL, handler);
 }
@@ -1832,14 +1837,9 @@ export function emitTaskChanged(taskId: string, eventType = "task_changed"): voi
  * Reuse the cached branch and project the streaming suffix alone through the
  * latestOnly snapshot path.
  */
-function emitTaskDelta(live: LiveRuntime, eventType: string): void {
-  // Wake cutover viewers before the local-listener early return: a Backend owner has no local
-  // SSE listeners, and its WebUI streams would otherwise wait for their 2s poll per update.
-  publishTaskStream(live.taskId);
-  if (state().events.listenerCount(live.taskId) === 0) return;
-  // High-frequency events only change the message and session flags. Task
-  // metadata is refreshed by the non-throttled lifecycle snapshots, so avoid
-  // the store read and session-file scans performed by toSummary() here.
+function projectTaskDelta(live: LiveRuntime, eventType: string): { type: "delta"; [key: string]: unknown } {
+  // High-frequency events only change the message and session flags. Task metadata is refreshed
+  // by lifecycle snapshots, so avoid the store read and session-file scans done by toSummary().
   const message = snapshotMessages(
     live.session,
     live.throughputByStartedAt,
@@ -1850,14 +1850,12 @@ function emitTaskDelta(live: LiveRuntime, eventType: string): void {
     messageContext(live),
   ).at(-1) ?? null;
   const contextUsage = sessionContextUsage(live.session);
-  // Delta snapshots are high-frequency; use the live flag instead of reading
-  // the Goal Loop state file for every token update.
   const compactionSuggested = !live.goalLoopTurnActive && shouldSuggestAtThreshold(
     parseCompactionAction(getSetting(COMPACTION_ACTION_SETTING_KEY)),
     contextUsage?.percent,
     parseCompactionThreshold(getSetting(COMPACTION_THRESHOLD_SETTING_KEY)),
   );
-  emit(live.taskId, {
+  return {
     type: "delta",
     message,
     isStreaming: live.session.isStreaming,
@@ -1865,7 +1863,21 @@ function emitTaskDelta(live: LiveRuntime, eventType: string): void {
     ...(contextUsage ? { contextUsage } : {}),
     compactionSuggested,
     eventType,
-  });
+  };
+}
+
+function emitTaskDelta(live: LiveRuntime, eventType: string): void {
+  const hasLocalListeners = state().events.listenerCount(live.taskId) > 0;
+  const hasCutoverListeners = state().events.listenerCount(TASK_STREAM_EVENT_CHANNEL) > 0;
+  if (!hasLocalListeners && !hasCutoverListeners) return;
+  if (hasLocalListeners) {
+    const delta = projectTaskDelta(live, eventType);
+    if (hasCutoverListeners) publishTaskStream(live.taskId, () => delta);
+    emit(live.taskId, delta);
+    return;
+  }
+  // Remote-only consumers project only for leading/trailing throttled wakes, not each token event.
+  if (hasCutoverListeners) publishTaskStream(live.taskId, () => projectTaskDelta(live, eventType));
 }
 
 /** Refresh idle clients after settings changes without projecting conversation history. */
@@ -3452,6 +3464,38 @@ type GoalLoopTurnRoutingContext = {
   isGoalLoopHangAbort?: () => boolean;
 };
 
+/** Re-resolve Auto for the next Goal turn. Failures keep the current model; the loop must not stall. */
+async function resolveGoalLoopAutoModelForTurn(taskId: string, live: LiveRuntime): Promise<void> {
+  try {
+    const task = getTask(taskId);
+    if (!task) return;
+    const loop = readGoalLoopState(
+      live.session.sessionManager.getCwd(),
+      live.session.sessionId,
+    );
+    if (!loop || !isGoalLoopAutoModel(taskId, loop)) return;
+    const { mode, config } = configuredAutoRoute();
+    const sessionFile = live.session.sessionFile ?? task.sessionFile;
+    if (!sessionFile) return;
+    const decision = await resolveAutoModel({
+      prompt: loop.goal,
+      hasImages: false,
+      historyMessageCount: readSessionConversation(sessionFile).length,
+      recentFailure: task.status === "error" || Boolean(task.error),
+      mode,
+      config,
+    });
+    if (!decision) return;
+    // The user may have picked a concrete model while Auto was resolving.
+    if (!isGoalLoopAutoModel(taskId, readGoalLoopState(live.session.sessionManager.getCwd(), live.session.sessionId))) return;
+    await setTaskModel(taskId, autoModelValue(decision), { accountIdExplicit: false });
+    const thinkingLevel = autoVariantToThinkingLevel(decision.variant);
+    if (thinkingLevel) await setTaskThinkingLevel(taskId, thinkingLevel);
+  } catch {
+    // Keep the model chosen so far.
+  }
+}
+
 function registerGoalLoopTurnRouting(taskId: string): (pi: ExtensionAPI) => void {
   return (pi) => {
     // Path extensions register session_start first. Announce synchronously now so
@@ -3513,10 +3557,17 @@ function registerGoalLoopTurnRouting(taskId: string): (pi: ExtensionAPI) => void
         const latestBefore = state().live.get(taskId);
         if (!latestBefore || latestBefore.session.sessionManager !== manager) return false;
         if (isLiveBusyForReplace(latestBefore)) return "retry";
+        // Composer was switched to Auto during the loop: choose the model for this turn now.
+        // The change is deferred into pendingSettings, which prepareLiveForPrompt applies below.
+        await resolveGoalLoopAutoModelForTurn(taskId, latestBefore);
+        if (!ownsRouting()) return false;
+        const autoLatest = state().live.get(taskId);
+        if (!autoLatest || autoLatest.session.sessionManager !== manager) return false;
+        if (isLiveBusyForReplace(autoLatest)) return "retry";
         const after = await prepareLiveForPrompt(
-          latestBefore,
+          autoLatest,
           true,
-          copyPendingLiveSettings(latestBefore.pendingSettings),
+          copyPendingLiveSettings(autoLatest.pendingSettings),
           { deferWorking: true },
         );
         // session.reload() emits session_start on a fresh extension instance.

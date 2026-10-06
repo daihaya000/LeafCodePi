@@ -7,6 +7,7 @@ import {
   subscribeTask,
 } from "@/lib/pi/harness";
 import { createSseWriter } from "@/lib/sse-writer";
+import { sseResponse } from "@/lib/sse-response";
 import { localRuntimeBlocked } from "@/lib/pi/runtime-ownership";
 import { forwardPendingRequestsByTask, type PendingRequestsByTask } from "@/lib/backend-forward";
 import { BACKEND_TASK_STREAM_REASON, subscribeBackendTaskDirty } from "@/lib/backend-task-dirty-hub";
@@ -38,8 +39,8 @@ function pendingRequestsChanged(
  * The longer interval is only for missed wakes / streaming text that may lack non-delta dirty.
  */
 const ROOM_BACKEND_POLL_MS = 5_000;
-/** While the dirty hub is attached, keep a tighter disk safety net for room body updates. */
-const ROOM_BACKEND_DIRTY_POLL_MS = 2_000;
+/** Dirty events wake snapshots immediately; keep a 5s disk safety net for missed room-file updates. */
+const ROOM_BACKEND_DIRTY_POLL_MS = 5_000;
 const ROOM_LOCAL_POLL_MS = 2_000;
 
 export async function GET(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
@@ -223,11 +224,5 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
     },
     cancel() { sse?.cleanup(); },
   });
-  return new Response(stream, {
-    headers: {
-      "Content-Type": "text/event-stream; charset=utf-8",
-      "Cache-Control": "no-store, no-cache, no-transform",
-      Connection: "keep-alive",
-    },
-  });
+  return sseResponse(req.headers.get("accept-encoding"), stream);
 }

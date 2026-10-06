@@ -1,6 +1,6 @@
 "use client";
 
-import { type ReactNode, useLayoutEffect, useRef, useState } from "react";
+import { Children, type ReactNode, useLayoutEffect, useRef, useState } from "react";
 import { Check, ChevronRight, CircleAlert, Loader2, Minus, ScrollText } from "lucide-react";
 import { cx, formatDuration, useToolElapsedMs } from "@/components/ui";
 import { formatTokens } from "@/lib/context-usage";
@@ -41,6 +41,10 @@ export function activityUsageLabels(usage: ActivityUsage) {
   };
 }
 
+const ACTIVITY_LOG_LAZY_THRESHOLD = 25;
+const ACTIVITY_LOG_INITIAL_ITEMS = 20;
+const ACTIVITY_LOG_PAGE_SIZE = 20;
+
 export const ACTIVITY_USAGE_TITLES = {
   tokens: "作業ログ内の合計出力トークン",
   rate: "作業ログ内の平均 tok/s（各応答の tok/s の平均）",
@@ -59,8 +63,10 @@ function lastLogStatus(messages: readonly UiMessage[], parts: readonly UiPart[])
 }
 
 /** Keep Bot/Code log icons and layout here to prevent drift; callers own grouping and choose which responses count toward usage. */
-export function ActivityLog({ children, header, count, parts, messages = [], statusMessages = messages, active, running = false, outcome, kind }: {
-  children: ReactNode;
+export function ActivityLog({ children, renderChildren, header, count, parts, messages = [], statusMessages = messages, active, running = false, outcome, kind }: {
+  children?: ReactNode;
+  /** Defer constructing nested message/tool elements until a large log is opened. */
+  renderChildren?: () => ReactNode;
   /** 枠外と展開内容の先頭に出すメタ行。関数なら作業ログ全体の使用量を受け取って描く。 */
   header?: ReactNode | ((usage: ActivityUsage, placement: "outside" | "inside") => ReactNode);
   count: number;
@@ -92,6 +98,16 @@ export function ActivityLog({ children, header, count, parts, messages = [], sta
   const lastTopRef = useRef(0);
   const lastHeightRef = useRef(0);
   const [open, setOpen] = useState(running);
+  const [visibleChildCount, setVisibleChildCount] = useState(ACTIVITY_LOG_INITIAL_ITEMS);
+  const childItems = open || count < ACTIVITY_LOG_LAZY_THRESHOLD
+    ? Children.toArray(renderChildren ? renderChildren() : children)
+    : [];
+  const renderCount = count >= ACTIVITY_LOG_LAZY_THRESHOLD ? visibleChildCount : childItems.length;
+  const visibleChildren = childItems.slice(-renderCount);
+  const earlierChildCount = childItems.length - visibleChildren.length;
+  // Small groups stay mounted for instant expand; large collapsed historical logs can contain
+  // thousands of output nodes, so leave their body out of the DOM until the user opens them.
+  const mountBody = open || count < ACTIVITY_LOG_LAZY_THRESHOLD;
   // 作業の開始・完了時だけ開閉を同期し、途中の手動開閉は維持する。
   useLayoutEffect(() => {
     setOpen(running);
@@ -117,7 +133,7 @@ export function ActivityLog({ children, header, count, parts, messages = [], sta
   }, [open]);
   // 完了した単一項目は畳まず、メタ行と内容をそのまま表示する。
   if (count < 2 && !running) {
-    return <div className="w-full min-w-0 self-start space-y-2">{headerNode}{children}</div>;
+    return <div className="w-full min-w-0 self-start space-y-2">{headerNode}{visibleChildren}</div>;
   }
   const log = (
     <details
@@ -147,7 +163,7 @@ export function ActivityLog({ children, header, count, parts, messages = [], sta
         )}
         <ChevronRight className="h-3.5 w-3.5 shrink-0 text-faint transition-transform group-open/tool-activity:rotate-90" aria-hidden="true" />
       </summary>
-      <div
+      {mountBody && <div
         ref={scrollerRef}
         onScroll={(event) => {
           const el = event.currentTarget;
@@ -161,9 +177,18 @@ export function ActivityLog({ children, header, count, parts, messages = [], sta
       >
         <div ref={contentRef} className="min-w-0 space-y-2">
           {insideHeaderNode}
-          {children}
+          {earlierChildCount > 0 && (
+            <button
+              type="button"
+              className="w-full rounded-md px-3 py-2 text-xs text-muted hover:bg-surface-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+              onClick={() => setVisibleChildCount((current) => Math.min(childItems.length, current + ACTIVITY_LOG_PAGE_SIZE))}
+            >
+              過去のログをさらに表示（{earlierChildCount}件）
+            </button>
+          )}
+          {visibleChildren}
         </div>
-      </div>
+      </div>}
     </details>
   );
   return headerNode ? (

@@ -6,6 +6,7 @@ import {
   pageTaskDetailMessages,
   stripImageDataFromMessages,
 } from "@/lib/task-history";
+import { readHistoryPageSize } from "@/lib/pi/history-page-size";
 import { localRuntimeBlocked } from "@/lib/pi/runtime-ownership";
 import { forwardTaskDetail } from "@/lib/backend-forward";
 
@@ -29,13 +30,14 @@ export async function GET(
   try {
     const { id } = await params;
     const before = req.nextUrl.searchParams.get("before");
+    const limit = readHistoryPageSize();
     if (before !== null && (before.trim().length === 0 || before.length > 512)) {
       return NextResponse.json({ error: "履歴カーソルが不正です" }, { status: 400 });
     }
     // After the cutover the Backend owns the session; history comes from its detail, paged with the
     // same rule. There is no local fallback: a session this process does not own reports stale state.
     if (localRuntimeBlocked()) {
-      const forwarded = await forwardTaskDetail(id, { messages: "page", ...(before !== null ? { before } : {}) });
+      const forwarded = await forwardTaskDetail(id, { messages: "page", limit, ...(before !== null ? { before } : {}) });
       if (!forwarded.ok) {
         if (forwarded.reason === "invalid-cursor") {
           return NextResponse.json({ error: "履歴カーソルが無効です" }, { status: 409 });
@@ -54,11 +56,11 @@ export async function GET(
           { status: 502 },
         );
       }
-      return NextResponse.json(historyPage(pageTaskDetailMessages(forwarded.detail, before), before));
+      return NextResponse.json(historyPage(pageTaskDetailMessages(forwarded.detail, before, limit), before));
     }
     // History paging must not block on ensureLive; transcript on disk is enough.
     const detail = await getTaskDetail(id, { offline: true });
-    return NextResponse.json(historyPage(pageTaskMessages(detail.messages, before), before));
+    return NextResponse.json(historyPage(pageTaskMessages(detail.messages, before, limit), before));
   } catch (error) {
     if (error instanceof InvalidTaskMessageCursorError) {
       return NextResponse.json({ error: error.message }, { status: 409 });

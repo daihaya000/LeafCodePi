@@ -15,6 +15,7 @@ import {
   DEFAULT_GOAL_LOOP_MAX_TURNS,
   normalizeGoalLoopAcceptance,
 } from "@/lib/goal-loop-settings";
+import { etagJsonResponse } from "@/lib/etag-json";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -71,14 +72,14 @@ function parseGoalLoop(value: unknown): GoalLoopInput | null | undefined {
 }
 
 export async function GET(
-  _req: NextRequest,
+  req: NextRequest,
   { params }: { params: Promise<{ id: string }> },
 ) {
   const id = await botId(params);
   const bot = getBot(id);
   if (!bot) return NextResponse.json({ error: "Bot not found" }, { status: 404 });
-  // Bot-scoped enrich: avoid scanning every Code task on each 2s poll.
-  return NextResponse.json(await getBotCodeSessionPanelState(id));
+  // Bot-scoped enrich: avoid scanning every Code task on each 5s active poll.
+  return etagJsonResponse(req, await getBotCodeSessionPanelState(id));
 }
 
 export async function POST(

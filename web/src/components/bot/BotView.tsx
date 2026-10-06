@@ -126,8 +126,7 @@ function BotToolActivityGroup({ messages, bot, botId, active, running, modelLabe
       statusMessages={messages}
       active={active}
       running={running}
-    >
-      {messages.map((message, messageIndex) => {
+      renderChildren={() => messages.map((message, messageIndex) => {
         const { tools } = botMessageDisplayData(message);
         return <div key={messageRenderKey(message)} className="min-w-0 space-y-2">
           {messageIndex > 0 && !botMessageHasBubble(message) && <MessageHeader><BotMessageSender {...bot} name={bot?.name ?? "ボット"} createdAt={message.createdAt} providerID={message.provider} modelLabel={botMessageModelLabel(message, modelLabels)} responseDurationMs={message.responseDurationMs} /></MessageHeader>}
@@ -138,7 +137,7 @@ function BotToolActivityGroup({ messages, bot, botId, active, running, modelLabe
           })}
         </div>;
       })}
-    </ActivityLog>
+    />
   );
 }
 
@@ -667,7 +666,8 @@ export const BotView = memo(function BotView({ id, active = true }: { id: string
       if (closed) return;
       retry = cancelPendingSseReconnect(retry);
       source = closeSseSource(source);
-      const eventParams = new URLSearchParams({ epoch: String(Date.now()) });
+      // delta=1: Backend-owned streams send only changed rows (messagesDelta) after the first page.
+      const eventParams = new URLSearchParams({ epoch: String(Date.now()), delta: "1" });
       if (cachedSession?.updatedAt && cachedSession.sessionId && cachedSession.status !== "working" && !cachedSession.isStreaming && !cachedSession.isCompacting) {
         eventParams.set("cachedTaskUpdatedAt", cachedSession.updatedAt);
         eventParams.set("cachedSessionId", cachedSession.sessionId);
@@ -688,6 +688,8 @@ export const BotView = memo(function BotView({ id, active = true }: { id: string
             messages?: UiMessage[];
             messageHistory?: TaskMessageHistory;
             messagesReused?: boolean;
+            /** `messages` holds only changed/appended rows; merge, never replace. */
+            messagesDelta?: boolean;
             historyReset?: boolean;
             isStreaming?: boolean;
             isCompacting?: boolean;
@@ -711,7 +713,7 @@ export const BotView = memo(function BotView({ id, active = true }: { id: string
             payload.eventType === "revert" ||
             payload.eventType === "unrevert" ||
             payload.eventType === "conversation_reset";
-          if (resetHistory) {
+          if (resetHistory && !payload.messagesDelta) {
             historyRequestEpochRef.current += 1;
             historyLoadedRef.current = false;
             historyLoadingRef.current = false;
@@ -720,8 +722,13 @@ export const BotView = memo(function BotView({ id, active = true }: { id: string
             setHistoryLoading(false);
             setHistoryError(null);
             setMessages(() => stabilizeUiMessages([], payload.messages ?? []));
-          } else if (payload.messages) {
-            if (payload.eventType === "ready" && !payload.messagesReused && !historyLoadedRef.current) {
+          } else if (payload.messages && !(payload.messagesDelta && payload.messages.length === 0)) {
+            if (
+              payload.eventType === "ready" &&
+              !payload.messagesReused &&
+              !payload.messagesDelta &&
+              !historyLoadedRef.current
+            ) {
               setMessages(() => stabilizeUiMessages([], payload.messages!));
             } else {
               if (!payload.messageHistory || historyLoadedRef.current) {

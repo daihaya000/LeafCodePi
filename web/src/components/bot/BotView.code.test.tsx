@@ -11,6 +11,7 @@ vi.mock("next/navigation", () => ({ useRouter: () => ({ push: vi.fn() }) }));
 vi.mock("next/link", () => ({ default: ({ children }: { children: ReactNode }) => <span>{children}</span> }));
 vi.mock("next/image", () => ({ default: () => null }));
 import { BotView } from "./BotView";
+import { BotCodeRequests } from "./BotCodeRequests";
 import { BOT_AVATAR_SHAPES } from "@/lib/bot-avatar";
 import { toolNameLabel } from "@/lib/tool-labels";
 import { BOT_CODE_SESSION_CHANGED_EVENT, BOT_DEFAULT_DISABLED_TOOL_NAMES, BOT_TOOL_NAMES, type TaskSummary } from "@/lib/types";
@@ -1410,6 +1411,31 @@ it("follows the Bot viewport when a Code request card arrives asynchronously", a
   contentHeight = 1_500;
   resizeCallbacks.forEach((callback) => callback());
   expect(viewport.scrollTop).toBe(700);
+});
+
+it("pauses Code request polling while hidden and refreshes immediately when visible", async () => {
+  vi.useFakeTimers();
+  const visibilityState = vi.spyOn(document, "visibilityState", "get").mockReturnValue("visible");
+  mocks.getJson.mockResolvedValue({ requests: [] });
+  try {
+    render(<BotCodeRequests botId="background-poll" requestIds={[]} />);
+    await act(async () => { await vi.advanceTimersByTimeAsync(0); });
+    expect(mocks.getJson).toHaveBeenCalledTimes(1);
+
+    visibilityState.mockReturnValue("hidden");
+    act(() => { document.dispatchEvent(new Event("visibilitychange")); });
+    await act(async () => { await vi.advanceTimersByTimeAsync(10_000); });
+    expect(mocks.getJson).toHaveBeenCalledTimes(1);
+
+    visibilityState.mockReturnValue("visible");
+    await act(async () => {
+      document.dispatchEvent(new Event("visibilitychange"));
+      await Promise.resolve();
+    });
+    expect(mocks.getJson).toHaveBeenCalledTimes(2);
+  } finally {
+    visibilityState.mockRestore();
+  }
 });
 
 it("shares Code request polling across multiple cards for one Bot", async () => {
