@@ -2251,15 +2251,124 @@ function canAutoFallbackTask(task: TaskSummary, providerID: string): boolean {
   return task.providerID === providerID;
 }
 
+/**
+ * Route resolution can briefly depend on cold caches or a just-marked account.
+ * Retry inside the fallback instead of leaving the task dead in `error`.
+ */
+const PROVIDER_FALLBACK_RETRY_DELAYS_MS = [0, 1_500, 4_000] as const;
+
+/** Shown when no route could be taken so the user knows manual recovery is required. */
+export const PROVIDER_FALLBACK_FAILED_MESSAGE =
+  "利用上限に達したため、別のアカウントまたはプロバイダーへ自動で切り替えられませんでした。モデルを変更するか、利用枠のリセット後に再開してください。";
+
+type ProviderFallbackAttempt =
+  | { status: "resumed"; live: LiveRuntime }
+  | { status: "unavailable" }
+  | { status: "superseded" };
+
+function delay(ms: number): Promise<void> {
+  return new Promise((resolve) => {
+    const timer = setTimeout(resolve, ms);
+    timer.unref?.();
+  });
+}
+
+/**
+ * One route-resolution attempt under the route lock. Resolves every candidate
+ * and tries them in order: a single unusable destination must not strand the
+ * task, and a destination identical to the exhausted route is not a fallback.
+ */
+async function attemptProviderFallbackRoute(
+  task: TaskSummary,
+  pending: NonNullable<LiveRuntime["pendingProviderFallback"]>,
+  promptEpoch: number,
+  fallbackLive: LiveRuntime,
+): Promise<ProviderFallbackAttempt> {
+  let currentLive = state().live.get(task.id) ?? fallbackLive;
+  const pendingCompaction = currentLive.autoCompactionPromise;
+  if (pendingCompaction) {
+    await pendingCompaction.catch(() => undefined);
+    currentLive = state().live.get(task.id) ?? currentLive;
+  }
+  const latestTask = getTask(task.id);
+  if (
+    !latestTask ||
+    !latestTask.providerID ||
+    !latestTask.modelID ||
+    latestTask.providerID !== pending.providerID ||
+    latestTask.modelID !== pending.modelID ||
+    !canAutoFallbackTask(latestTask, pending.providerID)
+  ) {
+    // The task moved off the exhausted route (or vanished); nothing to recover.
+    return { status: "superseded" };
+  }
+  if (currentLive.promptEpoch !== promptEpoch) {
+    // A user action owns the route now; never override it with a retry.
+    return { status: "superseded" };
+  }
+  if (currentLive.session.isStreaming) return { status: "unavailable" };
+
+  const routes = await resolveProviderFallbackRoutes({
+    providerID: pending.providerID,
+    modelID: pending.modelID,
+    ...(currentLive.accountId ? { accountId: currentLive.accountId } : {}),
+  });
+  if (currentLive.promptEpoch !== promptEpoch) return { status: "superseded" };
+  const liveIds = modelId(currentLive.session.model);
+  const liveAccountId = currentLive.accountId ?? null;
+  const candidates = routes.filter((route) => {
+    const ids = modelId(route.model);
+    // A destination identical to the exhausted route is not a fallback, whether
+    // it matches the stored task identity or only the live session's route.
+    if (ids.providerID === liveIds.providerID && ids.modelID === liveIds.modelID &&
+      route.accountId === liveAccountId) return false;
+    return !(
+      ids.providerID === latestTask.providerID &&
+      ids.modelID === latestTask.modelID &&
+      route.accountId === (latestTask.accountId ?? null)
+    );
+  });
+  for (const route of candidates) {
+    if (currentLive.promptEpoch !== promptEpoch) return { status: "superseded" };
+    try {
+      // Limit recovery moves the route; drop the explicit pin so integrated
+      // rebalancing can resume on the next prepareLiveForPrompt.
+      const nextLive = await replaceLiveForRoute(currentLive, latestTask, route, {
+        accountIdExplicit: false,
+      });
+      setTaskStatus(nextLive.taskId, "idle");
+      emitTaskSnapshot(nextLive, "provider_fallback", {
+        fallbackFrom: `${pending.providerID}::${pending.modelID}`,
+      });
+      return { status: "resumed", live: nextLive };
+    } catch (error) {
+      console.warn(
+        `[leafcode-pi] provider fallback route failed: ${
+          error instanceof Error ? error.message : String(error)
+        }`,
+      );
+    }
+  }
+  return { status: "unavailable" };
+}
+
 async function fallbackProviderAfterLimit(
   live: LiveRuntime,
   pending: NonNullable<LiveRuntime["pendingProviderFallback"]>,
 ): Promise<void> {
-  const existing = providerFallbackInflight.get(live.taskId);
-  if (existing) return existing;
+  // Serialize behind an in-flight attempt. A newer limit error that arrived
+  // while the previous attempt was retrying still needs its own fallback; the
+  // guards below turn this call into a no-op when that attempt already moved
+  // the task off the exhausted route.
+  let previous = providerFallbackInflight.get(live.taskId);
+  while (previous) {
+    await previous.catch(() => undefined);
+    previous = providerFallbackInflight.get(live.taskId);
+  }
   const promptEpoch = live.promptEpoch;
   const goalLoop = isActiveGoalLoopSession(live.session);
   let resumedLive: LiveRuntime | undefined;
+  let exhausted = false;
   const operation = (async () => {
     try {
       const task = getTask(live.taskId);
@@ -2274,55 +2383,20 @@ async function fallbackProviderAfterLimit(
         return;
       }
 
-      await withRouteLock(
-        `${task.providerID}::${task.modelID}`,
-        async () => {
-          let currentLive = state().live.get(task.id) ?? live;
-          const pendingCompaction = currentLive.autoCompactionPromise;
-          if (pendingCompaction) {
-            await pendingCompaction.catch(() => undefined);
-            currentLive = state().live.get(task.id) ?? currentLive;
-          }
-          const latestTask = getTask(task.id);
-          if (
-            !latestTask ||
-            !latestTask.providerID ||
-            !latestTask.modelID ||
-            latestTask.providerID !== pending.providerID ||
-            latestTask.modelID !== pending.modelID ||
-            !canAutoFallbackTask(latestTask, pending.providerID) ||
-            currentLive.promptEpoch !== promptEpoch ||
-            currentLive.session.isStreaming
-          ) {
-            return;
-          }
-          const routes = await resolveProviderFallbackRoutes({
-            providerID: pending.providerID,
-            modelID: pending.modelID,
-            ...(currentLive.accountId ? { accountId: currentLive.accountId } : {}),
-          });
-          const route = routes[0];
-          if (!route || currentLive.promptEpoch !== promptEpoch) return;
-          const ids = modelId(route.model);
-          if (
-            ids.providerID === latestTask.providerID &&
-            ids.modelID === latestTask.modelID &&
-            route.accountId === (latestTask.accountId ?? null)
-          ) {
-            return;
-          }
-          // Limit recovery moves the route; drop the explicit pin so integrated
-          // rebalancing can resume on the next prepareLiveForPrompt.
-          const nextLive = await replaceLiveForRoute(currentLive, latestTask, route, {
-            accountIdExplicit: false,
-          });
-          setTaskStatus(nextLive.taskId, "idle");
-          emitTaskSnapshot(nextLive, "provider_fallback", {
-            fallbackFrom: `${pending.providerID}::${pending.modelID}`,
-          });
-          resumedLive = nextLive;
-        },
-      );
+      for (const delayMs of PROVIDER_FALLBACK_RETRY_DELAYS_MS) {
+        if (delayMs > 0) await delay(delayMs);
+        if ((state().live.get(live.taskId) ?? live).promptEpoch !== promptEpoch) return;
+        const attempt = await withRouteLock(
+          `${task.providerID}::${task.modelID}`,
+          () => attemptProviderFallbackRoute(task, pending, promptEpoch, live),
+        );
+        if (attempt.status === "resumed") {
+          resumedLive = attempt.live;
+          return;
+        }
+        if (attempt.status === "superseded") return;
+      }
+      exhausted = true;
     } finally {
       // A queued user prompt may already have re-entered promptActive on this
       // lease while fallback was replacing the route. Releasing here would drop
@@ -2353,6 +2427,18 @@ async function fallbackProviderAfterLimit(
       undefined,
       { isProviderFallback: true },
     );
+    return;
+  }
+  // Never leave the user staring at the provider error when the recovery could
+  // not produce a route. The raw limit error is replaced by an actionable one.
+  if (
+    exhausted &&
+    !goalLoop &&
+    state().live.get(live.taskId) === live &&
+    live.promptEpoch === promptEpoch
+  ) {
+    setTaskStatus(live.taskId, "error", PROVIDER_FALLBACK_FAILED_MESSAGE);
+    emitTaskSnapshot(live, "provider_fallback_failed");
   }
 }
 
@@ -5169,7 +5255,8 @@ function toSummary(task: StoredTaskSummary): TaskSummary {
   const { orphanedSourceUpdatedAt: _orphanedSourceUpdatedAt, ...publicTask } = task;
   void _orphanedSourceUpdatedAt;
   const limitError =
-    task.status === "error" && isProviderLimitError(task.error)
+    task.status === "error" &&
+    (isProviderLimitError(task.error) || task.error === PROVIDER_FALLBACK_FAILED_MESSAGE)
       ? { limitError: true }
       : {};
   const live = state().live.get(task.id);
