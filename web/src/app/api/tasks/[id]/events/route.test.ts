@@ -213,9 +213,14 @@ describe("/api/tasks/[id]/events", () => {
       task: task({ status: "working" }),
       message: { id: "live", role: "assistant", createdAt: 2, parts: [] },
     });
+    const readyTaskSummary = { ...detail } as Record<string, unknown>;
+    for (const key of [
+      "messages", "isStreaming", "isCompacting", "contextUsage", "compactionSuggested", "goalLoop", "todos",
+      "permissionRequest", "questionRequest", "manualAbortedAssistantId", "hangRetryCount",
+    ]) delete readyTaskSummary[key];
     listener({
       type: "snapshot",
-      task: task({ status: "working" }),
+      task: readyTaskSummary,
       messages: [{ id: "intermediate", role: "user", createdAt: 2, parts: [] }],
       eventType: "intermediate",
     });
@@ -232,7 +237,9 @@ describe("/api/tasks/[id]/events", () => {
     expect(readyPayload.task).not.toHaveProperty("isStreaming");
     const pendingSnapshotChunk = await readChunk(reader);
     expect(pendingSnapshotChunk).toContain("event: snapshot\n");
-    expect(eventData(pendingSnapshotChunk).eventType).toBe("intermediate");
+    const pendingSnapshot = eventData(pendingSnapshotChunk);
+    expect(pendingSnapshot).toMatchObject({ eventType: "intermediate", taskReused: true });
+    expect(pendingSnapshot).not.toHaveProperty("task");
     const deltaChunk = await readChunk(reader);
     expect(deltaChunk).toContain("event: delta\n");
     const deltaPayload = eventData(deltaChunk);
@@ -300,6 +307,8 @@ describe("/api/tasks/[id]/events", () => {
     const cachedReadyPayload = eventData(await readChunk(reader));
     expect(cachedReadyPayload.eventType).toBe("cache_ready");
     expect(cachedReadyPayload.messagesReused).toBe(true);
+    expect(cachedReadyPayload.taskReused).toBe(true);
+    expect(cachedReadyPayload).not.toHaveProperty("task");
     const readyPayload = eventData(await readChunk(reader));
     expect(readyPayload.eventType).toBe("ready");
     expect(readyPayload.messagesReused).toBe(true);
@@ -370,11 +379,48 @@ describe("/api/tasks/[id]/events", () => {
     const cachedReady = eventData(await readChunk(reader));
     expect(cachedReady.eventType).toBe("cache_ready");
     expect(cachedReady.messagesReused).toBe(true);
-    expect(cachedReady.task).toHaveProperty("messages", []);
+    expect(cachedReady.taskReused).toBe(true);
+    expect(cachedReady).not.toHaveProperty("task");
     expect(mocks.getTaskDetail).toHaveBeenCalledWith("task-1", { includeMessages: false });
 
     resolveDetail(detail);
     expect(eventData(await readChunk(reader)).eventType).toBe("ready");
+    await reader.cancel();
+  });
+
+  it("reuses an unchanged task summary in an in-process snapshot", async () => {
+    const bootstrap = task({ messages: [], isStreaming: false, status: "idle" });
+    const detail = task({ messages: [], isStreaming: false, status: "idle" });
+    let listener!: (payload: Record<string, unknown>) => void;
+    mocks.getTaskBootstrap.mockReturnValue(bootstrap);
+    mocks.getTaskDetail.mockResolvedValue(detail);
+    mocks.subscribeTask.mockImplementation((_id: string, callback: typeof listener) => {
+      listener = callback;
+      return vi.fn();
+    });
+
+    const response = await GET(
+      new NextRequest("http://127.0.0.1:3010/api/tasks/task-1/events"),
+      { params: Promise.resolve({ id: "task-1" }) },
+    );
+    const reader = response.body!.getReader();
+    expect(eventData(await readChunk(reader)).eventType).toBe("bootstrap");
+    const ready = eventData(await readChunk(reader));
+    expect(ready.eventType).toBe("ready");
+
+    const contextUsage = { tokens: 20, contextWindow: 100, percent: 20 };
+    listener({
+      type: "snapshot",
+      task: ready.task as Record<string, unknown>,
+      messages: [],
+      isStreaming: false,
+      contextUsage,
+      eventType: "context_update",
+    });
+    const updated = eventData(await readChunk(reader));
+    expect(updated).toMatchObject({ eventType: "context_update", taskReused: true, contextUsage });
+    expect(updated).not.toHaveProperty("task");
+    expect(JSON.stringify(updated).length).toBeLessThan(JSON.stringify({ ...updated, task: ready.task }).length);
     await reader.cancel();
   });
 

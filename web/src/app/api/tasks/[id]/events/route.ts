@@ -145,6 +145,25 @@ export async function GET(
         stopRemotePoll();
       });
       sse.startHeartbeat();
+      let lastSentTaskSummaryJson: string | undefined;
+      const sendTaskAwareSnapshot = (event: string, payload: Record<string, unknown>) => {
+        const writer = sse;
+        if (!writer || writer.closed) return;
+        const task = payload.task;
+        if (event !== "snapshot" || !task || typeof task !== "object") {
+          writer.send(event, payload);
+          return;
+        }
+        const taskSummaryJson = JSON.stringify(task);
+        if (taskSummaryJson === lastSentTaskSummaryJson) {
+          const reusedPayload: Record<string, unknown> = { ...payload, taskReused: true };
+          delete reusedPayload.task;
+          writer.send(event, reusedPayload);
+          return;
+        }
+        writer.send(event, payload);
+        lastSentTaskSummaryJson = taskSummaryJson;
+      };
       try {
         // After the cutover the Backend owns the session: this process must not subscribe to (or open)
         // a session it does not own, so the stream is built from the Backend's detail and polled.
@@ -183,7 +202,7 @@ export async function GET(
             bufferPendingSsePayload(pendingPayloads, safePayload);
             return;
           }
-          sse?.send(safePayload.type === "delta" ? "delta" : "snapshot", safePayload);
+          sendTaskAwareSnapshot(safePayload.type === "delta" ? "delta" : "snapshot", safePayload);
         });
         // createSseWriter closes immediately for an already-aborted request, so
         // its earlier cleanup callback cannot see this newly-created subscription.
@@ -204,7 +223,7 @@ export async function GET(
           revertLeafId: bootstrap.revertLeafId ?? null,
           eventType: "bootstrap",
         };
-        sse.send("snapshot", streamMessages ? bootstrapPayload : omitTaskMessagePayload(bootstrapPayload));
+        sendTaskAwareSnapshot("snapshot", streamMessages ? bootstrapPayload : omitTaskMessagePayload(bootstrapPayload));
         if (sse.closed) return;
         const hasCacheCandidate = Boolean(cachedTaskUpdatedAt && cachedSessionId);
         // A matching idle cache can render while cold Pi setup finishes. Keep
@@ -219,7 +238,7 @@ export async function GET(
             !bootstrap.isCompacting,
         );
         if (canSendCachedReady) {
-          sse.send("snapshot", {
+          sendTaskAwareSnapshot("snapshot", {
             type: "snapshot",
             task: bootstrap,
             messagesReused: true,
@@ -310,7 +329,7 @@ export async function GET(
           revertLeafId: detail.revertLeafId ?? null,
           eventType: "ready",
         };
-        sse.send("snapshot", streamMessages ? readyPayload : omitTaskMessagePayload(readyPayload));
+        sendTaskAwareSnapshot("snapshot", streamMessages ? readyPayload : omitTaskMessagePayload(readyPayload));
         if (perfRequested) {
           sse.send("perf", {
             type: "perf",
@@ -339,7 +358,7 @@ export async function GET(
             // stale embedded messages are stripped.
             const prepared = preparePendingPayloadForReadyFlush(payload, readyRank, detail.updatedAt);
             if (!prepared) continue;
-            sse.send(prepared.type === "delta" ? "delta" : "snapshot", prepared);
+            sendTaskAwareSnapshot(prepared.type === "delta" ? "delta" : "snapshot", prepared);
           }
         }
         pendingPayloads.length = 0;
@@ -354,7 +373,6 @@ export async function GET(
             messagePage?.messages.at(-1)?.id ?? "",
           );
           let lastRemoteStateSignature = remotePollStateSignature(taskSummary, detail);
-          let lastRemoteTaskSummaryJson = JSON.stringify(taskSummary);
           let reuseCachedRemotePage = messageDelta && streamMessages && canReuseCachedMessages;
           let lastRemotePage = messageDelta && messagePage
             ? serializeRemoteMessages(messagePage.messages).page
@@ -473,14 +491,11 @@ export async function GET(
                 }
               }
               if (shouldSendSnapshot) {
-                const taskSummaryJson = JSON.stringify(taskSummary);
-                const taskReused = taskSummaryJson === lastRemoteTaskSummaryJson;
-                if (!taskReused) lastRemoteTaskSummaryJson = taskSummaryJson;
                 // Offline detail always nulls permission/question. Omit them so a buffered
                 // live control event (or local pending at ready) is not wiped by remote polls.
-                writer.send("snapshot", {
+                sendTaskAwareSnapshot("snapshot", {
                   type: "snapshot",
-                  ...(taskReused ? { taskReused: true } : { task: taskSummary }),
+                  task: taskSummary,
                   ...remoteMessages,
                   isStreaming: detail.isStreaming,
                   isCompacting: detail.isCompacting,
