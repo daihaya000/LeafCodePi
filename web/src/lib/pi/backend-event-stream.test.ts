@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   BACKEND_EVENT_DIRTY_COALESCE_MS,
   backendTaskSnapshot,
+  messagePageDelta,
   startBackendTaskStream,
 } from "./backend-event-stream";
 import { createSseWriter } from "@/lib/sse-writer";
@@ -709,5 +710,107 @@ describe("Backend task stream polling", () => {
     expect(sse.send).not.toHaveBeenCalled();
     expect(mocks.forwardTaskPendingRequests).toHaveBeenCalledTimes(1);
     expect(vi.getTimerCount()).toBe(0);
+  });
+});
+
+describe("message page deltas", () => {
+  const page = (rows: Array<[string, string]>) => ({
+    ids: rows.map(([id]) => id),
+    jsonById: new Map(rows),
+  });
+
+  it("returns only changed and appended rows of a front-trimmed page", () => {
+    const previous = page([["a", "A"], ["b", "B"], ["c", "C"]]);
+    expect(messagePageDelta(previous, ["b", "c", "d"], ["B", "C2", "D"])).toEqual([1, 2]);
+    expect(messagePageDelta(previous, ["a", "b", "c"], ["A", "B", "C"])).toEqual([]);
+  });
+
+  it("falls back to a full page for re-identified, removed, reordered or unknown rows", () => {
+    const previous = page([["a", "A"], ["b", "B"], ["c", "C"]]);
+    expect(messagePageDelta(previous, ["a", "b", "c2"], ["A", "B", "C"])).toBeUndefined();
+    expect(messagePageDelta(previous, ["a", "b"], ["A", "B"])).toBeUndefined();
+    expect(messagePageDelta(previous, ["a", "c", "b"], ["A", "C", "B"])).toBeUndefined();
+    expect(messagePageDelta(previous, ["x", "a"], ["X", "A"])).toBeUndefined();
+    expect(messagePageDelta(previous, ["b", "c", "a"], ["B", "C", "A"])).toBeUndefined();
+    expect(messagePageDelta(previous, [], [])).toBeUndefined();
+  });
+});
+
+describe("Backend task stream message deltas", () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+    mocks.forwardTaskPendingRequests.mockReset().mockResolvedValue(pending);
+  });
+  afterEach(() => {
+    vi.clearAllTimers();
+    vi.useRealTimers();
+  });
+  const message = (id: string, text: string) => ({ id, role: "assistant", parts: [{ id: `${id}:0`, type: "text", text }] });
+  const streaming = (revision: number, messages: unknown[]) => ({
+    ok: true as const,
+    detail: { ...detail(revision, { isStreaming: true, status: "working" }), messages },
+  });
+
+  it("sends the full page first, then only the changed row while streaming", async () => {
+    mocks.forwardTaskDetail.mockReset().mockResolvedValue(streaming(0, [message("u1", "hi"), message("a1", "he")]));
+    const sends: Array<[string, string]> = [];
+    const sse = { closed: false, send: vi.fn(), sendSerialized: (event: string, json: string) => { sends.push([event, json]); } };
+    const stream = await startBackendTaskStream({
+      id: "task-1", sse, intervalMs: 2_000, idleIntervalMs: 2_000, dirtyIdleIntervalMs: 2_000,
+      subscribeDirty: () => () => {}, messageDelta: true,
+    });
+    if (!stream.ok) throw new Error(stream.reason);
+    mocks.forwardTaskDetail.mockResolvedValue(streaming(1, [message("u1", "hi"), message("a1", "hello")]));
+    await vi.advanceTimersByTimeAsync(2_000);
+    // Unchanged poll: nothing is resent.
+    await vi.advanceTimersByTimeAsync(2_000);
+    // The turn ends: the idle snapshot carries the full page again.
+    mocks.forwardTaskDetail.mockResolvedValue({
+      ok: true,
+      detail: { ...detail(2, { status: "idle" }), messages: [message("u1", "hi"), message("a1", "hello")] },
+    });
+    await vi.advanceTimersByTimeAsync(2_000);
+    stream.stop();
+    expect(sends).toHaveLength(3);
+    const idle = JSON.parse(sends[2]![1]);
+    expect(idle.messagesDelta).toBeUndefined();
+    expect(idle.messages).toHaveLength(2);
+    const first = JSON.parse(sends[0]![1]);
+    const second = JSON.parse(sends[1]![1]);
+    expect(first.messagesDelta).toBeUndefined();
+    expect(first.messages.map((row: { id: string }) => row.id)).toEqual(["u1", "a1"]);
+    expect(second.messagesDelta).toBe(true);
+    expect(second.messages).toEqual([message("a1", "hello")]);
+    expect(second).toMatchObject({ type: "snapshot", isStreaming: true, task: { id: "task-1", updatedAt: 1 } });
+    expect(sends[1]![1].length).toBeLessThan(sends[0]![1].length);
+  });
+
+  it("falls back to a full page when a row is re-identified", async () => {
+    mocks.forwardTaskDetail.mockReset().mockResolvedValue(streaming(0, [message("u1", "hi"), message("tmp", "he")]));
+    const sends: string[] = [];
+    const sse = { closed: false, send: vi.fn(), sendSerialized: (_event: string, json: string) => { sends.push(json); } };
+    const stream = await startBackendTaskStream({
+      id: "task-1", sse, intervalMs: 2_000, idleIntervalMs: 2_000, dirtyIdleIntervalMs: 2_000,
+      subscribeDirty: () => () => {}, messageDelta: true,
+    });
+    if (!stream.ok) throw new Error(stream.reason);
+    mocks.forwardTaskDetail.mockResolvedValue(streaming(1, [message("u1", "hi"), message("a1", "hello")]));
+    await vi.advanceTimersByTimeAsync(2_000);
+    stream.stop();
+    const second = JSON.parse(sends[1]!);
+    expect(second.messagesDelta).toBeUndefined();
+    expect(second.messages.map((row: { id: string }) => row.id)).toEqual(["u1", "a1"]);
+  });
+
+  it("keeps full pages for clients that did not opt in", async () => {
+    mocks.forwardTaskDetail.mockReset().mockResolvedValue(streaming(0, [message("u1", "hi"), message("a1", "he")]));
+    const sse = sink();
+    const stream = await start(sse);
+    mocks.forwardTaskDetail.mockResolvedValue(streaming(1, [message("u1", "hi"), message("a1", "hello")]));
+    await vi.advanceTimersByTimeAsync(2_000);
+    stream.stop();
+    expect(sse.send).toHaveBeenCalledTimes(2);
+    expect(sse.send.mock.calls[1]![1]).not.toHaveProperty("messagesDelta");
+    expect((sse.send.mock.calls[1]![1] as { messages: unknown[] }).messages).toHaveLength(2);
   });
 });

@@ -1318,7 +1318,8 @@ export const TaskView = memo(function TaskView({
       // 古いストリームを返すことがあるため、接続ごとに URL を変える。
       // 安定したアイドル履歴は、キャッシュの revision が一致すれば ready
       // で再送しない。working/compacting のキャッシュは提示しない。
-      const eventParams = new URLSearchParams({ epoch: String(Date.now()) });
+      // delta=1: Backend-owned streams send only changed rows (messagesDelta) after the first page.
+      const eventParams = new URLSearchParams({ epoch: String(Date.now()), delta: "1" });
       if (
         cachedSession &&
         cachedSession.sessionId &&
@@ -1365,6 +1366,8 @@ export const TaskView = memo(function TaskView({
           questionRequest?: QuestionRequestDto | null;
           eventType?: string;
           messagesReused?: boolean;
+          /** `messages` holds only changed/appended rows; merge, never replace. */
+          messagesDelta?: boolean;
           messageHistory?: TaskMessageHistory;
           historyReset?: boolean;
           compactionSuggested?: boolean;
@@ -1455,7 +1458,7 @@ export const TaskView = memo(function TaskView({
               const next: TaskDetail = {
                 ...base,
                 ...snapshotTask,
-                messages: keepExistingMessages
+                messages: keepExistingMessages || payload.messagesDelta
                   ? base.messages
                   : payload.messages ?? base.messages ?? [],
                 messageHistory: payload.messageHistory ?? base.messageHistory,
@@ -1470,9 +1473,13 @@ export const TaskView = memo(function TaskView({
               return sameTaskDetail(current, next) ? current : next;
             });
           }
-          if (resetHistory) {
+          if (resetHistory && !payload.messagesDelta) {
             setMessages(stabilizeUiMessages([], payload.messages ?? []));
-          } else if (payload.messages && (!isBootstrap || payload.messages.length > 0)) {
+          } else if (
+            payload.messages &&
+            (!isBootstrap || payload.messages.length > 0) &&
+            !(payload.messagesDelta && payload.messages.length === 0)
+          ) {
             if (!payload.messageHistory || historyLoadedRef.current) {
               const remapped = remapTaskMessageCursor(
                 messageHistoryRef.current,

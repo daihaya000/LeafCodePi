@@ -1,5 +1,6 @@
 import { Agent } from "undici";
 import { backendBaseUrl, type BackendEnv } from "@/lib/backend-client";
+import { sseResponse } from "@/lib/sse-response";
 import { BACKEND_PROTOCOL_HEADER, BACKEND_PROTOCOL_VERSION, BACKEND_RUNTIME_EVENTS_PATH } from "@shared/backend-protocol.mjs";
 
 /**
@@ -42,7 +43,7 @@ export function endOnUpstreamError(body: ReadableStream<Uint8Array>): ReadableSt
 }
 
 /** Proxy only the event body; internal credentials and headers never reach the browser. */
-export async function forwardRuntimeEventStream(signal: AbortSignal, { env = process.env, fetchImpl = fetch, timeoutMs = 10_000, dispatcher = runtimeEventsDispatcher }: { env?: BackendEnv; fetchImpl?: typeof fetch; timeoutMs?: number; dispatcher?: Agent } = {}): Promise<Response> {
+export async function forwardRuntimeEventStream(signal: AbortSignal, { env = process.env, fetchImpl = fetch, timeoutMs = 10_000, dispatcher = runtimeEventsDispatcher, acceptEncoding }: { env?: BackendEnv; fetchImpl?: typeof fetch; timeoutMs?: number; dispatcher?: Agent; /** Browser Accept-Encoding: gzip the forwarded events for remote clients. */ acceptEncoding?: string | null } = {}): Promise<Response> {
   const failed = () => Response.json({ error: "Backendのイベントを取得できません" }, { status: 503 });
   const token = env.LEAFCODE_PI_BACKEND_TOKEN?.trim();
   if (!token) return failed();
@@ -60,9 +61,7 @@ export async function forwardRuntimeEventStream(signal: AbortSignal, { env = pro
       await response.body?.cancel();
       return failed();
     }
-    return new Response(endOnUpstreamError(response.body), { headers: {
-      "Content-Type": "text/event-stream; charset=utf-8", "Cache-Control": "no-store, no-cache, no-transform", Connection: "keep-alive",
-    } });
+    return sseResponse(acceptEncoding, endOnUpstreamError(response.body));
   } catch { return failed(); }
   finally { clearTimeout(timer); }
 }

@@ -112,6 +112,39 @@ function mergeOmitWithCache(
   };
 }
 
+export type SentMessagePage = { ids: string[]; jsonById: Map<string, string> };
+
+/**
+ * Indices of the rows in a new page that the client does not already hold verbatim, or undefined when
+ * the page is not "previous page, trimmed at the front, with rows appended at the end". Anything else
+ * (re-identified rows, removals in the middle, rewinds) needs a full page.
+ */
+export function messagePageDelta(
+  previous: SentMessagePage,
+  ids: readonly string[],
+  jsons: readonly string[],
+): number[] | undefined {
+  if (ids.length === 0 || previous.ids.length === 0) return undefined;
+  if (new Set(ids).size !== ids.length) return undefined;
+  const start = previous.ids.indexOf(ids[0]!);
+  if (start < 0) return undefined;
+  const retained = previous.ids.length - start;
+  if (ids.length < retained) return undefined;
+  const changed: number[] = [];
+  for (let index = 0; index < ids.length; index += 1) {
+    const id = ids[index]!;
+    if (index < retained) {
+      if (previous.ids[start + index] !== id) return undefined;
+      if (previous.jsonById.get(id) !== jsons[index]) changed.push(index);
+    } else {
+      // An appended row must be new; an id seen earlier would be a reorder.
+      if (previous.jsonById.has(id)) return undefined;
+      changed.push(index);
+    }
+  }
+  return changed;
+}
+
 /** The task-detail fields that are sent separately, so they are not duplicated inside `task`. */
 const DETAIL_ONLY_FIELDS = [
   "messages",
@@ -182,6 +215,7 @@ export async function startBackendTaskStream({
   clearTimeoutImpl = clearTimeout,
   subscribeDirty = subscribeBackendTaskDirty,
   dirtyConnected = isBackendTaskDirtyConnected,
+  messageDelta = false,
 }: {
   id: string;
   sse: BackendEventSink;
@@ -194,6 +228,11 @@ export async function startBackendTaskStream({
   subscribeDirty?: (taskId: string, listener: (payload?: BackendTaskDirtyPayload) => void) => () => void;
   /** Whether dirty wakes are currently being delivered; the long idle poll requires it. */
   dirtyConnected?: () => boolean;
+  /**
+   * The client opted in (`delta=1`) to snapshots whose `messages` carry only the changed or appended
+   * rows (`messagesDelta: true`). Streaming then costs one message per wake instead of a full page.
+   */
+  messageDelta?: boolean;
 }): Promise<{ ok: true; stop: () => void } | { ok: false; reason: string }> {
   const [detail, pending] = await readBackendSnapshot(id, "page");
   if (!detail.ok) return { ok: false, reason: detail.reason };
@@ -239,9 +278,41 @@ export async function startBackendTaskStream({
     };
     return lastPending;
   };
+  /** Last page actually delivered on this connection; the base for message deltas. */
+  let lastPage: SentMessagePage | undefined;
+  const sendWithMessageDelta = (snapshot: Record<string, unknown>) => {
+    const messages = Array.isArray(snapshot.messages) ? snapshot.messages as Array<{ id?: unknown }> : [];
+    const rest: Record<string, unknown> = { ...snapshot };
+    delete rest.messages;
+    const restJson = JSON.stringify(rest);
+    const messageJsons = messages.map((message) => JSON.stringify(message));
+    const key = `${restJson}\n${messageJsons.join(",")}`;
+    if (key === lastSnapshot) return;
+    const ids = messages.map((message) => message?.id);
+    const page = ids.every((value): value is string => typeof value === "string")
+      ? { ids, jsonById: new Map(ids.map((value, index) => [value, messageJsons[index]!])) }
+      : undefined;
+    // Deltas only while a turn streams: idle snapshots are rare and carry the full page, so any row a
+    // client replaced from a REST read heals at the end of every turn.
+    const live = snapshot.isStreaming === true || snapshot.isCompacting === true;
+    const changed = live && lastPage && page ? messagePageDelta(lastPage, page.ids, messageJsons) : undefined;
+    // restJson is a non-empty object (`type` is always set), so its body can follow the messages.
+    const body = changed
+      ? `{"messagesDelta":true,"messages":[${changed.map((index) => messageJsons[index]).join(",")}],${restJson.slice(1)}`
+      : `{"messages":[${messageJsons.join(",")}],${restJson.slice(1)}`;
+    if (sse.sendSerialized) sse.sendSerialized("snapshot", body);
+    else sse.send("snapshot", JSON.parse(body));
+    lastSnapshot = key;
+    lastPage = page;
+  };
   const send = (current: Record<string, unknown> | null, requests: BackendSnapshotRead[1]) => {
     if (stopped || sse.closed) return;
     const snapshot = backendTaskSnapshot(current, resolvePending(requests), extraFields());
+    if (messageDelta) {
+      sendWithMessageDelta(snapshot);
+      lastStreaming = current?.isStreaming === true || current?.isCompacting === true;
+      return;
+    }
     const serialized = JSON.stringify(snapshot);
     if (serialized === lastSnapshot) return;
     if (sse.sendSerialized) sse.sendSerialized("snapshot", serialized);

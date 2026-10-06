@@ -10,6 +10,7 @@ import {
 } from "@/lib/pi/harness";
 import { getTaskDetailBounded } from "@/lib/pi/get-task-detail-bounded";
 import { createSseWriter } from "@/lib/sse-writer";
+import { sseResponse } from "@/lib/sse-response";
 import { localRuntimeBlocked } from "@/lib/pi/runtime-ownership";
 import { startBackendTaskStream } from "@/lib/pi/backend-event-stream";
 import {
@@ -74,6 +75,7 @@ export async function GET(
           const started = await startBackendTaskStream({
             id: taskId,
             sse,
+            messageDelta: req.nextUrl.searchParams.get("delta") === "1",
             // Read per poll: the mailbox is shared files this process still owns, and the local
             // inbox subscription is gated until `ready`, which never happens on this path.
             extra: () => ({ intercomInbox: getBotIntercomInbox(botId) }),
@@ -205,11 +207,5 @@ export async function GET(
       sse?.cleanup();
     },
   });
-  return new Response(stream, {
-    headers: {
-      "Content-Type": "text/event-stream; charset=utf-8",
-      "Cache-Control": "no-store, no-cache, no-transform",
-      Connection: "keep-alive",
-    },
-  });
+  return sseResponse(req.headers.get("accept-encoding"), stream);
 }

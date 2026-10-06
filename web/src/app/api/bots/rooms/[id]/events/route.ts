@@ -7,6 +7,7 @@ import {
   subscribeTask,
 } from "@/lib/pi/harness";
 import { createSseWriter } from "@/lib/sse-writer";
+import { sseResponse } from "@/lib/sse-response";
 import { localRuntimeBlocked } from "@/lib/pi/runtime-ownership";
 import { forwardPendingRequestsByTask, type PendingRequestsByTask } from "@/lib/backend-forward";
 import { BACKEND_TASK_STREAM_REASON, subscribeBackendTaskDirty } from "@/lib/backend-task-dirty-hub";
@@ -223,11 +224,5 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
     },
     cancel() { sse?.cleanup(); },
   });
-  return new Response(stream, {
-    headers: {
-      "Content-Type": "text/event-stream; charset=utf-8",
-      "Cache-Control": "no-store, no-cache, no-transform",
-      Connection: "keep-alive",
-    },
-  });
+  return sseResponse(req.headers.get("accept-encoding"), stream);
 }

@@ -4,6 +4,7 @@ import { forwardRuntimeEventStream } from "@/lib/backend-runtime-events";
 import { subscribeBotCodeSession } from "@/lib/pi/harness";
 import { subscribeRoutineRuns } from "@/lib/routines";
 import { createSseWriter } from "@/lib/sse-writer";
+import { sseResponse } from "@/lib/sse-response";
 import { BOT_ROUTINE_RUN_EVENT } from "@/lib/types";
 
 export const runtime = "nodejs";
@@ -14,7 +15,7 @@ export const dynamic = "force-dynamic";
  * that have no individual BotView mounted.
  */
 export async function GET(req: NextRequest) {
-  if (localRuntimeBlocked()) return forwardRuntimeEventStream(req.signal);
+  if (localRuntimeBlocked()) return forwardRuntimeEventStream(req.signal, { acceptEncoding: req.headers.get("accept-encoding") });
   let sse: ReturnType<typeof createSseWriter> | undefined;
   const stream = new ReadableStream({
     start(controller) {
@@ -34,11 +35,5 @@ export async function GET(req: NextRequest) {
       sse?.cleanup();
     },
   });
-  return new Response(stream, {
-    headers: {
-      "Content-Type": "text/event-stream; charset=utf-8",
-      "Cache-Control": "no-store, no-cache, no-transform",
-      Connection: "keep-alive",
-    },
-  });
+  return sseResponse(req.headers.get("accept-encoding"), stream);
 }
