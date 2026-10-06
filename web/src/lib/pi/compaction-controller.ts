@@ -1,3 +1,4 @@
+import { estimateTokens } from "@earendil-works/pi-coding-agent";
 import type {
   AgentBeforeSettleEvent, BoundaryResult, CompactionResult,
   ExtensionAPI, ExtensionContext, SessionEntry, TurnEndEvent,
@@ -75,8 +76,7 @@ export function registerCompactionController(pi: ExtensionAPI, options: Compacti
     if (data && typeof data === "object") (data as { claimed: boolean }).claimed = true;
   });
 
-  const takeReady = (ctx: ExtensionContext, config: CompactionConfig | undefined, branch: SessionEntry[]) => {
-    if (job && !matches(job, ctx, config, branch)) cancel();
+  const consumeReady = () => {
     if (!job?.result) return undefined;
     const result = job.result;
     job.cleanup();
@@ -84,6 +84,10 @@ export function registerCompactionController(pi: ExtensionAPI, options: Compacti
     lastAttempt = now();
     report("applied");
     return result;
+  };
+  const takeReady = (ctx: ExtensionContext, config: CompactionConfig | undefined, branch: SessionEntry[]) => {
+    if (job && !matches(job, ctx, config, branch)) cancel();
+    return consumeReady();
   };
 
   const start = (ctx: ExtensionContext, config: CompactionConfig, branch: SessionEntry[]) => {
@@ -114,15 +118,16 @@ export function registerCompactionController(pi: ExtensionAPI, options: Compacti
       const preparation = await options.prepare(branch, { ...config.settings });
       if (job !== candidate || controller.signal.aborted) return;
       if (!preparation) { cancel(); return; }
-      const rawSize = JSON.stringify([
-        ...preparation.messagesToSummarize, ...preparation.turnPrefixMessages,
-      ]).length;
-      if (rawSize / 4 < (options.minDeltaTokens ?? 6_000)) { cancel(); return; }
+      // Count semantic message content with Pi's estimator. JSON.stringify of the
+      // entire transcript duplicated large histories in memory on the event loop.
+      const sourceTokens = preparation.messagesToSummarize.reduce((sum, message) => sum + estimateTokens(message), 0) +
+        preparation.turnPrefixMessages.reduce((sum, message) => sum + estimateTokens(message), 0);
+      if (sourceTokens < (options.minDeltaTokens ?? 6_000)) { cancel(); return; }
       const result = await options.summarize({ preparation, branch, ctx, signal: controller.signal, mode: "background" });
       if (job !== candidate || controller.signal.aborted) return;
       if (!result?.summary.trim() || result.firstKeptEntryId !== preparation.firstKeptEntryId ||
         !candidate.ids.includes(result.firstKeptEntryId) ||
-        result.summary.length >= rawSize + (preparation.previousSummary?.length ?? 0)) {
+        Math.ceil(result.summary.length / 4) >= sourceTokens + Math.ceil((preparation.previousSummary?.length ?? 0) / 4)) {
         cancel();
         report("skipped");
         return;
@@ -154,7 +159,8 @@ export function registerCompactionController(pi: ExtensionAPI, options: Compacti
         return;
       }
       const branch = ctx.sessionManager.getBranch();
-      if (job && !matches(job, ctx, config, branch)) cancel();
+      const snapshotMatches = job ? matches(job, ctx, config, branch) : false;
+      if (job && !snapshotMatches) cancel();
       const usage = ctx.getContextUsage();
       if (typeof usage?.percent !== "number" || !Number.isFinite(usage.percent) ||
         typeof usage.tokens !== "number" || !Number.isFinite(usage.tokens) ||
@@ -162,7 +168,8 @@ export function registerCompactionController(pi: ExtensionAPI, options: Compacti
       // Preparation is speculative, application is not. Match Pi's strict
       // native trigger; a ready checkpoint must not lower the user's threshold.
       const atNativeThreshold = usage.tokens > usage.contextWindow - config.settings.reserveTokens;
-      const ready = atNativeThreshold ? takeReady(ctx, config, branch) : undefined;
+      // snapshotMatches already checked the full prefix above; avoid a second O(n) scan.
+      const ready = atNativeThreshold && snapshotMatches ? consumeReady() : undefined;
       if (ready) return {
         entries: [...event.entries, {
           type: "compaction", summary: ready.summary, firstKeptEntryId: ready.firstKeptEntryId,

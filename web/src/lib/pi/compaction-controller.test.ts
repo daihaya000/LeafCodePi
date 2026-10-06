@@ -184,6 +184,18 @@ describe("background compaction controller", () => {
     expect(f.options.summarize).not.toHaveBeenCalled();
   });
 
+  it("uses Pi's semantic token estimate instead of serializing unrelated message metadata", async () => {
+    const f = fixture();
+    f.options.minDeltaTokens = 100;
+    f.preparation.messagesToSummarize[0] = {
+      role: "user", content: "short", timestamp: 1, unrelatedDebug: "x".repeat(5_000),
+    } as never;
+    await f.boundary(); await flush();
+    expect(f.options.prepare).toHaveBeenCalledOnce();
+    expect(f.options.summarize).not.toHaveBeenCalled();
+    expect(f.phases).toContain("cancelled");
+  });
+
   it("starts preparation five points before a lower native threshold", async () => {
     const f = fixture();
     f.config.settings.reserveTokens = 30_000; // Effective application threshold: 70%.
