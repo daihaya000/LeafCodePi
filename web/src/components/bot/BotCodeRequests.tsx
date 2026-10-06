@@ -23,6 +23,10 @@ type RequestCacheEntry = { requests: RequestSummary[]; fetchedAt: number; subscr
 const REQUEST_CACHE_TTL_MS = 500;
 const requestCache = new Map<string, RequestCacheEntry>();
 
+function isDocumentHidden(): boolean {
+  return document.visibilityState === "hidden";
+}
+
 function fetchCodeRequests(botId: string, force = false): Promise<RequestSummary[]> {
   const cached = requestCache.get(botId);
   if (!force && cached?.pending) return cached.pending;
@@ -76,11 +80,11 @@ export function BotCodeRequests({ botId, requestIds, active = true }: { botId: s
     let polling = false;
     let timer: number | undefined;
     const poll = async () => {
-      if (closed || polling || document.visibilityState === "hidden") return;
+      if (closed || polling || isDocumentHidden()) return;
       polling = true;
       try {
         const next = await load();
-        if (closed || document.visibilityState === "hidden") return;
+        if (closed || isDocumentHidden()) return;
         const byId = new Map((next ?? []).map((request) => [request.id, request]));
         // Every requested id must be terminal — missing siblings stay non-terminal.
         const terminal =
@@ -100,7 +104,7 @@ export function BotCodeRequests({ botId, requestIds, active = true }: { botId: s
       }
     };
     const onVisibilityChange = () => {
-      if (document.visibilityState === "hidden") {
+      if (isDocumentHidden()) {
         if (timer !== undefined) window.clearTimeout(timer);
         timer = undefined;
       } else {
