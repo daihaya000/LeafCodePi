@@ -1357,6 +1357,8 @@ export const TaskView = memo(function TaskView({
         setError((current) => (current === TASK_SSE_DISCONNECTED_MESSAGE ? null : current));
         let payload: {
           task?: TaskSummary;
+          /** The summary was sent earlier on this SSE connection; reuse the current client value. */
+          taskReused?: boolean;
           messages?: UiMessage[];
           isStreaming?: boolean;
           isCompacting?: boolean;
@@ -1446,29 +1448,33 @@ export const TaskView = memo(function TaskView({
               settled?.reason === "silent" ? settled.messageId : null,
             );
           }
-          if (snapshotTask) {
-            const nextAgent = snapshotTask.agent?.trim() || DEFAULT_AGENT;
-            setAgent(nextAgent);
-            setAgentSelection((current) =>
-              current === AUTO_AGENT_VALUE ? current : nextAgent,
-            );
+          if (snapshotTask || payload.taskReused) {
+            if (snapshotTask) {
+              const nextAgent = snapshotTask.agent?.trim() || DEFAULT_AGENT;
+              setAgent(nextAgent);
+              setAgentSelection((current) =>
+                current === AUTO_AGENT_VALUE ? current : nextAgent,
+              );
+            }
             setTask((current) => {
+              const summary = snapshotTask ?? current;
+              if (!summary) return current;
               const base: TaskDetail = current ?? {
-                ...snapshotTask,
+                ...summary,
                 messages: [],
-                isStreaming: payload.isStreaming ?? snapshotTask.status === "working",
+                isStreaming: payload.isStreaming ?? summary.status === "working",
                 isCompacting: Boolean(payload.isCompacting),
               };
               const keepExistingMessages = shouldKeepCachedBootstrapMessages({
                 currentTaskId: base.id,
-                snapshotTaskId: snapshotTask.id,
+                snapshotTaskId: summary.id,
                 isBootstrap,
                 snapshotMessages: payload.messages,
                 currentMessageCount: base.messages.length,
               });
               const next: TaskDetail = {
                 ...base,
-                ...snapshotTask,
+                ...summary,
                 messages: keepExistingMessages || payload.messagesDelta
                   ? base.messages
                   : payload.messages ?? base.messages ?? [],

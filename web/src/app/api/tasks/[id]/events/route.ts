@@ -354,6 +354,7 @@ export async function GET(
             messagePage?.messages.at(-1)?.id ?? "",
           );
           let lastRemoteStateSignature = remotePollStateSignature(taskSummary, detail);
+          let lastRemoteTaskSummaryJson = JSON.stringify(taskSummary);
           let reuseCachedRemotePage = messageDelta && streamMessages && canReuseCachedMessages;
           let lastRemotePage = messageDelta && messagePage
             ? serializeRemoteMessages(messagePage.messages).page
@@ -472,11 +473,14 @@ export async function GET(
                 }
               }
               if (shouldSendSnapshot) {
+                const taskSummaryJson = JSON.stringify(taskSummary);
+                const taskReused = taskSummaryJson === lastRemoteTaskSummaryJson;
+                if (!taskReused) lastRemoteTaskSummaryJson = taskSummaryJson;
                 // Offline detail always nulls permission/question. Omit them so a buffered
                 // live control event (or local pending at ready) is not wiped by remote polls.
                 writer.send("snapshot", {
                   type: "snapshot",
-                  task: taskSummary,
+                  ...(taskReused ? { taskReused: true } : { task: taskSummary }),
                   ...remoteMessages,
                   isStreaming: detail.isStreaming,
                   isCompacting: detail.isCompacting,

@@ -102,6 +102,37 @@ it("shares the footer notification switch with Code task browser notifications",
   }
 });
 
+it("applies state updates when an SSE snapshot reuses the current task summary", async () => {
+  class TestEventSource extends EventTarget {
+    static latest: TestEventSource;
+    constructor() { super(); TestEventSource.latest = this; }
+    close() {}
+  }
+  const messages: UiMessage[] = [
+    { id: "prompt", role: "user", createdAt: 1, parts: [{ id: "text", type: "text", text: "指示" }] },
+  ];
+  const cachedTask = { ...task, sessionId: "session-1" };
+  saveTaskSessionCache({ task: cachedTask, messages, isStreaming: false, isCompacting: false });
+  vi.stubGlobal("EventSource", TestEventSource);
+  render(<TaskView taskId={task.id} mdUp />);
+  await waitFor(() => expect(TestEventSource.latest).toBeTruthy());
+
+  await act(async () => {
+    TestEventSource.latest.dispatchEvent(new MessageEvent("snapshot", {
+      data: JSON.stringify({ eventType: "ready", task: cachedTask, messages, isStreaming: false }),
+    }));
+  });
+  expect(screen.getByRole("button", { name: "次の指示を提案" })).toBeTruthy();
+
+  await act(async () => {
+    TestEventSource.latest.dispatchEvent(new MessageEvent("snapshot", {
+      data: JSON.stringify({ eventType: "remote_poll", taskReused: true, isStreaming: true, isCompacting: false }),
+    }));
+  });
+  expect(screen.getByRole("button", { name: "進捗を確認" })).toBeTruthy();
+  expect(screen.queryByRole("button", { name: "次の指示を提案" })).toBeNull();
+});
+
 it.each([true, false])("shows the Pi session ID only at the top of the Diff panel (mdUp: %s)", async (mdUp) => {
   const sessionId = "01a0efee-1234-5678-9012-123456789abc";
   saveTaskSessionCache({ task: { ...task, sessionId, directory: "C:\\repo" }, messages: [], isStreaming: false, isCompacting: false });

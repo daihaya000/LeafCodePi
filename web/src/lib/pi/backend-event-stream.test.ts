@@ -83,6 +83,26 @@ describe("Backend task stream polling", () => {
     vi.useRealTimers();
   });
 
+  it("reuses an unchanged task summary for later state-only snapshots", async () => {
+    const firstContext = { tokens: 10, contextWindow: 100, percent: 10 };
+    const nextContext = { tokens: 20, contextWindow: 100, percent: 20 };
+    mocks.forwardTaskDetail
+      .mockResolvedValueOnce(result(0, { isStreaming: true, contextUsage: firstContext }))
+      .mockResolvedValue(result(0, { isStreaming: true, contextUsage: nextContext }));
+    const sse = sink();
+    const stream = await start(sse, { messageDelta: true });
+    await vi.advanceTimersByTimeAsync(2_000);
+    stream.stop();
+
+    expect(sse.send).toHaveBeenCalledTimes(2);
+    const first = sse.send.mock.calls[0]![1] as Record<string, unknown>;
+    const second = sse.send.mock.calls[1]![1] as Record<string, unknown>;
+    expect(first).toHaveProperty("task");
+    expect(second).toMatchObject({ taskReused: true, contextUsage: nextContext });
+    expect(second).not.toHaveProperty("task");
+    expect(JSON.stringify(second).length).toBeLessThan(JSON.stringify(first).length);
+  });
+
   it("asks the Backend for a page first, then omit while idle and unchanged", async () => {
     const stream = await start(sink());
     await vi.advanceTimersByTimeAsync(2_000);
@@ -496,6 +516,31 @@ describe("Backend task stream polling", () => {
     const stream = await start(sink());
     stream.stop();
     expect(mocks.forwardTaskDetail.mock.calls).toEqual([["task-1", { messages: "page", limit: 300 }]]);
+  });
+
+  it("omits an unchanged task summary in the real SSE frame", async () => {
+    const enqueue = vi.fn();
+    const controller = { enqueue } as unknown as ReadableStreamDefaultController<Uint8Array>;
+    const sse = createSseWriter(controller);
+    mocks.forwardTaskDetail
+      .mockResolvedValueOnce(result(0))
+      .mockResolvedValue(result(0, { contextUsage: { tokens: 1, contextWindow: 100, percent: 1 } }));
+    const stream = await startBackendTaskStream({
+      id: "task-1", sse, intervalMs: 2_000, idleIntervalMs: 2_000,
+      dirtyIdleIntervalMs: 2_000, subscribeDirty: () => () => {},
+    });
+    if (!stream.ok) throw new Error(stream.reason);
+    try {
+      await vi.advanceTimersByTimeAsync(2_000);
+      const frames = enqueue.mock.calls.map(([chunk]) => new TextDecoder().decode(chunk as Uint8Array));
+      expect(frames).toHaveLength(2);
+      expect(frames[0]).toContain('"task":');
+      expect(frames[1]).toContain('"taskReused":true');
+      expect(frames[1]).not.toContain('"task":');
+    } finally {
+      stream.stop();
+      sse.cleanup();
+    }
   });
 
   it("serializes each snapshot only once with the real SSE writer", async () => {

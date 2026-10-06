@@ -533,9 +533,11 @@ describe("/api/tasks/[id]/events", () => {
 
       // The first offline read fills the message baseline and sends only changed state, not history.
       await vi.advanceTimersByTimeAsync(2_000);
-      expect(eventData(await readChunk(reader))).toMatchObject({
-        eventType: "remote_poll", messagesDelta: true, messages: [], contextUsage: remoteContext,
+      const stateOnly = eventData(await readChunk(reader));
+      expect(stateOnly).toMatchObject({
+        eventType: "remote_poll", taskReused: true, messagesDelta: true, messages: [], contextUsage: remoteContext,
       });
+      expect(stateOnly).not.toHaveProperty("task");
       mocks.getTaskDetail.mockResolvedValue(remoteDetail);
       await vi.advanceTimersByTimeAsync(2_000);
       expect(mocks.getTaskDetail).toHaveBeenCalledTimes(3);

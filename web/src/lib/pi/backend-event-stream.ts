@@ -284,6 +284,28 @@ export async function startBackendTaskStream({
     }
   };
   let lastSnapshot: string | undefined;
+  let lastTaskSummaryJson: string | undefined;
+  const prepareTaskSummaryForWire = (snapshot: Record<string, unknown>) => {
+    const task = snapshot.task;
+    const taskJson = task && typeof task === "object" ? JSON.stringify(task) : undefined;
+    if (taskJson !== undefined && taskJson === lastTaskSummaryJson) {
+      const payload = { ...snapshot };
+      delete payload.task;
+      return { payload: { ...payload, taskReused: true }, taskJson, reused: true };
+    }
+    return { payload: snapshot, taskJson, reused: false };
+  };
+  const rememberSentTaskSummary = (prepared: ReturnType<typeof prepareTaskSummaryForWire>) => {
+    if (!prepared.reused && prepared.taskJson !== undefined) lastTaskSummaryJson = prepared.taskJson;
+  };
+  const omitSerializedTaskSummary = (serialized: string, taskJson: string | undefined) => {
+    if (taskJson === undefined) return serialized;
+    const taskField = `"task":${taskJson}`;
+    const taskOffset = serialized.indexOf(taskField);
+    return taskOffset < 0
+      ? serialized
+      : `${serialized.slice(0, taskOffset)}"taskReused":true${serialized.slice(taskOffset + taskField.length)}`;
+  };
   let lastPending: PendingRequests = pending.ok
     ? { permissionRequest: pending.permissionRequest, questionRequest: pending.questionRequest }
     : { permissionRequest: null, questionRequest: null };
@@ -303,8 +325,13 @@ export async function startBackendTaskStream({
     if (!streamMessages) {
       const serialized = JSON.stringify(snapshot);
       if (serialized === lastSnapshot) return;
-      if (sse.sendSerialized) sse.sendSerialized("snapshot", serialized);
-      else sse.send("snapshot", snapshot);
+      const prepared = prepareTaskSummaryForWire(snapshot);
+      if (sse.sendSerialized) {
+        sse.sendSerialized("snapshot", prepared.reused
+          ? omitSerializedTaskSummary(serialized, prepared.taskJson)
+          : serialized);
+      } else sse.send("snapshot", prepared.payload);
+      rememberSentTaskSummary(prepared);
       lastSnapshot = serialized;
       lastPage = undefined;
       lastRestJson = serialized;
@@ -354,11 +381,16 @@ export async function startBackendTaskStream({
       return;
     }
     // restJson is a non-empty object (`type` is always set), so its body can follow the messages.
+    const prepared = prepareTaskSummaryForWire(snapshot);
+    const wireRestJson = prepared.reused
+      ? omitSerializedTaskSummary(restJson, prepared.taskJson)
+      : restJson;
     const body = changed !== undefined
-      ? `{"messagesDelta":true,"messages":[${changed.map((index) => messageJsons[index]).join(",")}],${restJson.slice(1)}`
-      : `{"messages":[${messageJsons.join(",")}],${restJson.slice(1)}`;
+      ? `{"messagesDelta":true,"messages":[${changed.map((index) => messageJsons[index]).join(",")}],${wireRestJson.slice(1)}`
+      : `{"messages":[${messageJsons.join(",")}],${wireRestJson.slice(1)}`;
     if (sse.sendSerialized) sse.sendSerialized("snapshot", body);
     else sse.send("snapshot", JSON.parse(body));
+    rememberSentTaskSummary(prepared);
     lastSnapshot = key;
     lastPage = page;
     lastRestJson = restJson;
@@ -373,8 +405,13 @@ export async function startBackendTaskStream({
     }
     const serialized = JSON.stringify(snapshot);
     if (serialized === lastSnapshot) return;
-    if (sse.sendSerialized) sse.sendSerialized("snapshot", serialized);
-    else sse.send("snapshot", snapshot);
+    const prepared = prepareTaskSummaryForWire(snapshot);
+    if (sse.sendSerialized) {
+      sse.sendSerialized("snapshot", prepared.reused
+        ? omitSerializedTaskSummary(serialized, prepared.taskJson)
+        : serialized);
+    } else sse.send("snapshot", prepared.payload);
+    rememberSentTaskSummary(prepared);
     lastSnapshot = serialized;
     lastStreaming = current?.isStreaming === true || current?.isCompacting === true;
   };
