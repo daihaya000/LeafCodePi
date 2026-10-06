@@ -254,11 +254,55 @@ describe("readTaskProgressSnapshot", () => {
     patchTask(task.id, { sessionFile: join(root, "session-0.jsonl") });
     await readTaskProgressSnapshot(task.id);
     assert.equal(opened, 10, "oldest retained transcript must be evicted");
+    // A large (e.g. compacted) JSONL with a small projection is retained: the budget counts the
+    // projection, so 5s remote polls of a 20 MiB idle session stop re-parsing it.
     const large = join(root, "large.jsonl");
     writeFileSync(large, Buffer.alloc(2 * 1024 * 1024 + 1));
     patchTask(task.id, { sessionFile: large });
     await readTaskProgressSnapshot(task.id);
     await readTaskProgressSnapshot(task.id);
-    assert.equal(opened, 12, "large transcript must not be retained");
+    assert.equal(opened, 11, "large transcript with a small projection must be retained");
+  });
+
+  it("does not retain a projection larger than the per-entry budget", async () => {
+    const { root, task } = setup();
+    let opened = 0;
+    const huge = "x".repeat(17 * 1024 * 1024);
+    installFixtureHarness(new Map(), {
+      SessionManager: { open: () => {
+        opened += 1;
+        return { buildSessionContext: () => ({ messages: [{ role: "user", content: huge, timestamp: 1 }] }) };
+      } },
+    });
+    const sessionFile = join(root, "huge.jsonl");
+    writeFileSync(sessionFile, Buffer.alloc(2 * 1024 * 1024 + 1));
+    patchTask(task.id, { sessionFile });
+    await readTaskProgressSnapshot(task.id);
+    await readTaskProgressSnapshot(task.id);
+    assert.equal(opened, 2, "an oversized projection must be rebuilt instead of retained");
+  });
+
+  it("reports a transcript messageRevision so idle omit polls keep their page", async () => {
+    const { root, task } = setup();
+    const sessionFile = join(root, "revision.jsonl");
+    writeFileSync(sessionFile, "{}\n", "utf8");
+    patchTask(task.id, { sessionFile });
+    let opened = 0;
+    installFixtureHarness(new Map(), {
+      SessionManager: { open: () => {
+        opened += 1;
+        return { buildSessionContext: () => ({ messages: [{ role: "user", content: `v${opened}`, timestamp: 1 }] }) };
+      } },
+    });
+    const page = await getTaskDetailReadOnly(task.id);
+    const omit = await getTaskDetailReadOnly(task.id, { includeMessages: false });
+    const pageRevision = (page as { messageRevision?: string }).messageRevision;
+    assert.match(String(pageRevision), /^offline:/);
+    assert.equal((omit as { messageRevision?: string }).messageRevision, pageRevision);
+    assert.deepEqual(omit.messages, []);
+    assert.equal(opened, 1, "the omit poll reuses the cached projection");
+    writeFileSync(sessionFile, "{}\n{}\n", "utf8");
+    const changed = await getTaskDetailReadOnly(task.id, { includeMessages: false });
+    assert.notEqual((changed as { messageRevision?: string }).messageRevision, pageRevision);
   });
 });
