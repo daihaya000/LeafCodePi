@@ -1,6 +1,9 @@
 import { NextRequest } from "next/server";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { RoomDto } from "@/lib/types";
+import type { subscribeBackendTaskDirty } from "@/lib/backend-task-dirty-hub";
+
+type DirtyListener = Parameters<typeof subscribeBackendTaskDirty>[1];
 
 const mocks = vi.hoisted(() => ({
   getRoom: vi.fn(),
@@ -11,7 +14,7 @@ const mocks = vi.hoisted(() => ({
   pendingQuestionForTask: vi.fn<(taskId: string) => unknown>(() => null),
   localRuntimeBlocked: vi.fn(() => false),
   forwardPendingRequestsByTask: vi.fn(),
-  subscribeBackendTaskDirty: vi.fn(() => () => undefined),
+  subscribeBackendTaskDirty: vi.fn<typeof subscribeBackendTaskDirty>(() => () => undefined),
 }));
 
 vi.mock("@/lib/rooms", () => ({
@@ -248,8 +251,8 @@ describe("GET /api/bots/rooms/[id]/events", () => {
   it("queues a dirty wake that arrives while a pending read is in flight", async () => {
     vi.useFakeTimers();
     mocks.localRuntimeBlocked.mockReturnValue(true);
-    let dirtyListener: (() => void) | undefined;
-    mocks.subscribeBackendTaskDirty.mockImplementation((_taskId: string, listener: () => void) => {
+    let dirtyListener: DirtyListener | undefined;
+    mocks.subscribeBackendTaskDirty.mockImplementation((_taskId, listener) => {
       dirtyListener = listener;
       return () => undefined;
     });
@@ -270,7 +273,7 @@ describe("GET /api/bots/rooms/[id]/events", () => {
     // Start a second snapshot via the safety-net interval, then fire dirty while busy.
     await vi.advanceTimersByTimeAsync(5_000);
     expect(mocks.forwardPendingRequestsByTask).toHaveBeenCalledTimes(2);
-    dirtyListener!();
+    dirtyListener!({ taskId: "bot:one:room:r1", reason: "agent_settled" });
     // Without the queue the dirty wake would be dropped until the next interval.
     slow.resolve({ ok: true, byTask: {} });
     await vi.advanceTimersByTimeAsync(0);
@@ -284,9 +287,9 @@ describe("GET /api/bots/rooms/[id]/events", () => {
   it("ignores streaming-text wakes, which never change the room file", async () => {
     vi.useFakeTimers();
     mocks.localRuntimeBlocked.mockReturnValue(true);
-    let dirtyListener: ((payload?: { taskId: string; reason?: string }) => void) | undefined;
+    let dirtyListener: DirtyListener | undefined;
     mocks.subscribeBackendTaskDirty.mockImplementation(
-      (_taskId: string, listener: (payload?: { taskId: string; reason?: string }) => void) => {
+      (_taskId, listener) => {
         dirtyListener = listener;
         return () => undefined;
       },

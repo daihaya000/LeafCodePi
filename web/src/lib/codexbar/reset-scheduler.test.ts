@@ -7,7 +7,7 @@ const state = vi.hoisted(() => ({
   configured: vi.fn(() => true),
   fetch: vi.fn((): Promise<unknown> => Promise.resolve({})),
   create: vi.fn(),
-  claude: vi.fn(async () => false),
+  claude: vi.fn<(scope: UsageScope) => Promise<boolean>>(async () => false),
 }));
 vi.mock("@/lib/accounts", () => ({
   listAccounts: state.accounts,

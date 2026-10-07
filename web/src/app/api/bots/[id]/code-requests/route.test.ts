@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   getBot: vi.fn(() => ({ id: "bot-1" })),
-  listBotCodeRequests: vi.fn(() => []),
+  listBotCodeRequests: vi.fn<() => { id: string; codeTaskId: string | null; state: string; prompt: string }[]>(() => []),
   stopBotCodeRequest: vi.fn(),
   completeBotCodeRequest: vi.fn(),
   abortTaskIncludingColdGoalLoop: vi.fn(),
