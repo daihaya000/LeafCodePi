@@ -829,6 +829,7 @@ export const TaskView = memo(function TaskView({
   const [modelSelection, setModelSelection] = useState("");
   const modelChangeRef = useRef(0);
   const thinkingChangeRef = useRef(0);
+  const thinkingQueueRef = useRef<Promise<void>>(Promise.resolve());
   const [autoModelEnabled, setAutoModelEnabled] = useState(() => readAutoModelEnabled());
   const [autoOptimizeMode, setAutoOptimizeMode] = useState<AutoOptimizeMode>(
     () => readAutoOptimizeMode(),
@@ -1961,7 +1962,10 @@ export const TaskView = memo(function TaskView({
     stickRef.current = true;
     lastScrollTopRef.current = 0;
     // Pending model/effort replies no longer own the pane after teardown.
-    return () => { modelChangeRef.current += 1; };
+    return () => {
+      modelChangeRef.current += 1;
+      thinkingQueueRef.current = Promise.resolve();
+    };
   }, [cachedSession, taskId]);
 
   useForkDraft(taskId, setPrompt, setAttachments);
@@ -4701,7 +4705,10 @@ export const TaskView = memo(function TaskView({
                     const changeId = ++thinkingChangeRef.current;
                     const modelChangeId = modelChangeRef.current;
                     const isCurrent = () => thinkingChangeRef.current === changeId && modelChangeRef.current === modelChangeId;
-                    void (async () => {
+                    // Order owner writes, not just browser replies. Skip obsolete
+                    // queued selections so rapid edits send only the latest effort.
+                    thinkingQueueRef.current = thinkingQueueRef.current.catch(() => {}).then(async () => {
+                      if (!isCurrent()) return;
                       try {
                         setError(null);
                         const result = await sendJson<{ task: TaskSummary }>(
@@ -4721,7 +4728,7 @@ export const TaskView = memo(function TaskView({
                         if (!isCurrent()) return;
                         setError(err instanceof Error ? err.message : "思考レベルの切替に失敗しました");
                       }
-                    })();
+                    });
                   }}
                 />
               )}

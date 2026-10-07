@@ -2573,6 +2573,44 @@ describe("TaskView draft submission", () => {
     expect(screen.getByRole("button", { name: "モデル" }).textContent).toContain("Model C");
   });
 
+  it.each([false, true])("serializes effort writes and coalesces intermediate choices (failure: %s)", async (failFirst) => {
+    const modelTask = { ...task, providerID: "provider", modelID: "a", thinkingLevel: "medium" as const };
+    const models: ModelOption[] = [{ value: "provider::a", label: "Model A", providerID: "provider", modelID: "a", thinkingLevels: ["low", "medium", "high"] }];
+    writeCachedModels(models);
+    saveTaskSessionCache({ task: modelTask, messages: [], isStreaming: false, isCompacting: false });
+    mocks.getJson.mockResolvedValue({ models, agents: [], skills: [], accounts: [] });
+    let finishFirst!: () => void;
+    let fail!: (error: Error) => void;
+    const first = new Promise<void>((resolve, reject) => { finishFirst = resolve; fail = reject; });
+    let serverLevel = "medium";
+    mocks.sendJson.mockImplementation(async (_url: string, body: { thinkingLevel: string }) => {
+      if (body.thinkingLevel === "low") await first;
+      serverLevel = body.thinkingLevel;
+      return { task: { ...modelTask, thinkingLevel: serverLevel } };
+    });
+    render(<TaskView taskId={task.id} mdUp />);
+    const choose = (level: string) => {
+      fireEvent.click(screen.getByRole("button", { name: "思考レベル" }));
+      fireEvent.click(screen.getByRole("option", { name: level }));
+    };
+    choose("low");
+    await waitFor(() => expect(mocks.sendJson).toHaveBeenCalledTimes(1));
+    choose("medium");
+    choose("high");
+    await act(async () => { await Promise.resolve(); });
+    expect(mocks.sendJson).toHaveBeenCalledTimes(1);
+    await act(async () => {
+      if (failFirst) fail(new Error("first request failed"));
+      else finishFirst();
+      await first.catch(() => undefined);
+    });
+    await waitFor(() => expect(screen.getByRole("button", { name: "思考レベル" }).textContent).toContain("high"));
+    expect(serverLevel).toBe("high");
+    expect(mocks.sendJson).toHaveBeenCalledTimes(2);
+    expect(mocks.sendJson).not.toHaveBeenCalledWith(expect.anything(), { thinkingLevel: "medium" });
+    expect(screen.queryByRole("alert")).toBeNull();
+  });
+
   it.each(["success", "error", "fallback", "task-switch", "model-switch", "unmount"])("ignores an obsolete effort response (%s)", async (outcome) => {
     class TestEventSource extends EventTarget {
       static latest: TestEventSource;
@@ -2599,6 +2637,7 @@ describe("TaskView draft submission", () => {
     };
     choose("low");
     await waitFor(() => expect(mocks.sendJson).toHaveBeenCalledTimes(1));
+    if (["fallback", "task-switch", "model-switch", "unmount"].includes(outcome)) choose("high");
     if (outcome === "fallback") {
       await act(async () => {
         TestEventSource.latest.dispatchEvent(new MessageEvent("snapshot", {
@@ -2618,17 +2657,19 @@ describe("TaskView draft submission", () => {
       view.unmount();
     } else {
       choose("high");
-      await waitFor(() => expect(screen.getByRole("button", { name: "思考レベル" }).textContent).toContain("high"));
+      await act(async () => { await Promise.resolve(); });
+      expect(mocks.sendJson).toHaveBeenCalledTimes(1);
     }
     await act(async () => {
       if (outcome === "error") rejectOlder(new Error("obsolete effort failure"));
       else resolveOlder({ task: { ...modelTask, thinkingLevel: "low" } });
       await olderResponse.catch(() => undefined);
     });
-    if (outcome !== "unmount") expect(screen.getByRole("button", { name: "思考レベル" }).textContent).toContain("high");
+    if (outcome !== "unmount") await waitFor(() => expect(screen.getByRole("button", { name: "思考レベル" }).textContent).toContain("high"));
     expect(screen.queryByRole("alert")).toBeNull();
     expect(localStorage.getItem("leafcodepi.thinkingLevel")).not.toBe("low");
     if (outcome === "fallback") expect(screen.getByRole("button", { name: "モデル" }).textContent).toContain("Model B");
+    expect(mocks.sendJson).toHaveBeenCalledTimes(["success", "error", "model-switch"].includes(outcome) ? 2 : 1);
   });
 
   it("does not repaint stale task status from an effort-only response", async () => {
