@@ -71,6 +71,50 @@ it.each(["provider-abort", "timeout-abort"])("automatically retries an aborted G
   }
 });
 
+it("resumes blocked final-turn verification through the real SDK without more goal turns", async () => {
+  const cwd = mkdtempSync(join(tmpdir(), "leafcode-goal-loop-verification-sdk-"));
+  vi.stubEnv("LEAFCODE_PI_DATA_DIR", cwd);
+  const manager = SessionManager.inMemory(cwd);
+  const faux = fauxProvider();
+  faux.setResponses([
+    fauxAssistantMessage(JSON.stringify({ status: "completed", summary: "done" })),
+    fauxAssistantMessage(JSON.stringify({ status: "blocked", summary: "check needs input" })),
+    fauxAssistantMessage(JSON.stringify({ status: "verified_completed", summary: "verified" })),
+  ]);
+  const modelRuntime = await ModelRuntime.create({ authPath: join(cwd, "auth.json"), modelsPath: null, refreshOnCreate: false });
+  modelRuntime.registerNativeProvider(faux.provider);
+  const settingsManager = SettingsManager.inMemory({ retry: { enabled: false } });
+  const loader = new DefaultResourceLoader({
+    cwd, agentDir: cwd, settingsManager,
+    noExtensions: true, noSkills: true, noPromptTemplates: true, noThemes: true, noContextFiles: true,
+    extensionFactories: [goalLoopExtension as unknown as ExtensionFactory],
+  });
+  let session: Awaited<ReturnType<typeof createAgentSession>>["session"] | undefined;
+  try {
+    await loader.reload();
+    ({ session } = await createAgentSession({
+      cwd, agentDir: cwd, resourceLoader: loader, settingsManager, sessionManager: manager,
+      modelRuntime, model: faux.getModel(), tools: [],
+    }));
+    await session.bindExtensions({ onError: (error) => { throw new Error(error.error); } });
+    const runner = session.extensionRunner;
+    const state = () => JSON.parse(readFileSync(join(cwd, "goals-loop", `${manager.getSessionId()}.json`), "utf8"));
+    await runner.getCommand("goal-start")!.handler(Buffer.from(JSON.stringify({ goal: "Verify the final turn", maxTurns: 1 })).toString("base64url"), runner.createCommandContext());
+    await vi.waitFor(() => expect(state()).toMatchObject({ status: "blocked", turnKind: "verification", turnCount: 1 }), { timeout: 5_000, interval: 10 });
+    await session.waitForIdle();
+    await runner.getCommand("goal-resume")!.handler("", runner.createCommandContext());
+    await vi.waitFor(() => expect(state()).toMatchObject({ status: "completed", turnCount: 1, maxTurns: 1 }), { timeout: 5_000, interval: 10 });
+    expect(faux.state.callCount).toBe(3);
+    expect(manager.getBranch().filter((entry) => entry.type === "custom_message" && entry.customType === "leafcode-goal-turn")).toHaveLength(1);
+    expect(manager.getBranch().filter((entry) => entry.type === "custom_message" && entry.customType === "leafcode-goal-verification")).toHaveLength(2);
+  } finally {
+    await session?.extensionRunner.emit({ type: "session_shutdown", reason: "quit" });
+    session?.dispose();
+    vi.unstubAllEnvs();
+    rmSync(cwd, { recursive: true, force: true });
+  }
+});
+
 // Regression: a raw-fetch "terminated" error stopped session 01a100cf while
 // retry.enabled was false. Keep recovery inside the SDK's bounded retry policy,
 // not a new Goal Loop turn (which could replay already completed tool actions).
@@ -488,7 +532,7 @@ it("starts, controls and completes Goal Loop through real SDK context dispatch",
     expect(state().status).toBe("stopped");
     await command("goal-set", "Shutdown check");
     await runner.emit({ type: "session_shutdown", reason: "quit" });
-    expect(state()).toMatchObject({ status: "paused", pauseReason: "" });
+    expect(state()).toMatchObject({ status: "paused", pauseReason: "session_end" });
     expect(errors).toEqual([]);
     expect(vi.getTimerCount()).toBe(0);
   } finally {

@@ -34,7 +34,9 @@ export function isGoalLoopSessionOwnedStatus(status) {
  */
 export function nextGoalLoopTurn(loop) {
   const turnCount = Math.max(0, Math.trunc(Number(loop.turnCount) || 0));
-  return loop.status === "queued" && loop.retryInterruptedTurn !== true ? turnCount + 1 : turnCount;
+  return loop.status === "queued" && loop.retryInterruptedTurn !== true && loop.unreadableStreak !== 1
+    ? turnCount + 1
+    : turnCount;
 }
 
 /** Zero is the explicit no-limit sentinel. */

@@ -961,7 +961,9 @@ function statusLabel(status: GoalLoopStatus): string {
  * 番号を使い回す（ターン枠を消費しない）。
  */
 function nextTurnNumber(loop: GoalLoop): number {
-  return loop.status === "queued" && loop.retryInterruptedTurn !== true ? loop.turnCount + 1 : loop.turnCount;
+  return loop.status === "queued" && loop.retryInterruptedTurn !== true && loop.unreadableStreak !== 1
+    ? loop.turnCount + 1
+    : loop.turnCount;
 }
 
 function updateUI(runtime: Runtime, loop: GoalLoop | null): void {
@@ -2443,29 +2445,8 @@ async function resumeLoop(runtime: Runtime, maxTurns?: unknown, restartPrompt?: 
       ? 0
       : Math.max(loop.maxTurns, requestedMaxTurns);
   }
-  // 中断ターンの再送は同じ番号を使い回すため、上限を使い切っていても再開できる。
-  if (loop.maxTurns > 0 && loop.turnCount >= loop.maxTurns && loop.retryInterruptedTurn !== true) {
-    // A final-turn JSON miss pauses as unreadable_result after the free retry.
-    // Allow one more non-consuming send (streak===1) instead of forcing the
-    // user to raise the turn budget just to recover from a formatting miss.
-    if (loop.pauseReason === "unreadable_result") {
-      loop.unreadableStreak = 1;
-    } else {
-      runtime.ctx.ui.notify("最大ターン数を増やしてから再開してください。例: /goal-resume --turns 20", "warning");
-      // Persist any maxTurns bump from this resume attempt; ignore failure beyond
-      // keeping disk unchanged so the user can retry with a higher budget.
-      const persisted = writeLoop(loop);
-      if (typeof persisted === "boolean" ? !persisted : !(await persisted)) {
-        runtime.ctx.ui.notify("状態の保存に失敗しました。", "error");
-      }
-      updateUI(runtime, currentLoop(runtime));
-      return false;
-    }
-  } else {
-    // User-initiated resume starts a fresh miss streak so the first missing
-    // JSON after resume still gets the one free retry.
-    loop.unreadableStreak = 0;
-  }
+  // Recover an already-produced result before deciding whether a new goal turn
+  // needs more budget. Completion recovery and verification consume no new slot.
   if (restartPrompt) loop.restartResumePrompt = restartPrompt.slice(0, MAX_NOTE_CHARS);
   if (runtime.pausedTurnPending || loop.pendingTurnRecovery) {
     const recovered = lateTurnResult(runtime, loop);
@@ -2512,10 +2493,29 @@ async function resumeLoop(runtime: Runtime, maxTurns?: unknown, restartPrompt?: 
       updateUI(runtime, loop);
       return false;
     }
-    runtime.pausedTurnPending = false;
-    runtime.pausedTurnIndex = undefined;
-    loop.pendingTurnRecovery = false;
   }
+  const resumingVerification = !loop.forceFullRun && loop.turnKind === "verification";
+  // Verification and interrupted-turn retries do not consume a goal-turn slot.
+  if (loop.maxTurns > 0 && loop.turnCount >= loop.maxTurns &&
+      loop.retryInterruptedTurn !== true && !resumingVerification) {
+    if (loop.pauseReason === "unreadable_result") {
+      // One non-consuming formatting retry even on the final budgeted turn.
+      loop.unreadableStreak = 1;
+    } else {
+      runtime.ctx.ui.notify("最大ターン数を増やしてから再開してください。例: /goal-resume --turns 20", "warning");
+      const persisted = writeLoop(loop);
+      if (typeof persisted === "boolean" ? !persisted : !(await persisted)) {
+        runtime.ctx.ui.notify("状態の保存に失敗しました。", "error");
+      }
+      updateUI(runtime, currentLoop(runtime));
+      return false;
+    }
+  } else {
+    loop.unreadableStreak = 0;
+  }
+  runtime.pausedTurnPending = false;
+  runtime.pausedTurnIndex = undefined;
+  loop.pendingTurnRecovery = false;
   // Lifecycle pauses (legacy empty reason or session_end) keep absolute nextTurnAt
   // on disk so a shutdown mid-cooldown does not shorten the wait on /goal-resume.
   // User/manual pauses already cleared nextTurnAt in pauseLoop.
@@ -2754,8 +2754,9 @@ export default function (pi: ExtensionAPI): void {
     if (!isActiveRuntime(runtime) || runtime.sessionManager !== routing.sessionManager) return;
     runtime.hostRouting = routing;
     runtime.hostRoutingExpected = true;
-    void ensureScheduled(runtime).catch((error) => {
-      if (retireStaleRuntime(runtime, error)) return;
+    const routedRuntime = runtime;
+    void ensureScheduled(routedRuntime).catch((error) => {
+      if (retireStaleRuntime(routedRuntime, error)) return;
       console.error("[goal-loop] host routing schedule failed:", error);
     });
   };

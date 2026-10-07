@@ -49,6 +49,12 @@ test("the next queued turn does not consume a retried interrupted turn", () => {
   assert.equal(nextGoalLoopTurn({ turnCount: 2.9 }), 2);
 });
 
+test("JSON result retries show the same turn the scheduler will resend", () => {
+  assert.equal(nextGoalLoopTurn({ status: "queued", turnCount: 2, unreadableStreak: 1 }), 2);
+  assert.equal(nextGoalLoopTurn({ status: "queued", turnCount: 2, unreadableStreak: 0 }), 3);
+  assert.equal(nextGoalLoopTurn({ status: "verifying_completed", turnCount: 2, unreadableStreak: 1 }), 2);
+});
+
 test("max turns normalize to null (no limit) or a bounded integer", () => {
   for (const value of [null, undefined, "", "   ", "abc", Infinity, NaN]) {
     assert.equal(normalizeGoalLoopMaxTurns(value), null, String(value));

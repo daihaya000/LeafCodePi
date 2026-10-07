@@ -3753,6 +3753,88 @@ test("applies a result that lands after a turn_timeout pause instead of losing i
   }
 });
 
+test("final-turn verification resumes without increasing the goal budget", async (t) => {
+  for (const mode of ["paused", "blocked"]) {
+    await t.test(mode, async () => {
+      const cwd = mkdtempSync(join(tmpdir(), "leafcode-goal-loop-final-verification-"));
+      const previousDataDir = process.env.LEAFCODE_PI_DATA_DIR;
+      process.env.LEAFCODE_PI_DATA_DIR = cwd;
+      const id = `final-verification-${mode}`;
+      const { ctx, pi, commands, handlers, readState, sent, setBusy } = loopEndNoticeHarness(id);
+      pi.captureGoalLoopEndNotice = false; // Hidden end notices are not agent-turn sends.
+      const settle = async (status) => {
+        setBusy(false);
+        await handlers.get("agent_end")?.({ messages: [{ role: "assistant", content: [{ type: "text", text: JSON.stringify({ status, summary: status }) }] }] }, ctx);
+        await handlers.get("agent_settled")?.({}, ctx);
+      };
+      try {
+        goalLoopExtension(pi);
+        await handlers.get("session_start")?.({}, ctx);
+        await commands.get("goal-start")?.(Buffer.from(JSON.stringify({ goal: "demo", maxTurns: 1 })).toString("base64url"), ctx);
+        await waitFor(() => sent.length === 1);
+        await settle("completed");
+        if (mode === "blocked") {
+          await waitFor(() => sent.length === 2);
+          await settle("blocked");
+        } else {
+          // Pause between the completion claim and its free verification turn.
+          await commands.get("goal-pause")?.("", ctx);
+        }
+        assert.equal(readState().turnKind, "verification");
+        const before = sent.length;
+        await commands.get("goal-resume")?.("", ctx);
+        await waitFor(() => sent.length === before + 1);
+        assert.equal(readState().maxTurns, 1);
+        assert.equal(readState().turnCount, 1);
+        assert.equal(sent.at(-1).message.customType, "leafcode-goal-verification");
+        await settle("verified_completed");
+        assert.equal(readState().status, "completed");
+      } finally {
+        await handlers.get("session_shutdown")?.({}, ctx);
+        if (previousDataDir === undefined) delete process.env.LEAFCODE_PI_DATA_DIR;
+        else process.env.LEAFCODE_PI_DATA_DIR = previousDataDir;
+        rmSync(cwd, { recursive: true, force: true });
+      }
+    });
+  }
+});
+
+test("final-turn late completion recovery runs before the budget gate", async () => {
+  const cwd = mkdtempSync(join(tmpdir(), "leafcode-goal-loop-final-recovery-"));
+  const previousDataDir = process.env.LEAFCODE_PI_DATA_DIR;
+  process.env.LEAFCODE_PI_DATA_DIR = cwd;
+  const id = "final-recovery-session";
+  const { ctx, pi, commands, handlers, readState, sent, setBusy } = loopEndNoticeHarness(id);
+  pi.captureGoalLoopEndNotice = false;
+  const branch = [];
+  ctx.sessionManager.getBranch = () => branch;
+  try {
+    goalLoopExtension(pi);
+    await handlers.get("session_start")?.({}, ctx);
+    await commands.get("goal-start")?.(Buffer.from(JSON.stringify({ goal: "demo", maxTurns: 1 })).toString("base64url"), ctx);
+    await waitFor(() => sent.length === 1);
+    await commands.get("goal-pause")?.("", ctx);
+    setBusy(false);
+    // Legacy lifecycle snapshots can have pending recovery without the new retry flag.
+    const state = readState();
+    state.retryInterruptedTurn = false;
+    writeFileSync(join(cwd, "goals-loop", `${id}.json`), JSON.stringify(state), "utf8");
+    branch.push({ type: "custom_message", customType: sent[0].message.customType, details: sent[0].message.details });
+    branch.push({ type: "message", message: { role: "assistant", content: [{ type: "text", text: '{"status":"completed","summary":"late done"}' }] } });
+    await commands.get("goal-resume")?.("", ctx);
+    assert.equal(readState().summary, "late done");
+    assert.equal(readState().status, "verifying_completed");
+    assert.equal(readState().turnCount, 1);
+    await waitFor(() => sent.length === 2);
+    assert.equal(sent[1].message.customType, "leafcode-goal-verification");
+  } finally {
+    await handlers.get("session_shutdown")?.({}, ctx);
+    if (previousDataDir === undefined) delete process.env.LEAFCODE_PI_DATA_DIR;
+    else process.env.LEAFCODE_PI_DATA_DIR = previousDataDir;
+    rmSync(cwd, { recursive: true, force: true });
+  }
+});
+
 test("resume recovers a late transcript result and schedules the next turn", async () => {
   const cwd = mkdtempSync(join(tmpdir(), "leafcode-goal-loop-resume-late-"));
   process.env.LEAFCODE_PI_DATA_DIR = cwd;

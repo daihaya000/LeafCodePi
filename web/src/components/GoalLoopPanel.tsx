@@ -91,9 +91,10 @@ export function GoalLoopPanel({
   const turn = nextGoalLoopTurn(loop);
   const progress = loop.progress.at(-1);
   const turnLimit = loop.pauseReason === "turn_limit";
-  // turn_limit 以外の一時停止（unreadable_result / turn_timeout / scheduler_error 等）でも
-  // 予算を使い切っていると /goal-resume が上限増やしを要求するため、入力欄が必要。
-  const budgetExhausted = loop.maxTurns > 0 && loop.turnCount >= loop.maxTurns && loop.retryInterruptedTurn !== true;
+  // Match resumeLoop: verification and JSON formatting recovery need no new slot.
+  const resumingVerification = !loop.forceFullRun && loop.turnKind === "verification";
+  const budgetExhausted = loop.maxTurns > 0 && loop.turnCount >= loop.maxTurns &&
+    loop.retryInterruptedTurn !== true && !resumingVerification && loop.pauseReason !== "unreadable_result";
   const needsTurns = turnLimit || budgetExhausted;
   const canComplete = loop.status === "blocked" || (loop.status === "paused" && turnLimit);
   const maxTurnsLabel = loop.maxTurns === 0 ? "∞" : String(loop.maxTurns);

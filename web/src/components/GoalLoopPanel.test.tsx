@@ -202,10 +202,34 @@ describe("GoalLoopPanel progress", () => {
     expect(onResume).toHaveBeenCalledWith(11);
   });
 
-  it("offers the turn-limit input for budget-exhausted pauses beyond turn_limit", () => {
+  it.each(["paused", "blocked"] as const)("resumes final-turn verification without increasing the budget (%s)", (status) => {
     const onResume = vi.fn();
-    // unreadable_result / turn_timeout などで上限を使い切った一時停止も、
-    // 上限増やしを要求されるため入力欄がないと再開できない。
+    render(<GoalLoopPanel loop={loopFixture({ status, turnKind: "verification", maxTurns: 1, turnCount: 1, pauseReason: status === "paused" ? "user" : "" })} busy={false} onAction={() => {}} onResume={onResume} />);
+    expect(screen.queryByRole("spinbutton", { name: "再開後の最大ターン数" })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "再開" }));
+    expect(onResume).toHaveBeenCalledWith();
+  });
+
+  it.each([
+    { status: "paused", turnKind: "goal", pauseReason: "scheduler_error", forceFullRun: false },
+    { status: "blocked", turnKind: "goal", pauseReason: "", forceFullRun: false },
+    { status: "paused", turnKind: "verification", pauseReason: "user", forceFullRun: true },
+  ] as const)("still increases the exhausted goal budget ($status, $turnKind, full-run=$forceFullRun)", (overrides) => {
+    const onResume = vi.fn();
+    render(<GoalLoopPanel loop={loopFixture({ ...overrides, maxTurns: 10, turnCount: 10 })} busy={false} onAction={() => {}} onResume={onResume} />);
+    expect(screen.getByRole("spinbutton", { name: "再開後の最大ターン数" })).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "再開" }));
+    expect(onResume).toHaveBeenCalledWith(11);
+  });
+
+  it("shows the same number for the free JSON retry", () => {
+    render(<GoalLoopPanel loop={loopFixture({ status: "queued", turnCount: 2, unreadableStreak: 1 })} busy={false} onAction={() => {}} onResume={() => {}} />);
+    expect(screen.getByRole("progressbar").getAttribute("aria-valuetext")).toBe("2/10ターン、20%");
+  });
+
+  it("resumes unreadable results with the free retry without increasing the budget", () => {
+    const onResume = vi.fn();
+    // JSON formatting recovery reuses the final turn's slot; no extra budget is needed.
     render(
       <GoalLoopPanel
         loop={loopFixture({ status: "paused", pauseReason: "unreadable_result", maxTurns: 10, turnCount: 10 })}
@@ -216,7 +240,7 @@ describe("GoalLoopPanel progress", () => {
     );
 
     fireEvent.click(screen.getByRole("button", { name: "再開" }));
-    expect(onResume).toHaveBeenCalledWith(11);
+    expect(onResume).toHaveBeenCalledWith();
   });
 
   it("resumes without a turn input while the budget is not exhausted", () => {

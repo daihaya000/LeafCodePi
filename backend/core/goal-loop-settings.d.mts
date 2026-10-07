@@ -13,6 +13,7 @@ export function nextGoalLoopTurn(loop: {
   status?: string | null;
   turnCount?: number | null;
   retryInterruptedTurn?: boolean | null;
+  unreadableStreak?: number | null;
 }): number;
 export function normalizeGoalLoopMaxTurns(value: unknown): number | null;
 export function clampGoalLoopMaxTurns(value: unknown, fallback?: number): number;
