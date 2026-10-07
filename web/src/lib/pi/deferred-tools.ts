@@ -1,6 +1,7 @@
 import type { ExtensionAPI, ToolDefinition } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import { COMPUTER_USE_TOOL_NAMES } from "@/lib/types";
+import { todoToolVisible } from "../../../../extensions/leafcode-todowrite/visibility";
 
 export { COMPUTER_USE_TOOL_NAMES };
 export const TOOL_SEARCH_NAME = "tool_search";
@@ -36,18 +37,42 @@ export function captureNativeToolSearch(
   isToolAllowed?: (name: string) => boolean,
 ): (api: ExtensionAPI) => void | Promise<void> {
   return (api) => {
+    let sessionManager: object | undefined;
+    api.on("session_start", (_event, ctx) => { sessionManager = ctx.sessionManager; });
+    const permitted = (name: string) => (isToolAllowed?.(name) ?? true) && todoToolVisible(sessionManager, name);
     const bound = new Map<unknown, unknown>();
     const view = new Proxy({} as ExtensionAPI, {
       get(_target, key) {
         // The factory includes codemode as well as search. Both must discover only permitted tools.
-        if (isToolAllowed && key === "getAllTools") return () => api.getAllTools().filter(({ name }) => isToolAllowed(name));
-        if (isToolAllowed && key === "getActiveTools") return () => api.getActiveTools().filter(isToolAllowed);
-        if (isToolAllowed && key === "setActiveTools") return (names: string[]) => api.setActiveTools(names.filter(isToolAllowed));
+        if (key === "getAllTools") return () => api.getAllTools().filter(({ name }) => permitted(name));
+        if (key === "getActiveTools") return () => api.getActiveTools().filter(permitted);
+        if (key === "setActiveTools") return (names: string[]) => {
+          // Hidden active names belong to the permission loadout, not the discovery view.
+          api.setActiveTools([...new Set([...api.getActiveTools().filter((name) => (isToolAllowed?.(name) ?? true) && !todoToolVisible(sessionManager, name)), ...names.filter(permitted)])]);
+        };
         if (key === "registerTool") {
           return (definition: ToolDefinition) => {
             if (definition?.name === TOOL_SEARCH_NAME) {
               holder.definition = definition;
               return undefined;
+            }
+            if (definition?.name === "codemode") {
+              const prepare = definition.prepareLoadout;
+              const execute = definition.execute;
+              return api.registerTool({
+                ...definition,
+                prepareLoadout: prepare ? (loadout) => prepare({
+                  ...loadout,
+                  declared: loadout.declared.filter(({ name }) => permitted(name)),
+                  callable: loadout.callable.filter(({ name }) => permitted(name)),
+                  registered: loadout.registered.filter(({ name }) => permitted(name)),
+                }) : undefined,
+                execute: (id, params, signal, onUpdate, ctx) => execute(id, params, signal, onUpdate,
+                  new Proxy(ctx, { get(target, key) {
+                    if (key === "tools") return target.tools.filter(({ name }) => permitted(name));
+                    return Reflect.get(target, key, target);
+                  } })),
+              });
             }
             return api.registerTool(definition);
           };
@@ -85,7 +110,7 @@ export function registerDeferredTools(
       const exact = deferredNames.has(normalized);
       // ponytail: fixed bilingual keywords; add aliases when real searches miss.
       const matches = DEFERRED_TOOLS
-        .filter(({ name, keywords }) => allowed?.has(TOOL_SEARCH_NAME) !== false && registered.has(name) && allowed?.has(name) !== false &&
+        .filter(({ name, keywords }) => allowed?.has(TOOL_SEARCH_NAME) !== false && registered.has(name) && allowed?.has(name) !== false && todoToolVisible(ctx?.sessionManager, name) &&
           (exact ? name === normalized : keywords.some((keyword) => normalized.includes(keyword))))
         .map(({ name }) => name);
       const native = nativeSearch?.definition;

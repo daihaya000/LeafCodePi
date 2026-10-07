@@ -24,6 +24,7 @@ import {
 } from "./enforcement.ts";
 import { normalizeTodos, type TodoItem } from "./state.ts";
 import { clipRequestText, judgeTodoNotNeeded } from "./todo-need.ts";
+import { clearTodoVisibility, publishTodoVisibility } from "./visibility.ts";
 export { normalizeTodos } from "./state.ts";
 export type { TodoItem, TodoPriority, TodoStatus } from "./state.ts";
 
@@ -228,6 +229,18 @@ export default function (pi: ExtensionAPI): void {
     gate = createTodoGateState();
   };
   const gateEnabled = () => pi.getActiveTools().includes("todowrite");
+  const hasInProgress = () => todos.some((todo) => todo.status === "in_progress");
+  const visibleBeforeCall = (name: string) => {
+    const action = classifyToolForTodoGate(name, undefined);
+    if (action === "allow") return true;
+    if (gate.openedThisTask) return hasInProgress() || action === "count" || isShellTool(name);
+    if (gate.waived && gate.waivedMutations < WAIVER_MUTATION_LIMIT) return true;
+    return action === "count" && gate.substantiveCalls < TODO_GATE_READ_LIMIT - 1;
+  };
+  const visibility = (name: string) => !gateEnabled() || visibleBeforeCall(name);
+  // Reapply descriptions/declaration projection, not the permission/loadout membership.
+  const refreshVisibility = () => pi.setActiveTools(pi.getActiveTools());
+  const publishVisibility = (ctx: ExtensionContext) => publishTodoVisibility(ctx.sessionManager, visibility);
   const restore = (ctx: ExtensionContext) => {
     todos = reconstructState(ctx);
     resetGate();
@@ -235,17 +248,30 @@ export default function (pi: ExtensionAPI): void {
     // an identical todowrite again would only add friction, so the gate stays
     // open while an in_progress item exists.
     if (todos.some((todo) => todo.status === "in_progress")) gate.openedThisTask = true;
+    publishVisibility(ctx);
+    refreshVisibility();
     updateTui(ctx, todos);
   };
 
+  pi.on("session_shutdown", (_event, ctx) => clearTodoVisibility(ctx.sessionManager, visibility));
   pi.on("session_start", async (_event, ctx) => restore(ctx));
   pi.on("session_tree", async (_event, ctx) => restore(ctx));
+  pi.on("before_agent_start", async (_event, ctx) => {
+    const task = gate;
+    // Decide the small-task exemption before presenting tools, rather than after a failed call.
+    if (gateEnabled() && !task.openedThisTask && task.requestText && !task.waiverExpired && hasJevNoulJudge()) {
+      await consultJev(task, ctx.signal);
+    }
+    publishVisibility(ctx);
+    refreshVisibility();
+  });
   pi.on("input", (event) => {
     if (event.source === "extension") return;
     const text = typeof event.text === "string" ? event.text : "";
     if (event.streamingBehavior === undefined) {
       resetGate();
       gate.requestText = clipRequestText(text);
+      refreshVisibility();
       return;
     }
     // steer / followUp continue the task, but added instructions can make it bigger.
@@ -255,13 +281,14 @@ export default function (pi: ExtensionAPI): void {
     gate.requestText = clipRequestText(`${gate.requestText}\n\n${text}`);
     gate.waived = false;
     gate.waiver = undefined;
+    refreshVisibility();
   });
-  const hasInProgress = () => todos.some((todo) => todo.status === "in_progress");
   // Work the list is meant to track. Counted when a call is admitted, for the end-of-run audit.
   const admit = (task: TodoGateState, _toolName: string, action: TodoGateAction) => {
     if (action !== "block") return;
     task.mutationVersion += 1;
     task.reviewRequired = true;
+    refreshVisibility();
   };
   pi.on("tool_call", (event, ctx) => {
     const task = gate;
@@ -301,6 +328,7 @@ export default function (pi: ExtensionAPI): void {
 
     if (action === "count") {
       task.substantiveCalls += 1;
+      refreshVisibility();
       if (task.substantiveCalls < TODO_GATE_READ_LIMIT) return;
     }
     // Gate operations, not words in the prompt.
@@ -357,8 +385,10 @@ export default function (pi: ExtensionAPI): void {
   });
   // Keeps the live list in front of the model on every request (survives compaction).
   pi.on("context", (event) => {
-    if (!gateEnabled() || !gate.openedThisTask) return;
-    const note = buildStateNote(todos);
+    if (!gateEnabled()) return;
+    const note = gate.openedThisTask ? buildStateNote(todos)
+      : gate.waived && gate.waivedMutations < WAIVER_MUTATION_LIMIT ? undefined
+        : "[ToDo開始ゲート] 変更・shell・委譲・未分類ツールは未公開。複数手順の作業は先に todowrite で1件を in_progress に登録すると解放される。質問・説明・単発の判定には起票不要。ツールが必要なら実行を推測せず先に起票する。";
     if (!note) return;
     return {
       messages: [
@@ -408,6 +438,11 @@ export default function (pi: ExtensionAPI): void {
     // cannot be preflighted before todowrite has recorded its result.
     executionMode: "sequential",
     parameters: TodoParams,
+    // Native SDK declaration projection retains the executable registry and branch loadout.
+    // Structural typing also supports the extension's older standalone dev SDK typings.
+    ...{ prepareLoadout: (loadout: { declared: readonly { name: string }[] }) => ({
+      hiddenDeclarations: loadout.declared.filter((tool) => !visibleBeforeCall(tool.name)).map((tool) => tool.name),
+    }) },
 
     async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
       const normalized = normalizeTodos(params.todos, todos);
@@ -447,6 +482,8 @@ export default function (pi: ExtensionAPI): void {
         todos: [...todos],
         updatedAt: new Date().toISOString(),
       } satisfies TodoDetails;
+      publishVisibility(ctx);
+      refreshVisibility();
       updateTui(ctx, todos);
       return {
         content: [{ type: "text", text: `${todoSummary(todos)} を更新しました。` }],

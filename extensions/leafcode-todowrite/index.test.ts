@@ -7,6 +7,7 @@ import { TODO_JEV_TIMEOUT_MS, TODO_REQUEST_MAX_CHARS } from "./todo-need.ts";
 type Handler = (event: any, ctx: ExtensionContext) => unknown;
 type TodoTool = {
   executionMode?: "sequential" | "parallel";
+  prepareLoadout?: (loadout: { declared: readonly { name: string }[] }) => { hiddenDeclarations: string[] };
   promptGuidelines?: string[];
   execute: (...args: any[]) => Promise<{ details?: { error?: string; todos?: unknown[] } }>;
 };
@@ -37,6 +38,7 @@ function fixture(options: FixtureOptions = {}) {
     },
     registerCommand: vi.fn(),
     getActiveTools: () => options.active === false ? [] : ["todowrite"],
+    setActiveTools: vi.fn(),
     sendMessage,
   } as unknown as ExtensionAPI;
   const ctx = {
@@ -112,6 +114,48 @@ describe("normalizeTodos", () => {
       previous,
     );
     expect(result.todos[0]?.id).toBe("build");
+  });
+});
+
+describe("todowrite model visibility", () => {
+  const names = ["todowrite", "read", "edit", "powershell", "future_tool", "codemode"];
+  const hidden = (run: ReturnType<typeof fixture>) => run.tool.prepareLoadout!({ declared: names.map((name) => ({ name })) }).hiddenDeclarations;
+  it("keeps mutations hidden for empty, invalid and pending-only lists and unlocks only an active list", async () => {
+    const run = fixture();
+    expect(hidden(run)).toEqual(["edit", "powershell", "future_tool"]);
+    await run.writeTodos([]);
+    await run.writeTodos([{ content: "Work", status: "invalid", priority: "high" }]);
+    await run.writeTodos([{ content: "Work", status: "pending", priority: "high" }]);
+    expect(hidden(run)).toContain("edit");
+    await run.writeTodos([{ content: "Work", status: "in_progress", priority: "high" }]);
+    expect(hidden(run)).toEqual([]);
+    await run.writeTodos([{ content: "Work", status: "completed", priority: "high" }]);
+    expect(hidden(run)).toEqual(["edit", "future_tool"]);
+  });
+  it("removes ordinary read declarations after the two preflight reads", () => {
+    const run = fixture();
+    run.callTool("read", { path: "a.ts" });
+    expect(hidden(run)).not.toContain("read");
+    run.callTool("read", { path: "b.ts" });
+    expect(hidden(run)).toContain("read");
+    run.emit("input", { source: "interactive", text: "new request" });
+    expect(hidden(run)).not.toContain("read");
+  });
+  it("decides the small-task waiver before declaring tools and reuses the verdict", async () => {
+    const judge = installJudge(small);
+    const run = fixture();
+    startTask(run, "Fix one typo");
+    await run.emit("before_agent_start");
+    expect(hidden(run)).toEqual([]);
+    expect(await run.callToolAsync("edit")).toBeUndefined();
+    expect(judge).toHaveBeenCalledOnce();
+  });
+  it("keeps mutations hidden when preflight judgment is uncertain or fails", async () => {
+    installJudge(null);
+    const run = fixture();
+    startTask(run, "Implement the feature");
+    await run.emit("before_agent_start");
+    expect(hidden(run)).toContain("edit");
   });
 });
 
@@ -827,7 +871,7 @@ describe("todowrite enforcement core", () => {
   it("appends the live list to each request only while a list is being worked", async () => {
     const run = fixture();
     const messages = [{ role: "user", content: "依頼" }];
-    expect(run.emit("context", { messages })).toBeUndefined();
+    expect(JSON.stringify(run.emit("context", { messages }))).toContain("ToDo開始ゲート");
     await run.writeTodos(open);
     const result = run.emit("context", { messages }) as { messages: Array<{ role: string; content: Array<{ text: string }> }> };
     expect(result.messages).toHaveLength(2);
