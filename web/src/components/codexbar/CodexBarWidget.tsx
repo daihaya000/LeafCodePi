@@ -628,7 +628,7 @@ function ProviderRow({
       )}
       {!collapsed && p.tokenUsage && (
         <div className={contentIndent}>
-          <TokenUsageDetails usage={p.tokenUsage} />
+          <TokenUsageDetails usage={p.tokenUsage} now={now} />
         </div>
       )}
     </li>

@@ -5,7 +5,16 @@ function tokens(value: number): string {
   return numberFormat.format(Math.round(value));
 }
 
-export function TokenUsageDetails({ usage }: { usage: ProviderTokenUsage }) {
+const unavailableLabel = {
+  calibrating: "計測中／使用率差1%以上が必要",
+  ready: "未校正",
+  stale: "古い取得値",
+  expired: "リセット期限経過",
+  unsupported: "この利用枠は推定対象外",
+  invalid: "使用率・日時を取得できない",
+};
+
+export function TokenUsageDetails({ usage, now = Date.now() }: { usage: ProviderTokenUsage; now?: number }) {
   return (
     <div className="flex min-w-0 flex-col gap-1 border-t border-border pt-1.5 text-xs text-muted">
       <div
@@ -13,23 +22,29 @@ export function TokenUsageDetails({ usage }: { usage: ProviderTokenUsage }) {
       >
         実測 <span className="text-text">{tokens(usage.totalTokens)} tok</span>
       </div>
-      {usage.windows.map((window) => (
-        <div
-          key={window.id}
-          className="flex min-w-0 flex-wrap gap-x-1"
-          title={`使用率差 ${numberFormat.format(window.sampledPercent)}% / 実測 ${tokens(window.sampledTokens)} tok。入力・出力・キャッシュ込み。モデル構成・外部消費・使用率の反映遅延で変動する実績推定であり、保証された残量ではない。古い値・リセット後・計測不足は推定を保留する。`}
-        >
-          <span>{window.title}:</span>
-          {window.tokensPerPercent === null || window.estimatedRemainingTokens === null ? (
-            <span className="text-faint">推定 —（計測中／使用率差1%以上が必要）</span>
-          ) : (
-            <>
-              <span>推定残 {tokens(window.estimatedRemainingTokens)} tok</span>
-              <span>· {tokens(window.tokensPerPercent)} tok/1%</span>
-            </>
-          )}
-        </div>
-      ))}
+      {usage.windows.map((window) => {
+        const stale = !!window.validUntil && Date.parse(window.validUntil) <= now;
+        const status = stale ? "stale" : window.status ?? "calibrating";
+        const unavailable = stale || (window.status !== undefined && window.status !== "ready") ||
+          window.tokensPerPercent === null || window.estimatedRemainingTokens === null;
+        return (
+          <div
+            key={window.id}
+            className="flex min-w-0 flex-wrap gap-x-1"
+            title={`使用率差 ${numberFormat.format(window.sampledPercent)}% / 実測 ${tokens(window.sampledTokens)} tok。入力・出力・キャッシュ込み。モデル構成・外部消費・使用率の反映遅延で変動する実績推定であり、保証された残量ではない。古い値・リセット後・計測不足は推定を保留する。`}
+          >
+            <span>{window.title}:</span>
+            {unavailable ? (
+              <span className="text-faint">推定 —（{unavailableLabel[status]}）</span>
+            ) : (
+              <>
+                <span>推定残 {tokens(window.estimatedRemainingTokens!)} tok</span>
+                <span>· {tokens(window.tokensPerPercent!)} tok/1%</span>
+              </>
+            )}
+          </div>
+        );
+      })}
     </div>
   );
 }

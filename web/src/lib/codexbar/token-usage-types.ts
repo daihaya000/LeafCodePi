@@ -10,6 +10,10 @@ export type TokenUsageTotals = {
 };
 
 export type TokenUsageEstimate = {
+  /** Optional for compatibility with older API snapshots. */
+  status?: "calibrating" | "ready" | "stale" | "expired" | "unsupported" | "invalid";
+  /** Earlier of upstream freshness expiry and quota reset. */
+  validUntil?: string | null;
   id: string;
   title: string;
   sampledTokens: number;

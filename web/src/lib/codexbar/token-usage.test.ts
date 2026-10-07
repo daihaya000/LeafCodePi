@@ -4,9 +4,11 @@ import { tmpdir } from "node:os";
 import { spawn } from "node:child_process";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { build } from "esbuild";
+import { createHash } from "node:crypto";
+import { createRequire } from "node:module";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { CodexBarProvider, CodexBarUsage } from "@/lib/codexbar";
-import { attachTokenUsage, recordAssistantTokenUsage } from "./token-usage";
+import { attachTokenUsage, closeTokenUsageStore, recordAssistantTokenUsage } from "./token-usage";
 
 const NOW = Date.parse("2026-10-07T10:35:00Z");
 let dir: string;
@@ -38,6 +40,7 @@ beforeEach(() => {
   sequence = 0;
 });
 afterEach(() => {
+  closeTokenUsageStore();
   vi.restoreAllMocks();
   vi.unstubAllEnvs();
   rmSync(dir, { recursive: true, force: true });
@@ -46,6 +49,7 @@ afterEach(() => {
 describe("actual token accounting", () => {
   it("counts input/output/caches once, including tool calls, and persists across reopen", () => {
     expect(record()).toBe(true);
+    closeTokenUsageStore();
     expect(measured(snapshot())).toMatchObject({ input: 700, output: 100, cacheRead: 150, cacheWrite: 50, totalTokens: 1000, responses: 1 });
     expect(measured(snapshot()).totalTokens).toBe(1000);
   });
@@ -57,6 +61,43 @@ describe("actual token accounting", () => {
     expect(recordAssistantTokenUsage("fork", "a", m, NOW)).toBe(false);
     expect(recordAssistantTokenUsage("s", "b", m, NOW)).toBe(true);
     expect(measured(snapshot(10, NOW, { id: "anthropic" })).totalTokens).toBe(30);
+  });
+
+  it("deduplicates a provider response even if its requested model alias changes", () => {
+    const message = { role: "assistant", timestamp: 1, provider: "anthropic", model: "alias-a", responseId: "response-1", stopReason: "stop", usage: { totalTokens: 100 } };
+    expect(recordAssistantTokenUsage("s", "a", message, NOW)).toBe(true);
+    expect(recordAssistantTokenUsage("s", "a", { ...message, model: "alias-b" }, NOW)).toBe(false);
+  });
+
+  it("honors authoritative totalTokens when component counts are incomplete", () => {
+    const message = { role: "assistant", timestamp: 1, provider: "anthropic", model: "claude", stopReason: "stop", usage: { input: 10, output: 5, totalTokens: 100 } };
+    expect(recordAssistantTokenUsage("s", "a", message, NOW)).toBe(true);
+    expect(measured(snapshot(10, NOW, { id: "anthropic" })).totalTokens).toBe(100);
+  });
+
+  it("recognizes existing model-qualified deduplication hashes after an upgrade", () => {
+    const m = { role: "assistant", timestamp: 1, provider: "anthropic", model: "sonnet", responseId: "old-response", stopReason: "stop", usage: { totalTokens: 100 } };
+    expect(recordAssistantTokenUsage("s", "a", m, NOW)).toBe(true);
+    closeTokenUsageStore();
+    const key = JSON.stringify(["anthropic", "a"]);
+    const hash = (value: unknown) => createHash("sha256").update(JSON.stringify(value)).digest("hex");
+    const { DatabaseSync } = createRequire(import.meta.url)("node:sqlite") as {
+      DatabaseSync: new (path: string) => { prepare(sql: string): { run(...values: string[]): void }; close(): void };
+    };
+    const db = new DatabaseSync(join(dir, "codexbar-token-usage.sqlite"));
+    try { db.prepare("UPDATE responses SET id=? WHERE id=?").run(hash([key, m.model, m.responseId]), hash([key, m.responseId])); }
+    finally { db.close(); }
+    expect(recordAssistantTokenUsage("restored", "a", m, NOW)).toBe(false);
+    expect(recordAssistantTokenUsage("restored", "a", { ...m, model: "renamed-alias" }, NOW)).toBe(false);
+    expect(measured(snapshot(10, NOW, { id: "anthropic" })).totalTokens).toBe(100);
+  });
+
+  it("closes the cached connection when switching data directories", () => {
+    record();
+    vi.stubEnv("LEAFCODE_PI_DATA_DIR", join(dir, "second"));
+    expect(measured(snapshot()).totalTokens).toBe(0);
+    vi.stubEnv("LEAFCODE_PI_DATA_DIR", dir);
+    expect(measured(snapshot()).totalTokens).toBe(1000);
   });
 
   it("does not lose concurrent Backend/BFF writes or count duplicate responses twice", async () => {
@@ -214,6 +255,37 @@ describe("percent calibration", () => {
     const result = measured(snapshot(12, NOW + 2000, { id: "commandcode", windows: [], credits: { ...credits, used: 12 } }));
     expect(result.windows.find((w) => w.id === "credits")?.tokensPerPercent).toBe(500);
     expect(value.providers[0].windows).toEqual([]);
+  });
+
+  it("recalibrates when the monetary allowance changes without a plan-name change", () => {
+    const credits = { title: "月間", used: 10, limit: 100, balance: 90 };
+    measured(snapshot(10, NOW, { windows: [], credits })); record();
+    expect(measured(snapshot(12, NOW + 2000, { windows: [], credits: { ...credits, used: 12 } })).windows[0].tokensPerPercent).toBe(500);
+    record(NOW + 3000);
+    const next = snapshot(13, NOW + 4000, { windows: [], credits: { ...credits, used: 26, limit: 200 } });
+    expect(measured(next).windows[0].tokensPerPercent).toBeNull();
+  });
+
+  it("isolates malformed percentages instead of suppressing every provider's telemetry", () => {
+    measured(snapshot()); record(); expect(estimate().tokensPerPercent).toBe(500);
+    const value = snapshot(12, NOW + 3000);
+    value.providers[0].windows.push({ ...value.providers[0].windows[0], id: "invalid", usedPercent: NaN });
+    const result = measured(value);
+    expect(result.totalTokens).toBe(1000);
+    expect(result.windows[0].tokensPerPercent).toBe(500);
+    expect(result.windows[1].tokensPerPercent).toBeNull();
+  });
+
+  it("makes freshness and unsupported-state information explicit", () => {
+    measured(snapshot()); record();
+    expect(estimate()).toMatchObject({ status: "ready", validUntil: new Date(NOW + 2000 + 15 * 60_000).toISOString() });
+    expect(estimate(12, NOW + 2000, { stale: true }).status).toBe("stale");
+    expect(estimate(12, NOW + 2000, { usageDisplayOnly: true }).status).toBe("unsupported");
+    const value = snapshot(12, NOW + 2000);
+    value.providers[0].windows[0].resetsAt = "invalid";
+    expect(measured(value).windows[0].status).toBe("invalid");
+    value.providers[0].windows[0].resetsAt = new Date(NOW - 1).toISOString();
+    expect(measured(value).windows[0].status).toBe("expired");
   });
 
   it("gracefully returns the original usage when storage is unavailable", () => {

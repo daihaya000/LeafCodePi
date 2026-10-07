@@ -12,7 +12,7 @@ const PROVIDERS = new Set([
   "openai-codex", "anthropic", "commandcode", "opencode-go", "cursor",
   "ollama-cloud", "openrouter", "orcarouter", ...SHARED,
 ]);
-const maintenanceAt = new Map<string, number>();
+const STORE_KEY = Symbol.for("leafcode-pi.codexbar-token-store/v2");
 
 // Node 22+ built-in. The pinned @types/node 20 does not declare node:sqlite yet.
 type Database = {
@@ -32,18 +32,28 @@ function providerKey(provider: string, accountId?: string | null): string {
   return JSON.stringify([provider, SHARED.has(provider) ? null : accountId ?? null]);
 }
 
-/** One short SQLite transaction per operation: durable and safe across Backend/BFF processes. */
-function withStore<T>(operation: (db: Database) => T): T | null {
-  let db: Database | undefined;
+type Store = { path: string; db: Database; maintenanceAt: number };
+const stores = globalThis as unknown as Record<symbol, Store | undefined>;
+
+/** Release on shutdown/tests or a data-directory change. The global slot also survives BFF hot reload. */
+export function closeTokenUsageStore(): void {
+  const store = stores[STORE_KEY];
+  delete stores[STORE_KEY];
+  try { store?.db.close(); } catch { /* telemetry cleanup must never break a response */ }
+}
+
+function openStore(): Store {
+  const path = join(dataDir(), "codexbar-token-usage.sqlite");
+  const cached = stores[STORE_KEY];
+  if (cached?.path === path) return cached;
+  closeTokenUsageStore();
+  const { DatabaseSync } = createRequire(import.meta.url)("node:sqlite") as {
+    DatabaseSync: new (path: string) => Database;
+  };
+  mkdirSync(dataDir(), { recursive: true });
+  const raw = new DatabaseSync(path);
   try {
-    const { DatabaseSync } = createRequire(import.meta.url)("node:sqlite") as {
-      DatabaseSync: new (path: string) => Database;
-    };
-    const dir = dataDir();
-    mkdirSync(dir, { recursive: true });
-    const path = join(dir, "codexbar-token-usage.sqlite");
-    db = new DatabaseSync(path);
-    db.exec(`PRAGMA busy_timeout=1000; PRAGMA journal_mode=WAL;
+    raw.exec(`PRAGMA busy_timeout=1000; PRAGMA journal_mode=WAL;
       CREATE TABLE IF NOT EXISTS responses (
         id TEXT PRIMARY KEY, provider TEXT NOT NULL, model TEXT NOT NULL, at REAL NOT NULL,
         input REAL NOT NULL, output REAL NOT NULL, cacheRead REAL NOT NULL, cacheWrite REAL NOT NULL,
@@ -60,24 +70,51 @@ function withStore<T>(operation: (db: Database) => T): T | null {
         anchorPercent REAL NOT NULL, anchorTokens REAL NOT NULL,
         latestAt REAL NOT NULL, latestPercent REAL NOT NULL, latestTokens REAL NOT NULL,
         sampledTokens REAL NOT NULL, sampledPercent REAL NOT NULL
-      );
-      BEGIN IMMEDIATE;`);
-    const maintenanceDue = Date.now() - (maintenanceAt.get(path) ?? 0) > 86400_000;
+      );`);
+    const statements = new Map<string, ReturnType<Database["prepare"]>>();
+    const db: Database = {
+      exec: (sql) => raw.exec(sql),
+      prepare(sql) {
+        let statement = statements.get(sql);
+        if (!statement) {
+          statement = raw.prepare(sql);
+          statements.set(sql, statement);
+        }
+        return statement;
+      },
+      close() { statements.clear(); raw.close(); },
+    };
+    const store: Store = { path, db, maintenanceAt: 0 };
+    stores[STORE_KEY] = store;
+    return store;
+  } catch (error) {
+    try { raw.close(); } catch { /* preserve initialization error */ }
+    throw error;
+  }
+}
+
+/** Short atomic transactions keep Backend/BFF counters consistent without reopening/checkpointing on each token event. */
+function withStore<T>(operation: (db: Database) => T): T | null {
+  let store: Store | undefined;
+  try {
+    store = openStore();
+    const { db } = store;
+    db.exec("BEGIN IMMEDIATE");
+    const now = Date.now();
+    const maintenanceDue = now - store.maintenanceAt > 86400_000;
     if (maintenanceDue) {
-      db.prepare("DELETE FROM responses WHERE at < ?").run(Date.now() - RETENTION_MS);
-      db.prepare("DELETE FROM observations WHERE latestAt < ?").run(Date.now() - RETENTION_MS);
-      // Set only after commit below; a rollback must not suppress maintenance.
+      db.prepare("DELETE FROM responses WHERE at < ?").run(now - RETENTION_MS);
+      db.prepare("DELETE FROM observations WHERE latestAt < ?").run(now - RETENTION_MS);
     }
     const result = operation(db);
     db.exec("COMMIT");
-    if (maintenanceDue) maintenanceAt.set(path, Date.now());
+    if (maintenanceDue) store.maintenanceAt = now;
     return result;
   } catch {
-    try { db?.exec("ROLLBACK"); } catch { /* no active transaction */ }
+    try { store?.db.exec("ROLLBACK"); } catch { /* no active transaction */ }
+    closeTokenUsageStore();
     // Telemetry must not interrupt a paid model response or hide provider usage.
     return null;
-  } finally {
-    db?.close();
   }
 }
 
@@ -101,13 +138,20 @@ export function recordAssistantTokenUsage(
   const usage = m.usage as Record<string, unknown>;
   const input = count(usage.input), output = count(usage.output);
   const cacheRead = count(usage.cacheRead), cacheWrite = count(usage.cacheWrite);
-  const tokens = input + output + cacheRead + cacheWrite || count(usage.totalTokens);
+  const tokens = count(usage.totalTokens) || input + output + cacheRead + cacheWrite;
   if (!Number.isSafeInteger(tokens) || tokens <= 0 || !Number.isFinite(completedAt)) return false;
   const key = providerKey(provider, accountId);
-  const id = createHash("sha256").update(JSON.stringify([
-    key, m.model, typeof m.responseId === "string" && m.responseId ? m.responseId : [sessionId, m.timestamp],
-  ])).digest("hex");
+  const responseId = typeof m.responseId === "string" && m.responseId ? m.responseId : null;
+  const hash = (value: unknown) => createHash("sha256").update(JSON.stringify(value)).digest("hex");
+  // Provider response IDs are independent of the requested model alias. Recognize old hashes on upgrades too.
+  const id = responseId ? hash([key, responseId]) : hash([key, m.model, [sessionId, m.timestamp]]);
+  const legacyId = responseId ? hash([key, m.model, responseId]) : id;
   return withStore((db) => {
+    if (legacyId !== id && db.prepare("SELECT id FROM responses WHERE id=?").get(legacyId)) {
+      // Bridge an old hash to the alias-independent ID without incrementing its counters again.
+      db.prepare("UPDATE OR IGNORE responses SET id=? WHERE id=?").run(id, legacyId);
+      return false;
+    }
     const inserted = db.prepare("INSERT OR IGNORE INTO responses VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)")
       .run(id, key, m.model as string, completedAt, input, output, cacheRead, cacheWrite, tokens);
     if (!inserted.changes) return false;
@@ -127,29 +171,36 @@ type Observation = {
   identity: string; anchorAt: number; anchorPercent: number; anchorTokens: number;
   latestAt: number; latestPercent: number; latestTokens: number; sampledTokens: number; sampledPercent: number;
 };
-type Window = { id: string; title: string; usedPercent: number | null; resetsAt: string | null; windowMinutes: number | null; countsTowardLimit?: boolean };
+type Window = { id: string; title: string; usedPercent: number | null; resetsAt: string | null; windowMinutes: number | null; countsTowardLimit?: boolean; allowance?: number };
 
 function estimateWindow(db: Database, p: CodexBarProvider, key: string, w: Window, at: number, now: number): TokenUsageEstimate {
-  const empty: TokenUsageEstimate = { id: w.id, title: w.title, sampledTokens: 0, sampledPercent: 0, tokensPerPercent: null, estimatedRemainingTokens: null };
-  if (p.stale || p.usageDisplayOnly || w.countsTowardLimit === false || w.usedPercent === null ||
-      w.usedPercent < 0 || w.usedPercent > 100 || !Number.isFinite(at) || at > now || at < now - STALE_AFTER_MS ||
-      (w.resetsAt && Date.parse(w.resetsAt) <= now)) return empty;
+  const empty: TokenUsageEstimate = { id: w.id, title: w.title, sampledTokens: 0, sampledPercent: 0, tokensPerPercent: null, estimatedRemainingTokens: null, status: "calibrating", validUntil: null };
+  if (p.usageDisplayOnly || w.countsTowardLimit === false) return { ...empty, status: "unsupported" };
+  const resetAt = w.resetsAt ? Date.parse(w.resetsAt) : null;
+  if (w.usedPercent === null || !Number.isFinite(w.usedPercent) || w.usedPercent < 0 || w.usedPercent > 100 ||
+      !Number.isFinite(now) || !Number.isFinite(at) || at > now || (resetAt !== null && !Number.isFinite(resetAt))) return { ...empty, status: "invalid" };
+  if (p.stale || at < now - STALE_AFTER_MS) return { ...empty, status: "stale" };
+  if (resetAt !== null && resetAt <= now) return { ...empty, status: "expired" };
+  empty.validUntil = new Date(Math.min(at + STALE_AFTER_MS, resetAt ?? Infinity)).toISOString();
 
   // Model-specific Claude allowances must not include unrelated models.
   const filter = w.id === "claude-weekly-sonnet" ? "%sonnet%"
     : w.id === "claude-weekly-opus" ? "%opus%"
     : w.id.startsWith("claude-weekly-scoped-") ? null : "%";
-  if (filter === null) return empty; // Arbitrary model scopes cannot be inferred safely from a label.
+  if (filter === null) return { ...empty, status: "unsupported" }; // Arbitrary model scopes cannot be inferred safely from a label.
+  const observationKey = JSON.stringify([key, w.id]);
+  const identity = JSON.stringify([2, p.plan, w.resetsAt, w.windowMinutes, filter, w.allowance ?? null]);
+  let row = db.prepare("SELECT * FROM observations WHERE key=?").get(observationKey) as Observation | undefined;
+  if (row && at < row.latestAt) return { ...empty, status: "stale" }; // Out-of-order fetch completion cannot rewind calibration.
+  // A repeated upstream cache value cannot reveal a new rate. Avoid range SUMs and WAL writes entirely.
+  if (row && at === row.latestAt && row.identity === identity && w.usedPercent === row.latestPercent) {
+    return calibratedEstimate(empty, row, w.usedPercent);
+  }
   const total = db.prepare("SELECT COALESCE(SUM(tokens), 0) AS tokens FROM totals WHERE provider=? AND model LIKE ?")
     .get(key, filter) as { tokens: number };
   const later = db.prepare("SELECT COALESCE(SUM(tokens), 0) AS tokens FROM responses WHERE provider=? AND model LIKE ? AND at > ?")
     .get(key, filter, at) as { tokens: number };
   const tokens = total.tokens - later.tokens;
-  const observationKey = JSON.stringify([key, w.id]);
-  const identity = JSON.stringify([p.plan, w.resetsAt, w.windowMinutes, filter]);
-  const previous = db.prepare("SELECT * FROM observations WHERE key=?").get(observationKey) as Observation | undefined;
-  let row = previous;
-  if (row && at < row.latestAt) return empty; // Out-of-order fetch completion cannot rewind calibration.
   if (!row || row.identity !== identity || row.anchorAt < now - RETENTION_MS ||
       w.usedPercent < row.latestPercent || tokens < row.latestTokens ||
       (at > row.latestAt && w.usedPercent > row.latestPercent && tokens - row.anchorTokens <= row.sampledTokens)) {
@@ -171,9 +222,13 @@ function estimateWindow(db: Database, p: CodexBarProvider, key: string, w: Windo
   db.prepare(`INSERT OR REPLACE INTO observations VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
     .run(observationKey, row.identity, row.anchorAt, row.anchorPercent, row.anchorTokens,
       row.latestAt, row.latestPercent, row.latestTokens, row.sampledTokens, row.sampledPercent);
+  return calibratedEstimate(empty, row, w.usedPercent);
+}
+
+function calibratedEstimate(empty: TokenUsageEstimate, row: Observation, percent: number): TokenUsageEstimate {
   const rate = row.sampledPercent >= 1 ? row.sampledTokens / row.sampledPercent : null;
-  return { ...empty, sampledTokens: row.sampledTokens, sampledPercent: row.sampledPercent,
-    tokensPerPercent: rate, estimatedRemainingTokens: rate === null ? null : Math.max(0, 100 - w.usedPercent) * rate };
+  return { ...empty, status: rate === null ? "calibrating" : "ready", sampledTokens: row.sampledTokens, sampledPercent: row.sampledPercent,
+    tokensPerPercent: rate, estimatedRemainingTokens: rate === null ? null : Math.max(0, 100 - percent) * rate };
 }
 
 /** Decorate outside the upstream cache, so cached percentages never absorb later response tokens. */
@@ -191,7 +246,7 @@ export function attachTokenUsage(usage: CodexBarUsage, now = Date.now()): CodexB
       p.usedPercent !== null && !p.credits ? [{ id: "provider", title: "利用枠", usedPercent: p.usedPercent, resetsAt: p.resetsAt, windowMinutes: null }] : [];
     const credits = p.credits;
     if (credits?.used !== null && credits?.used !== undefined && credits.limit !== null && credits.limit > 0) {
-      windows.push({ id: "credits", title: credits.title ?? "利用クレジット", usedPercent: credits.used / credits.limit * 100, resetsAt: p.resetsAt, windowMinutes: null });
+      windows.push({ id: "credits", title: credits.title ?? "利用クレジット", usedPercent: credits.used / credits.limit * 100, resetsAt: p.resetsAt, windowMinutes: null, allowance: credits.limit });
     }
     const tokenUsage: ProviderTokenUsage = { input: totals.input, output: totals.output,
       cacheRead: totals.cacheRead, cacheWrite: totals.cacheWrite, totalTokens: totals.tokens,

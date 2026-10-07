@@ -17,6 +17,23 @@ describe("TokenUsageDetails", () => {
     expect(screen.getByTitle(/保証された残量ではない/)).toBeTruthy();
     expect(screen.getByTitle(/外部CLI・補助呼出・中断応答は含まない/)).toBeTruthy();
   });
+  it("expires an already-rendered estimate without waiting for the next provider poll", () => {
+    const data = { ...usage, windows: [{ ...usage.windows[0], status: "ready" as const, validUntil: "2026-10-07T10:15:00Z" }] };
+    const { rerender } = render(<TokenUsageDetails usage={data} now={Date.parse("2026-10-07T10:14:00Z")} />);
+    expect(screen.getByText("推定残 44,000 tok")).toBeTruthy();
+    rerender(<TokenUsageDetails usage={data} now={Date.parse("2026-10-07T10:15:00Z")} />);
+    expect(screen.queryByText(/推定残/)).toBeNull();
+    expect(screen.getByText(/古い取得値/)).toBeTruthy();
+  });
+  it.each([
+    ["unsupported", "この利用枠は推定対象外"],
+    ["expired", "リセット期限経過"],
+    ["invalid", "使用率・日時を取得できない"],
+  ] as const)("explains %s instead of asking for impossible calibration", (status, label) => {
+    render(<TokenUsageDetails usage={{ ...usage, windows: [{ ...usage.windows[0], status }] }} />);
+    expect(screen.queryByText(/推定残/)).toBeNull();
+    expect(screen.getByText(`推定 —（${label}）`)).toBeTruthy();
+  });
   it("does not invent a quota before calibration", () => {
     render(<TokenUsageDetails usage={{ ...usage, windows: [{ ...usage.windows[0], tokensPerPercent: null, estimatedRemainingTokens: null }] }} />);
     expect(screen.getByText(/推定 —/)).toBeTruthy();

@@ -5,8 +5,8 @@ CodexBarのプロバイダー／アカウント行を展開すると、実測tok
 ## 計測対象
 
 - LeafCodePiが購読するセッション（タスク・Bot等）の `message_end` の完了assistant応答。ツール呼出応答も含む。
-- `input + output + cacheRead + cacheWrite`。内訳が全て0の場合のみ `totalTokens` を使用。reasoningはoutput、cacheWrite1hはcacheWriteに内包されるため重複加算しない。
-- プロバイダー・実行アカウントを分離し、responseId（なければsessionId＋message timestamp）で重複排除する。Cursorのcursor-acpはCodexBarのcursorに対応する。
+- 正の `totalTokens` を優先し、欠落／0の場合は `input + output + cacheRead + cacheWrite` を使用。reasoningはoutput、cacheWrite1hはcacheWriteに内包されるため重複加算しない。tok内訳が一部欠けても総量を過少計上しない。
+- プロバイダー・実行アカウントを分離し、responseId（なければsessionId＋model＋message timestamp）で重複排除する。responseIdが同じならモデル別名の変更でも二重計上しない。旧形式の同一modelの重複排除キーも認識する。Cursorのcursor-acpはCodexBarのcursorに対応する。
 - Codex / Claude / OpenCode Go / Command Code / Cursor / Ollama Cloud / OpenRouter / OrcaRouter / Synthetic / Qwen Cloud / TypeSafeを対象とする。
 - 外部CLI・別アプリ・サブエージェント等の補助モデル呼出・コンパクション・中断／エラー応答・usageを報告しないプロバイダーは含まない。既存履歴の遡及集計ではなく導入後の計測である。
 
@@ -21,9 +21,10 @@ tok/1% = 計測基準点から使用率更新時点までの実測tok / 使用�
 
 - 最低1 percentage pointの使用率差が必要。差が小さい間や使用率反映待ちは蓄積する。
 - キャッシュのupdatedAtより後に完了したtokは、その使用率の校正には混ぜない。使用率が変わらない間は既存の校正値を保持し、100%到達後も追加tokで校正値を膨らませない。
-- プラン・リセット日時の変更、使用率低下、ローカル計測tokが伴わない使用率増加で再校正する。stale・15分超の古い取得値・表示専用使用率・非集計内訳・期限切れは推定保留。
+- プラン・リセット日時・クレジット上限の変更、使用率低下、ローカル計測tokが伴わない使用率増加で再校正する。stale・15分超の古い取得値・表示専用使用率・非集計内訳・期限切れ・不正値は推定保留。計測中・対象外・古い値・期限切れを区別し、表示中も鮮度期限／リセット期限を過ぎた推定を隠す。
 - ClaudeのSonnet/Opus週間枠は該当modelのtokだけを使用。任意のmodel scoped枠は対応関係を安全に確定できないため推定しない。
 - 金額クレジットも上限と使用量が取得できる場合は実績換算する。リセットが不明な枠は使用率低下まで同一期間として扱う。
-- 応答ごとの重複排除記録と校正基準は90日保持。実測tok累計は維持する。SQLiteの短いtransactionで複数プロセスの加算・校正を直列化する。
+- 応答ごとの重複排除記録と校正基準は90日保持。実測tok累計は維持する。SQLiteの短いtransactionで複数プロセスの加算・校正を直列化する。プロセスごとに接続・prepared statementを再利用し、同じ取得値には再集計・再書き込みしない。dataDir変更時は旧接続を解放する。
+- 校正アルゴリズムv2導入時は既存の実測tok累計を維持し、推定の基準点だけ再校正する。
 
 使用上限はモデル、キャッシュ、負荷、金額換算等で変動し、プロバイダーがtok上限を公開しているとは限らない。外部消費も使用率に含まれるため、数値は現在のモデル構成・使い方に基づく実績推定であり保証された残量ではない。未校正時は「推定 —」を表示する。ストレージ障害時は本来のモデル応答・使用率表示を継続し、計測値の保存は失敗する。
