@@ -2573,6 +2573,49 @@ describe("TaskView draft submission", () => {
     expect(screen.getByRole("button", { name: "モデル" }).textContent).toContain("Model C");
   });
 
+  it.each(["snapshot", "response", "late-response"])("uses the fallback model's effort options after a manual model selection (%s)", async (delivery) => {
+    class TestEventSource extends EventTarget {
+      static latest: TestEventSource;
+      constructor() { super(); TestEventSource.latest = this; }
+      close() {}
+    }
+    vi.stubGlobal("EventSource", TestEventSource);
+    const modelTask = { ...task, providerID: "provider", modelID: "a", thinkingLevel: "medium" as const };
+    const models: ModelOption[] = [
+      { value: "provider::a", label: "Model A", providerID: "provider", modelID: "a", thinkingLevels: ["low", "medium", "high"] },
+      { value: "fallback::b", label: "Model B", providerID: "fallback", modelID: "b", thinkingLevels: ["low", "high"] },
+    ];
+    writeCachedModels(models);
+    saveTaskSessionCache({ task: modelTask, messages: [], isStreaming: false, isCompacting: false });
+    mocks.getJson.mockResolvedValue({ models, agents: [], skills: [], accounts: [] });
+    const fallbackTask = { ...modelTask, providerID: "fallback", modelID: "b", thinkingLevel: "low" as const };
+    let resolveOlder!: (result: { task: TaskSummary }) => void;
+    const olderResponse = new Promise<{ task: TaskSummary }>((resolve) => { resolveOlder = resolve; });
+    if (delivery === "late-response") mocks.sendJson.mockReturnValue(olderResponse);
+    else mocks.sendJson.mockResolvedValue({ task: delivery === "response" ? fallbackTask : modelTask });
+    render(<TaskView taskId={task.id} mdUp />);
+    fireEvent.click(screen.getByRole("button", { name: "モデル" }));
+    fireEvent.click(screen.getByRole("option", { name: "Model A" }));
+    await waitFor(() => expect(mocks.sendJson).toHaveBeenCalledWith(`/api/tasks/${task.id}/model`, { model: "provider::a" }));
+    await act(async () => { await Promise.resolve(); });
+    if (delivery !== "response") {
+      await act(async () => {
+        TestEventSource.latest.dispatchEvent(new MessageEvent("snapshot", {
+          data: JSON.stringify({ eventType: "provider_fallback", task: fallbackTask, isStreaming: false, isCompacting: false }),
+        }));
+      });
+    }
+    if (delivery === "late-response") {
+      await act(async () => { resolveOlder({ task: modelTask }); await olderResponse; });
+    }
+    expect(screen.getByRole("button", { name: "モデル" }).textContent).toContain("Model B");
+    fireEvent.click(screen.getByRole("button", { name: "思考レベル" }));
+    expect(screen.queryByRole("option", { name: "medium" })).toBeNull();
+    mocks.sendJson.mockResolvedValue({ task: { ...fallbackTask, thinkingLevel: "high" } });
+    fireEvent.click(screen.getByRole("option", { name: "high" }));
+    await waitFor(() => expect(screen.getByRole("button", { name: "思考レベル" }).textContent).toContain("high"));
+  });
+
   it("keeps a concrete model after leaving Auto across remount", async () => {
     const modelTask = {
       ...task,

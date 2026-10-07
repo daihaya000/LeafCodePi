@@ -80,6 +80,7 @@ const fakePi = vi.hoisted(() => {
       sessionManager: ReturnType<typeof manager>;
       model?: { id?: string };
       modelRuntime?: { accountId?: string };
+      thinkingLevel?: ThinkingLevel;
     }) => {
       const sessionManager = options.sessionManager;
       const entry = {
@@ -131,7 +132,7 @@ const fakePi = vi.hoisted(() => {
           },
         },
         model: options.model,
-        thinkingLevel: "off" as ThinkingLevel,
+        thinkingLevel: options.thinkingLevel ?? ("off" as ThinkingLevel),
         extensionRunner: { createContext: () => ({}) },
         get isStreaming() {
           return streaming;
@@ -197,6 +198,7 @@ import {
 import { clearCachedUsage, setCachedUsage } from "@/lib/codexbar/cache";
 import { parseCodexBarSnapshot } from "@/lib/codexbar";
 import { getTask, upsertProject } from "@/lib/store";
+import { setProviderModelDefaultThinkingLevel } from "@/lib/provider-model-state";
 import type { ThinkingLevel } from "@/lib/types";
 import {
   clearProviderLimit,
@@ -220,12 +222,12 @@ const tempDirs: string[] = [];
 const previousPiAgentDir = process.env.PI_CODING_AGENT_DIR;
 const previousDataDir = process.env.LEAFCODE_PI_DATA_DIR;
 
-function runtime(accountId: string, provider: string, modelID = MODEL_ID) {
+function runtime(accountId: string, provider: string, modelID = MODEL_ID, reasoning = false) {
   const model = {
     provider,
     id: modelID,
     input: ["text"],
-    reasoning: false,
+    reasoning,
     thinkingLevelMap: { off: "none" },
   };
   return {
@@ -388,6 +390,45 @@ describe.each(["openai-codex", "openai"] as const)("provider limit fallback: %s"
     ]);
     assert.equal(fakePi.sessions[0]?.prompts.length, 2);
     assert.equal(getTask(task.id)?.status, "idle");
+  });
+
+  it.each([
+    { destinationDefault: undefined, accountSpecific: false, sameModel: false },
+    { destinationDefault: "low", accountSpecific: false, sameModel: false },
+    { destinationDefault: "low", accountSpecific: true, sameModel: false },
+    { destinationDefault: "low", accountSpecific: true, sameModel: true },
+  ] as const)("resolves destination effort on fallback (%j)", async ({ destinationDefault, accountSpecific, sameModel }) => {
+    const dir = mkdtempSync(join(tmpdir(), "leafcode-pi-fallback-effort-"));
+    tempDirs.push(dir);
+    process.env.LEAFCODE_PI_DATA_DIR = dir;
+    const agentDir = join(dir, "agent");
+    process.env.PI_CODING_AGENT_DIR = agentDir;
+    __resetPiAgentDirCacheForTests();
+    const source = createAccount({ label: "source", providers: [PROVIDER] });
+    const destinationProvider = sameModel ? PROVIDER : "anthropic";
+    const destinationModel = sameModel ? MODEL_ID : "claude-sonnet";
+    const destination = createAccount({ label: "destination", providers: [destinationProvider] });
+    storeProviderAuth(source.id, agentDir, PROVIDER);
+    storeProviderAuth(destination.id, agentDir, destinationProvider);
+    installHarness(new Map([
+      [source.id, runtime(source.id, PROVIDER, MODEL_ID, true)],
+      [destination.id, runtime(destination.id, destinationProvider, destinationModel, true)],
+    ]));
+    await setAccountRoutingMode(PROVIDER, "integrated");
+    await setAccountRoutingMode("anthropic", "integrated");
+    if (destinationDefault) {
+      await setProviderModelDefaultThinkingLevel(destinationProvider, destinationModel, destinationDefault, accountSpecific ? destination.id : undefined);
+    }
+    const project = upsertProject({ name: "demo", rootPath: dir });
+    const task = await createTask({ projectId: project.id, prompt: "start", model: `${PROVIDER}::${MODEL_ID}`, thinkingLevel: "high" });
+    await waitFor(() => getTask(task.id)?.status === "idle");
+    assert.equal(getTask(task.id)?.thinkingLevel, "high");
+    fakePi.sessions[0]?.emit?.({ type: "agent_end", willRetry: false, messages: [{ role: "assistant", errorMessage: "HTTP 429 Too Many Requests" }] });
+    fakePi.sessions[0]?.emit?.({ type: "agent_settled" });
+    await waitFor(() => fakePi.sessions[1]?.prompts.length === 1);
+    assert.equal(getTask(task.id)?.providerID, destinationProvider);
+    assert.equal(getTask(task.id)?.accountId, destination.id);
+    assert.equal(getTask(task.id)?.thinkingLevel, sameModel ? "high" : destinationDefault ?? "high");
   });
 
   it("crosses to another provider when every account of this provider is maxed", async () => {

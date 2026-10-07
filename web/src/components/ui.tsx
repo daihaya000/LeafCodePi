@@ -176,6 +176,8 @@ export function GhostSelect({
 
   useLayoutEffect(() => {
     if (!open) return;
+    // Streaming rerenders must not reset keyboard navigation (or action focus).
+    if (menuRef.current?.contains(document.activeElement)) return;
     const optionButtons = Array.from(
       menuRef.current?.querySelectorAll<HTMLButtonElement>('[role="option"]:not(:disabled)') ?? [],
     );

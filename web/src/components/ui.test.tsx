@@ -1,7 +1,7 @@
 // @vitest-environment happy-dom
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { subscribeSharedElapsedClock, Switch } from "./ui";
+import { GhostSelect, subscribeSharedElapsedClock, Switch } from "./ui";
 
 let restoreVisibilityState: (() => void) | undefined;
 function setVisibilityState(state: "visible" | "hidden"): void {
@@ -21,6 +21,27 @@ afterEach(() => {
   cleanup();
   vi.useRealTimers();
   restoreVisibilityState?.();
+});
+
+describe("GhostSelect effort navigation", () => {
+  it("preserves keyboard focus across streaming rerenders", () => {
+    const onChange = vi.fn();
+    const picker = () => (
+      <GhostSelect icon={null} valueLabel="medium" value="medium" aria-label="effort" onChange={onChange}>
+        <option value="low">low</option>
+        <option value="medium">medium</option>
+        <option value="high">high</option>
+      </GhostSelect>
+    );
+    const { rerender } = render(picker());
+    fireEvent.click(screen.getByRole("button", { name: "effort" }));
+    fireEvent.keyDown(screen.getByRole("option", { name: "medium" }), { key: "ArrowDown" });
+    expect(document.activeElement).toBe(screen.getByRole("option", { name: "high" }));
+    rerender(picker());
+    expect(document.activeElement).toBe(screen.getByRole("option", { name: "high" }));
+    fireEvent.keyDown(document.activeElement!, { key: "Enter" });
+    expect(onChange).toHaveBeenCalledWith("high");
+  });
 });
 
 describe("Switch", () => {

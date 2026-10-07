@@ -9328,11 +9328,17 @@ async function replaceLiveForRoute(
   if (!sessionFile) {
     throw new Error("セッションを別アカウントへ切り替えられません");
   }
-  const requestedThinkingLevel = isThinkingLevel(live.session.thinkingLevel)
-    ? live.session.thinkingLevel
-    : task.thinkingLevel;
-  const thinkingLevel = requestedThinkingLevel
-    ? clampThinkingLevelForModel(route.model, requestedThinkingLevel)
+  const routeIds = modelId(route.model);
+  const modelChanged = routeIds.providerID !== task.providerID || routeIds.modelID !== task.modelID;
+  const requestedThinkingLevel = live.pendingSettings?.thinkingLevel ??
+    (isThinkingLevel(live.session.thinkingLevel) ? live.session.thinkingLevel : task.thinkingLevel);
+  // A new model uses its saved default, just like manual model selection.
+  // Preserve same-model account rotations and explicit pending user changes.
+  const preferredThinkingLevel = modelChanged && live.pendingSettings?.thinkingLevel === undefined
+    ? configuredThinkingLevelForModel(route.model, route.accountId) ?? requestedThinkingLevel
+    : requestedThinkingLevel;
+  const thinkingLevel = preferredThinkingLevel
+    ? clampThinkingLevelForModel(route.model, preferredThinkingLevel)
     : defaultThinkingLevelForRoute(route.model, route.accountId);
   const goalLoop = isActiveGoalLoopSession(live.session);
   const setup = await createSession({
@@ -9350,7 +9356,6 @@ async function replaceLiveForRoute(
     goalLoop,
   });
 
-  const routeIds = modelId(route.model);
   const nextAccountIdExplicit =
     options?.accountIdExplicit === undefined
       ? undefined

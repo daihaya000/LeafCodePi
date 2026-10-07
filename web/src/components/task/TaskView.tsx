@@ -1380,6 +1380,12 @@ export const TaskView = memo(function TaskView({
           payload.historyReset = false;
         }
         const snapshotTask = payload.task;
+        if (snapshotTask && payload.eventType === "provider_fallback") {
+          // The owner moved the route. Do not retain old model/effort options or
+          // let an older model request overwrite the fallback snapshot.
+          modelChangeRef.current += 1;
+          setModelSelection((current) => current === AUTO_MODEL_VALUE ? current : "");
+        }
         const snapshotTaskWithSuggestion = snapshotTask as
           | (TaskSummary & { compactionSuggested?: boolean })
           | undefined;
@@ -4651,6 +4657,9 @@ export const TaskView = memo(function TaskView({
                       // 具体モデルへ明示切替したら Auto 記録と既定値も外し、再表示で Auto に戻さない。
                       clearAutoTaskRecord(taskId);
                       setAutoRecord(null);
+                      // Optimistic selection is only for the in-flight request.
+                      // The response may already have fallen back to another route.
+                      setModelSelection("");
                       writeStoredModel(value);
                       setTask((current) => (current ? { ...current, ...result.task } : current));
                       if (isThinkingLevel(result.task.thinkingLevel)) {
