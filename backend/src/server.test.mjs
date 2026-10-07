@@ -79,6 +79,25 @@ test("listening alone is not SDK readiness", async (t) => {
   assert.equal(body.status, "starting");
 });
 
+test("answers a malformed percent-encoded path with 400 and no unhandled rejection", async (t) => {
+  const rejections = [];
+  const onRejection = (reason) => rejections.push(reason);
+  process.on("unhandledRejection", onRejection);
+  t.after(() => process.off("unhandledRejection", onRejection));
+  const { address, headers } = await fixture(t, { isReady: () => true });
+  for (const path of ["/internal/tasks/%E0%A4%A/detail", "/internal/tasks/%E0%A4%A", "/internal/bots/%E0%A4%A"]) {
+    const response = await request(`http://127.0.0.1:${address.port}${path}`, { headers });
+    assert.equal(response.status, 400, path);
+    const body = await response.json();
+    assert.equal(body.code, "BACKEND_BAD_REQUEST");
+    assert.ok(!JSON.stringify(body).includes("URIError"));
+  }
+  // The server keeps serving afterwards.
+  const health = await request(`http://127.0.0.1:${address.port}${BACKEND_HEALTH_PATH}`, { headers });
+  assert.equal(health.status, 200);
+  assert.deepEqual(rejections, []);
+});
+
 test("creates a task only through the authenticated runtime handler", async (t) => {
   const calls = [];
   const { url, headers } = await fixture(t, { createTask: async (input) => {

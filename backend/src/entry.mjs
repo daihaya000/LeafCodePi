@@ -641,6 +641,18 @@ try {
   };
   process.once("SIGINT", stop);
   process.once("SIGTERM", stop);
+  // A stray rejection from a provider/SDK callback must not take every running session down.
+  // Log the error name only: messages may contain paths or credentials.
+  process.on("unhandledRejection", (reason) => {
+    console.error(JSON.stringify({ type: "backend_unhandled_rejection", name: reason instanceof Error ? reason.name : typeof reason }));
+  });
+  // Process state is unknown after an uncaught exception: stop gracefully (releasing the owner lock)
+  // and exit non-zero so the Host restarts a clean Backend.
+  process.on("uncaughtException", (error) => {
+    console.error(JSON.stringify({ type: "backend_uncaught_exception", name: error instanceof Error ? error.name : typeof error }));
+    process.exitCode = 1;
+    void stop().finally(() => process.exit(1));
+  });
 } catch {
   releaseRuntimeOwner?.();
   // Do not log environment values or exception text containing secrets.

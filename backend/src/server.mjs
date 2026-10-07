@@ -319,7 +319,7 @@ export function createBackendServer({
   const startedAt = new Date().toISOString();
 
   // Async so the runtime-backed reads can await; every await is inside a try/catch.
-  return createServer({ requestTimeout: 30_000, headersTimeout: 10_000 }, async (request, response) => {
+  const handleRequest = async (request, response) => {
     const authorization = request.headers.authorization;
     const candidate = typeof authorization === "string" && /^Bearer /i.test(authorization)
       ? authorization.slice(7)
@@ -1294,6 +1294,26 @@ export function createBackendServer({
         error: "Backend health check failed", code: BACKEND_ERROR_CODES.internal,
       });
     }
+  };
+  // A throw outside the per-route try/catch (for example a malformed percent-encoding in the path)
+  // would otherwise be an unhandled rejection: the request hangs and Node can terminate the process.
+  return createServer({ requestTimeout: 30_000, headersTimeout: 10_000 }, (request, response) => {
+    handleRequest(request, response).catch((error) => {
+      try {
+        if (response.headersSent || response.writableEnded) {
+          response.destroy();
+          return;
+        }
+        // Never send exception messages: they may contain paths, ids or credentials.
+        if (error instanceof URIError) {
+          sendJson(response, 400, { error: "Invalid request path", code: BACKEND_ERROR_CODES.badRequest });
+        } else {
+          sendJson(response, 500, { error: "Backend request failed", code: BACKEND_ERROR_CODES.internal });
+        }
+      } catch {
+        response.destroy();
+      }
+    });
   });
 }
 
