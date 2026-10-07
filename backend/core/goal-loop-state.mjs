@@ -60,28 +60,28 @@ export class GoalLoopStateStore {
   read(cwd, sessionId) {
     if (!sessionId) return null;
     const file = this.stateFile(cwd, sessionId);
-    const current = this.#readFile(file, sessionId, false);
+    const current = this.#readFile(file, sessionId);
     if (current) return current;
     // Sessions created before collision-resistant names keep working until their next write migrates them.
     const legacy = this.legacyStateFile(cwd, sessionId);
-    return legacy === file ? null : this.#readFile(legacy, sessionId, true);
+    return legacy === file ? null : this.#readFile(legacy, sessionId);
   }
 
-  /** `requireOwner`: a legacy name may be shared by other ids, so a record naming another session is ignored. */
-  #readFile(file, sessionId, requireOwner) {
+  /** Even a canonical path may be another session's legacy name; never trust the filename as ownership. */
+  #readFile(file, sessionId) {
     try {
       const stat = statSync(file);
       const cached = this.cache.get(file);
       if (cached && cached.mtimeMs === stat.mtimeMs && cached.size === stat.size && cached.ino === stat.ino) {
         // The cache is keyed by file, and a legacy file name can be asked for by several ids.
-        return requireOwner && typeof cached.value.sessionId === "string" && cached.value.sessionId !== sessionId ? null : cached.value;
+        return typeof cached.value.sessionId === "string" && cached.value.sessionId !== sessionId ? null : cached.value;
       }
       const value = JSON.parse(readFileSync(file, "utf8"));
       if (!value || typeof value.goal !== "string" || typeof value.status !== "string") {
         this.cache.delete(file);
         return null;
       }
-      if (requireOwner && typeof value.sessionId === "string" && value.sessionId !== sessionId) return null;
+      if (typeof value.sessionId === "string" && value.sessionId !== sessionId) return null;
       const result = {
         ...value,
         maxTurns: this.clampMaxTurns(value.maxTurns),

@@ -51,6 +51,27 @@ test("a state file under the legacy sanitized name is still read, but never anot
   assert.equal(f.store.read("", "a/b")?.goal, "new");
 });
 
+test("a legacy snapshot cannot hijack a session whose canonical name matches it", async (t) => {
+  for (const warmCache of [false, true]) {
+    await t.test(warmCache ? "cached legacy owner" : "uncached legacy owner", (t) => {
+      const f = fixture(t);
+      f.write("a_b", { sessionId: "a/b", goal: "legacy owner's goal", status: "queued" });
+      if (warmCache) assert.equal(f.store.read("", "a/b")?.goal, "legacy owner's goal");
+      assert.equal(f.store.read("", "a_b"), null, "the filename is not proof of ownership");
+      assert.equal(f.store.read("", "a/b")?.goal, "legacy owner's goal");
+    });
+  }
+});
+
+test("a foreign canonical snapshot does not hide an owned legacy fallback", (t) => {
+  const f = fixture(t);
+  f.write("a_b", { sessionId: "a/b", goal: "owned legacy", status: "paused" });
+  writeFileSync(f.store.stateFile("", "a/b"), JSON.stringify({
+    sessionId: "other-session", goal: "foreign canonical", status: "queued",
+  }), "utf8");
+  assert.equal(f.store.read("", "a/b")?.goal, "owned legacy");
+});
+
 test("a missing session id or unreadable file reads as null and caches nothing", (t) => {
   const f = fixture(t);
   assert.equal(f.store.read("", null), null);

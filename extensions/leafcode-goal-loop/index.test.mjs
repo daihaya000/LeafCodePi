@@ -91,6 +91,50 @@ test("reads legacy sanitized state filenames", () => {
   }
 });
 
+test("a canonical filename never adopts another session's legacy snapshot", () => {
+  const cwd = mkdtempSync(join(tmpdir(), "leafcode-goal-loop-main-owner-"));
+  process.env.LEAFCODE_PI_DATA_DIR = cwd;
+  try {
+    const dir = join(cwd, "goals-loop");
+    mkdirSync(dir, { recursive: true });
+    const snapshot = (sessionId, goal) => JSON.stringify({ sessionId, goal, acceptance: [], status: "queued", progress: [] });
+    const legacy = join(dir, "a_b.json");
+    const foreign = snapshot("a/b", "legacy owner's goal");
+    writeFileSync(legacy, foreign, "utf8");
+    assert.equal(goalLoopTestSeams.readLoop(cwd, "a_b"), null);
+    assert.equal(readFileSync(legacy, "utf8"), foreign, "rejecting must not mutate the other session's state");
+    assert.equal(goalLoopTestSeams.readLoop(cwd, "a/b")?.goal, "legacy owner's goal");
+
+    // A misplaced modern file must not shadow the requesting session's owned legacy file.
+    writeFileSync(join(dir, `${safeIdPart("a/b")}.json`), snapshot("other-session", "foreign canonical"), "utf8");
+    assert.equal(goalLoopTestSeams.readLoop(cwd, "a/b")?.goal, "legacy owner's goal");
+  } finally {
+    rmSync(cwd, { recursive: true, force: true });
+  }
+});
+
+test("a foreign main snapshot still allows recovery of an exactly owned temp", () => {
+  const cwd = mkdtempSync(join(tmpdir(), "leafcode-goal-loop-main-temp-owner-"));
+  process.env.LEAFCODE_PI_DATA_DIR = cwd;
+  try {
+    const dir = join(cwd, "goals-loop");
+    mkdirSync(dir, { recursive: true });
+    const file = join(dir, "owner.json");
+    const snapshot = (sessionId, goal) => JSON.stringify({ sessionId, goal, acceptance: [], status: "paused", progress: [] });
+    writeFileSync(file, snapshot("other-session", "foreign"), "utf8");
+    const temp = `${file}.1.1.tmp`;
+    writeFileSync(temp, snapshot("owner", "recovered own goal"), "utf8");
+    // The owner is authoritative even when the invalid main file is newer.
+    const old = new Date(Date.now() - 60_000);
+    utimesSync(temp, old, old);
+    assert.equal(goalLoopTestSeams.readLoop(cwd, "owner")?.goal, "recovered own goal");
+    assert.equal(JSON.parse(readFileSync(file, "utf8")).sessionId, "owner");
+    assert.equal(existsSync(temp), false);
+  } finally {
+    rmSync(cwd, { recursive: true, force: true });
+  }
+});
+
 test("an invalid nextTurnAt pauses a cooling-down loop with scheduler_error", () => {
   const cwd = mkdtempSync(join(tmpdir(), "leafcode-goal-loop-bad-next-"));
   process.env.LEAFCODE_PI_DATA_DIR = cwd;

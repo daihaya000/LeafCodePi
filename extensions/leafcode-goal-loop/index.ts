@@ -558,6 +558,8 @@ function normalizeNextTurnAt(value: unknown): string | null {
 function hydrateLoop(value: unknown, cwd: string, id: string): GoalLoop | null {
   const raw = asRecord(value);
   if (!raw || typeof raw.goal !== "string") return null;
+  // A canonical filename can still be another session's legacy sanitized name.
+  if (typeof raw.sessionId === "string" && raw.sessionId !== id) return null;
   const goal = raw.goal.trim().slice(0, MAX_GOAL_CHARS);
   if (!goal) return null;
   const acceptance = normalizeAcceptance(raw.acceptance);
