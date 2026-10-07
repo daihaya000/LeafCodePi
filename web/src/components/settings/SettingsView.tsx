@@ -22,6 +22,7 @@ import { CompactionSettings } from "@/components/settings/CompactionSettings";
 import { SessionLabelSettings } from "@/components/settings/SessionLabelSettings";
 import { AutoArchiveSettings } from "@/components/settings/AutoArchiveSettings";
 import { HistoryPageSizeSettings } from "@/components/settings/HistoryPageSizeSettings";
+import { ModelThroughputSettings } from "@/components/settings/ModelThroughputSettings";
 import { NavigatorSettings } from "@/components/settings/NavigatorSettings";
 import { SkillsSettings } from "@/components/settings/SkillsSettings";
 import { ExtensionsSettings } from "@/components/settings/ExtensionsSettings";
@@ -431,6 +432,7 @@ export function SettingsView() {
                 <div id="models-catalog" className="scroll-mt-24 rounded-2xl border border-border bg-surface p-4">
                   <ProviderModelsPanel refreshToken={sharedRevision} onProviderCatalogChange={() => setJevRevision((revision) => revision + 1)} />
                 </div>
+                <ModelThroughputSettings />
               </SettingsGroup>
 
               <SettingsGroup id="models-jev-heading" title="Jevモデル">

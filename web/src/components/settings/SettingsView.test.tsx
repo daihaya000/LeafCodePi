@@ -48,6 +48,9 @@ vi.mock("@/components/settings/JevModelSettings", () => ({
 vi.mock("@/components/settings/GenerationModelSettings", () => ({
   GenerationModelSettings: () => <h3>生成モデル</h3>,
 }));
+vi.mock("@/components/settings/GitCommitAuthorSettings", () => ({
+  GitCommitAuthorSettings: () => <h3>Gitコミット作者</h3>,
+}));
 vi.mock("@/components/settings/BrowserSettings", () => ({
   BrowserSettings: () => {
     mountCounts.basic += 1;
@@ -82,6 +85,9 @@ vi.mock("@/components/settings/NavigatorSettings", () => ({
 }));
 vi.mock("@/components/settings/AutoArchiveSettings", () => ({
   AutoArchiveSettings: () => <h3>古いセッションの自動アーカイブ</h3>,
+}));
+vi.mock("@/components/settings/ModelThroughputSettings", () => ({
+  ModelThroughputSettings: () => <h3>モデル速度の計測件数</h3>,
 }));
 vi.mock("@/components/settings/HistoryPageSizeSettings", () => ({
   HistoryPageSizeSettings: () => <h3>履歴の読み込み件数</h3>,
@@ -180,6 +186,7 @@ describe("SettingsView", () => {
     fireEvent.click(screen.getByRole("tab", { name: /^モデルタブ$/ }));
 
     const modelsPanel = screen.getByRole("tabpanel");
+    expect(within(modelsPanel).getByRole("heading", { name: "モデル速度の計測件数" })).toBeTruthy();
     expect(Array.from(modelsPanel.querySelectorAll(":scope > section")).map((section) => section.getAttribute("aria-label"))).toEqual([
       "モデルカタログ",
       "Jevモデル",
@@ -189,6 +196,7 @@ describe("SettingsView", () => {
     expect(modelsPanel.querySelectorAll(":scope > section > header")).toHaveLength(0);
     expect(Array.from(modelsPanel.querySelectorAll("h3")).map((heading) => heading.textContent)).toEqual([
       "モデル",
+      "モデル速度の計測件数",
       "Jevモデル",
       "起動時の既定値",
       "送信プロンプト",
@@ -428,12 +436,14 @@ describe("SettingsView", () => {
     const agentsPanel = screen.getByRole("tabpanel");
     expect(Array.from(agentsPanel.querySelectorAll(":scope > section")).map((section) => section.getAttribute("aria-label"))).toEqual([
       "エージェント運用",
+      "Gitコミット作者",
       "エージェント用スキル",
     ]);
     expect(agentsPanel.querySelectorAll(":scope > section > header")).toHaveLength(0);
     expect(Array.from(agentsPanel.querySelectorAll("h3")).map((heading) => heading.textContent)).toEqual([
       "サブエージェント使用",
       "エージェント",
+      "Gitコミット作者",
       "スキル使用",
       "スキル",
     ]);

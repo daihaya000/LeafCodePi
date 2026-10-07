@@ -31,6 +31,28 @@ function request(key: string, body: unknown): NextRequest {
 }
 
 describe("/api/settings/[key]", () => {
+  it.each(["1", "50", "1000", null])("persists the model throughput window %s", async (value) => {
+    const key = "model-throughput-window";
+    const response = await PUT(request(key, { value }), { params: Promise.resolve({ key }) });
+    expect(response.status).toBe(200);
+    expect(settings.setSetting).toHaveBeenCalledWith(key, value);
+  });
+
+  it.each(["0", "-1", "2.5", "1001", "NaN"])("rejects an invalid model throughput window %s", async (value) => {
+    const key = "model-throughput-window";
+    const response = await PUT(request(key, { value }), { params: Promise.resolve({ key }) });
+    expect(response.status).toBe(400);
+    expect(settings.setSetting).not.toHaveBeenCalled();
+  });
+
+  it("reads the persisted model throughput window", async () => {
+    const key = "model-throughput-window";
+    settings.getSetting.mockReturnValue("100");
+    const response = await GET(new NextRequest(`http://127.0.0.1/api/settings/${key}`), { params: Promise.resolve({ key }) });
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ value: "100" });
+  });
+
   beforeEach(() => {
     vi.clearAllMocks();
     accounts.listAccounts.mockReturnValue([]);

@@ -96,6 +96,7 @@ import {
 } from "@/lib/tts-playback";
 
 import { clampHistoryPageSize, HISTORY_PAGE_SIZE_SETTING_KEY } from "@/lib/history-page-size";
+import { isModelThroughputWindow, MODEL_THROUGHPUT_WINDOW_SETTING_KEY } from "@/lib/model-throughput-settings";
 
 /** task-panes.ts / reasoning-translation.ts はクライアント依存が重いので、キーだけ同値で持つ。 */
 export const TASK_PANE_PREFER_NEW_SETTING_KEY = "task-pane-prefer-new";
@@ -151,6 +152,7 @@ export const ALLOWED_SETTING_KEYS: ReadonlySet<string> = new Set<string>([
   TTS_PLAYBACK_RATE_SETTING_KEY,
   TTS_PLAYBACK_VOLUME_SETTING_KEY,
   HISTORY_PAGE_SIZE_SETTING_KEY,
+  MODEL_THROUGHPUT_WINDOW_SETTING_KEY,
 ]);
 
 function normalizedGenerationModelValue(value: string, importedAccountIds: readonly string[] = []): string | null {
@@ -314,6 +316,10 @@ export function validateSettingValue(key: string, value: string, importedAccount
   if (key === SCROLL_BUTTON_OPACITY_SETTING_KEY) {
     const opacity = finiteNumber(value);
     return opacity === null ? null : String(clampScrollButtonOpacity(opacity));
+  }
+  if (key === MODEL_THROUGHPUT_WINDOW_SETTING_KEY) {
+    const count = Number(value);
+    return isModelThroughputWindow(count) ? String(count) : null;
   }
   if (key === HISTORY_PAGE_SIZE_SETTING_KEY) {
     const size = finiteNumber(value);
