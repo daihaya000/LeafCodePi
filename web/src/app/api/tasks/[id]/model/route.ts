@@ -21,7 +21,7 @@ export async function POST(
     if (localRuntimeBlocked()) {
       const forwarded = await forwardTaskModel(id, body.model);
       if (!forwarded.ok) {
-        return NextResponse.json({ error: "モデルの変更に失敗しました" }, { status: forwarded.status ?? 502 });
+        return NextResponse.json({ error: forwarded.error ?? "モデルの変更に失敗しました" }, { status: forwarded.status ?? 502 });
       }
       clearGoalLoopAutoModel(id);
       return NextResponse.json({ task: forwarded.task });

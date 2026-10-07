@@ -317,12 +317,13 @@ async function forwardSessionSetting(
   options: { env?: BackendEnv; fetchImpl?: typeof fetch; timeoutMs?: number } = {},
 ): Promise<
   | { ok: true; task: Record<string, unknown> | null }
-  | { ok: false; reason: BackendFailureReason | "not-found"; status?: number }
+  | { ok: false; reason: BackendFailureReason | "not-found"; status?: number; error?: string }
 > {
   const result = await send(options);
   if (!result.ok) {
-    if (result.status === 404) return { ok: false, reason: "not-found", status: 404 };
-    return { ok: false, reason: result.reason, ...(result.status ? { status: result.status } : {}) };
+    // backend-client already filters out opaque/internal error bodies.
+    return { ok: false, reason: result.status === 404 ? "not-found" : result.reason,
+      ...(result.status ? { status: result.status } : {}), ...(result.error ? { error: result.error } : {}) };
   }
   const task = result.body?.task;
   return { ok: true, task: task && typeof task === "object" ? task : null };

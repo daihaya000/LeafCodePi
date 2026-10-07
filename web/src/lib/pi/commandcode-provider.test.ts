@@ -3,7 +3,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
-import { afterEach, describe, it } from "vitest";
+import { afterEach, describe, it, vi } from "vitest";
 import { InMemoryCredentialStore, InMemoryModelsStore } from "@earendil-works/pi-ai";
 import { ModelRuntime } from "@earendil-works/pi-coding-agent";
 import { providerAuthMethods } from "./auth-login";
@@ -50,6 +50,7 @@ describe("registerCommandCodeProvider", () => {
 
   afterEach(() => {
     __resetCommandCodeProviderCacheForTests();
+    vi.restoreAllMocks();
     globalThis.fetch = previousFetch;
     if (previousModelsUrl === undefined) delete process.env.COMMANDCODE_MODELS_URL;
     else process.env.COMMANDCODE_MODELS_URL = previousModelsUrl;
@@ -79,6 +80,7 @@ describe("registerCommandCodeProvider", () => {
       return {
         runtime: {
           getProvider: (id: string) => id === "commandcode" && configured ? { id } : undefined,
+          getModels: () => configured ? [{ id: "test-model" }] : [],
           registerProvider: (id: string) => {
             if (id === "commandcode") {
               configured = true;
@@ -103,6 +105,65 @@ describe("registerCommandCodeProvider", () => {
     assert.equal(fetches, 1);
     assert.equal(first.registrations(), 1);
     assert.equal(second.registrations(), 1);
+  }, 15_000);
+
+  it("shares the full registration, including pending auth availability refresh", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "commandcode-registration-wait-"));
+    tempDirs.push(dir);
+    process.env.COMMANDCODE_MODELS_URL = "https://commandcode.test/models";
+    process.env.COMMANDCODE_MODELS_CACHE = join(dir, "models.json");
+    globalThis.fetch = (async () => Response.json({ object: "list", data: [
+      { id: "test-model", name: "Test", context_length: 32_000 },
+    ] })) as typeof fetch;
+    let configured = false;
+    let release!: () => void;
+    let notifyStarted!: () => void;
+    const started = new Promise<void>((resolve) => { notifyStarted = resolve; });
+    const pending = new Promise<void>((resolve) => { release = resolve; });
+    const runtime = {
+      getProvider: () => configured ? { id: "commandcode", auth: {} } : undefined,
+      getModels: () => configured ? [{ id: "test-model" }] : [],
+      registerProvider: () => { configured = true; },
+      registerNativeProvider: () => {},
+      refresh: async () => { notifyStarted(); await pending; },
+    } as unknown as ModelRuntime;
+    const first = registerCommandCodeProvider(runtime);
+    await started;
+    let secondDone = false;
+    const second = registerCommandCodeProvider(runtime).then(() => { secondDone = true; });
+    try {
+      await Promise.resolve();
+      await Promise.resolve();
+      assert.equal(secondDone, false, "concurrent callers must await the full registration");
+    } finally {
+      release();
+      await Promise.all([first, second]);
+    }
+  }, 15_000);
+
+  it("retries an empty catalog after a short backoff without restarting the same runtime", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "commandcode-registration-retry-"));
+    tempDirs.push(dir);
+    process.env.COMMANDCODE_MODELS_URL = "https://commandcode.test/models";
+    process.env.COMMANDCODE_MODELS_CACHE = join(dir, "models.json");
+    const clock = vi.spyOn(Date, "now").mockReturnValue(1_000);
+    let fetches = 0;
+    globalThis.fetch = (async () => {
+      fetches += 1;
+      return Response.json({ object: "list", data: fetches === 1 ? [] : [
+        { id: "recovered-model", name: "Recovered", context_length: 32_000 },
+      ] });
+    }) as typeof fetch;
+    const runtime = await ModelRuntime.create({ credentials: new InMemoryCredentialStore(),
+      modelsPath: null, modelsStore: new InMemoryModelsStore(), refreshOnCreate: false });
+    await registerCommandCodeProvider(runtime);
+    assert.equal(runtime.getModels("commandcode").length, 0);
+    await registerCommandCodeProvider(runtime);
+    assert.equal(fetches, 1, "failed catalog requests must be throttled");
+    clock.mockReturnValue(61_000);
+    await registerCommandCodeProvider(runtime);
+    assert.deepEqual(runtime.getModels("commandcode").map((model) => model.id), ["recovered-model"]);
+    assert.equal(fetches, 2);
   }, 15_000);
 
   it("keeps API-key and browser login available in an account runtime", async () => {

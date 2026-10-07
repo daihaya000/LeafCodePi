@@ -128,7 +128,7 @@ import {
   syncLlamaServerProvider,
 } from "@/lib/pi/llama-provider";
 import { registerCursorProvider } from "@/lib/pi/cursor-provider";
-import { registerCommandCodeProvider } from "@/lib/pi/commandcode-provider";
+import { registerCommandCodeProvider, shouldRetryCommandCodeRegistration } from "@/lib/pi/commandcode-provider";
 import {
   registerRemoteProvider,
   syncRemoteProvider,
@@ -947,7 +947,18 @@ export async function getRuntimeFor(
     });
   }
   try {
-    return await accountRuntimeManager().ensure(accountId);
+    const runtime = await accountRuntimeManager().ensure(accountId);
+    // Account runtimes are cached; retry transient Command Code failures on reuse too.
+    if (shouldRetryCommandCodeRegistration(runtime)) {
+      const agentDir = await resolvePiAgentDir();
+      await registerCommandCodeProvider(runtime, {
+        key: `account:${accountId}`, kind: "account", accountId,
+        accountLabel: getAccount(accountId)?.label ?? null,
+        authPath: accountAuthPath(accountId, agentDir),
+      });
+      if (runtime.getModels("commandcode").length > 0) invalidateHealthCache();
+    }
+    return runtime;
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     throw Object.assign(

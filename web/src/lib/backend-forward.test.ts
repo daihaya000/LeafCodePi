@@ -344,6 +344,17 @@ describe("forwardTaskModel / forwardTaskThinking / forwardTaskAgent", () => {
     expect(JSON.parse(String(fetchImpl.mock.calls[0][1]?.body))).toEqual({ [field]: value });
   });
 
+  it("preserves sanitized model selection errors but not opaque errors", async () => {
+    const missingModel = vi.fn<typeof fetch>(async () => jsonResponse(400, { error: "モデルが見つかりません" }));
+    await expect(forwardTaskModel("task-1", "commandcode/missing", { env, fetchImpl: missingModel })).resolves.toEqual({
+      ok: false, reason: "bad-response", status: 400, error: "モデルが見つかりません",
+    });
+    const opaque = vi.fn<typeof fetch>(async () => jsonResponse(500, { error: "Backend failure: internal details" }));
+    await expect(forwardTaskModel("task-1", "chosen", { env, fetchImpl: opaque })).resolves.toEqual({
+      ok: false, reason: "bad-response", status: 500,
+    });
+  });
+
   it("keeps a miss as not-found and reports an unreachable owner", async () => {
     const missing = vi.fn<typeof fetch>(async () => jsonResponse(404, { error: "Not found" }));
     await expect(forwardTaskModel("task-1", "chosen", { env, fetchImpl: missing })).resolves.toEqual({

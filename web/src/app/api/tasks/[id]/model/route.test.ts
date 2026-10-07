@@ -73,6 +73,16 @@ describe("POST /api/tasks/[id]/model", () => {
     expect(mocks.setTaskModel).not.toHaveBeenCalled();
   });
 
+  it("shows a sanitized owner error instead of hiding the model selection cause", async () => {
+    mocks.localRuntimeBlocked.mockReturnValue(true);
+    mocks.forwardTaskModel.mockResolvedValue({ ok: false, reason: "bad-response", status: 400, error: "モデルが見つかりません" });
+    const response = await POST(request({ model: "commandcode/missing" }), { params: Promise.resolve({ id: "task-1" }) });
+    expect(response.status).toBe(400);
+    expect(await response.json()).toEqual({ error: "モデルが見つかりません" });
+    expect(mocks.clearGoalLoopAutoModel).not.toHaveBeenCalled();
+    expect(mocks.setTaskModel).not.toHaveBeenCalled();
+  });
+
   it("reports a forwarded failure with its status", async () => {
     mocks.localRuntimeBlocked.mockReturnValue(true);
     mocks.forwardTaskModel.mockResolvedValue({ ok: false, reason: "incompatible", status: 409 });

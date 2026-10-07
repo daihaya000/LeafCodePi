@@ -597,6 +597,7 @@ describe("getRuntimeFor", () => {
       modelID: "fresh",
       input: ["text"] as ("text")[],
       reasoning: false,
+      codexbarUnavailable: false,
     };
     (globalThis as Record<string, unknown>)[GLOBAL_KEY] = {
       pi: null,
@@ -1095,6 +1096,7 @@ describe("getRuntimeFor", () => {
       subscription: true,
       codexbarUsedPercent: null,
       codexbarMaxed: false,
+      codexbarUnavailable: false,
       routingMode: "integrated",
       routingCandidateCount: 2,
     });

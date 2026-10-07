@@ -208,16 +208,45 @@ type CommandCodeRegistration =
   | { kind: "provider"; name: string; config: Record<string, unknown> }
   | { kind: "native"; provider: { id: string } };
 
-const REGISTRATION_KEY = "__leafcodeCommandCodeRegistration" as const;
+const REGISTRATION_KEY = "__leafcodeCommandCodeRegistrationState" as const;
+const REGISTRATION_RETRY_MS = 5_000;
 
-function registrationPromise(): Promise<CommandCodeRegistration[] | null> {
+type RegistrationState = {
+  promise?: Promise<CommandCodeRegistration[] | null>;
+  retryAt: number;
+  runtimes: WeakMap<ModelRuntime, Promise<void>>;
+  incomplete: WeakSet<ModelRuntime>;
+};
+
+function registrationState(): RegistrationState {
   const globalRef = globalThis as typeof globalThis & {
-    [REGISTRATION_KEY]?: Promise<CommandCodeRegistration[] | null>;
+    [REGISTRATION_KEY]?: RegistrationState;
   };
-  if (!globalRef[REGISTRATION_KEY]) {
-    globalRef[REGISTRATION_KEY] = loadCommandCodeRegistrations();
+  return (globalRef[REGISTRATION_KEY] ??= { retryAt: 0, runtimes: new WeakMap(), incomplete: new WeakSet() });
+}
+
+function registrationPromise(cache: RegistrationState): Promise<CommandCodeRegistration[] | null> {
+  if (!cache.promise || Date.now() >= cache.retryAt) {
+    // Share one load across runtimes; successful catalogs stay cached, failures expire.
+    cache.retryAt = Infinity;
+    cache.promise = loadCommandCodeRegistrations().then((registrations) => {
+      const hasModels = registrations?.some((registration) => registration.kind === "native" ||
+        (Array.isArray(registration.config.models) && registration.config.models.length > 0));
+      cache.retryAt = hasModels ? Infinity : Date.now() + REGISTRATION_RETRY_MS;
+      return registrations;
+    }, () => {
+      cache.retryAt = Date.now() + REGISTRATION_RETRY_MS;
+      return null;
+    });
   }
-  return globalRef[REGISTRATION_KEY];
+  return cache.promise;
+}
+
+/** Retry only our incomplete registrations, respecting the shared catalog backoff. */
+export function shouldRetryCommandCodeRegistration(runtime: ModelRuntime): boolean {
+  const cache = registrationState();
+  return cache.incomplete.has(runtime) &&
+    (cache.retryAt === Infinity || Date.now() >= cache.retryAt);
 }
 
 /** @internal テスト用。プロセス共有の拡張ロード結果を破棄する。 */
@@ -301,11 +330,29 @@ export async function registerCommandCodeProvider(
   runtime: ModelRuntime,
   scope?: UsageScope,
 ): Promise<void> {
-  if (runtime.getProvider(COMMANDCODE_PROVIDER_ID)) return;
+  const cache = registrationState();
+  const existing = cache.runtimes.get(runtime);
+  if (existing) return existing;
+  // Existing external registrations need no model scan; retry only our incomplete installs.
+  if (runtime.getProvider(COMMANDCODE_PROVIDER_ID) && !cache.incomplete.has(runtime)) return;
+  cache.incomplete.add(runtime);
+  const promise = installCommandCodeProvider(runtime, scope, cache);
+  cache.runtimes.set(runtime, promise);
+  try {
+    await promise;
+  } finally {
+    if (cache.runtimes.get(runtime) === promise) cache.runtimes.delete(runtime);
+  }
+}
 
+async function installCommandCodeProvider(
+  runtime: ModelRuntime,
+  scope: UsageScope | undefined,
+  cache: RegistrationState,
+): Promise<void> {
   if (!scope?.authPath) syncCommandCodeApiKeyEnv();
-  const registrations = await registrationPromise();
-  if (!registrations || runtime.getProvider(COMMANDCODE_PROVIDER_ID)) return;
+  const registrations = await registrationPromise(cache);
+  if (!registrations) return;
   for (const registration of registrations) {
     if (registration.kind === "provider") {
       runtime.registerProvider(
@@ -331,4 +378,5 @@ export async function registerCommandCodeProvider(
     withCommandCodeApiKeyAuth(provider, Boolean(scope?.authPath)),
   );
   await runtime.refresh({ providers: [COMMANDCODE_PROVIDER_ID], allowNetwork: false });
+  if (runtime.getModels(COMMANDCODE_PROVIDER_ID).length > 0) cache.incomplete.delete(runtime);
 }
