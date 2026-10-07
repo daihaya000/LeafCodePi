@@ -27,7 +27,8 @@ describe("TokenUsageDetails", () => {
     expect(screen.getByText("推定残 44,000 tok")).toBeTruthy();
     rerender(<TokenUsageDetails usage={data} now={Date.parse("2026-10-07T10:15:00Z")} />);
     expect(screen.queryByText(/推定残/)).toBeNull();
-    expect(screen.getByText(/古い取得値/)).toBeTruthy();
+    expect(screen.getByText("· 推定なし")).toBeTruthy();
+    expect(screen.getByTitle(/古い取得値/)).toBeTruthy();
   });
   it.each([
     ["unsupported", "この利用枠は推定対象外"],
@@ -36,11 +37,33 @@ describe("TokenUsageDetails", () => {
   ] as const)("explains %s instead of asking for impossible calibration", (status, label) => {
     render(<TokenUsageDetails usage={{ ...usage, windows: [{ ...usage.windows[0], status }] }} />);
     expect(screen.queryByText(/推定残/)).toBeNull();
-    expect(screen.getByText(`推定 —（${label}）`)).toBeTruthy();
+    expect(screen.getByText("· 推定なし")).toBeTruthy();
+    expect(screen.getByTitle(`5時間: ${label}`)).toBeTruthy();
+    expect(screen.queryByText(label)).toBeNull();
+  });
+  it("collapses repeated uncalibrated windows into a single inline hint", () => {
+    const uncalibrated = { ...usage.windows[0], status: "calibrating" as const, tokensPerPercent: null, estimatedRemainingTokens: null };
+    const { container } = render(<TokenUsageDetails usage={{ ...usage, totalTokens: 0, windows: [uncalibrated, { ...uncalibrated, id: "week", title: "週間" }] }} />);
+    expect(container.textContent).toBe("実測 0 tok· 推定待ち");
+    expect(screen.getAllByText("· 推定待ち")).toHaveLength(1);
+    expect(screen.getByText("· 推定待ち").getAttribute("title")).toBe("5時間: 計測中／使用率差1%以上が必要\n週間: 計測中／使用率差1%以上が必要");
+    expect(screen.queryByText(/使用率差1%以上/)).toBeNull();
+  });
+  it("keeps calibrated numbers while summarizing only pending windows", () => {
+    render(<TokenUsageDetails usage={{ ...usage, windows: [usage.windows[0], { ...usage.windows[0], id: "week", title: "週間", tokensPerPercent: null, estimatedRemainingTokens: null }] }} />);
+    expect(screen.getByText("推定残 44,000 tok")).toBeTruthy();
+    expect(screen.getByText("· 推定待ち")).toBeTruthy();
+    expect(screen.getByTitle("週間: 計測中／使用率差1%以上が必要")).toBeTruthy();
+    expect(screen.queryByText("週間:")).toBeNull();
+  });
+  it("does not show a pending hint when there are no quota windows", () => {
+    render(<TokenUsageDetails usage={{ ...usage, windows: [] }} />);
+    expect(screen.queryByText(/推定/)).toBeNull();
+    expect(screen.getByText("1,000 tok")).toBeTruthy();
   });
   it("does not invent a quota before calibration", () => {
     render(<TokenUsageDetails usage={{ ...usage, windows: [{ ...usage.windows[0], tokensPerPercent: null, estimatedRemainingTokens: null }] }} />);
-    expect(screen.getByText(/推定 —/)).toBeTruthy();
+    expect(screen.getByText("· 推定待ち")).toBeTruthy();
     expect(screen.queryByText(/推定残/)).toBeNull();
     expect(screen.queryByText(/tok\/1%/)).toBeNull();
   });
