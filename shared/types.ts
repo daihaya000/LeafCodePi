@@ -405,6 +405,8 @@ export type GoalLoopDto = {
   forceFullRun: boolean;
   /** Auto agent selection is re-evaluated before every Goal Loop turn. */
   autoAgent?: boolean;
+  /** Queued first-turn images; removed once the first prompt is committed. */
+  initialImages?: { type: "image"; mimeType: string; data: string }[];
   turnCount: number;
   /** 直前のターンがエラー等で中断されたため、再開時に同じターン番号を再送する。 */
   retryInterruptedTurn?: boolean;

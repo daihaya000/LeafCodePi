@@ -1140,6 +1140,70 @@ describe("integrated session routing", () => {
     expect(isGoalLoopAutoModel(task.id, loop)).toBe(false);
   });
 
+  it.each(["replacement", "ended", "paused", "initial-images"])("keeps Goal Loop Auto routing bound to its captured loop (%s)", async (change) => {
+    const dir = mkdtempSync(join(tmpdir(), "leafcode-goal-auto-boundary-"));
+    tempDirs.push(dir);
+    process.env.LEAFCODE_PI_DATA_DIR = dir;
+    process.env.PI_CODING_AGENT_DIR = join(dir, "agent");
+    __resetPiAgentDirCacheForTests();
+    const base = { provider: "anthropic", reasoning: false, thinkingLevelMap: { off: "none" } };
+    const models = [
+      { ...base, id: "claude-haiku", input: ["text", "image"] },
+      { ...base, id: "claude-sonnet", input: ["text"] },
+    ];
+    let blockCatalog = false;
+    let entered!: () => void;
+    let release!: () => void;
+    const enteredCatalog = new Promise<void>((resolve) => { entered = resolve; });
+    const catalogGate = new Promise<void>((resolve) => { release = resolve; });
+    const account = createAccount({ label: "テスト", providers: ["anthropic"] });
+    storeProviderAuth(account.id, process.env.PI_CODING_AGENT_DIR!);
+    installHarness(new Map([[account.id, {
+      ...runtime(account.id),
+      getModels: () => models.map((model) => ({ id: model.id, name: model.id })),
+      getModel: (providerID: string, modelID: string) => models.find((model) => model.provider === providerID && model.id === modelID),
+      getAvailable: async () => {
+        if (blockCatalog) { entered(); await catalogGate; }
+        return models;
+      },
+    } as ReturnType<typeof runtime>]]));
+    await setAccountRoutingMode("anthropic", "integrated");
+    setSetting("auto-optimize", "balanced");
+    const decision = await resolveAutoModel({ prompt: "demo", hasImages: false, mode: "balanced" });
+    assert.ok(decision);
+    const fixed = models.find((model) => model.id !== decision.modelID)!;
+    const project = upsertProject({ name: "demo", rootPath: dir });
+    const task = await createTask({ projectId: project.id, prompt: "demo", model: `anthropic::${fixed.id}`, goalLoop: { maxTurns: 3 } });
+    disarmTaskHangWatch(task.id);
+    const loop = readGoalLoopState(dir, task.sessionId!);
+    assert.ok(loop);
+    const file = goalLoopStateFile(dir, task.sessionId!);
+    if (change === "initial-images") {
+      writeFileSync(file, JSON.stringify({ ...loop, initialImages: [{ type: "image", mimeType: "image/png", data: "aW1hZ2U=" }] }), "utf8");
+    }
+    setGoalLoopAutoModel(task.id, loop);
+    const harness = (globalThis as Record<string, unknown>)[GLOBAL_KEY] as { accountRecordsCache?: unknown };
+    harness.accountRecordsCache = undefined;
+    blockCatalog = change !== "initial-images";
+    const prepare = fakePi.sessions[0]!.routingHooks!.prepareGoalLoopTurn as (prompt: string) => Promise<boolean | "retry">;
+    const preparing = prepare("goal turn");
+    try {
+      if (blockCatalog) {
+        await enteredCatalog;
+        const latest = { ...loop, createdAt: change === "replacement" ? "new-loop-generation" : loop.createdAt, goal: "new goal", status: change === "ended" ? "stopped" : change === "paused" ? "paused" : "queued" };
+        writeFileSync(file, JSON.stringify(latest), "utf8");
+        if (change === "replacement") setGoalLoopAutoModel(task.id, latest);
+        release();
+      }
+      await preparing;
+      expect(getTask(task.id)?.modelID).toBe(change === "initial-images" ? "claude-haiku" : fixed.id);
+    } finally {
+      release();
+      await preparing;
+      (fakePi.sessions.at(-1)?.routingHooks?.releaseGoalLoopTurn as (() => void) | undefined)?.();
+    }
+  });
+
   it("releases a prepared Goal turn even when the session is compacting", async () => {
     const dir = mkdtempSync(join(tmpdir(), "leafcode-pi-goal-loop-release-compact-"));
     tempDirs.push(dir);

@@ -3583,21 +3583,28 @@ async function resolveGoalLoopAutoModelForTurn(taskId: string, live: LiveRuntime
       live.session.sessionManager.getCwd(),
       live.session.sessionId,
     );
-    if (!loop || !isGoalLoopAutoModel(taskId, loop)) return;
+    if (!loop || !isGoalLoopLiveStatus(loop.status) || !isGoalLoopAutoModel(taskId, loop)) return;
     const { mode, config } = configuredAutoRoute();
     const sessionFile = live.session.sessionFile ?? task.sessionFile;
     if (!sessionFile) return;
     const decision = await resolveAutoModel({
       prompt: loop.goal,
-      hasImages: false,
+      hasImages: Boolean(loop.initialImages?.length),
       historyMessageCount: readSessionConversation(sessionFile).length,
       recentFailure: task.status === "error" || Boolean(task.error),
       mode,
       config,
     });
     if (!decision) return;
-    // The user may have picked a concrete model while Auto was resolving.
-    if (!isGoalLoopAutoModel(taskId, readGoalLoopState(live.session.sessionManager.getCwd(), live.session.sessionId))) return;
+    // Auto resolution may outlive this runtime/loop, a Pause/Stop, or a concrete
+    // model choice. A new loop's Auto marker must not authorize the old decision.
+    const latestLoop = readGoalLoopState(live.session.sessionManager.getCwd(), live.session.sessionId);
+    if (
+      state().live.get(taskId) !== live ||
+      !latestLoop || !isGoalLoopLiveStatus(latestLoop.status) ||
+      latestLoop.id !== loop.id || latestLoop.createdAt !== loop.createdAt ||
+      !isGoalLoopAutoModel(taskId, latestLoop)
+    ) return;
     await setTaskModel(taskId, autoModelValue(decision), { accountIdExplicit: false });
     const thinkingLevel = autoVariantToThinkingLevel(decision.variant);
     if (thinkingLevel) await setTaskThinkingLevel(taskId, thinkingLevel);
