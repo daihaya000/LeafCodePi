@@ -20,6 +20,7 @@ import {
   buildStateNote,
   buildStopMessage,
   isClosingShellCommand,
+  isNonReviewShellCommand,
   isShellTool,
 } from "./enforcement.ts";
 import { normalizeTodos, type TodoItem } from "./state.ts";
@@ -230,16 +231,26 @@ export default function (pi: ExtensionAPI): void {
   };
   const gateEnabled = () => pi.getActiveTools().includes("todowrite");
   const hasInProgress = () => todos.some((todo) => todo.status === "in_progress");
+  const visibilityMode = () => gate.openedThisTask ? hasInProgress() ? "open" : "closing"
+    : gate.waived && gate.waivedMutations < WAIVER_MUTATION_LIMIT ? "open"
+      : gate.substantiveCalls < TODO_GATE_READ_LIMIT - 1 ? "preflight" : "required";
   const visibleBeforeCall = (name: string) => {
     const action = classifyToolForTodoGate(name, undefined);
     if (action === "allow") return true;
-    if (gate.openedThisTask) return hasInProgress() || action === "count" || isShellTool(name);
-    if (gate.waived && gate.waivedMutations < WAIVER_MUTATION_LIMIT) return true;
-    return action === "count" && gate.substantiveCalls < TODO_GATE_READ_LIMIT - 1;
+    const mode = visibilityMode();
+    return mode === "open" || (mode === "closing" && (action === "count" || isShellTool(name)))
+      || (mode === "preflight" && action === "count");
   };
   const visibility = (name: string) => !gateEnabled() || visibleBeforeCall(name);
   // Reapply descriptions/declaration projection, not the permission/loadout membership.
-  const refreshVisibility = () => pi.setActiveTools(pi.getActiveTools());
+  let lastVisibilityKey: string | undefined;
+  const refreshVisibility = (force = false) => {
+    const active = pi.getActiveTools();
+    const key = `${active.includes("todowrite") ? visibilityMode() : "off"}:${JSON.stringify(active)}`;
+    if (!force && key === lastVisibilityKey) return;
+    pi.setActiveTools(active);
+    lastVisibilityKey = key;
+  };
   const publishVisibility = (ctx: ExtensionContext) => publishTodoVisibility(ctx.sessionManager, visibility);
   const restore = (ctx: ExtensionContext) => {
     todos = reconstructState(ctx);
@@ -249,7 +260,7 @@ export default function (pi: ExtensionAPI): void {
     // open while an in_progress item exists.
     if (todos.some((todo) => todo.status === "in_progress")) gate.openedThisTask = true;
     publishVisibility(ctx);
-    refreshVisibility();
+    refreshVisibility(true);
     updateTui(ctx, todos);
   };
 
@@ -263,7 +274,7 @@ export default function (pi: ExtensionAPI): void {
       await consultJev(task, ctx.signal);
     }
     publishVisibility(ctx);
-    refreshVisibility();
+    refreshVisibility(true);
   });
   pi.on("input", (event) => {
     if (event.source === "extension") return;
@@ -284,8 +295,10 @@ export default function (pi: ExtensionAPI): void {
     refreshVisibility();
   });
   // Work the list is meant to track. Counted when a call is admitted, for the end-of-run audit.
-  const admit = (task: TodoGateState, _toolName: string, action: TodoGateAction) => {
-    if (action !== "block") return;
+  const needsReview = (toolName: string, input: unknown, action: TodoGateAction) =>
+    action === "block" && !(isShellTool(toolName) && isNonReviewShellCommand(asRecord(input)?.command, toolName));
+  const admit = (task: TodoGateState, toolName: string, action: TodoGateAction, input: unknown) => {
+    if (!needsReview(toolName, input, action)) return;
     task.mutationVersion += 1;
     task.reviewRequired = true;
     refreshVisibility();
@@ -299,13 +312,13 @@ export default function (pi: ExtensionAPI): void {
     // Clearing the list or completing every item closes the gate again.
     if (task.openedThisTask) {
       if (hasInProgress()) {
-        admit(task, event.toolName, action);
+        admit(task, event.toolName, action, event.input);
         return;
       }
       if (action === "count") return;
       const command = asRecord(event.input)?.command;
       if (isShellTool(event.toolName) && isClosingShellCommand(command, event.toolName)) {
-        admit(task, event.toolName, action);
+        admit(task, event.toolName, action, event.input);
         return;
       }
       stats.closedBlocks += 1;
@@ -314,10 +327,10 @@ export default function (pi: ExtensionAPI): void {
 
     // A Jev waiver covers small tasks only: once the task keeps changing things it expires.
     if (task.waived) {
-      if (action === "count") return;
+      if (action === "count" || !needsReview(event.toolName, event.input, action)) return;
       if (task.waivedMutations < WAIVER_MUTATION_LIMIT) {
         task.waivedMutations += 1;
-        admit(task, event.toolName, action);
+        admit(task, event.toolName, action, event.input);
         return;
       }
       task.waived = false;
@@ -333,13 +346,16 @@ export default function (pi: ExtensionAPI): void {
     }
     // Gate operations, not words in the prompt.
     const stop = () => {
+      if (task !== gate) return { block: true, reason: "依頼が切り替わりました。現在のToDoを確認してから再実行してください。" };
       if (task.openedThisTask || task.waived) {
-        if (!task.openedThisTask) task.waivedMutations += action === "block" ? 1 : 0;
-        admit(task, event.toolName, action);
+        if (!task.openedThisTask && needsReview(event.toolName, event.input, action)) task.waivedMutations += 1;
+        admit(task, event.toolName, action, event.input);
+        refreshVisibility();
         return undefined;
       }
       task.violationObserved = true;
       stats.gateBlocks += 1;
+      refreshVisibility();
       return { block: true, reason: TODO_GATE_REASON };
     };
     // Without Jev (no host, an unknown request, or an expired waiver) this is the conventional
@@ -431,16 +447,19 @@ export default function (pi: ExtensionAPI): void {
     promptSnippet: "Maintain the task Todo list with statuses and priorities",
     promptGuidelines: [
       "Keep a todowrite list for work that takes several dependent steps (changing code, files or configuration, running commands with side effects, verifying, committing, delegating). For such work, call todowrite with a non-empty list and mark the current item in_progress before the first edit, shell command, delegation, unclassified tool, or third substantive read-only tool call. For explicit Todo requests, call it before the first substantive tool. When unsure, register.",
+      "Call todowrite directly, not inside codemode. Direct tool results preserve the list for reload and UI.",
       "Update the list at every step: mark the finished item completed and set the next item in_progress when you start it. Never batch status changes to the end of the task.",
       "Skip the list for a question, explanation, single lookup, discussion, standalone judgment call, control-tool use, or one small self-contained action. If the ToDo gate stops a tool call anyway, register the list and retry the call.",
     ],
     // The gate opens from execute(); serialize this tool so a same-batch edit
     // cannot be preflighted before todowrite has recorded its result.
     executionMode: "sequential",
+    // Nested results are not persisted as todowrite snapshots by the SDK/UI.
+    // Always keep registration and progress updates as direct transcript entries.
     parameters: TodoParams,
     // Native SDK declaration projection retains the executable registry and branch loadout.
     // Structural typing also supports the extension's older standalone dev SDK typings.
-    ...{ prepareLoadout: (loadout: { declared: readonly { name: string }[] }) => ({
+    ...{ exposure: "model-only" as const, prepareLoadout: (loadout: { declared: readonly { name: string }[] }) => ({
       hiddenDeclarations: loadout.declared.filter((tool) => !visibleBeforeCall(tool.name)).map((tool) => tool.name),
     }) },
 
@@ -459,7 +478,7 @@ export default function (pi: ExtensionAPI): void {
       const startedReview = normalized.todos.find((next) =>
         isReviewTodo(next) &&
         next.status === "in_progress" &&
-        todos.find((previous) => previous.id === next.id)?.status !== "in_progress",
+        !todos.some((previous) => previous.id === next.id && previous.status === "in_progress" && isReviewTodo(previous)),
       );
       if (startedReview) {
         gate.reviewStartedVersion = gate.mutationVersion;

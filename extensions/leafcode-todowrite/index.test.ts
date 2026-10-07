@@ -7,6 +7,7 @@ import { TODO_JEV_TIMEOUT_MS, TODO_REQUEST_MAX_CHARS } from "./todo-need.ts";
 type Handler = (event: any, ctx: ExtensionContext) => unknown;
 type TodoTool = {
   executionMode?: "sequential" | "parallel";
+  exposure?: string;
   prepareLoadout?: (loadout: { declared: readonly { name: string }[] }) => { hiddenDeclarations: string[] };
   promptGuidelines?: string[];
   execute: (...args: any[]) => Promise<{ details?: { error?: string; todos?: unknown[] } }>;
@@ -30,6 +31,7 @@ function fixture(options: FixtureOptions = {}) {
   const handlers = new Map<string, Handler>();
   const sendMessage = vi.fn();
   const notify = vi.fn();
+  const refresh = vi.fn();
   let todoTool: TodoTool | undefined;
   const pi = {
     on: (event: string, handler: Handler) => handlers.set(event, handler),
@@ -38,7 +40,7 @@ function fixture(options: FixtureOptions = {}) {
     },
     registerCommand: vi.fn(),
     getActiveTools: () => options.active === false ? [] : ["todowrite"],
-    setActiveTools: vi.fn(),
+    setActiveTools: refresh,
     sendMessage,
   } as unknown as ExtensionAPI;
   const ctx = {
@@ -80,7 +82,7 @@ function fixture(options: FixtureOptions = {}) {
   );
 
   const settle = () => handlers.get("agent_settled")?.({ type: "agent_settled" }, ctx);
-  return { callTool, callToolAsync, ctx, emit, settle, notify, sendMessage, writeTodos, tool: registeredTool };
+  return { callTool, callToolAsync, ctx, emit, settle, notify, sendMessage, writeTodos, refresh, tool: registeredTool };
 }
 
 describe("normalizeTodos", () => {
@@ -114,6 +116,67 @@ describe("normalizeTodos", () => {
       previous,
     );
     expect(result.todos[0]?.id).toBe("build");
+  });
+});
+
+describe("todowrite review regressions", () => {
+  it("rejects escaped unquoted POSIX flag fragments after completion", async () => {
+    const run = fixture();
+    await run.writeTodos([{ content: "Work", status: "in_progress", priority: "high" }]);
+    await run.writeTodos([{ content: "Work", status: "completed", priority: "high" }]);
+    expect(run.callTool("bash", { command: String.raw`git push --fo\rce` })?.block).toBe(true);
+  });
+  it.each([
+    'git push "--force"', "git push '--force-with-lease=origin/master'", 'git push "--fo"rce',
+    'git diff "--output=source.ts"', "git log --output=source.ts", "git diff --ext-diff", "git show --textconv",
+    "git status | Where-Object { Remove-Item file.ts }", 'git push "$flags"', "git push $flags",
+  ])("rejects hidden flags or executable constructs in the closing phase: %s", async (command) => {
+    const run = fixture();
+    await run.writeTodos([{ content: "Work", status: "in_progress", priority: "high" }]);
+    await run.writeTodos([{ content: "Work", status: "completed", priority: "high" }]);
+    expect(run.callTool("powershell", { command })?.block).toBe(true);
+  });
+  it("does not admit a stale tool call after the user switches tasks during a judgment", async () => {
+    const answer = deferred<Record<string, number> | null>();
+    const judge = installJudge(() => answer.promise);
+    const run = fixture();
+    startTask(run, "Fix one typo");
+    const call = run.callToolAsync("edit");
+    startTask(run, "Implement another feature");
+    answer.resolve(small);
+    expect(await call).toMatchObject({ block: true });
+    judge.mockResolvedValue(big);
+    expect(await run.callToolAsync("edit")).toMatchObject({ block: true });
+  });
+  it("reprojects declarations after a delayed read waiver opens the gate", async () => {
+    installJudge(small);
+    const run = fixture();
+    startTask(run, "Explain the file");
+    run.callTool("read"); run.callTool("read");
+    const before = run.refresh.mock.calls.length;
+    expect(await run.callToolAsync("read")).toBeUndefined();
+    expect(run.refresh.mock.calls.length).toBeGreaterThan(before);
+  });
+  it("does not invalidate a completed review with the Git commit and confirmation phase", async () => {
+    const run = fixture();
+    await run.writeTodos([{ content: "Work", status: "in_progress", priority: "high" }]);
+    run.callTool("edit");
+    await run.writeTodos([{ content: "Review", status: "in_progress", priority: "high" }]);
+    await run.writeTodos([{ content: "Review", status: "completed", priority: "high" }]);
+    run.callTool("powershell", { command: "git add -- file.ts; git commit -m 'done'; git push origin master; git status --short" });
+    expect(run.emit("agent_before_settle", { outcome: "completed" })).toBeUndefined();
+    run.callTool("powershell", { command: "git fetch origin; git merge --no-edit origin/master" });
+    expect(JSON.stringify(run.emit("agent_before_settle", { outcome: "completed" }))).toContain("レビュー");
+  });
+  it("does not rebuild unchanged visibility on every admitted mutation", async () => {
+    const run = fixture();
+    await run.writeTodos([{ content: "Work", status: "in_progress", priority: "high" }]);
+    const before = run.refresh.mock.calls.length;
+    for (let i = 0; i < 20; i++) run.callTool("edit");
+    expect(run.refresh.mock.calls.length).toBe(before);
+  });
+  it("keeps todo snapshots direct so reload and UI cannot lose nested registrations", () => {
+    expect(fixture().tool.exposure).toBe("model-only");
   });
 });
 

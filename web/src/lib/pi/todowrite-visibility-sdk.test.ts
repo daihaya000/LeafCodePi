@@ -134,6 +134,21 @@ it("filters native/deferred discovery and the real codemode catalog before todo 
   }
 }, 20_000);
 
+it("keeps registration direct-only and restores an active snapshot on SDK reload", async () => {
+  const { session, faux } = await fixture();
+  faux.setResponses([
+    call("codemode", { code: 'return { nestedTodo: "todowrite" in tools };' }),
+    call("todowrite", { todos: work }),
+    fauxAssistantMessage("paused"), fauxAssistantMessage("paused"), fauxAssistantMessage("paused"),
+  ]);
+  await session.prompt("Start work and pause with a persisted active list");
+  const script = session.messages.find((entry) => entry.role === "toolResult" && entry.toolName === "codemode");
+  expect(script?.role === "toolResult" && script.content.some((part) => part.type === "text" && part.text.includes('"nestedTodo":false'))).toBe(true);
+  expect(todoToolVisible(session.sessionManager, "edit")).toBe(true);
+  await session.reload();
+  expect(todoToolVisible(session.sessionManager, "edit")).toBe(true);
+});
+
 it("does not apply a session's visibility policy to another session manager", async () => {
   const { session } = await fixture();
   expect(todoToolVisible(session.sessionManager, "edit")).toBe(false);

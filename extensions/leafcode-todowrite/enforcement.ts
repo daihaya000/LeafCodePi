@@ -27,7 +27,7 @@ const CLOSING_GIT_SUBCOMMANDS = new Set([
 ]);
 /** Pipe targets that only shape or filter output. */
 const OUTPUT_FILTER = /^(select-object|select|select-string|out-string|measure-object|sort-object|where-object|head|tail|findstr|grep|wc|sort|more)\b/i;
-const GIT_FORBIDDEN_FLAGS = /(^|\s)(--force(?:-with-lease|-if-includes)?(?:=[^\s]+)?|--hard|--amend|--rebase|--abort|--quit|-f)(?=\s|$)/i;
+const GIT_FORBIDDEN_FLAGS = /(^|\s)(--force(?:-with-lease|-if-includes)?(?:=[^\s]+)?|--hard|--amend|--rebase|--abort|--quit|--output(?:=[^\s]+)?|--ext-diff|--textconv|-f)(?=\s|$)/i;
 
 export function isShellTool(toolName: string): boolean {
   return SHELL_TOOLS.has(toolName);
@@ -39,12 +39,13 @@ export function isShellTool(toolName: string): boolean {
  */
 type ShellCommandShape = { statements: string[][]; malformed: boolean; dangerous: boolean };
 
-/** Split on shell operators outside quotes and replace quoted arguments with neutral data. */
+/** Split outside quotes; neutralize quoted data but retain option names for forbidden-flag checks. */
 function parseShellCommand(command: string, toolName: string): ShellCommandShape {
   const statements: string[][] = [];
   let pipeline: string[] = [];
   let part = "";
   let quote: "single" | "double" | undefined;
+  let quoted = "";
   let malformed = false;
   let dangerous = false;
   const pushPart = () => {
@@ -58,31 +59,35 @@ function parseShellCommand(command: string, toolName: string): ShellCommandShape
     pipeline = [];
   };
   const powershell = toolName === "powershell";
+  const closeQuote = (next: string | undefined) => {
+    // Adjacent fragments can construct hidden flags (e.g. "--fo"rce). Reject instead of guessing.
+    if (next && !/[\s;|&]/.test(next)) malformed = true;
+    const option = /^(--[a-z][\w-]*|-f)(?:=|$)/i.exec(quoted);
+    part += option ? ` ${option[1]} ` : " '' ";
+    quote = undefined;
+    quoted = "";
+  };
 
   for (let i = 0; i < command.length; i += 1) {
     const char = command[i]!;
     const next = command[i + 1];
     if (quote === "single") {
-      if (powershell && char === "'" && next === "'") i += 1;
-      else if (char === "'") quote = undefined;
+      if (powershell && char === "'" && next === "'") { quoted += "'"; i += 1; }
+      else if (char === "'") closeQuote(next);
+      else quoted += char;
       continue;
     }
     if (quote === "double") {
-      if (!powershell && char === "\\") i += 1;
-      else if (powershell && char === "`") i += 1;
+      if ((!powershell && char === "\\") || (powershell && char === "`")) { quoted += next ?? ""; i += 1; }
       else if (char === '`' && !powershell) dangerous = true;
-      else if (char === '"') quote = undefined;
-      else if (char === "$" && (next === "(" || next === "{")) dangerous = true;
+      else if (char === '"') closeQuote(next);
+      else { if (char === "$") dangerous = true; quoted += char; }
       continue;
     }
-    if (char === "'") {
-      quote = "single";
-      part += " '' ";
-      continue;
-    }
-    if (char === '"') {
-      quote = "double";
-      part += " '' ";
+    if (char === "'" || char === '"') {
+      if (i > 0 && !/[\s;|&]/.test(command[i - 1]!)) malformed = true;
+      quote = char === "'" ? "single" : "double";
+      quoted = "";
       continue;
     }
     if (char === "`") {
@@ -90,11 +95,12 @@ function parseShellCommand(command: string, toolName: string): ShellCommandShape
       dangerous = true;
       continue;
     }
-    if (char === "$" && (next === "(" || next === "{")) {
+    if (char === "$") {
       dangerous = true;
       continue;
     }
     if (!powershell && char === "\\" && next !== undefined) {
+      dangerous = true; // Escaped unquoted fragments can build hidden flags (e.g. --fo\\rce).
       part += " ";
       i += 1;
       continue;
@@ -108,7 +114,7 @@ function parseShellCommand(command: string, toolName: string): ShellCommandShape
       i += 1;
       continue;
     }
-    if (char === "<" || char === ">" || char === "(" || char === ")" || char === "&") {
+    if (char === "<" || char === ">" || char === "(" || char === ")" || char === "{" || char === "}" || char === "&") {
       // A single ampersand backgrounds a POSIX command or invokes PowerShell's call operator.
       dangerous = true;
       continue;
@@ -148,6 +154,14 @@ export function isClosingShellCommand(command: unknown, toolName = "powershell")
     const subcommand = match[1]!.toLowerCase();
     return CLOSING_GIT_SUBCOMMANDS.has(subcommand) && !GIT_FORBIDDEN_FLAGS.test(match[2] ?? "");
   });
+}
+
+/** Commit/confirmation does not modify reviewed working-tree content. Merge still needs review. */
+export function isNonReviewShellCommand(command: unknown, toolName: string): boolean {
+  if (!isClosingShellCommand(command, toolName)) return false;
+  return !parseShellCommand(command as string, toolName).statements.some(([head = ""]) =>
+    /^git(?:\s+-C\s+\S+)?\s+merge\b/i.test(head),
+  );
 }
 
 function clip(text: string): string {

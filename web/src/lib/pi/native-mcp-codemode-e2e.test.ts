@@ -75,7 +75,7 @@ async function run(code: string) {
   writeFileSync(join(agentDir, "bundle.json"), "{}", "utf8");
   const runtime = createBackendMcpNativeRuntime({
     agentDir, bundledConfigPath: join(agentDir, "bundle.json"), homeDir: root,
-    environment: Object.fromEntries(Object.entries(process.env).filter((entry): entry is [string, string] => typeof entry[1] === "string")),
+    environment: {}, // Absolute Node executable: keep the fixture independent of ambient Windows env aliases.
     variables: {}, fetch: async () => { throw new Error("No network"); }, openUrl() { throw new Error("No browser"); },
     assertProcessOwner() {}, storageChecks: { config() {}, credentials() {} },
   });
@@ -96,7 +96,8 @@ async function run(code: string) {
   await resourceLoader.reload();
   assert.deepEqual(resourceLoader.getExtensions().errors, []);
   const registered = resourceLoader.getExtensions().extensions.flatMap((extension) => [...extension.tools.keys()]);
-  const picked = sessionToolSelection({ tools: ["read", "tool_search"], dynamicMcpTools: true, registered });
+  assert.ok(registered.includes("codemode"), JSON.stringify({ registered }));
+  const picked = sessionToolSelection({ tools: ["read", "tool_search", "codemode"], dynamicMcpTools: true, registered });
   assert.ok("excludeTools" in picked);
 
   const faux = fauxProvider();
