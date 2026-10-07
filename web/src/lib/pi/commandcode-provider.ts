@@ -4,6 +4,7 @@ import { dirname, join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { createJiti } from "jiti/static";
 import type { ModelRuntime } from "@earendil-works/pi-coding-agent";
+import type { Provider } from "@earendil-works/pi-ai";
 import type { UsageScope } from "@/lib/codexbar/types";
 
 export const COMMANDCODE_PROVIDER_ID = "commandcode";
@@ -127,6 +128,67 @@ export function syncCommandCodeApiKeyEnv(): void {
   if (primary) return;
   const alt = process.env.COMMAND_CODE_API_KEY?.trim();
   if (alt) process.env.COMMANDCODE_API_KEY = alt;
+}
+
+/** Keep API-key login available without borrowing another account's environment key. */
+export function withCommandCodeApiKeyAuth(
+  provider: Provider,
+  accountScoped: boolean,
+): Provider {
+  type ApiKeyAuth = NonNullable<Provider["auth"]["apiKey"]>;
+  const resolveKey = async ({ credential, ctx }: Parameters<ApiKeyAuth["resolve"]>[0]) => {
+    const stored = credential?.key?.trim();
+    if (stored) return { key: stored, source: "stored API key" };
+    if (accountScoped) return undefined;
+    for (const name of ["COMMANDCODE_API_KEY", "COMMAND_CODE_API_KEY"]) {
+      const key = (await ctx.env(name))?.trim();
+      if (key) return { key, source: name };
+    }
+    return undefined;
+  };
+  return {
+    ...provider,
+    auth: {
+      ...provider.auth,
+      apiKey: {
+        name: "Command Code API key",
+        async login(interaction) {
+          interaction.notify({
+            type: "info",
+            message: "GOAT契約のCommand Codeアカウントで発行したAPIキーを入力してください",
+            links: [{ url: "https://commandcode.ai/studio", label: "Command Code Studio" }],
+          });
+          const key = (await interaction.prompt({
+            type: "secret",
+            message: "Command Code API key",
+            placeholder: "user_…",
+          })).trim();
+          if (!key) throw new Error("API キーが必要です");
+          const baseUrl = (provider.baseUrl ?? "https://api.commandcode.ai")
+            .replace(/\/provider\/v1\/?$/, "").replace(/\/+$/, "");
+          const response = await fetch(`${baseUrl}/alpha/whoami`, {
+            headers: { Authorization: `Bearer ${key}`, Accept: "application/json" },
+            signal: AbortSignal.any([interaction.signal, AbortSignal.timeout(20_000)]),
+            cache: "no-store",
+          });
+          if (!response.ok) {
+            throw new Error(`Command Code API キーの確認に失敗しました (${response.status})`);
+          }
+          return { type: "api_key", key };
+        },
+        async check(input) {
+          const resolved = await resolveKey(input);
+          return resolved ? { type: "api_key", source: resolved.source } : undefined;
+        },
+        async resolve(input) {
+          const resolved = await resolveKey(input);
+          return resolved
+            ? { auth: { apiKey: resolved.key }, source: resolved.source }
+            : undefined;
+        },
+      },
+    },
+  };
 }
 
 function withAccountScope(
@@ -253,9 +315,15 @@ export async function registerCommandCodeProvider(
     }
   }
 
-  if (!runtime.getProvider(COMMANDCODE_PROVIDER_ID)) {
+  const provider = runtime.getProvider(COMMANDCODE_PROVIDER_ID);
+  if (!provider) {
     console.warn(
       "[LeafCodePi] commandcode provider factory finished but provider is still missing",
     );
+    return;
   }
+  runtime.registerNativeProvider(
+    withCommandCodeApiKeyAuth(provider, Boolean(scope?.authPath)),
+  );
+  await runtime.refresh({ providers: [COMMANDCODE_PROVIDER_ID], allowNetwork: false });
 }

@@ -3,6 +3,9 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, it } from "vitest";
+import { InMemoryCredentialStore, InMemoryModelsStore } from "@earendil-works/pi-ai";
+import { ModelRuntime } from "@earendil-works/pi-coding-agent";
+import { providerAuthMethods } from "./auth-login";
 import {
   __resetCommandCodeProviderCacheForTests,
   downgradeUnsupportedImages,
@@ -82,6 +85,7 @@ describe("registerCommandCodeProvider", () => {
             }
           },
           registerNativeProvider: () => {},
+          refresh: async () => ({ errors: new Map(), aborted: false }),
         } as never,
         registrations: () => registrations,
       };
@@ -98,6 +102,30 @@ describe("registerCommandCodeProvider", () => {
     assert.equal(fetches, 1);
     assert.equal(first.registrations(), 1);
     assert.equal(second.registrations(), 1);
+  }, 15_000);
+
+  it("keeps API-key and browser login available in an account runtime", async () => {
+    __resetCommandCodeProviderCacheForTests();
+    const dir = mkdtempSync(join(tmpdir(), "leafcode-commandcode-account-"));
+    tempDirs.push(dir);
+    process.env.COMMANDCODE_MODELS_URL = "https://commandcode.test/models";
+    process.env.COMMANDCODE_MODELS_CACHE = join(dir, "models.json");
+    globalThis.fetch = (async () => Response.json({ object: "list", data: [
+      { id: "test-model", name: "Test", context_length: 32_000 },
+    ] })) as typeof fetch;
+    const runtime = await ModelRuntime.create({ credentials: new InMemoryCredentialStore(),
+      modelsPath: null, modelsStore: new InMemoryModelsStore(), refreshOnCreate: false });
+    await registerCommandCodeProvider(runtime, { key: "account:goat", kind: "account",
+      accountId: "goat", accountLabel: "GOAT", authPath: join(dir, "account-auth.json") });
+    const provider = runtime.getProvider("commandcode")!;
+    assert.deepEqual(providerAuthMethods(provider), ["api_key", "oauth"]);
+    assert.deepEqual(runtime.getModels("commandcode").map((model) => model.id), ["test-model"]);
+    assert.equal(await runtime.checkAuth("commandcode"), undefined);
+    await runtime.login("commandcode", "api_key", {
+      prompt: async () => "account-test-key", notify: () => {},
+    });
+    assert.equal((await runtime.getAuth("commandcode"))?.auth.apiKey, "account-test-key");
+    assert.equal(runtime.hasConfiguredAuth("commandcode"), true);
   }, 15_000);
 });
 
