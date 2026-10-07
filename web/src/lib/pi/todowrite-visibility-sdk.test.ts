@@ -34,18 +34,22 @@ const review = [{ content: "Implementation", status: "completed", priority: "hig
 const done = review.map((item) => ({ ...item, status: "completed" }));
 const call = (name: string, args: Parameters<typeof fauxToolCall>[1]) => fauxAssistantMessage([fauxToolCall(name, args)], { stopReason: "toolUse" });
 
-async function fixture(options: { shell?: boolean; denyShell?: boolean } = {}) {
+async function fixture(options: { shell?: boolean; denyShell?: boolean; shellExitCode?: number } = {}) {
   root = mkdtempSync(join(tmpdir(), "leafcode-todo-visibility-"));
   const agentDir = join(root, "agent");
   mkdirSync(agentDir);
   const native: NativeToolSearch = {};
   let runs = 0;
   let gitRuns = 0;
+  const gitResults: unknown[] = [];
   const stubs: ExtensionFactory = (api) => {
+    api.on("tool_result", (event) => { if (event.toolName === "git_finalize") gitResults.push(event.structuredContent); });
     if (options.shell) {
       api.registerTool({ name: "powershell", label: "Test Shell", description: "Fake shell for permission pipeline tests",
         parameters: Type.Object({ command: Type.String(), timeout: Type.Optional(Type.Number()) }),
-        execute: async (_id, args) => { gitRuns++; return { content: [{ type: "text", text: args.command }], details: undefined }; },
+        execute: async (_id, args) => { gitRuns++; return { content: [{ type: "text", text: args.command }], details: undefined,
+          structuredContent: { output: args.command, exit_code: options.shellExitCode ?? 0, truncated: false, wall_time_seconds: 0 },
+          isError: (options.shellExitCode ?? 0) !== 0 }; },
       });
       if (options.denyShell) api.on("tool_call", (event) => event.toolName === "powershell" ? { block: true, reason: "Shell permission denied" } : undefined);
     }
@@ -73,7 +77,7 @@ async function fixture(options: { shell?: boolean; denyShell?: boolean } = {}) {
   session = result.session;
   session.setActiveToolsByName([...session.getActiveToolNames(), "codemode"]);
   await session.bindExtensions({ onError: (error) => { throw Error(error.error); } });
-  return { session, faux, runs: () => runs, gitRuns: () => gitRuns };
+  return { session, faux, runs: () => runs, gitRuns: () => gitRuns, gitResults };
 }
 
 it("hides mutations on the actual first request, reveals only after a valid active list, then closes without revoking the loadout", async () => {
@@ -200,7 +204,19 @@ it.each([false, true])("runs only scoped Git via the native shell hooks: denied=
   expect(results.find((message) => message.toolName === "powershell")?.isError).toBe(true);
 });
 
-it("does not apply a session\u0027s visibility policy to another session manager", async () => {
+it.each([0, 128])("preserves native Git exit status and structured output: exit=%s", async (exitCode) => {
+  const { session, faux, gitResults } = await fixture({ shell: true, shellExitCode: exitCode });
+  faux.setResponses([
+    call("todowrite", { todos: work }), call("todowrite", { todos: done }),
+    call("git_finalize", { operation: "status" }), fauxAssistantMessage("done"),
+  ]);
+  await session.prompt("Finish Git and preserve its result");
+  const result = session.messages.find((message) => message.role === "toolResult" && message.toolName === "git_finalize");
+  expect(result?.role === "toolResult" && result.isError).toBe(exitCode !== 0);
+  expect(gitResults[0]).toMatchObject({ exit_code: exitCode, truncated: false });
+});
+
+it("does not apply a session's visibility policy to another session manager", async () => {
   const { session } = await fixture();
   expect(todoToolVisible(session.sessionManager, "edit")).toBe(false);
   expect(todoToolVisible({}, "edit")).toBe(true);

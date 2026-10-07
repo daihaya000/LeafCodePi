@@ -25,7 +25,7 @@ import {
 import { normalizeTodos, type TodoItem } from "./state.ts";
 import { clipRequestText, judgeTodoNotNeeded } from "./todo-need.ts";
 import { clearTodoVisibility, publishTodoVisibility } from "./visibility.ts";
-import { buildGitFinalizeArgs, gitFinalizeCommand, GitFinalizeParams, GIT_FINALIZE_NAME } from "./git-finalize.ts";
+import { buildGitFinalizeArgs, gitFinalizeCommand, GitFinalizeParams, GIT_FINALIZE_NAME, validateGitFinalizeAddPaths } from "./git-finalize.ts";
 export { normalizeTodos } from "./state.ts";
 export type { TodoItem, TodoPriority, TodoStatus } from "./state.ts";
 
@@ -502,12 +502,28 @@ export default function (pi: ExtensionAPI): void {
       if (!finalizationReady() || !shell || signal?.aborted) throw Error("全ToDoとレビューを完了してからgit_finalizeを使ってください。");
       const native = ctx as typeof ctx & { executeTool?: (name: string, args: unknown, options: unknown) => Promise<{ isError: boolean; result: { content: unknown[]; details?: unknown } }> };
       if (typeof native.executeTool !== "function") throw Error("Native SDKの権限付き実行経路がありません。");
-      const command = gitFinalizeCommand(buildGitFinalizeArgs(params), shell);
-      closingCalls.set(toolCallId, { task: gate, shell, command });
+      const args = buildGitFinalizeArgs(params);
+      const task = gate;
+      const executeGit = async (argv: readonly string[]) => {
+        if (task !== gate || !finalizationReady() || signal?.aborted || !pi.getActiveTools().includes(shell)) {
+          throw Error("ToDo状態・shell権限が変わったためGit操作を停止しました。");
+        }
+        const command = gitFinalizeCommand(argv, shell);
+        closingCalls.set(toolCallId, { task, shell, command });
+        return native.executeTool!(shell, { command, timeout: 30 }, { signal, onUpdate });
+      };
       try {
-        const outcome = await native.executeTool(shell, { command, timeout: 30 }, { signal, onUpdate });
-        if (outcome.isError) throw Error(JSON.stringify(outcome.result.content));
-        return { content: outcome.result.content as { type: "text"; text: string }[], details: outcome.result.details };
+        await validateGitFinalizeAddPaths(params, ctx.cwd, async (paths) => {
+          const result = await executeGit(["--no-pager", "--literal-pathspecs", "ls-files", "-z", "--", ...paths]);
+          const structured = asRecord(asRecord(result.result)?.structuredContent);
+          if (result.isError || structured?.truncated || typeof structured?.output !== "string") {
+            throw Error("削除対象の追跡ファイルを確認できません。");
+          }
+          return structured.output.split("\0").filter(Boolean);
+        });
+        const outcome = await executeGit(args);
+        return { ...outcome.result, content: outcome.result.content as { type: "text"; text: string }[],
+          details: outcome.result.details, isError: outcome.isError };
       } finally { closingCalls.delete(toolCallId); }
     },
   });

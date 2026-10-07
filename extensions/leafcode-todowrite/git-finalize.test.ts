@@ -1,5 +1,8 @@
-import { describe, expect, it } from "vitest";
-import { buildGitFinalizeArgs, gitFinalizeCommand } from "./git-finalize.ts";
+import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { describe, expect, it, vi } from "vitest";
+import { buildGitFinalizeArgs, gitFinalizeCommand, validateGitFinalizeAddPaths } from "./git-finalize.ts";
 
 describe("restricted Git finalization", () => {
   it.each([
@@ -18,10 +21,26 @@ describe("restricted Git finalization", () => {
     { operation: "show", revision: "--output=file" }, { operation: "show", revision: "HEAD; rm x" },
     { operation: "log", limit: 101 }, { operation: "log", limit: "2" },
     { operation: "diff", staged: "true" }, { operation: "add", paths: [] },
-    { operation: "add", paths: ["."] }, { operation: "commit", message: "first\nsecond" },
+    { operation: "add", paths: ["."] }, { operation: "add", paths: ["./."] },
+    { operation: "add", paths: ["src/.."] }, { operation: "add", paths: ["C:\\"] },
+    { operation: "commit", message: "first\nsecond" },
     { operation: "commit", message: "" }, { operation: "add", paths: ["file\0.ts"] },
   ])("rejects malformed or overpowered inputs: %j", (input) => {
     expect(() => buildGitFinalizeArgs(input)).toThrow();
+  });
+  it("stages files only, verifies exact deleted paths, and rejects tracked directory prefixes", async () => {
+    const root = mkdtempSync(join(tmpdir(), "leafcode-git-paths-"));
+    try {
+      mkdirSync(join(root, "src"));
+      writeFileSync(join(root, "src", "file.txt"), "test");
+      const tracked = vi.fn(async () => ["deleted.txt", "old/file.txt"]);
+      await expect(validateGitFinalizeAddPaths({ operation: "add", paths: ["src/file.txt"] }, root, tracked)).resolves.toBeUndefined();
+      expect(tracked).not.toHaveBeenCalled();
+      await expect(validateGitFinalizeAddPaths({ operation: "add", paths: ["src"] }, root, tracked)).rejects.toThrow("一括stage");
+      await expect(validateGitFinalizeAddPaths({ operation: "add", paths: ["deleted.txt"] }, root, tracked)).resolves.toBeUndefined();
+      await expect(validateGitFinalizeAddPaths({ operation: "add", paths: ["old"] }, root, tracked)).rejects.toThrow("追跡済みファイル");
+      await expect(validateGitFinalizeAddPaths({ operation: "add", paths: ["missing.txt"] }, root, tracked)).rejects.toThrow();
+    } finally { rmSync(root, { recursive: true, force: true }); }
   });
   it("quotes shell characters as literal Git arguments in both shell dialects", () => {
     const args = buildGitFinalizeArgs({ operation: "commit", message: "a'; Remove-Item x; $HOME && b" });
