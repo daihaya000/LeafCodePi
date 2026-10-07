@@ -202,6 +202,12 @@ export function syncMirror(options = {}) {
       source: join(dirname(sourceDir), "extensions", "leafcode-subagents"),
       include: new Set(["src/api/background-work.ts"]),
     },
+    {
+      name: "extensions/leafcode-todowrite",
+      path: ["extensions", "leafcode-todowrite"],
+      source: join(dirname(sourceDir), "extensions", "leafcode-todowrite"),
+      include: new Set(["visibility.ts"]),
+    },
   ];
   const reservedNames = [...new Set(extras.map((extra) => extra.path[0]))];
   for (const extra of extras) {

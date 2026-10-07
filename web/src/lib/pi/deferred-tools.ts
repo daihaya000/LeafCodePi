@@ -1,7 +1,7 @@
 import type { ExtensionAPI, ToolDefinition } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import { COMPUTER_USE_TOOL_NAMES } from "@/lib/types";
-import { todoToolVisible } from "../../../../extensions/leafcode-todowrite/visibility";
+import { todoToolVisible } from "@extensions/leafcode-todowrite/visibility";
 
 export { COMPUTER_USE_TOOL_NAMES };
 export const TOOL_SEARCH_NAME = "tool_search";
