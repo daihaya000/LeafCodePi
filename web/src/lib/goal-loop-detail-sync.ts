@@ -58,7 +58,8 @@ export function goalLoopActionSatisfied(
     case "complete":
       return status === "completed";
     case "resume":
-      return status === "queued" || status === "running" || status === "verifying_completed";
+      // Late verification recovery can complete instead of scheduling a turn.
+      return status === "queued" || status === "running" || status === "verifying_completed" || status === "completed";
   }
 }
 

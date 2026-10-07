@@ -1140,7 +1140,7 @@ describe("integrated session routing", () => {
     expect(isGoalLoopAutoModel(task.id, loop)).toBe(false);
   });
 
-  it.each(["replacement", "ended", "paused", "initial-images"])("keeps Goal Loop Auto routing bound to its captured loop (%s)", async (change) => {
+  it.each(["replacement", "ended", "paused", "initial-images", "history-images", "compacted-images"])("keeps Goal Loop Auto routing bound to its captured loop (%s)", async (change) => {
     const dir = mkdtempSync(join(tmpdir(), "leafcode-goal-auto-boundary-"));
     tempDirs.push(dir);
     process.env.LEAFCODE_PI_DATA_DIR = dir;
@@ -1182,9 +1182,27 @@ describe("integrated session routing", () => {
       writeFileSync(file, JSON.stringify({ ...loop, initialImages: [{ type: "image", mimeType: "image/png", data: "aW1hZ2U=" }] }), "utf8");
     }
     setGoalLoopAutoModel(task.id, loop);
-    const harness = (globalThis as Record<string, unknown>)[GLOBAL_KEY] as { accountRecordsCache?: unknown };
+    const harness = (globalThis as Record<string, unknown>)[GLOBAL_KEY] as {
+      accountRecordsCache?: unknown;
+      live: Map<string, { session: { messages: unknown[] } }>;
+    };
+    if (change === "history-images" || change === "compacted-images") {
+      // The first-turn payload is already gone from the loop file. The custom
+      // Goal prompt remains an image-bearing message in effective SDK context.
+      writeFileSync(file, JSON.stringify({ ...loop, turnCount: 1 }), "utf8");
+      const session = harness.live.get(task.id)!.session;
+      session.messages.push({ role: "custom", customType: "leafcode-goal-turn", content: [
+        { type: "text", text: "Inspect this reference" },
+        { type: "image", mimeType: "image/png", data: "aW1hZ2U=" },
+      ] });
+      if (change === "compacted-images") {
+        // The raw manager history still has the image, but compaction removed
+        // it from request context. Do not pin vision forever from raw history.
+        session.messages = [{ role: "compactionSummary", summary: "Reference inspected" }];
+      }
+    }
     harness.accountRecordsCache = undefined;
-    blockCatalog = change !== "initial-images";
+    blockCatalog = !change.endsWith("images");
     const prepare = fakePi.sessions[0]!.routingHooks!.prepareGoalLoopTurn as (prompt: string) => Promise<boolean | "retry">;
     const preparing = prepare("goal turn");
     try {
@@ -1196,7 +1214,10 @@ describe("integrated session routing", () => {
         release();
       }
       await preparing;
-      expect(getTask(task.id)?.modelID).toBe(change === "initial-images" ? "claude-haiku" : fixed.id);
+      const expected = change === "initial-images" || change === "history-images"
+        ? "claude-haiku"
+        : change === "compacted-images" ? decision.modelID : fixed.id;
+      expect(getTask(task.id)?.modelID).toBe(expected);
     } finally {
       release();
       await preparing;

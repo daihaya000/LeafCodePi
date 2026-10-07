@@ -3589,7 +3589,11 @@ async function resolveGoalLoopAutoModelForTurn(taskId: string, live: LiveRuntime
     if (!sessionFile) return;
     const decision = await resolveAutoModel({
       prompt: loop.goal,
-      hasImages: Boolean(loop.initialImages?.length),
+      // Initial images leave the loop file after delivery but stay in SDK
+      // request context. Compaction may remove them, so do not scan raw history.
+      hasImages: Boolean(loop.initialImages?.length) || live.session.messages.some((message) =>
+        "content" in message && Array.isArray(message.content) &&
+        message.content.some((part) => part?.type === "image")),
       historyMessageCount: readSessionConversation(sessionFile).length,
       recentFailure: task.status === "error" || Boolean(task.error),
       mode,

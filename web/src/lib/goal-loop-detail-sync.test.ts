@@ -92,6 +92,14 @@ describe("goalLoopActionSatisfied / goalLoopActionConflictMessage", () => {
     expect(goalLoopActionSatisfied("pause", loop("running"))).toBe(false);
   });
 
+  it("treats Resume that raced successful completion as satisfied", () => {
+    expect(goalLoopActionSatisfied("resume", loop("completed"))).toBe(true);
+    expect(goalLoopActionConflictMessage("resume", loop("completed"))).toBeNull();
+    expect(goalLoopActionSatisfied("resume", loop("paused"))).toBe(false);
+    expect(goalLoopActionSatisfied("resume", loop("stopped"))).toBe(false);
+    expect(goalLoopActionSatisfied("resume", null)).toBe(false);
+  });
+
   it("explains a control that lost the race to the loop ending", () => {
     expect(goalLoopActionConflictMessage("pause", loop("completed"))).toBe("Goal Loop は既に完了しています");
     expect(goalLoopActionConflictMessage("resume", loop("stopped"))).toBe("Goal Loop は既に停止しています");
