@@ -102,6 +102,25 @@ type TodoGateState = {
 };
 
 type TodoGateAction = "allow" | "count" | "block";
+const REVIEW_CHECKPOINT_TYPE = "leafcode-todowrite-review-v1";
+type ReviewCheckpoint = { openedThisTask: boolean; reviewRequired: boolean; reviewTodoId?: string };
+function readReviewCheckpoint(ctx: ExtensionContext): ReviewCheckpoint | undefined {
+  const branch = ctx.sessionManager.getBranch();
+  for (let index = branch.length - 1; index >= 0; index -= 1) {
+    const entry = branch[index]!;
+    if (entry.type !== "custom" || entry.customType !== REVIEW_CHECKPOINT_TYPE) continue;
+    const data = asRecord(entry.data);
+    if (typeof data?.openedThisTask === "boolean" && typeof data.reviewRequired === "boolean"
+      && (data.openedThisTask || (!data.reviewRequired && data.reviewTodoId === undefined))
+      && (data.reviewTodoId === undefined || (typeof data.reviewTodoId === "string" && data.reviewTodoId.length > 0 && data.reviewTodoId.length <= 120))) {
+      return { openedThisTask: data.openedThisTask, reviewRequired: data.reviewRequired,
+        ...(typeof data.reviewTodoId === "string" ? { reviewTodoId: data.reviewTodoId } : {}) };
+    }
+    // A damaged checkpoint cannot prove that previously admitted changes were reviewed.
+    return { openedThisTask: true, reviewRequired: true };
+  }
+  return undefined;
+}
 
 const TodoParams = Type.Object({
   todos: Type.Array(
@@ -228,6 +247,19 @@ export default function (pi: ExtensionAPI): void {
   // Process-lifetime counters for tuning the enforcement (shown by /todos).
   const stats = { gateBlocks: 0, closedBlocks: 0, waiverExpiries: 0, forcedContinuations: 0 };
 
+  let lastReviewKey = JSON.stringify({ openedThisTask: false, reviewRequired: false });
+  const checkpointReview = () => {
+    const checkpoint: ReviewCheckpoint = {
+      openedThisTask: gate.openedThisTask,
+      reviewRequired: gate.openedThisTask && gate.reviewRequired,
+      ...(gate.openedThisTask && gate.reviewStartedTodoId && gate.reviewStartedVersion === gate.mutationVersion
+        ? { reviewTodoId: gate.reviewStartedTodoId } : {}),
+    };
+    const key = JSON.stringify(checkpoint);
+    if (key === lastReviewKey) return;
+    pi.appendEntry(REVIEW_CHECKPOINT_TYPE, checkpoint);
+    lastReviewKey = key;
+  };
   const resetGate = () => {
     gate = createTodoGateState();
   };
@@ -260,7 +292,17 @@ export default function (pi: ExtensionAPI): void {
     // A resumed or reloaded session can already hold an active list. Requiring
     // an identical todowrite again would only add friction, so the gate stays
     // open while an in_progress item exists.
-    if (todos.some((todo) => todo.status === "in_progress")) gate.openedThisTask = true;
+    const checkpoint = readReviewCheckpoint(ctx);
+    if (todos.some((todo) => todo.status === "in_progress") || checkpoint?.openedThisTask) gate.openedThisTask = true;
+    if (checkpoint) {
+      gate.reviewRequired = checkpoint.reviewRequired;
+      const review = todos.find((todo) => todo.id === checkpoint.reviewTodoId && todo.status === "in_progress" && isReviewTodo(todo));
+      if (review) {
+        gate.reviewStartedTodoId = review.id;
+        gate.reviewStartedVersion = gate.mutationVersion;
+      }
+    }
+    lastReviewKey = checkpoint ? JSON.stringify(checkpoint) : JSON.stringify({ openedThisTask: false, reviewRequired: false });
     publishVisibility(ctx);
     refreshVisibility(true);
     updateTui(ctx, todos);
@@ -283,6 +325,7 @@ export default function (pi: ExtensionAPI): void {
     const text = typeof event.text === "string" ? event.text : "";
     if (event.streamingBehavior === undefined) {
       resetGate();
+      checkpointReview();
       gate.requestText = clipRequestText(text);
       refreshVisibility();
       return;
@@ -301,6 +344,7 @@ export default function (pi: ExtensionAPI): void {
     if (!requiresReview) return;
     task.mutationVersion += 1;
     task.reviewRequired = true;
+    checkpointReview();
     refreshVisibility();
   };
   pi.on("tool_call", (event, ctx) => {
@@ -489,6 +533,7 @@ export default function (pi: ExtensionAPI): void {
 
       todos = normalized.todos;
       if (todos.some((todo) => todo.status === "in_progress")) gate.openedThisTask = true;
+      checkpointReview();
       const details = {
         todos: [...todos],
         updatedAt: new Date().toISOString(),

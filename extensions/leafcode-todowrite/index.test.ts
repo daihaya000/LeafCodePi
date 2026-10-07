@@ -33,6 +33,7 @@ function fixture(options: FixtureOptions = {}) {
   const sendMessage = vi.fn();
   const notify = vi.fn();
   const refresh = vi.fn();
+  const checkpoint = vi.fn();
   let todoTool: TodoTool | undefined;
   const pi = {
     on: (event: string, handler: Handler) => handlers.set(event, handler),
@@ -40,6 +41,7 @@ function fixture(options: FixtureOptions = {}) {
       todoTool = tool;
     },
     registerCommand: vi.fn(),
+    appendEntry: checkpoint,
     getActiveTools: () => options.active === false ? [] : ["todowrite"],
     setActiveTools: refresh,
     sendMessage,
@@ -83,7 +85,7 @@ function fixture(options: FixtureOptions = {}) {
   );
 
   const settle = () => handlers.get("agent_settled")?.({ type: "agent_settled" }, ctx);
-  return { callTool, callToolAsync, ctx, emit, settle, notify, sendMessage, writeTodos, refresh, tool: registeredTool };
+  return { callTool, callToolAsync, ctx, emit, settle, notify, sendMessage, writeTodos, refresh, checkpoint, tool: registeredTool };
 }
 
 describe("normalizeTodos", () => {
@@ -121,6 +123,39 @@ describe("normalizeTodos", () => {
 });
 
 describe("todowrite review regressions", () => {
+  it("writes review checkpoints only on audit transitions, not on repeated mutations", async () => {
+    const run = fixture();
+    await run.writeTodos([{ content: "Work", status: "in_progress", priority: "high" }]);
+    for (let index = 0; index < 20; index++) run.callTool("edit");
+    expect(run.checkpoint).toHaveBeenCalledTimes(2);
+    await run.writeTodos([{ content: "Review", status: "in_progress", priority: "high" }]);
+    expect(run.checkpoint).toHaveBeenCalledTimes(3);
+    run.callTool("edit");
+    expect(run.checkpoint).toHaveBeenCalledTimes(4);
+    expect(run.checkpoint.mock.calls[3]![1]).not.toHaveProperty("reviewTodoId");
+  });
+  it("restores an active review marker so a reviewed task can finish after tree switching", async () => {
+    const initial = fixture();
+    await initial.writeTodos([{ content: "Work", status: "in_progress", priority: "high" }]);
+    initial.callTool("edit");
+    const result = await initial.writeTodos([{ content: "Review", status: "in_progress", priority: "high" }]);
+    const branch = [
+      { type: "message", message: { role: "toolResult", toolName: "todowrite", details: result.details } },
+      ...initial.checkpoint.mock.calls.map(([customType, data]) => ({ type: "custom", customType, data })),
+    ];
+    const resumed = fixture({ branch });
+    resumed.emit("session_tree");
+    await resumed.writeTodos([{ content: "Review", status: "completed", priority: "high" }]);
+    expect(resumed.emit("agent_before_settle", { outcome: "completed" })).toBeUndefined();
+  });
+  it("keeps malformed audit checkpoints on the safe side instead of discarding required review", () => {
+    const run = fixture({ branch: [
+      { type: "message", message: { role: "toolResult", toolName: "todowrite", details: { todos: [] } } },
+      { type: "custom", customType: "leafcode-todowrite-review-v1", data: { openedThisTask: false, reviewRequired: true } },
+    ] });
+    run.emit("session_start");
+    expect(JSON.stringify(run.emit("agent_before_settle", { outcome: "completed" }))).toContain("レビュー");
+  });
   it("stops an aborted waiting call even when a list opened while judgment was pending", async () => {
     const controller = new AbortController();
     installJudge(() => new Promise<Record<string, number> | null>(() => undefined));

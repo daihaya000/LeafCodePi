@@ -149,6 +149,26 @@ it("keeps registration direct-only and restores an active snapshot on SDK reload
   expect(todoToolVisible(session.sessionManager, "edit")).toBe(true);
 });
 
+it("retains the required review across SDK reload after an admitted mutation", async () => {
+  const { session, faux } = await fixture();
+  faux.setResponses([
+    call("todowrite", { todos: work }),
+    call("codemode", { code: "return await tools.future_mutation({});" }),
+    fauxAssistantMessage("paused"), fauxAssistantMessage("paused"), fauxAssistantMessage("paused"),
+  ]);
+  await session.prompt("Implement a change and pause");
+  await session.reload();
+  // Extension input resumes the same task, rather than resetting it as a new external request.
+  faux.setResponses([
+    call("todowrite", { todos: work.map((todo) => ({ ...todo, status: "completed" })) }),
+    fauxAssistantMessage("done"), fauxAssistantMessage("done"), fauxAssistantMessage("done"),
+  ]);
+  const before = session.messages.length;
+  await session.prompt("Resume the pending task", { source: "extension" });
+  expect(session.messages.slice(before).some((message) => message.role === "custom"
+    && message.customType === "leafcode-todowrite-stop" && JSON.stringify(message).includes("レビュー"))).toBe(true);
+});
+
 it("does not apply a session's visibility policy to another session manager", async () => {
   const { session } = await fixture();
   expect(todoToolVisible(session.sessionManager, "edit")).toBe(false);
