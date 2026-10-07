@@ -500,6 +500,7 @@ export function groupCodexBarProviders(
         limited: isAccountManaged && accountRows.length > 0 ? false : limitedCount > 0,
         maxed: isAccountManaged && accountRows.length > 0 ? false : maxedCount > 0,
         stale: aggregateRows.some((provider) => provider.stale === true),
+        tokenUsage: isAccountManaged && accountRows.length > 0 ? undefined : base.tokenUsage,
         windows: isAccountManaged && accountRows.length > 0 ? [] : base.windows,
         credits:
           isAccountManaged && accountRows.length > 0 ? null : base.credits,

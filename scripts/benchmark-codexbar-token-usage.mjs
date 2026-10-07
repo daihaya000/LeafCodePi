@@ -25,6 +25,8 @@ async function measure(label, contents) {
     const code = `
       import assert from 'node:assert/strict';
       import {performance} from 'node:perf_hooks';
+      import {DatabaseSync} from 'node:sqlite';
+      import {join} from 'node:path';
       import * as store from ${JSON.stringify(pathToFileURL(bundle).href)};
       const n=300;
       const started=performance.now();
@@ -42,8 +44,16 @@ async function measure(label, contents) {
       const pollStarted=performance.now();
       for(let i=0;i<n;i++) assert.equal(store.attachTokenUsage(usage).providers[0].tokenUsage.totalTokens,n*1000);
       const cachedPollsMs=performance.now()-pollStarted;
+      const writer=new DatabaseSync(join(process.env.LEAFCODE_PI_DATA_DIR,"codexbar-token-usage.sqlite"));
+      writer.exec("BEGIN IMMEDIATE");
+      let lockedPollsMissingStats=0;
+      const lockedStarted=performance.now();
+      try {
+        for(let i=0;i<3;i++) if(!store.attachTokenUsage(usage).providers[0].tokenUsage) lockedPollsMissingStats++;
+      } finally { writer.exec("ROLLBACK"); writer.close(); }
+      const lockedPollsMs=performance.now()-lockedStarted;
       store.closeTokenUsageStore?.();
-      console.log(JSON.stringify({writesMs,cachedPollsMs}));`;
+      console.log(JSON.stringify({writesMs,cachedPollsMs,lockedPollsMs,lockedPollsMissingStats}));`;
     const child = spawnSync(process.execPath, ["--input-type=module", "-e", code], {
       env: { ...process.env, LEAFCODE_PI_DATA_DIR: join(temp, `${label}-${repetition}`) }, encoding: "utf8", timeout: 10_000,
     });
@@ -51,7 +61,8 @@ async function measure(label, contents) {
     samples.push(JSON.parse(child.stdout.trim()));
   }
   const median = (key) => samples.map((sample) => sample[key]).sort((a, b) => a - b)[1];
-  return { writesMs: median("writesMs"), cachedPollsMs: median("cachedPollsMs") };
+  return { writesMs: median("writesMs"), cachedPollsMs: median("cachedPollsMs"),
+    lockedPollsMs: median("lockedPollsMs"), lockedPollsMissingStats: median("lockedPollsMissingStats") };
 }
 
 try {
@@ -62,8 +73,8 @@ try {
     previous = await measure("baseline", git.stdout);
   }
   const current = await measure("current", readFileSync(source, "utf8"));
-  console.log(JSON.stringify({ callsPerPhase: 300, repetitions: 3, metric: "median wall time, isolated temp DB; not end-to-end UI latency",
-    ...(previous ? { baseline: previous, speedup: { writes: previous.writesMs / current.writesMs, cachedPolls: previous.cachedPollsMs / current.cachedPollsMs } } : {}), current }, null, 2));
+  console.log(JSON.stringify({ callsPerPhase: 300, lockedPollsPerPhase: 3, repetitions: 3, metric: "median wall time, isolated temp DB; not end-to-end UI latency",
+    ...(previous ? { baseline: previous, speedup: { writes: previous.writesMs / current.writesMs, cachedPolls: previous.cachedPollsMs / current.cachedPollsMs, lockedPolls: previous.lockedPollsMs / current.lockedPollsMs } } : {}), current }, null, 2));
 } finally {
   rmSync(temp, { recursive: true, force: true });
 }

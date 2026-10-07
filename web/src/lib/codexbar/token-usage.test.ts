@@ -92,6 +92,50 @@ describe("actual token accounting", () => {
     expect(measured(snapshot(10, NOW, { id: "anthropic" })).totalTokens).toBe(100);
   });
 
+  it("reads a calibrated cached snapshot while another process holds the WAL writer lock", () => {
+    measured(snapshot()); record(); expect(estimate().tokensPerPercent).toBe(500);
+    const { DatabaseSync } = createRequire(import.meta.url)("node:sqlite") as {
+      DatabaseSync: new (path: string) => { exec(sql: string): void; close(): void };
+    };
+    const writer = new DatabaseSync(join(dir, "codexbar-token-usage.sqlite"));
+    writer.exec("BEGIN IMMEDIATE");
+    try {
+      const result = measured(snapshot(12, NOW + 2000));
+      expect(result.totalTokens).toBe(1000);
+      expect(result.windows[0].tokensPerPercent).toBe(500);
+    } finally { writer.exec("ROLLBACK"); writer.close(); }
+  });
+
+  it("preserves totals during busy calibration and retries without reusing a mismatched rate", () => {
+    measured(snapshot()); record(); estimate(); record(NOW + 3000);
+    const { DatabaseSync } = createRequire(import.meta.url)("node:sqlite") as {
+      DatabaseSync: new (path: string) => { exec(sql: string): void; close(): void };
+    };
+    const writer = new DatabaseSync(join(dir, "codexbar-token-usage.sqlite"));
+    writer.exec("BEGIN IMMEDIATE");
+    try {
+      for (let i = 0; i < 2; i++) {
+        const result = measured(snapshot(14, NOW + 4000));
+        expect(result.totalTokens).toBe(2000);
+        expect(result.windows[0]).toMatchObject({ status: "calibrating", tokensPerPercent: null });
+      }
+      expect(estimate().tokensPerPercent).toBe(500); // A blocked write never poisoned the reader.
+      expect(estimate(NaN).status).toBe("invalid");
+    } finally { writer.exec("ROLLBACK"); writer.close(); }
+    expect(estimate(14, NOW + 4000)).toMatchObject({ status: "ready", tokensPerPercent: 500, sampledTokens: 2000 });
+  });
+
+  it("indexes retention cleanup rather than scanning the entire response history", () => {
+    record();
+    const { DatabaseSync } = createRequire(import.meta.url)("node:sqlite") as {
+      DatabaseSync: new (path: string) => { prepare(sql: string): { get(...values: number[]): { detail: string } }; close(): void };
+    };
+    const db = new DatabaseSync(join(dir, "codexbar-token-usage.sqlite"));
+    try {
+      expect(db.prepare("EXPLAIN QUERY PLAN DELETE FROM responses WHERE at < ?").get(NOW).detail).toContain("responses_retention");
+    } finally { db.close(); }
+  });
+
   it("closes the cached connection when switching data directories", () => {
     record();
     vi.stubEnv("LEAFCODE_PI_DATA_DIR", join(dir, "second"));

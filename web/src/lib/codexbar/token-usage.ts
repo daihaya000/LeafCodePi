@@ -60,6 +60,7 @@ function openStore(): Store {
         tokens REAL NOT NULL
       );
       CREATE INDEX IF NOT EXISTS responses_time ON responses(provider, at);
+      CREATE INDEX IF NOT EXISTS responses_retention ON responses(at);
       CREATE TABLE IF NOT EXISTS totals (
         provider TEXT NOT NULL, model TEXT NOT NULL, input REAL NOT NULL, output REAL NOT NULL,
         cacheRead REAL NOT NULL, cacheWrite REAL NOT NULL, tokens REAL NOT NULL,
@@ -94,14 +95,15 @@ function openStore(): Store {
 }
 
 /** Short atomic transactions keep Backend/BFF counters consistent without reopening/checkpointing on each token event. */
-function withStore<T>(operation: (db: Database) => T): T | null {
+function withStore<T>(operation: (db: Database) => T, writable = true, busyTimeout = 1000): T | null {
   let store: Store | undefined;
   try {
     store = openStore();
     const { db } = store;
-    db.exec("BEGIN IMMEDIATE");
+    if (busyTimeout !== 1000) db.exec(`PRAGMA busy_timeout=${busyTimeout}`);
+    db.exec(writable ? "BEGIN IMMEDIATE" : "BEGIN");
     const now = Date.now();
-    const maintenanceDue = now - store.maintenanceAt > 86400_000;
+    const maintenanceDue = writable && now - store.maintenanceAt > 86400_000;
     if (maintenanceDue) {
       db.prepare("DELETE FROM responses WHERE at < ?").run(now - RETENTION_MS);
       db.prepare("DELETE FROM observations WHERE latestAt < ?").run(now - RETENTION_MS);
@@ -110,11 +112,17 @@ function withStore<T>(operation: (db: Database) => T): T | null {
     db.exec("COMMIT");
     if (maintenanceDue) store.maintenanceAt = now;
     return result;
-  } catch {
+  } catch (error) {
     try { store?.db.exec("ROLLBACK"); } catch { /* no active transaction */ }
-    closeTokenUsageStore();
+    const code = error && typeof error === "object" && "errcode" in error ? error.errcode : null;
+    // A busy writer does not invalidate a WAL reader connection.
+    if (code !== 5 && code !== 6) closeTokenUsageStore();
     // Telemetry must not interrupt a paid model response or hide provider usage.
     return null;
+  } finally {
+    if (busyTimeout !== 1000 && store && stores[STORE_KEY] === store) {
+      try { store.db.exec("PRAGMA busy_timeout=1000"); } catch { closeTokenUsageStore(); }
+    }
   }
 }
 
@@ -173,7 +181,9 @@ type Observation = {
 };
 type Window = { id: string; title: string; usedPercent: number | null; resetsAt: string | null; windowMinutes: number | null; countsTowardLimit?: boolean; allowance?: number };
 
-function estimateWindow(db: Database, p: CodexBarProvider, key: string, w: Window, at: number, now: number): TokenUsageEstimate {
+type CalibrationRequest = { needed: boolean };
+
+function estimateWindow(db: Database, p: CodexBarProvider, key: string, w: Window, at: number, now: number, pending?: CalibrationRequest): TokenUsageEstimate {
   const empty: TokenUsageEstimate = { id: w.id, title: w.title, sampledTokens: 0, sampledPercent: 0, tokensPerPercent: null, estimatedRemainingTokens: null, status: "calibrating", validUntil: null };
   if (p.usageDisplayOnly || w.countsTowardLimit === false) return { ...empty, status: "unsupported" };
   const resetAt = w.resetsAt ? Date.parse(w.resetsAt) : null;
@@ -195,6 +205,10 @@ function estimateWindow(db: Database, p: CodexBarProvider, key: string, w: Windo
   // A repeated upstream cache value cannot reveal a new rate. Avoid range SUMs and WAL writes entirely.
   if (row && at === row.latestAt && row.identity === identity && w.usedPercent === row.latestPercent) {
     return calibratedEstimate(empty, row, w.usedPercent);
+  }
+  if (pending) {
+    pending.needed = true;
+    return empty; // A changed snapshot needs a separate short writer transaction.
   }
   const total = db.prepare("SELECT COALESCE(SUM(tokens), 0) AS tokens FROM totals WHERE provider=? AND model LIKE ?")
     .get(key, filter) as { tokens: number };
@@ -234,7 +248,7 @@ function calibratedEstimate(empty: TokenUsageEstimate, row: Observation, percent
 /** Decorate outside the upstream cache, so cached percentages never absorb later response tokens. */
 export function attachTokenUsage(usage: CodexBarUsage, now = Date.now()): CodexBarUsage {
   if (usage.providers.length === 0) return usage;
-  const providers = withStore((db) => usage.providers.map((p) => {
+  const decorate = (db: Database, pending?: CalibrationRequest) => usage.providers.map((p) => {
     if (!PROVIDERS.has(p.id)) return p;
     const key = providerKey(p.id, p.accountId);
     const totals = db.prepare(`SELECT COALESCE(SUM(input), 0) AS input, COALESCE(SUM(output), 0) AS output,
@@ -251,8 +265,15 @@ export function attachTokenUsage(usage: CodexBarUsage, now = Date.now()): CodexB
     const tokenUsage: ProviderTokenUsage = { input: totals.input, output: totals.output,
       cacheRead: totals.cacheRead, cacheWrite: totals.cacheWrite, totalTokens: totals.tokens,
       responses: totals.responses, startedAt: totals.startedAt === null ? null : new Date(totals.startedAt).toISOString(),
-      windows: windows.map((w) => estimateWindow(db, p, key, w, at, now)) };
+      windows: windows.map((w) => estimateWindow(db, p, key, w, at, now, pending)) };
     return { ...p, tokenUsage };
-  }));
-  return providers ? { ...usage, providers } : usage;
+  });
+  const pending: CalibrationRequest = { needed: false };
+  // WAL readers do not contend with Backend writes, even for stale/invalid snapshots.
+  const providers = withStore((db) => decorate(db, pending), false);
+  if (!providers) return usage;
+  if (!pending.needed) return { ...usage, providers };
+  // Busy calibration is optional: keep the measured totals and retry on the next poll.
+  const calibrated = withStore((db) => decorate(db), true, 25);
+  return { ...usage, providers: calibrated ?? providers };
 }

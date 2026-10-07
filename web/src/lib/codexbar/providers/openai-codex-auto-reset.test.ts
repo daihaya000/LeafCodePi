@@ -14,6 +14,8 @@ vi.mock("undici", async (importOriginal) => ({
 }));
 
 vi.mock("@/lib/codexbar/pi-auth", () => ({
+  // This fixture supplies mocked tokens, never the real default-account recovery path.
+  piAuthPathFor: vi.fn(() => undefined),
   readPiOAuthTokens,
   writeBackPiOAuthTokens: vi.fn(),
 }));

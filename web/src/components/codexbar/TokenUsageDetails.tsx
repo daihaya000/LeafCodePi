@@ -1,6 +1,7 @@
 import type { ProviderTokenUsage } from "@/lib/codexbar/token-usage-types";
 
 const numberFormat = new Intl.NumberFormat("ja-JP", { maximumFractionDigits: 0 });
+const rateFormat = new Intl.NumberFormat("ja-JP", { maximumFractionDigits: 2 });
 function tokens(value: number): string {
   return numberFormat.format(Math.round(value));
 }
@@ -31,7 +32,7 @@ export function TokenUsageDetails({ usage, now = Date.now() }: { usage: Provider
           <div
             key={window.id}
             className="flex min-w-0 flex-wrap gap-x-1"
-            title={`使用率差 ${numberFormat.format(window.sampledPercent)}% / 実測 ${tokens(window.sampledTokens)} tok。入力・出力・キャッシュ込み。モデル構成・外部消費・使用率の反映遅延で変動する実績推定であり、保証された残量ではない。古い値・リセット後・計測不足は推定を保留する。`}
+            title={`使用率差 ${rateFormat.format(window.sampledPercent)}% / 実測 ${tokens(window.sampledTokens)} tok。入力・出力・キャッシュ込み。モデル構成・外部消費・使用率の反映遅延で変動する実績推定であり、保証された残量ではない。古い値・リセット後・計測不足は推定を保留する。`}
           >
             <span>{window.title}:</span>
             {unavailable ? (
@@ -39,7 +40,7 @@ export function TokenUsageDetails({ usage, now = Date.now() }: { usage: Provider
             ) : (
               <>
                 <span>推定残 {tokens(window.estimatedRemainingTokens!)} tok</span>
-                <span>· {tokens(window.tokensPerPercent!)} tok/1%</span>
+                <span>· {rateFormat.format(window.tokensPerPercent!)} tok/1%</span>
               </>
             )}
           </div>

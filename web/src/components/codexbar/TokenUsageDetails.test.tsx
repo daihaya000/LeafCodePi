@@ -17,6 +17,10 @@ describe("TokenUsageDetails", () => {
     expect(screen.getByTitle(/保証された残量ではない/)).toBeTruthy();
     expect(screen.getByTitle(/外部CLI・補助呼出・中断応答は含まない/)).toBeTruthy();
   });
+  it("does not round a positive sub-token rate down to zero", () => {
+    render(<TokenUsageDetails usage={{ ...usage, windows: [{ ...usage.windows[0], sampledTokens: 1, sampledPercent: 100, tokensPerPercent: 0.01, estimatedRemainingTokens: 0 }] }} />);
+    expect(screen.getByText("· 0.01 tok/1%")).toBeTruthy();
+  });
   it("expires an already-rendered estimate without waiting for the next provider poll", () => {
     const data = { ...usage, windows: [{ ...usage.windows[0], status: "ready" as const, validUntil: "2026-10-07T10:15:00Z" }] };
     const { rerender } = render(<TokenUsageDetails usage={data} now={Date.parse("2026-10-07T10:14:00Z")} />);

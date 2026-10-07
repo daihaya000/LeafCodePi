@@ -49,6 +49,18 @@ const SAMPLE = {
 };
 
 describe("parseCodexBarSnapshot", () => {
+  it("does not label one account\u0027s telemetry as a multi-account aggregate", () => {
+    const usage = parseCodexBarSnapshot({ providers: [
+      { codexBarProviderId: "openai-codex", accountId: "a", usedPercent: 10 },
+      { codexBarProviderId: "openai-codex", accountId: "b", usedPercent: 90 },
+    ] });
+    const telemetry = { input: 100, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 100, responses: 1, startedAt: null, windows: [] };
+    usage.providers[0].tokenUsage = telemetry;
+    const group = groupCodexBarProviders(usage)[0];
+    expect(group.provider.usedPercent).toBe(50);
+    expect(group.provider.tokenUsage).toBeUndefined();
+    expect(group.accountRows[0].provider?.tokenUsage).toEqual(telemetry);
+  });
   it("preserves new OpenAI account metadata without borrowing legacy Codex usage", () => {
     const snapshot = parseCodexBarSnapshot({
       providers: [{ codexBarProviderId: "openai-codex", accountId: "legacy", usedPercent: 100 }],
