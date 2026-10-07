@@ -285,7 +285,7 @@ describe("fetchNativeUsage", () => {
     expect((undiciFetch.mock.calls[0][1] as RequestInit).method).toBeUndefined();
   });
 
-  it("does not fetch usage for paused accounts", async () => {
+  it("fetches usage for paused accounts in all scope", async () => {
     const { dataDir } = setupAccounts();
     const accountData = JSON.parse(
       readFileSync(join(dataDir, "accounts.json"), "utf8"),
@@ -308,6 +308,35 @@ describe("fetchNativeUsage", () => {
     const usage = await fetchNativeUsage({
       forceRefresh: true,
       scope: { kind: "all" },
+    });
+
+    expect(undiciFetch).toHaveBeenCalledTimes(2);
+    expect(usage.accounts?.map((account) => account.id)).toEqual(["acc-a", "acc-b"]);
+  });
+
+  it("fetches usage for an explicitly scoped paused account", async () => {
+    const { dataDir } = setupAccounts();
+    const accountData = JSON.parse(
+      readFileSync(join(dataDir, "accounts.json"), "utf8"),
+    ) as { accounts: Array<Record<string, unknown>> };
+    accountData.accounts[0] = { ...accountData.accounts[0], enabled: false };
+    writeJson(join(dataDir, "accounts.json"), {
+      version: 1,
+      accounts: accountData.accounts,
+    });
+    undiciFetch.mockImplementation(async () =>
+      new Response(
+        JSON.stringify({
+          rate_limit_reset_credits: { available_count: 0 },
+          rate_limit: { primary_window: { used_percent: 35 } },
+        }),
+        { status: 200 },
+      ),
+    );
+
+    const usage = await fetchNativeUsage({
+      forceRefresh: true,
+      scope: { kind: "account", accountId: "acc-a" },
     });
 
     expect(undiciFetch).toHaveBeenCalledTimes(1);

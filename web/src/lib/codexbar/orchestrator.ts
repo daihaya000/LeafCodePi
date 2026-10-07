@@ -12,7 +12,6 @@ import {
   accountDir,
   accountHasProvider,
   getAccount,
-  isAccountEnabled,
   listAccounts,
   resolvePiAgentDir,
   type AccountRecord,
@@ -158,7 +157,8 @@ async function buildFetchPlan(
   let accounts: AccountRecord[] = [];
   let agentDir: string | null = null;
   if (requestScope.kind === "all") {
-    accounts = listAccounts().filter(isAccountEnabled);
+    // Pausing disables account routing, not provider usage polling.
+    accounts = listAccounts();
   } else if (requestScope.kind === "account") {
     const account = getAccount(requestScope.accountId);
     if (!account) {
@@ -166,11 +166,7 @@ async function buildFetchPlan(
         status: 404,
       });
     }
-    if (!isAccountEnabled(account)) {
-      throw Object.assign(new Error("一時停止中のアカウントです"), {
-        status: 409,
-      });
-    }
+    // Explicit account usage reads remain available while routing is paused.
     accounts = [account];
   }
   if (accounts.length > 0) agentDir = await resolvePiAgentDir();
