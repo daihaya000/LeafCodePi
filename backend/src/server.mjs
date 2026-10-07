@@ -2,6 +2,8 @@ import { createHash, randomUUID, timingSafeEqual } from "node:crypto";
 import { createServer } from "node:http";
 import { once } from "node:events";
 import { streamRuntimeEvents } from "./runtime-events.mjs";
+import { readJsonBody, JsonBodyReadError } from "./json-body.mjs";
+export { BACKEND_PROMPT_BODY_LIMIT_BYTES } from "./json-body.mjs";
 import { parseMcpPresetRequest } from "../../shared/mcp-preset-request.mjs";
 import { publicMcpAuthSnapshot } from "../../shared/mcp-auth-snapshot.mjs";
 import { parseMcpBearerSaveRequest, publicMcpBearerSaveResult } from "../../shared/mcp-bearer-save-request.mjs";
@@ -80,9 +82,6 @@ function tokenDigest(value) {
   return createHash("sha256").update(value).digest();
 }
 
-/** The largest prompt body the Backend accepts; attachments are already size-checked by the WebUI. */
-export const BACKEND_PROMPT_BODY_LIMIT_BYTES = 32 * 1024 * 1024;
-
 /** The body field each live-session setting reads. */
 const SETTING_FIELDS = {
   [BACKEND_TASK_MODEL_SUFFIX]: "model",
@@ -93,35 +92,6 @@ const TASK_CREATE_FIELDS = new Set([
   "projectId", "prompt", "model", "thinkingLevel", "images", "files", "agent",
   "accountId", "accountIdExplicit", "goalLoop",
 ]);
-
-/** Reads a JSON body with a hard limit. Returns `{ ok: false }` for too large, empty or broken JSON. */
-function readJsonBody(request, limit = BACKEND_PROMPT_BODY_LIMIT_BYTES) {
-  return new Promise((resolve) => {
-    let size = 0;
-    const chunks = [];
-    request.on("data", (chunk) => {
-      size += chunk.length;
-      if (size > limit) {
-        resolve({ ok: false, reason: "too-large" });
-        request.destroy();
-        return;
-      }
-      chunks.push(chunk);
-    });
-    request.on("end", () => {
-      if (size === 0) {
-        resolve({ ok: false, reason: "empty" });
-        return;
-      }
-      try {
-        resolve({ ok: true, value: JSON.parse(Buffer.concat(chunks).toString("utf8")) });
-      } catch {
-        resolve({ ok: false, reason: "invalid" });
-      }
-    });
-    request.on("error", () => resolve({ ok: false, reason: "invalid" }));
-  });
-}
 
 function sendJson(response, status, value, headers = {}) {
   response.writeHead(status, {
@@ -729,7 +699,7 @@ export function createBackendServer({
       // Abort, unrevert and a compaction abort take no input, so an empty body is normal there.
       const body = actionSuffix === BACKEND_TASK_ABORT_SUFFIX || actionSuffix === BACKEND_TASK_UNREVERT_SUFFIX
         || actionSuffix === BACKEND_TASK_COMPACT_ABORT_SUFFIX
-        ? await readJsonBody(request).then((read) => (read.ok ? read : { ok: true, value: {} }))
+        ? await readJsonBody(request).then((read) => (!read.ok && read.reason === "empty" ? { ok: true, value: {} } : read))
         : await readJsonBody(request);
       if (!body.ok) {
         sendJson(response, body.reason === "too-large" ? 413 : 400, {
@@ -1300,12 +1270,16 @@ export function createBackendServer({
   return createServer({ requestTimeout: 30_000, headersTimeout: 10_000 }, (request, response) => {
     handleRequest(request, response).catch((error) => {
       try {
-        if (response.headersSent || response.writableEnded) {
+        if (response.destroyed || response.headersSent || response.writableEnded) {
           response.destroy();
           return;
         }
         // Never send exception messages: they may contain paths, ids or credentials.
-        if (error instanceof URIError) {
+        if (error instanceof JsonBodyReadError) {
+          if (error.reason === "too-large") {
+            sendJson(response, 413, { error: "Request body too large", code: BACKEND_ERROR_CODES.badRequest }, { Connection: "close" });
+          } else response.destroy();
+        } else if (error instanceof URIError) {
           sendJson(response, 400, { error: "Invalid request path", code: BACKEND_ERROR_CODES.badRequest });
         } else {
           sendJson(response, 500, { error: "Backend request failed", code: BACKEND_ERROR_CODES.internal });

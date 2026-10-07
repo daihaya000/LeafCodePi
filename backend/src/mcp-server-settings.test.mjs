@@ -223,7 +223,10 @@ test("header save POST is owner-only, validates private headers and sanitizes ev
     { ...input, headers: { "X-Key": "x".repeat(8193) } }]) assert.equal((await post(body)).status, 400);
   assert.equal((await post(input, headers, `${url}?agentDir=other`)).status, 400);
   assert.equal((await post(input, headers, url.replace("fixture/auth", "a%2Fb/auth"))).status, 400);
-  await assert.rejects(post({ ...input, headers: { "X-Key": "x".repeat(2_100_000) } }));
+  const oversized = await post({ ...input, headers: { "X-Key": "x".repeat(2_100_000) } });
+  assert.equal(oversized.status, 413);
+  assert.equal(oversized.headers.get("connection"), "close");
+  assert.deepEqual(await oversized.json(), { error: "Request body too large", code: "BACKEND_BAD_REQUEST" });
   assert.equal(calls.length, 0);
   const success = await post(input);
   assert.equal(success.status, 200);
