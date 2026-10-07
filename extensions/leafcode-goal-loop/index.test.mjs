@@ -4740,6 +4740,117 @@ test("re-arms a lost scheduler timer so a completion claim is still verified", a
   }
 });
 
+test("retires a stale scheduler ctx instead of crashing the host", async () => {
+  const cwd = mkdtempSync(join(tmpdir(), "leafcode-goal-loop-stale-schedule-ctx-"));
+  process.env.LEAFCODE_PI_DATA_DIR = cwd;
+  const sessionId = "stale-schedule-ctx-session";
+  const stateFile = () => join(cwd, "goals-loop", `${sessionId}.json`);
+  const readState = () => JSON.parse(readFileSync(stateFile(), "utf8"));
+  const staleMessage = "This extension ctx is stale after session replacement or reload.";
+  const sent = [];
+  const commands = new Map();
+  let busy = false;
+  let stale = false;
+  const handlers = new Map();
+  const ctx = {
+    cwd,
+    mode: "rpc",
+    hasUI: false,
+    isIdle: () => {
+      if (stale) throw new Error(staleMessage);
+      return !busy;
+    },
+    hasPendingMessages: () => false,
+    abort: () => { busy = false; },
+    sessionManager: {
+      getSessionId: () => sessionId,
+      getBranch: () => [],
+    },
+    ui: { setStatus() {}, setWidget() {}, notify() {} },
+  };
+  const pi = {
+    on(name, handler) { handlers.set(name, handler); },
+    registerCommand(name, options) { commands.set(name, options.handler); },
+    appendEntry() {},
+    sendMessage(message) { sent.push(message); busy = true; },
+  };
+
+  try {
+    goalLoopExtension(pi);
+    await handlers.get("session_start")?.({}, ctx);
+    await commands.get("goal-start")?.(
+      Buffer.from(JSON.stringify({ goal: "demo", maxTurns: 2 })).toString("base64url"),
+      ctx,
+    );
+    await waitFor(() => sent.length === 1);
+    busy = false;
+    await handlers.get("agent_end")?.({
+      messages: [{ role: "assistant", content: [{ type: "text", text: JSON.stringify({ status: "completed", summary: "claimed done" }) }] }],
+    }, ctx);
+    await handlers.get("agent_settled")?.({}, ctx);
+    await waitFor(() => readState().status === "verifying_completed");
+
+    // The SDK invalidates captured ctxs after a session replacement or reload
+    // while the old runtime can still own the scheduler key. Its schedule timer
+    // must not throw out of the callback (that took the whole Backend down and
+    // left the completion verification unsent).
+    stale = true;
+    await new Promise((resolve) => setTimeout(resolve, 400));
+
+    assert.equal(readState().status, "verifying_completed");
+    assert.equal(sent.length, 1);
+    // The stale runtime retired itself: no timer keeps firing on the dead ctx.
+    assert.equal(goalLoopTestSeams.timerRefState(sessionId), null);
+  } finally {
+    await handlers.get("session_shutdown")?.({}, ctx);
+    delete process.env.LEAFCODE_PI_DATA_DIR;
+    rmSync(cwd, { recursive: true, force: true });
+  }
+});
+
+test("retires a stale watchdog ctx instead of logging forever", async () => {
+  const cwd = mkdtempSync(join(tmpdir(), "leafcode-goal-loop-stale-watchdog-ctx-"));
+  process.env.LEAFCODE_PI_DATA_DIR = cwd;
+  const sessionId = "stale-watchdog-ctx-session";
+  const staleMessage = "This extension ctx is stale after session replacement or reload.";
+  const handlers = new Map();
+  const ctx = {
+    cwd,
+    mode: "rpc",
+    hasUI: false,
+    isIdle: () => { throw new Error(staleMessage); },
+    hasPendingMessages: () => false,
+    abort: () => {},
+    sessionManager: {
+      getSessionId: () => sessionId,
+      getBranch: () => [],
+    },
+    ui: { setStatus() {}, setWidget() {}, notify() {} },
+  };
+  const pi = {
+    on(name, handler) { handlers.set(name, handler); },
+    registerCommand() {},
+    appendEntry() {},
+    sendMessage() {},
+  };
+
+  try {
+    goalLoopTestSeams.setScheduleWatchdogMs(30);
+    goalLoopExtension(pi);
+    await handlers.get("session_start")?.({}, ctx);
+    assert.notEqual(goalLoopTestSeams.timerRefState(sessionId), null);
+
+    // A stale watchdog tick must retire the runtime (stopping the interval)
+    // instead of failing on every tick and leaving any pending loop stuck.
+    await waitFor(() => goalLoopTestSeams.timerRefState(sessionId) === null);
+  } finally {
+    goalLoopTestSeams.setScheduleWatchdogMs(undefined);
+    await handlers.get("session_shutdown")?.({}, ctx);
+    delete process.env.LEAFCODE_PI_DATA_DIR;
+    rmSync(cwd, { recursive: true, force: true });
+  }
+});
+
 test("re-arms a running loop whose settlement was lost", async () => {
   const cwd = mkdtempSync(join(tmpdir(), "leafcode-goal-loop-lost-settle-"));
   process.env.LEAFCODE_PI_DATA_DIR = cwd;

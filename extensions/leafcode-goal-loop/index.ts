@@ -199,6 +199,24 @@ function retireRuntime(runtime: Runtime): void {
   if (runtimes.get(runtime.key) === runtime) runtimes.delete(runtime.key);
 }
 
+/** The SDK throws this when a captured ctx was invalidated by a session replacement or reload. */
+function isStaleContextError(error: unknown): boolean {
+  return error instanceof Error && /stale after session replacement or reload/i.test(error.message);
+}
+
+/**
+ * A runtime whose ctx the SDK invalidated can never act again. Retire it so its
+ * timers stop touching the stale ctx — an uncaught timer throw takes the whole
+ * Backend process down, which strands the loop mid-verification. The loop state
+ * stays on disk for the next session_start of this key to schedule.
+ */
+function retireStaleRuntime(runtime: Runtime, error: unknown): boolean {
+  if (!isStaleContextError(error)) return false;
+  console.error("[goal-loop] session ctx became stale; retiring this runtime:", error);
+  retireRuntime(runtime);
+  return true;
+}
+
 function turnTimeoutMs(): number {
   return turnTimeoutMsForTests ?? TURN_TIMEOUT_MS;
 }
@@ -1833,43 +1851,75 @@ function schedule(runtime: Runtime, delay = 250): void {
     // ランタイムはdisposedにならない。新ランタイムが同じキーで上書き登録済み
     // なら自分は現行ではないので、同一状態ファイルへの送信競合を避けて停止する。
     if (!isActiveRuntime(runtime)) return;
-    const loop = currentLoop(runtime);
-    if (!loop || TERMINAL.has(loop.status) || UNSCHEDULABLE.has(loop.status)) return;
-    if ((loop.status === "queued" || loop.status === "verifying_completed") && loop.nextTurnAt) {
-      const nextTurnAt = Date.parse(loop.nextTurnAt);
-      if (Number.isFinite(nextTurnAt) && Date.now() < nextTurnAt) {
-        schedule(runtime, Math.min(MAX_TIMER_DELAY_MS, Math.max(250, nextTurnAt - Date.now())));
+    // A timer callback must never crash the whole Backend: an invalidated ctx
+    // throws synchronously on isIdle/hasPendingMessages. Retire the stale runtime
+    // and leave the loop on disk for the next session_start to schedule.
+    try {
+      const loop = currentLoop(runtime);
+      if (!loop || TERMINAL.has(loop.status) || UNSCHEDULABLE.has(loop.status)) return;
+      if ((loop.status === "queued" || loop.status === "verifying_completed") && loop.nextTurnAt) {
+        const nextTurnAt = Date.parse(loop.nextTurnAt);
+        if (Number.isFinite(nextTurnAt) && Date.now() < nextTurnAt) {
+          schedule(runtime, Math.min(MAX_TIMER_DELAY_MS, Math.max(250, nextTurnAt - Date.now())));
+          return;
+        }
+      }
+      if (!runtime.ctx.isIdle() || runtime.ctx.hasPendingMessages()) {
+        schedule(runtime, 500);
         return;
       }
-    }
-    if (!runtime.ctx.isIdle() || runtime.ctx.hasPendingMessages()) {
-      schedule(runtime, 500);
-      return;
-    }
-    // prepare/routing await leaves awaitingTurn false; without this gate a second
-    // schedule tick can start another sendTurn and double-count turns.
-    if (runtime.sendTurnInFlight) {
-      schedule(runtime, 500);
-      return;
-    }
-    runtime.sendTurnInFlight = true;
-    // sendTurn内のthrowはvoid化されると未処理rejectでWebUIサーバごと落ちる。
-    // 回復可能な形（一時停止→再開）に倒しておく。
-    sendTurn(runtime)
-      .catch(async (error) => {
-        console.error("[goal-loop] sendTurn failed:", error);
-        if (!isActiveRuntime(runtime)) return;
-        await pauseLoop(
+      // prepare/routing await leaves awaitingTurn false; without this gate a second
+      // schedule tick can start another sendTurn and double-count turns.
+      if (runtime.sendTurnInFlight) {
+        schedule(runtime, 500);
+        return;
+      }
+      runtime.sendTurnInFlight = true;
+      // sendTurn内のthrowはvoid化されると未処理rejectでWebUIサーバごと落ちる。
+      // 回復可能な形（一時停止→再開）に倒しておく。
+      sendTurn(runtime)
+        .catch(async (error) => {
+          console.error("[goal-loop] sendTurn failed:", error);
+          if (!isActiveRuntime(runtime)) return;
+          if (retireStaleRuntime(runtime, error)) return;
+          try {
+            await pauseLoop(
+              runtime,
+              "scheduler_error",
+              `ターンの送信中にエラーが発生しました。${
+                error instanceof Error ? ` ${error.message}` : ` ${String(error)}`
+              }`,
+            );
+          } catch (pauseError) {
+            console.error("[goal-loop] sendTurn pause failed:", pauseError);
+          }
+        })
+        .finally(() => {
+          runtime.sendTurnInFlight = false;
+        });
+    } catch (error) {
+      if (retireStaleRuntime(runtime, error)) return;
+      // Keep unexpected timer failures visible and resumable instead of letting
+      // the exception escape the timer and kill the process.
+      console.error("[goal-loop] schedule tick failed:", error);
+      if (!isActiveRuntime(runtime)) return;
+      try {
+        const paused = pauseLoop(
           runtime,
           "scheduler_error",
-          `ターンの送信中にエラーが発生しました。${
+          `スケジューラの処理でエラーが発生しました。${
             error instanceof Error ? ` ${error.message}` : ` ${String(error)}`
           }`,
         );
-      })
-      .finally(() => {
-        runtime.sendTurnInFlight = false;
-      });
+        if (typeof paused !== "boolean") {
+          void paused.catch((pauseError) => {
+            console.error("[goal-loop] scheduler_error pause failed:", pauseError);
+          });
+        }
+      } catch (pauseError) {
+        console.error("[goal-loop] scheduler_error pause failed:", pauseError);
+      }
+    }
   }, delay);
 }
 
@@ -1936,6 +1986,7 @@ function startScheduleWatchdog(runtime: Runtime): void {
   if (runtime.watchdogTimer) return;
   runtime.watchdogTimer = setInterval(() => {
     void ensureScheduled(runtime).catch((error) => {
+      if (retireStaleRuntime(runtime, error)) return;
       console.error("[goal-loop] schedule watchdog failed:", error);
     });
   }, scheduleWatchdogMs());
@@ -2704,6 +2755,7 @@ export default function (pi: ExtensionAPI): void {
     runtime.hostRouting = routing;
     runtime.hostRoutingExpected = true;
     void ensureScheduled(runtime).catch((error) => {
+      if (retireStaleRuntime(runtime, error)) return;
       console.error("[goal-loop] host routing schedule failed:", error);
     });
   };
