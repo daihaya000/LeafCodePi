@@ -207,7 +207,7 @@ describe("ModelSelect unavailable models", () => {
     expect(screen.getByRole("option", { name: /Stale maxed/ })).toBeTruthy();
   });
 
-  it("disables the picker when every model is confirmed unavailable", () => {
+  it("keeps the trigger enabled and shows an empty state when every model is unavailable", () => {
     render(
       <ModelSelect
         value=""
@@ -217,8 +217,12 @@ describe("ModelSelect unavailable models", () => {
     );
 
     const trigger = screen.getByRole("button", { name: "モデル" }) as HTMLButtonElement;
-    expect(trigger.disabled).toBe(true);
+    expect(trigger.disabled).toBe(false);
     expect(trigger.textContent).toContain("利用可能なモデルなし");
+    fireEvent.click(trigger);
+    expect(screen.getByRole("listbox")).toBeTruthy();
+    expect(screen.queryAllByRole("option")).toHaveLength(0);
+    expect(screen.getByRole("listbox").textContent).toContain("利用可能なモデルなし");
   });
 });
 

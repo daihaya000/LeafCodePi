@@ -263,7 +263,7 @@ export function ModelSelect({
     };
   }, [open, updateMenuPosition]);
 
-  const isDisabled = disabled || loading || selectableOptions.length === 0;
+  const isDisabled = disabled || loading || options.length === 0;
   const emptyStateLabel = loading
     ? "モデルを読み込み中…"
     : selectableOptions.length === 0
@@ -292,7 +292,9 @@ export function ModelSelect({
         onKeyDown={handleListboxKeyDown}
         className="max-h-[min(20rem,calc(100dvh-2rem))] overflow-y-auto p-1"
       >
-        {grouped.map((group) => (
+        {grouped.length === 0 ? (
+          <div className="px-2 py-3 text-center text-muted">利用可能なモデルなし</div>
+        ) : grouped.map((group) => (
           <div key={group.key}>
             <div className="min-w-0 truncate px-2 py-1 text-[11px] font-semibold text-faint" title={group.header}>
               {group.header}
