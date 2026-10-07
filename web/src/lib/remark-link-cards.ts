@@ -1,5 +1,10 @@
-import type { Link, Root } from "mdast";
+import type { Link, PhrasingContent, Root } from "mdast";
 import { normalizeLinkUrl } from "@/lib/link-preview-shared";
+
+function isTextLabel(node: PhrasingContent): boolean {
+  return node.type === "text" || node.type === "inlineCode"
+    || ((node.type === "emphasis" || node.type === "strong" || node.type === "delete") && node.children.every(isTextLabel));
+}
 
 /** Mark only URL-only paragraphs: inline prose, code, images and internal task links stay unchanged. */
 export function remarkLinkCards() {
@@ -10,8 +15,9 @@ export function remarkLinkCards() {
     while (stack.length) {
       const node = stack.pop()!;
       if (node.type === "paragraph" && node.children?.every((child) => {
-        const item = child as { type: string; value?: string; url?: string };
-        return item.type === "text" ? !item.value?.trim() : item.type === "link" && Boolean(normalizeLinkUrl(item.url));
+        const item = child as PhrasingContent;
+        return item.type === "text" ? !item.value.trim()
+          : item.type === "link" && item.children.every(isTextLabel) && Boolean(normalizeLinkUrl(item.url));
       })) {
         for (const child of node.children) {
           const link = child as Link;

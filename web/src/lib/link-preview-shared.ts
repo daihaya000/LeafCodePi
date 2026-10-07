@@ -4,7 +4,7 @@ export type LinkPreview = {
 
 /** Public URL syntax only; server-side DNS and transport validation are separate. */
 export function normalizeLinkUrl(value: unknown): string | null {
-  if (typeof value !== "string" || value.length > 8192 || /[\s\u0000-\u001f\u007f]/.test(value)) return null;
+  if (typeof value !== "string" || value.length > 8192 || !/^https?:\/\//i.test(value) || /[\s\u0000-\u001f\u007f]/.test(value)) return null;
   try {
     const url = new URL(value);
     if (!/^https?:$/.test(url.protocol) || !url.hostname || url.username || url.password || url.port) return null;
@@ -13,19 +13,30 @@ export function normalizeLinkUrl(value: unknown): string | null {
 }
 
 /** Never consume one-time login/invite/reset links just to draw a preview. The link still opens on user click. */
-export function isSensitivePreviewUrl(value: string): boolean {
+export function isSensitivePreviewUrl(value: string, allowImageSignatures = false): boolean {
   const url = new URL(value);
   let path = url.pathname;
   try { path = decodeURIComponent(path); } catch { /* Invalid escapes stay literal. */ }
+  const fragment = url.hash.slice(1);
+  const fragmentQuery = fragment.includes("=") ? fragment.split("?").at(-1) : "";
   return /\/(?:auth|oauth|authorize|login|signin|sign-in|reset|recover|verify|reset-password|password-reset|password\/(?:reset|forgot)|invite|confirm-email)(?:\/|$)/i.test(path)
-    || [...url.searchParams.keys(), ...new URLSearchParams(url.hash.slice(1).split("?").at(-1)).keys()].some((key) =>
-      /^(?:token|access_token|refresh_token|id_token|api[_-]?key|password|secret|code|sig|signature|auth|key|x-amz-.+)$/i.test(key),
+    || [...url.searchParams.keys(), ...new URLSearchParams(fragmentQuery).keys()].some((key) =>
+      /^(?:token|access_token|refresh_token|id_token|api[_-]?key|password|secret|code|sig|signature|auth|key|x-amz-.+)$/i.test(key)
+      && !(allowImageSignatures && /^(?:sig|signature|x-amz-.+)$/i.test(key)),
     );
+}
+
+/** Cache metadata by document; retain the original fragment only on the clickable link. */
+export function linkPreviewKey(normalized: string): string {
+  const url = new URL(normalized);
+  url.hash = "";
+  return url.href;
 }
 
 export type UrlAttachmentSegment = { text: string } | { url: string; label?: string };
 /** URL-only lines become attachments. Prose, references and fenced code remain literal text. */
 export function splitUrlAttachments(text: string, limit = 6): UrlAttachmentSegment[] {
+  if (!/https?:\/\//i.test(text)) return text ? [{ text }] : [];
   const segments: UrlAttachmentSegment[] = [];
   let pending = "";
   let fence: { character: string; length: number } | undefined;

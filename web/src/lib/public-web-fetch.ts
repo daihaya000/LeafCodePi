@@ -1,5 +1,6 @@
 import { lookup } from "node:dns/promises";
 import { BlockList, isIP } from "node:net";
+import { Parser } from "htmlparser2";
 import { Agent, fetch } from "undici";
 import { isSensitivePreviewUrl, normalizeLinkUrl } from "@/lib/link-preview-shared";
 
@@ -29,7 +30,6 @@ function publicUrl(value: string): URL {
   if (isIP(host) ? !isPublicWebAddress(host) : !host.includes(".") || /(?:^|\.)(?:localhost|local|internal)$/.test(host)) {
     throw new Error("Non-public host");
   }
-  url.hash = "";
   return url;
 }
 async function abortable<T>(work: () => Promise<T>, signal: AbortSignal): Promise<T> {
@@ -45,14 +45,15 @@ async function abortable<T>(work: () => Promise<T>, signal: AbortSignal): Promis
 
 /** No cookies/proxy/environment credentials. Pin the checked DNS answer to every new connection. */
 export async function fetchPublicWebBytes(value: string, options: {
-  maxBytes: number; accept: string; prefix?: boolean; signal?: AbortSignal; noSensitiveLinks?: boolean;
+  maxBytes: number; accept: string; prefix?: boolean; signal?: AbortSignal; noSensitiveLinks?: boolean; allowImageSignatures?: boolean;
 }): Promise<{ bytes: Buffer; contentType: string; url: string }> {
   const timeout = AbortSignal.timeout(6000);
   const signal = options.signal ? AbortSignal.any([options.signal, timeout]) : timeout;
   let url = publicUrl(value);
   for (let redirects = 0; redirects <= 3; redirects++) {
     signal.throwIfAborted();
-    if (options.noSensitiveLinks && isSensitivePreviewUrl(url.href)) throw new Error("Sensitive preview link");
+    if (options.noSensitiveLinks && isSensitivePreviewUrl(url.href, options.allowImageSignatures)) throw new Error("Sensitive preview link");
+    url.hash = "";
     const host = url.hostname.replace(/^\[|\]$/g, "");
     const family = isIP(host);
     const addresses = family ? [{ address: host, family }] : await abortable(() => lookup(host, { all: true, verbatim: true }), signal);
@@ -86,16 +87,25 @@ export async function fetchPublicWebBytes(value: string, options: {
       const reader = response.body.getReader();
       const chunks: Buffer[] = [];
       let size = 0;
+      let headEnded = false;
+      // Latin-1 maps one byte to one code unit, retaining exact byte offsets across chunks.
+      const headParser = options.prefix ? new Parser({
+        onclosetag(name) { if (name === "head") { headEnded = true; headParser?.pause(); } },
+        onopentag(name) { if (name === "body") { headEnded = true; headParser?.pause(); } },
+      }) : undefined;
       try {
         while (true) {
           const item = await reader.read();
           if (item.done) break;
           const available = options.maxBytes - size;
           if (!options.prefix && item.value.byteLength > available) throw new Error("Response too large");
-          const chunk = Buffer.from(item.value.subarray(0, available));
+          const incoming = item.value.subarray(0, available);
+          headParser?.write(Buffer.from(incoming.buffer, incoming.byteOffset, incoming.byteLength).toString("latin1"));
+          const keep = headEnded ? Math.max(0, Math.min(incoming.length, headParser!.endIndex + 1 - size)) : incoming.length;
+          const chunk = Buffer.from(incoming.subarray(0, keep));
           chunks.push(chunk);
           size += chunk.length;
-          if (options.prefix && (size === options.maxBytes || chunk.toString("ascii").toLowerCase().includes("</head>"))) break;
+          if (options.prefix && (size === options.maxBytes || headEnded)) break;
         }
       } finally { await reader.cancel().catch(() => {}); reader.releaseLock(); }
       return { bytes: Buffer.concat(chunks, size), contentType, url: url.href };

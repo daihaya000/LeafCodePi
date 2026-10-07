@@ -4,8 +4,65 @@ vi.mock("./public-web-fetch", () => ({ fetchPublicWebBytes: remote }));
 import { getLinkPreview, getLinkPreviewImage, parseLinkMetadata } from "./link-preview";
 beforeEach(() => {
   remote.mockReset();
-  const cache = (globalThis as unknown as { __leafcodeLinkPreviews: { pages: Map<string, unknown>; pending: Map<string, unknown>; images: Map<string, unknown>; activeImages: number } }).__leafcodeLinkPreviews;
-  cache.pages.clear(); cache.pending.clear(); cache.images.clear(); cache.activeImages = 0;
+  const cache = (globalThis as unknown as { __leafcodeLinkPreviews: { pages: Map<string, unknown>; pending: Map<string, unknown>; images: Map<string, unknown>; activeImages: number; cachedImageBytes: number } }).__leafcodeLinkPreviews;
+  cache.pages.clear(); cache.pending.clear(); cache.images.clear(); cache.activeImages = 0; cache.cachedImageBytes = 0;
+});
+async function registerThumbnail(path: string, source = "/thumb.png") {
+  remote.mockResolvedValueOnce({ bytes: Buffer.from(`<title>Document</title><meta property="og:image" content="${source}">`), contentType: "text/html", url: `https://example.com/${path}` });
+  const preview = await getLinkPreview(`https://example.com/${path}`);
+  return new URL(preview.image!, "http://localhost").searchParams.get("id")!;
+}
+it("returns null to every concurrent thumbnail caller on failure", async () => {
+  const id = await registerThumbnail("failure");
+  remote.mockRejectedValueOnce(new Error("remote failure"));
+  const results = await Promise.allSettled([getLinkPreviewImage(id), getLinkPreviewImage(id)]);
+  expect(results).toEqual([{ status: "fulfilled", value: null }, { status: "fulfilled", value: null }]);
+});
+it("reuses downloaded thumbnail bytes across sequential requests", async () => {
+  const id = await registerThumbnail("cached-image");
+  remote.mockResolvedValueOnce({ bytes: Buffer.from([137,80,78,71,13,10,26,10]), contentType: "image/png", url: "https://example.com/thumb.png" });
+  const first = await getLinkPreviewImage(id);
+  expect(first?.mime).toBe("image/png");
+  expect(await getLinkPreviewImage(id)).toEqual(first);
+  expect(remote).toHaveBeenCalledTimes(2);
+});
+it("does not return cached public metadata for a sensitive fragment URL", async () => {
+  await registerThumbnail("fragment");
+  expect((await getLinkPreview("https://example.com/fragment#access_token=private")).title).toBe("example.com");
+  expect(remote).toHaveBeenCalledOnce();
+});
+it("bounds the thumbnail byte cache, evicts least-recently-used bytes and releases expired entries", async () => {
+  const cache = (globalThis as unknown as { __leafcodeLinkPreviews: { cachedImageBytes: number; images: Map<string, { data?: unknown }> } }).__leafcodeLinkPreviews;
+  const bytes = Buffer.alloc(2 * 1024 * 1024);
+  Buffer.from([137,80,78,71,13,10,26,10]).copy(bytes);
+  const ids: string[] = [];
+  for (let index = 0; index < 5; index++) {
+    if (index === 4) await getLinkPreviewImage(ids[0]); // Refresh the oldest image before the fifth admission.
+    const id = await registerThumbnail(`budget-${index}`);
+    ids.push(id);
+    remote.mockResolvedValueOnce({ bytes, contentType: "image/png", url: "https://example.com/thumb.png" });
+    await getLinkPreviewImage(id);
+  }
+  expect(cache.cachedImageBytes).toBe(8 * 1024 * 1024);
+  expect(cache.images.get(ids[0])?.data).toBeDefined();
+  expect(cache.images.get(ids[1])?.data).toBeUndefined();
+  expect(cache.images.get(ids[4])?.data).toBeDefined();
+  const clock = vi.spyOn(Date, "now").mockReturnValue(Date.now() + 11 * 60_000);
+  try {
+    expect(await getLinkPreviewImage(ids[4])).toBeNull();
+    expect(cache.cachedImageBytes).toBe(0);
+  } finally { clock.mockRestore(); }
+});
+it("preserves significant spaces in thumbnail URLs", () => {
+  expect(parseLinkMetadata('<meta property="og:image" content="/My  Cover.png">', "https://example.com").imageUrl).toBe("https://example.com/My%20%20Cover.png");
+});
+it("allows ordinary document anchors named after authentication fields", async () => {
+  await registerThumbnail("anchor");
+  expect((await getLinkPreview("https://example.com/anchor#token")).title).toBe("Document");
+  expect(remote).toHaveBeenCalledOnce();
+});
+it("ignores blank metadata and metadata injected after the head", () => {
+  expect(parseLinkMetadata('<head><title>Actual title</title><meta property="og:title" content="   "></head><body><meta property="og:title" content="Body title"></body>', "https://example.com").title).toBe("Actual title");
 });
 it("parses Open Graph/entity attributes, relative thumbnails and Unicode without executing HTML", () => {
   const value = parseLinkMetadata(`<head><title>fallback</title><meta content='木村 &amp; そうめん' property='og:title'><meta name="description" content="fallback description"><meta property="og:description" content="説明 &quot;引用&quot;"><meta property="og:site_name" content="YouTube"><meta property="og:image" content="/preview.jpg?x=1&amp;y=2"><script>const x='<meta property="og:title" content="wrong">'</script></head>`, "https://www.youtube.com/shorts/example");
@@ -49,7 +106,8 @@ it("serves only previously registered raster thumbnails and rejects SVG or arbit
   remote.mockResolvedValueOnce({ bytes: Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/p9sAAAAASUVORK5CYII=", "base64"), contentType: "image/png", url: "https://example.com/thumb.png" });
   expect(await getLinkPreviewImage(id)).toMatchObject({ mime: "image/png" });
   expect(remote).toHaveBeenLastCalledWith("https://example.com/thumb.png", expect.objectContaining({ maxBytes: 2 * 1024 * 1024 }));
+  const badId = await registerThumbnail("bad-svg");
   remote.mockResolvedValueOnce({ bytes: Buffer.from("<svg><script/></svg>"), contentType: "image/svg+xml", url: "https://example.com/thumb.png" });
-  expect(await getLinkPreviewImage(id)).toBeNull();
-  expect(await getLinkPreviewImage(id)).toBeNull();
+  expect(await getLinkPreviewImage(badId)).toBeNull();
+  expect(await getLinkPreviewImage(badId)).toBeNull();
 });

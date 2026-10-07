@@ -68,6 +68,32 @@ it("does not consume login/token destinations reached via metadata redirects", a
   await expect(fetchPublicWebBytes("https://example.com", { accept: "text/html", maxBytes: 256, noSensitiveLinks: true })).rejects.toThrow("Sensitive");
   expect(mocks.fetch).toHaveBeenCalledOnce();
 });
+it("checks sensitive fragments before stripping them from transport URLs", async () => {
+  await expect(fetchPublicWebBytes("https://example.com/#access_token=private", { accept: "text/html", maxBytes: 256, noSensitiveLinks: true })).rejects.toThrow("Sensitive");
+  expect(mocks.fetch).not.toHaveBeenCalled();
+});
+it("stops at a split head closing tag and ignores fake head tags inside scripts", async () => {
+  const source = ['<head><script>const s="</head>";</script><title>Actual</title></he', 'ad>', '<body>unused</body>'];
+  let read = 0;
+  mocks.fetch.mockResolvedValueOnce(new Response(new ReadableStream({
+    pull(controller) { if (read < source.length) controller.enqueue(new TextEncoder().encode(source[read++])); else controller.close(); },
+  }, { highWaterMark: 0 })));
+  const result = await fetchPublicWebBytes("https://example.com/", { accept: "text/html", maxBytes: 256, prefix: true });
+  expect(result.bytes.toString()).toBe(source[0] + source[1]);
+  expect(read).toBe(2);
+});
+it("permits published signed image URLs but blocks token/auth targets even for thumbnails", async () => {
+  mocks.fetch.mockResolvedValueOnce(new Response("image"));
+  await fetchPublicWebBytes("https://cdn.example.com/thumb?X-Amz-Signature=example", {
+    accept: "image/*", maxBytes: 256, noSensitiveLinks: true, allowImageSignatures: true,
+  });
+  for (const url of ["https://example.com/login?signature=example", "https://example.com/thumb?token=example"]) {
+    await expect(fetchPublicWebBytes(url, {
+      accept: "image/*", maxBytes: 256, noSensitiveLinks: true, allowImageSignatures: true,
+    })).rejects.toThrow("Sensitive");
+  }
+  expect(mocks.fetch).toHaveBeenCalledOnce();
+});
 it("honors an already aborted request without DNS or network access", async () => {
   const controller = new AbortController();
   controller.abort();

@@ -1,6 +1,6 @@
 import { randomBytes } from "node:crypto";
 import { Parser } from "htmlparser2";
-import { isSensitivePreviewUrl, normalizeLinkUrl, type LinkPreview } from "@/lib/link-preview-shared";
+import { isSensitivePreviewUrl, linkPreviewKey, normalizeLinkUrl, type LinkPreview } from "@/lib/link-preview-shared";
 import { fetchPublicWebBytes } from "@/lib/public-web-fetch";
 import { imageMimeFromBytes } from "@/lib/raster-image";
 
@@ -8,15 +8,37 @@ const PAGE_TTL = 5 * 60_000;
 const IMAGE_TTL = 10 * 60_000;
 const MAX_ENTRIES = 128;
 const MAX_IMAGE_BYTES = 2 * 1024 * 1024;
-type Thumbnail = { url: string; expires: number; pending?: Promise<{ bytes: Buffer; mime: string }> };
+const MAX_CACHED_IMAGE_BYTES = 8 * 1024 * 1024;
+type ImageData = { bytes: Buffer; mime: string };
+type Thumbnail = { url: string; expires: number; data?: ImageData; pending?: Promise<ImageData | null> };
 type PreviewState = {
   pages: Map<string, { value: LinkPreview; expires: number }>;
   pending: Map<string, Promise<LinkPreview>>;
   images: Map<string, Thumbnail>;
   activeImages: number;
+  cachedImageBytes: number;
 };
 const globalCache = globalThis as typeof globalThis & { __leafcodeLinkPreviews?: PreviewState };
-const state = globalCache.__leafcodeLinkPreviews ??= { pages: new Map(), pending: new Map(), images: new Map(), activeImages: 0 };
+const state = globalCache.__leafcodeLinkPreviews ??= { pages: new Map(), pending: new Map(), images: new Map(), activeImages: 0, cachedImageBytes: 0 };
+// Compatible with the existing hot-reload cache (which held only URLs and pending requests).
+state.cachedImageBytes ??= 0;
+function discardImage(id: string) {
+  const image = state.images.get(id);
+  if (image?.data) state.cachedImageBytes -= image.data.bytes.length;
+  state.images.delete(id);
+}
+function pruneImages() {
+  for (const [id, image] of state.images) if (image.expires <= Date.now()) discardImage(id);
+  while (state.images.size > MAX_ENTRIES) discardImage(state.images.keys().next().value!);
+}
+function cacheImage(image: Thumbnail, data: ImageData) {
+  for (const older of state.images.values()) {
+    if (state.cachedImageBytes + data.bytes.length <= MAX_CACHED_IMAGE_BYTES) break;
+    if (older.data) { state.cachedImageBytes -= older.data.bytes.length; delete older.data; }
+  }
+  image.data = data;
+  state.cachedImageBytes += data.bytes.length;
+}
 function prune<T extends { expires: number }>(map: Map<string, T>, limit = MAX_ENTRIES) {
   for (const [key, value] of map) if (value.expires <= Date.now()) map.delete(key);
   while (map.size > limit) map.delete(map.keys().next().value!);
@@ -29,15 +51,20 @@ export function parseLinkMetadata(html: string, baseUrl: string): Omit<LinkPrevi
   let title = "";
   const parser = new Parser({
     onopentag(name, attributes) {
+      if (name === "body") { parser.pause(); return; }
       if (name === "title") inTitle = true;
       if (name !== "meta") return;
       const key = (attributes.property ?? attributes.name ?? "").toLowerCase();
       if (/^(?:og:(?:title|description|image|site_name)|twitter:(?:title|description|image)|description)$/.test(key) && attributes.content && !metadata.has(key)) {
-        metadata.set(key, attributes.content.slice(0, 8192));
+        const content = key.endsWith(":image") ? attributes.content.trim().slice(0, 8192) : clean(attributes.content, 8192);
+        if (content) metadata.set(key, content);
       }
     },
     ontext(text) { if (inTitle && title.length < 4096) title += text.slice(0, 4096 - title.length); },
-    onclosetag(name) { if (name === "title") inTitle = false; },
+    onclosetag(name) {
+      if (name === "title") inTitle = false;
+      if (name === "head") parser.pause();
+    },
   }, { decodeEntities: true });
   parser.end(html);
   const result: Omit<LinkPreview, "url" | "image"> & { imageUrl?: string } = {
@@ -55,17 +82,18 @@ export function parseLinkMetadata(html: string, baseUrl: string): Omit<LinkPrevi
 export async function getLinkPreview(value: string): Promise<LinkPreview> {
   const normalized = normalizeLinkUrl(value);
   if (!normalized) throw new Error("Invalid URL");
-  const parsed = new URL(normalized);
-  parsed.hash = "";
-  const url = parsed.href;
+  const url = linkPreviewKey(normalized);
+  const hostname = new URL(url).hostname;
+  const fallback: LinkPreview = { url, title: hostname, siteName: hostname };
+  // Check provenance before sharing a fragment-free cached document.
+  if (isSensitivePreviewUrl(normalized)) return fallback;
   prune(state.pages);
-  prune(state.images);
+  pruneImages();
   const cached = state.pages.get(url);
   if (cached) return cached.value;
   const inflight = state.pending.get(url);
   if (inflight) return inflight;
-  const fallback: LinkPreview = { url, title: parsed.hostname, siteName: parsed.hostname };
-  if (isSensitivePreviewUrl(normalized) || state.pending.size >= 8) return fallback;
+  if (state.pending.size >= 8) return fallback;
   const work = (async () => {
     let result = fallback;
     let resolved = false;
@@ -83,7 +111,7 @@ export async function getLinkPreview(value: string): Promise<LinkPreview> {
         const id = randomBytes(16).toString("hex");
         state.images.set(id, { url: imageUrl, expires: Date.now() + IMAGE_TTL });
         result.image = `/api/link-preview/image?id=${id}`;
-        prune(state.images);
+        pruneImages();
       }
       resolved = true;
     } catch { /* Private, unavailable and sign-in-only pages still yield a clickable card. No URL logging. */ }
@@ -98,20 +126,29 @@ export async function getLinkPreview(value: string): Promise<LinkPreview> {
 /** Opaque IDs only: the browser cannot turn this endpoint into an arbitrary remote-image proxy. */
 export async function getLinkPreviewImage(id: string): Promise<{ bytes: Buffer; mime: string } | null> {
   if (!/^[a-f0-9]{32}$/.test(id)) return null;
-  prune(state.images);
+  pruneImages();
   const image = state.images.get(id);
   if (!image) return null;
-  if (image.pending) return image.pending;
+  if (image.data) {
+    state.images.delete(id);
+    state.images.set(id, image);
+    return image.data;
+  }
+  if (image.pending) return image.pending.catch(() => null);
   if (state.activeImages >= 8) return null;
   state.activeImages++;
   const work = (async () => {
-    const result = await fetchPublicWebBytes(image.url, { accept: "image/avif,image/webp,image/*", maxBytes: MAX_IMAGE_BYTES });
+    const result = await fetchPublicWebBytes(image.url, {
+      accept: "image/avif,image/webp,image/*", maxBytes: MAX_IMAGE_BYTES,
+      noSensitiveLinks: true, allowImageSignatures: true,
+    });
     const mime = imageMimeFromBytes(result.bytes);
     if (!mime) throw new Error("Unsupported thumbnail");
-    return { bytes: result.bytes, mime };
-  })();
+    const data = { bytes: result.bytes, mime };
+    if (state.images.get(id) === image) cacheImage(image, data);
+    return data;
+  })().catch(() => { if (state.images.get(id) === image) discardImage(id); return null; })
+    .finally(() => { state.activeImages--; delete image.pending; });
   image.pending = work;
-  try { return await work; }
-  catch { state.images.delete(id); return null; }
-  finally { state.activeImages--; delete image.pending; }
+  return work;
 }

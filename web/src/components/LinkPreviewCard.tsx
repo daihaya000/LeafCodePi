@@ -1,12 +1,13 @@
 "use client";
 
-import { Children, Fragment, isValidElement, memo, useEffect, useRef, useState, type AnchorHTMLAttributes, type ReactNode } from "react";
+import { Children, Fragment, isValidElement, memo, useEffect, useMemo, useRef, useState, type AnchorHTMLAttributes, type ReactNode } from "react";
 import type { ExtraProps } from "react-markdown";
 import { Globe, Link as LinkIcon } from "lucide-react";
-import { isSensitivePreviewUrl, normalizeLinkUrl, splitUrlAttachments, type LinkPreview } from "@/lib/link-preview-shared";
+import { isSensitivePreviewUrl, linkPreviewKey, normalizeLinkUrl, splitUrlAttachments, type LinkPreview } from "@/lib/link-preview-shared";
 
 const previews = new Map<string, { work: Promise<LinkPreview | null>; expires: number }>();
-function loadPreview(url: string): Promise<LinkPreview | null> {
+function loadPreview(original: string): Promise<LinkPreview | null> {
+  const url = linkPreviewKey(original);
   for (const [key, cached] of previews) if (cached.expires < Date.now()) previews.delete(key);
   const cached = previews.get(url);
   if (cached) return cached.work;
@@ -37,7 +38,8 @@ function PreviewCard({ url, label }: { url: string; label?: string }) {
   const [visible, setVisible] = useState(false);
   const [preview, setPreview] = useState<LinkPreview | null>(null);
   const [imageFailed, setImageFailed] = useState(false);
-  const host = new URL(url).hostname.replace(/^www\./, "");
+  const hostname = new URL(url).hostname;
+  const host = hostname.replace(/^www\./, "");
   useEffect(() => {
     if (typeof IntersectionObserver === "undefined") { setVisible(true); return; }
     const observer = new IntersectionObserver((entries) => {
@@ -55,7 +57,7 @@ function PreviewCard({ url, label }: { url: string; label?: string }) {
     }, 300);
     return () => { active = false; clearTimeout(timer); };
   }, [url, visible]);
-  const title = preview?.title && preview.title !== new URL(url).hostname ? preview.title : label || preview?.title || host;
+  const title = preview?.title && preview.title !== hostname ? preview.title : label || preview?.title || host;
   return (
     <a ref={root} href={url} target="_blank" rel="noopener noreferrer" data-link-card="" aria-label={title}
       className="my-2 flex w-full max-w-full min-h-32 overflow-hidden rounded-card border border-border bg-surface text-left text-text no-underline transition-colors hover:bg-surface-2 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent whitespace-normal">
@@ -88,7 +90,8 @@ export function MarkdownLink({ node, href, children, ...props }: AnchorHTMLAttri
   return <a href={href} {...props}>{children}</a>;
 }
 export function UrlAttachmentText({ text, renderText = (value) => value }: { text: string; renderText?: (value: string) => ReactNode }) {
-  return <>{splitUrlAttachments(text).map((segment, index) => "url" in segment
+  const segments = useMemo(() => splitUrlAttachments(text), [text]);
+  return <>{segments.map((segment, index) => "url" in segment
     ? <LinkPreviewCard key={`${segment.url}:${index}`} url={segment.url} label={segment.label} />
     : <Fragment key={index}>{renderText(segment.text)}</Fragment>)}</>;
 }
@@ -99,8 +102,10 @@ export function DraftLinkPreviews({ text }: { text: string }) {
     return () => clearTimeout(timer);
   }, [text]);
   // Remove a deleted URL at once; only new/edited URLs wait for the typing debounce.
-  const current = new Set(splitUrlAttachments(text, 3).flatMap((segment) => "url" in segment ? [segment.url] : []));
-  const urls = splitUrlAttachments(settled, 3).filter((segment) => "url" in segment && current.has(segment.url));
+  const currentSegments = useMemo(() => splitUrlAttachments(text, 3), [text]);
+  const settledSegments = useMemo(() => splitUrlAttachments(settled, 3), [settled]);
+  const current = new Set(currentSegments.flatMap((segment) => "url" in segment ? [segment.url] : []));
+  const urls = settledSegments.filter((segment) => "url" in segment && current.has(segment.url));
   if (!urls.length) return null;
   return <div aria-label="URL添付プレビュー">{urls.map((segment) => "url" in segment && <LinkPreviewCard key={segment.url} url={segment.url} label={segment.label} />)}</div>;
 }

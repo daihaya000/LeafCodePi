@@ -147,17 +147,18 @@ it.each([true, false])("shows the Pi session ID only at the top of the Diff pane
   saveTaskSessionCache({ task: { ...task, sessionId, directory: "C:\\repo" }, messages: [], isStreaming: false, isCompacting: false });
   mocks.getJson.mockImplementation(() => Promise.resolve({ files: [], git: true, additions: 0, deletions: 0, models: [], agents: [], skills: [], accounts: [] }));
   render(<TaskView taskId={task.id} mdUp={mdUp} />);
-  expect(screen.queryByRole("button", { name: "セッションIDを確認" })).toBeNull();
+  const label = "PiセッションID（クリックでコピー、ドラッグで選択）";
+  expect(screen.queryByRole("textbox", { name: label })).toBeNull();
   fireEvent.click(screen.getByRole("button", { name: "Diff パネル" }));
-  const trigger = await screen.findByRole("button", { name: "セッションIDを確認" });
-  expect(trigger.title).toBe(`セッションID: ${sessionId}`);
-  expect(trigger.textContent).toBe(sessionId);
+  const trigger = await screen.findByRole("textbox", { name: label }) as HTMLInputElement;
+  expect(trigger.readOnly).toBe(true);
+  expect(trigger.value).toBe(sessionId);
   const row = trigger.parentElement!;
   expect(row.getAttribute("aria-label")).toBe("セッション識別情報");
   expect(row.parentElement?.firstElementChild).toBe(row);
   expect(screen.getByRole("form", { name: "フォローアップ" }).contains(trigger)).toBe(false);
   fireEvent.click(screen.getByRole("button", { name: "Diff パネル" }));
-  await waitFor(() => expect(screen.queryByRole("button", { name: "セッションIDを確認" })).toBeNull());
+  await waitFor(() => expect(screen.queryByRole("textbox", { name: label })).toBeNull());
 });
 
 it("shows the next-action suggestion above the follow-up composer", async () => {
@@ -1737,7 +1738,7 @@ describe("TaskView draft submission", () => {
     ));
   });
 
-  it("hides the manual context compaction control for auto-compaction", async () => {
+  it("keeps manual compaction available regardless of automatic compaction settings", async () => {
     mocks.getJson.mockImplementation((path: string) =>
       path === `/api/settings/${COMPACTION_ACTION_SETTING_KEY}`
         ? Promise.resolve({ value: "auto" })
@@ -1745,10 +1746,8 @@ describe("TaskView draft submission", () => {
     );
     render(<TaskView taskId={task.id} mdUp />);
 
-    await waitFor(() => expect(mocks.getJson).toHaveBeenCalledWith(
-      `/api/settings/${COMPACTION_ACTION_SETTING_KEY}`,
-    ));
-    expect(screen.queryByRole("button", { name: "コンテキスト圧縮" })).toBeNull();
+    expect(await screen.findByRole("button", { name: "コンテキスト圧縮" })).toBeTruthy();
+    expect(mocks.getJson.mock.calls.some(([path]) => path === `/api/settings/${COMPACTION_ACTION_SETTING_KEY}`)).toBe(false);
   });
 
   it("hides the read-aloud toggle when global TTS is disabled", async () => {

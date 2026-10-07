@@ -72,6 +72,18 @@ it("debounces draft attachments and immediately removes deleted URLs without alt
   rerender(<DraftLinkPreviews text="" />);
   expect(container.querySelector("a")).toBeNull();
 });
+it("preserves linked Markdown images instead of replacing them with URL cards", () => {
+  const { container } = render(<Markdown remarkPlugins={[remarkGfm, remarkLinkCards]} components={{ a: MarkdownLink }}>{"[![render](./render.png)](https://example.com/linked-image)"}</Markdown>);
+  expect(container.querySelector("img")?.getAttribute("src")).toBe("./render.png");
+  expect(container.querySelector("[data-link-card]")).toBeNull();
+});
+it("shares metadata across fragment variants while preserving each link destination", async () => {
+  const { container } = render(<UrlAttachmentText text={"https://example.com/fragment-cache#one\nhttps://example.com/fragment-cache#two"} />);
+  await waitFor(() => expect(request).toHaveBeenCalledOnce());
+  await act(async () => { await new Promise((resolve) => setTimeout(resolve, 350)); });
+  expect(request).toHaveBeenCalledOnce();
+  expect([...container.querySelectorAll("a")].map((a) => a.getAttribute("href"))).toEqual(["https://example.com/fragment-cache#one", "https://example.com/fragment-cache#two"]);
+});
 it("preserves literal fenced code and rejects credentials, non-HTTP and nonstandard ports", () => {
   const text = "before\n```text\nhttps://example.com/code\n```\nafter";
   expect(splitUrlAttachments(text)).toEqual([{ text }]);
