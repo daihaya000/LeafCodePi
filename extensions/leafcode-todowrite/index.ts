@@ -25,6 +25,7 @@ import {
 import { normalizeTodos, type TodoItem } from "./state.ts";
 import { clipRequestText, judgeTodoNotNeeded } from "./todo-need.ts";
 import { clearTodoVisibility, publishTodoVisibility } from "./visibility.ts";
+import { buildGitFinalizeArgs, gitFinalizeCommand, GitFinalizeParams, GIT_FINALIZE_NAME } from "./git-finalize.ts";
 export { normalizeTodos } from "./state.ts";
 export type { TodoItem, TodoPriority, TodoStatus } from "./state.ts";
 
@@ -265,22 +266,28 @@ export default function (pi: ExtensionAPI): void {
   };
   const gateEnabled = () => pi.getActiveTools().includes("todowrite");
   const hasInProgress = () => todos.some((todo) => todo.status === "in_progress");
+  const finalizationReady = () => gateEnabled() && gate.openedThisTask && !gate.reviewRequired
+    && todos.length > 0 && todos.every((todo) => todo.status === "completed");
+  const ownedShell = () => pi.getActiveTools().includes("powershell") ? "powershell"
+    : pi.getActiveTools().includes("bash") ? "bash" : undefined;
+  const closingCalls = new Map<string, { task: TodoGateState; shell: "powershell" | "bash"; command: string }>();
   const visibilityMode = () => gate.openedThisTask ? hasInProgress() ? "open" : "closing"
     : gate.waived && gate.waivedMutations < WAIVER_MUTATION_LIMIT ? "open"
       : gate.substantiveCalls < TODO_GATE_READ_LIMIT - 1 ? "preflight" : "required";
   const visibleBeforeCall = (name: string) => {
+    if (name === GIT_FINALIZE_NAME) return finalizationReady() && ownedShell() !== undefined;
     const action = classifyToolForTodoGate(name, undefined);
     if (action === "allow") return true;
     const mode = visibilityMode();
-    return mode === "open" || (mode === "closing" && (action === "count" || isShellTool(name)))
+    return mode === "open" || (mode === "closing" && action === "count")
       || (mode === "preflight" && action === "count");
   };
-  const visibility = (name: string) => !gateEnabled() || visibleBeforeCall(name);
+  const visibility = (name: string) => name === GIT_FINALIZE_NAME ? visibleBeforeCall(name) : !gateEnabled() || visibleBeforeCall(name);
   // Reapply descriptions/declaration projection, not the permission/loadout membership.
   let lastVisibilityKey: string | undefined;
   const refreshVisibility = (force = false) => {
     const active = pi.getActiveTools();
-    const key = `${active.includes("todowrite") ? visibilityMode() : "off"}:${JSON.stringify(active)}`;
+    const key = `${active.includes("todowrite") ? visibilityMode() : "off"}:${finalizationReady()}:${JSON.stringify(active)}`;
     if (!force && key === lastVisibilityKey) return;
     pi.setActiveTools(active);
     lastVisibilityKey = key;
@@ -349,6 +356,14 @@ export default function (pi: ExtensionAPI): void {
   };
   pi.on("tool_call", (event, ctx) => {
     const task = gate;
+    const parentId = (event as typeof event & { parentToolCallId?: string }).parentToolCallId;
+    const scoped = parentId ? closingCalls.get(parentId) : undefined;
+    if (scoped && scoped.task === task && scoped.shell === event.toolName
+      && scoped.command === asRecord(event.input)?.command && finalizationReady() && !ctx.signal?.aborted) return;
+    if (event.toolName === GIT_FINALIZE_NAME) {
+      if (finalizationReady() && ownedShell()) return;
+      return { block: true, reason: "git_finalizeはレビュー済みの全ToDo完了時だけ利用できます。" };
+    }
     const action = classifyToolForTodoGate(event.toolName, event.input);
     if (action === "allow" || !gateEnabled()) return;
     const shellPhase = isShellTool(event.toolName)
@@ -361,7 +376,7 @@ export default function (pi: ExtensionAPI): void {
       if (task !== gate) return { block: true, reason: "依頼が切り替わりました。現在のToDoを確認してから再実行してください。" };
       if (ctx.signal?.aborted) return { block: true, reason: "作業が中断されたため実行を停止しました。" };
       if (task.openedThisTask) {
-        if (hasInProgress() || action === "count" || shellPhase !== undefined) {
+        if (hasInProgress() || action === "count") {
           admit(task, requiresReview);
           return undefined;
         }
@@ -476,6 +491,28 @@ export default function (pi: ExtensionAPI): void {
   });
 
   pi.registerTool({
+    name: GIT_FINALIZE_NAME,
+    label: "Git Finalize",
+    description: "Run restricted Git status/diff/log/show/add/commit/push/fetch/rev_parse after ALL ToDos and review are completed. No arbitrary shell, argv, force, merge or cwd override. Uses the existing shell permission pipeline. For further changes, register a new in_progress ToDo.",
+    parameters: GitFinalizeParams,
+    ...{ exposure: "model-only" as const, executionMode: "sequential" as const,
+      prepareLoadout: () => ({ hiddenDeclarations: finalizationReady() && ownedShell() ? [] : [GIT_FINALIZE_NAME] }) },
+    async execute(toolCallId, params, signal, onUpdate, ctx) {
+      const shell = ownedShell();
+      if (!finalizationReady() || !shell || signal?.aborted) throw Error("全ToDoとレビューを完了してからgit_finalizeを使ってください。");
+      const native = ctx as typeof ctx & { executeTool?: (name: string, args: unknown, options: unknown) => Promise<{ isError: boolean; result: { content: unknown[]; details?: unknown } }> };
+      if (typeof native.executeTool !== "function") throw Error("Native SDKの権限付き実行経路がありません。");
+      const command = gitFinalizeCommand(buildGitFinalizeArgs(params), shell);
+      closingCalls.set(toolCallId, { task: gate, shell, command });
+      try {
+        const outcome = await native.executeTool(shell, { command, timeout: 30 }, { signal, onUpdate });
+        if (outcome.isError) throw Error(JSON.stringify(outcome.result.content));
+        return { content: outcome.result.content as { type: "text"; text: string }[], details: outcome.result.details };
+      } finally { closingCalls.delete(toolCallId); }
+    },
+  });
+
+  pi.registerTool({
     name: "todowrite",
     label: "ToDo",
     description:
@@ -484,6 +521,7 @@ export default function (pi: ExtensionAPI): void {
     promptGuidelines: [
       "Keep a todowrite list for work that takes several dependent steps (changing code, files or configuration, running commands with side effects, verifying, committing, delegating). For such work, call todowrite with a non-empty list and mark the current item in_progress before the first edit, shell command, delegation, unclassified tool, or third substantive read-only tool call. For explicit Todo requests, call it before the first substantive tool. When unsure, register.",
       "Call todowrite directly, not inside codemode. Direct tool results preserve the list for reload and UI.",
+      "After all ToDos and review are completed, normal bash/powershell are hidden and blocked. Use git_finalize for restricted Git commit/confirmation, or register a new in_progress ToDo before further work.",
       "Update the list at every step: mark the finished item completed and set the next item in_progress when you start it. Never batch status changes to the end of the task.",
       "Skip the list for a question, explanation, single lookup, discussion, standalone judgment call, control-tool use, or one small self-contained action. If the ToDo gate stops a tool call anyway, register the list and retry the call.",
     ],

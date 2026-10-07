@@ -44,7 +44,8 @@ description: 起票に値する作業（複数の依存する手順を要する�
 - 有効な`in_progress`項目を実際に登録した時点で、そのタスクのゲートを開く。登録前の同一バッチ操作、空・不正なリストでは開かない。開いた後も変更系は`in_progress`が1件ある間だけ通り、全項目`completed`・空リストでは再び停止する（read-onlyと、`cd`付きを含む`git status/diff/log/add/commit/push/fetch/merge`のコミット・確認工程は通過）。`memory_add`・`skill_manage`などの永続化は、最後の項目を`completed`にする前に行う。完了後に必要なら新規項目を起票する。
 - 完了後のgit shell判定は、引用符外の`;`・改行・`&&`・`||`を各コマンドとして個別に行い、引用符内の区切りは引数として扱う。パイプ先は名前が完全一致する許可済み出力フィルタだけを通す。`sort -o/--output/--compress-program`（引用・短縮形の連結引数を含む）や空のパイプ・末尾の`&&/||`は停止する。`git pull`・`--force`・`--rebase`・`--abort`も停止する。引用された危険オプション・`--output`・外部diff/textconv・引用符の隣接連結・scriptblock・変数展開・未閉じ引用符・単独`&`・置換・`2>&1`以外のリダイレクト・未対応構文は停止する。これは完全なshell parserではないため、複雑な記法はToDoを`in_progress`にして実行する。
 - shell入力は1回だけ解析し、確認・merge・非対応を共通分類して許可判定とレビュー判定で再利用する。
-- Gitのコミット・確認工程では完了済みレビューを無効化しない。`merge`は作業ツリーを変更し得るので再レビューが必要。
+- 全ToDoとレビューの完了後は通常の`bash/powershell`を非公開にし、古い宣言からの実行も停止する。Gitはmodel-onlyの`git_finalize`だけを公開する。status/diff/log/show/add/commit/push/fetch/rev_parseを構造化引数で選び、任意command/argv/cwd・force・merge・履歴改変は受け取らない。空リスト・cancelled・レビュー未完了・shell権限なしでは非公開。新規in_progressで通常ツールを再公開する。
+- `git_finalize`は既存shellへNative SDKで入れ子実行し、検証済みの完全一致commandと親call IDだけをToDoゲートの例外にする。shellのloadout・権限・承認hookは維持する。完了済みレビューは無効化しない。mergeなど作業ツリーの追加変更には新規in_progressと再レビューが必要。
 - レビュー必須・有効なレビュー着手IDをSDKのcustom entryへ保存し、reload/tree切替でも復元する。LLMコンテキストには入れず、同じ状態の連続操作では追記しない。作業後の追加変更でレビュー着手を無効化し、新しい外部依頼では監査状態もリセットする。不正なチェックポイントはレビュー未完了として扱う。
 - 公開状態とactive loadoutが変わらない操作では、宣言を再構築しない。再開・タスク開始時は強制的に再投影する。
 - idle時の新しい外部入力でゲートをリセット（steer / followUp / 拡張入力では継続）。セッション開始・ツリー切替では最新の成功・有効なToDoスナップショットだけを逆順探索して復元し、失敗結果は無視する。`in_progress`が残っていればゲートは開いたままにする。

@@ -34,13 +34,21 @@ const review = [{ content: "Implementation", status: "completed", priority: "hig
 const done = review.map((item) => ({ ...item, status: "completed" }));
 const call = (name: string, args: Parameters<typeof fauxToolCall>[1]) => fauxAssistantMessage([fauxToolCall(name, args)], { stopReason: "toolUse" });
 
-async function fixture() {
+async function fixture(options: { shell?: boolean; denyShell?: boolean } = {}) {
   root = mkdtempSync(join(tmpdir(), "leafcode-todo-visibility-"));
   const agentDir = join(root, "agent");
   mkdirSync(agentDir);
   const native: NativeToolSearch = {};
   let runs = 0;
+  let gitRuns = 0;
   const stubs: ExtensionFactory = (api) => {
+    if (options.shell) {
+      api.registerTool({ name: "powershell", label: "Test Shell", description: "Fake shell for permission pipeline tests",
+        parameters: Type.Object({ command: Type.String(), timeout: Type.Optional(Type.Number()) }),
+        execute: async (_id, args) => { gitRuns++; return { content: [{ type: "text", text: args.command }], details: undefined }; },
+      });
+      if (options.denyShell) api.on("tool_call", (event) => event.toolName === "powershell" ? { block: true, reason: "Shell permission denied" } : undefined);
+    }
     for (const [name, exposure] of [["future_mutation", "codemode"], ["future_deferred", "deferred"], ["memory_add", "direct"]] as const) api.registerTool({
       name, label: name, description: "Future mutation " + name, exposure,
       parameters: Type.Object({}),
@@ -65,7 +73,7 @@ async function fixture() {
   session = result.session;
   session.setActiveToolsByName([...session.getActiveToolNames(), "codemode"]);
   await session.bindExtensions({ onError: (error) => { throw Error(error.error); } });
-  return { session, faux, runs: () => runs };
+  return { session, faux, runs: () => runs, gitRuns: () => gitRuns };
 }
 
 it("hides mutations on the actual first request, reveals only after a valid active list, then closes without revoking the loadout", async () => {
@@ -93,7 +101,9 @@ it("hides mutations on the actual first request, reveals only after a valid acti
     () => call("todowrite", { todos: done }),
     (context) => {
       expect(declarations(context).has("edit")).toBe(false);
-      expect(declarations(context).has("bash")).toBe(true); // argument-aware closing-shell gate remains
+      expect(declarations(context).has("bash")).toBe(false);
+      expect(declarations(context).has("powershell")).toBe(false);
+      expect(declarations(context).has("git_finalize")).toBe(true);
       expect(declarations(context).get("codemode")).not.toContain("future_mutation");
       return fauxAssistantMessage("done");
     },
@@ -103,7 +113,8 @@ it("hides mutations on the actual first request, reveals only after a valid acti
   expect(session.getActiveToolNames()).toEqual(loadout);
   expect(session.messages.filter((message) => message.role === "toolResult").every((message) => !message.isError)).toBe(true);
   faux.setResponses([(context) => {
-    expect(declarations(context).has("bash")).toBe(false); // a new task cannot inherit the closing exception
+    expect(declarations(context).has("bash")).toBe(false); // a new task cannot inherit finalization
+    expect(declarations(context).has("git_finalize")).toBe(false);
     expect(declarations(context).has("edit")).toBe(false);
     return fauxAssistantMessage("answer without work");
   }]);
@@ -169,7 +180,27 @@ it("retains the required review across SDK reload after an admitted mutation", a
     && message.customType === "leafcode-todowrite-stop" && JSON.stringify(message).includes("レビュー"))).toBe(true);
 });
 
-it("does not apply a session's visibility policy to another session manager", async () => {
+it.each([false, true])("runs only scoped Git via the native shell hooks: denied=%s", async (denyShell) => {
+  const { session, faux, gitRuns } = await fixture({ shell: true, denyShell });
+  faux.setResponses([
+    call("todowrite", { todos: work }), call("codemode", { code: "return await tools.future_mutation({});" }),
+    call("todowrite", { todos: review }), call("todowrite", { todos: done }),
+    (context) => {
+      expect(declarations(context).has("powershell")).toBe(false);
+      expect(declarations(context).has("git_finalize")).toBe(true);
+      return call("git_finalize", { operation: "status" });
+    },
+    call("powershell", { command: "git status" }),
+    fauxAssistantMessage("done"),
+  ]);
+  await session.prompt("Implement, review and finish Git");
+  expect(gitRuns()).toBe(denyShell ? 0 : 1);
+  const results = session.messages.filter((message) => message.role === "toolResult");
+  expect(results.find((message) => message.toolName === "git_finalize")?.isError).toBe(denyShell);
+  expect(results.find((message) => message.toolName === "powershell")?.isError).toBe(true);
+});
+
+it("does not apply a session\u0027s visibility policy to another session manager", async () => {
   const { session } = await fixture();
   expect(todoToolVisible(session.sessionManager, "edit")).toBe(false);
   expect(todoToolVisible({}, "edit")).toBe(true);

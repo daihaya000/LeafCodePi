@@ -287,8 +287,8 @@ describe("todowrite review regressions", () => {
     await run.writeTodos([{ content: "Review", status: "completed", priority: "high" }]);
     run.callTool("powershell", { command: "git add -- file.ts; git commit -m 'done'; git push origin master; git status --short" });
     expect(run.emit("agent_before_settle", { outcome: "completed" })).toBeUndefined();
-    run.callTool("powershell", { command: "git fetch origin; git merge --no-edit origin/master" });
-    expect(JSON.stringify(run.emit("agent_before_settle", { outcome: "completed" }))).toContain("レビュー");
+    expect(run.callTool("powershell", { command: "git fetch origin; git merge --no-edit origin/master" })?.block).toBe(true);
+    expect(run.emit("agent_before_settle", { outcome: "completed" })).toBeUndefined();
   });
   it("does not rebuild unchanged visibility on every admitted mutation", async () => {
     const run = fixture();
@@ -315,7 +315,7 @@ describe("todowrite model visibility", () => {
     await run.writeTodos([{ content: "Work", status: "in_progress", priority: "high" }]);
     expect(hidden(run)).toEqual([]);
     await run.writeTodos([{ content: "Work", status: "completed", priority: "high" }]);
-    expect(hidden(run)).toEqual(["edit", "future_tool"]);
+    expect(hidden(run)).toEqual(["edit", "powershell", "future_tool"]);
   });
   it("removes ordinary read declarations after the two preflight reads", () => {
     const run = fixture();
@@ -915,8 +915,8 @@ describe("todowrite enforcement core", () => {
     await run.writeTodos(done);
     expect(run.callTool("edit")?.reason).toContain("全ToDoが完了済み");
     expect(run.callTool("read")).toBeUndefined();
-    expect(run.callTool("powershell", { command: "git status --short" })).toBeUndefined();
-    expect(run.callTool("powershell", { command: "git add -- a.ts; git commit -m 'x'" })).toBeUndefined();
+    expect(run.callTool("powershell", { command: "git status --short" })?.block).toBe(true);
+    expect(run.callTool("powershell", { command: "git add -- a.ts; git commit -m 'x'" })?.block).toBe(true);
     expect(run.callTool("powershell", { command: "git push --force" })?.block).toBe(true);
     expect(run.callTool("powershell", { command: "git push --force-with-lease=origin/master" })?.block).toBe(true);
     expect(run.callTool("powershell", { command: "git fetch --force=true" })?.block).toBe(true);
@@ -924,19 +924,19 @@ describe("todowrite enforcement core", () => {
     expect(run.callTool("powershell", { command: "git merge --abort" })?.block).toBe(true);
     expect(run.callTool("powershell", { command: "git status; Remove-Item a.ts" })?.block).toBe(true);
     expect(run.callTool("powershell", { command: "git log $(rm x)" })?.block).toBe(true);
-    expect(run.callTool("powershell", { command: "git log --oneline -3 | Select-Object -First 1" })).toBeUndefined();
+    expect(run.callTool("powershell", { command: "git log --oneline -3 | Select-Object -First 1" })?.block).toBe(true);
     expect(run.callTool("powershell", { command: "git status | Remove-Item a.ts" })?.block).toBe(true);
     expect(run.callTool("powershell", { command: "git branch -D main" })?.block).toBe(true);
-    expect(run.callTool("powershell", { command: "cd C:/repo; git status --short" })).toBeUndefined();
-    expect(run.callTool("bash", { command: "cd /repo; git status --short" })).toBeUndefined();
+    expect(run.callTool("powershell", { command: "cd C:/repo; git status --short" })?.block).toBe(true);
+    expect(run.callTool("bash", { command: "cd /repo; git status --short" })?.block).toBe(true);
     expect(run.callTool("bash", { command: "sl /repo; git status" })?.block).toBe(true);
-    expect(run.callTool("powershell", { command: "git commit -m 'a; b && c | d' -q" })).toBeUndefined();
-    expect(run.callTool("powershell", { command: "git commit -m 'a''; Remove-Item x'" })).toBeUndefined();
-    expect(run.callTool("powershell", { command: 'git commit -m "a; b && c | d"' })).toBeUndefined();
-    expect(run.callTool("bash", { command: 'git commit -m "a; b && c | d"' })).toBeUndefined();
-    expect(run.callTool("bash", { command: "git commit -m 'a; b && c | d'" })).toBeUndefined();
-    expect(run.callTool("powershell", { command: "git fetch origin; git merge --no-edit origin/master" })).toBeUndefined();
-    expect(run.callTool("powershell", { command: "git status --short && git diff --check" })).toBeUndefined();
+    expect(run.callTool("powershell", { command: "git commit -m 'a; b && c | d' -q" })?.block).toBe(true);
+    expect(run.callTool("powershell", { command: "git commit -m 'a''; Remove-Item x'" })?.block).toBe(true);
+    expect(run.callTool("powershell", { command: 'git commit -m "a; b && c | d"' })?.block).toBe(true);
+    expect(run.callTool("bash", { command: 'git commit -m "a; b && c | d"' })?.block).toBe(true);
+    expect(run.callTool("bash", { command: "git commit -m 'a; b && c | d'" })?.block).toBe(true);
+    expect(run.callTool("powershell", { command: "git fetch origin; git merge --no-edit origin/master" })?.block).toBe(true);
+    expect(run.callTool("powershell", { command: "git status --short && git diff --check" })?.block).toBe(true);
     expect(run.callTool("powershell", { command: "git status && Remove-Item x" })?.block).toBe(true);
     expect(run.callTool("powershell", { command: "cd C:/repo; Remove-Item x" })?.block).toBe(true);
     expect(run.callTool("powershell", { command: "git status > out.txt" })?.block).toBe(true);

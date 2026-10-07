@@ -244,7 +244,7 @@ export function blockedWhenClosedReason(todos: readonly TodoItem[]): string {
   const open = listOpen(todos);
   return open
     ? `進行中のToDoがありません（${open}）。次の項目を in_progress にして todowrite を更新してから作業してください。`
-    : "全ToDoが完了済みです。新しい作業なら todowrite で新規項目を登録し in_progress にしてください（コミット・確認のgit操作のみ可）。";
+    : "全ToDoが完了済みです。新しい作業なら todowrite で新規項目を登録し in_progress にしてください（レビュー済みならgit_finalizeでコミット・確認のみ可）。";
 }
 
 /** A short state note appended to each provider request while a list is being worked. */
