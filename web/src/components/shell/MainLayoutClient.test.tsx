@@ -64,6 +64,26 @@ describe("MainLayoutClient", () => {
     }
   });
 
+  it("counts down the host measurement and keeps waiting after it is exceeded", async () => {
+    vi.useFakeTimers();
+    const view = render(<MainLayoutClient><div /></MainLayoutClient>);
+    try {
+      act(() => {
+        window.dispatchEvent(new CustomEvent("leafcode:webui-restart", {
+          detail: { target: "host", estimateMs: 99_000 },
+        }));
+      });
+      expect(screen.getByText("推定残り時間: 1:39")).toBeTruthy();
+      await act(async () => { await vi.advanceTimersByTimeAsync(1000); });
+      expect(screen.getByText("推定残り時間: 1:38")).toBeTruthy();
+      await act(async () => { await vi.advanceTimersByTimeAsync(99_000); });
+      expect(screen.getByText("推定時間を超過。再接続を待っています。")).toBeTruthy();
+      expect(screen.getByRole("status")).toBeTruthy();
+    } finally {
+      view.unmount();
+    }
+  });
+
   it("mounts AppShell (with global attention) outside conditional page content", () => {
     render(
       <MainLayoutClient initialSettings={{ "composer-defaults": "{}" }}>

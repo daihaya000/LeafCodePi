@@ -74,7 +74,7 @@ describe("HostRestartPanel", () => {
     fetchMock
       .mockResolvedValueOnce(jsonResponse({ running: true }))
       .mockResolvedValueOnce(jsonResponse({ active: 0, taskIds: [] }))
-      .mockResolvedValueOnce(jsonResponse({ ok: true, target: "host", accepted: true }, 202))
+      .mockResolvedValueOnce(jsonResponse({ ok: true, target: "host", accepted: true, estimateMs: 99_000 }, 202))
       .mockResolvedValueOnce(jsonResponse({ engineOk: true, startedAt: 1 }));
     const restartEvent = vi.fn();
     window.addEventListener("leafcode:webui-restart", restartEvent);
@@ -93,6 +93,7 @@ describe("HostRestartPanel", () => {
       fireEvent.click(screen.getByRole("button", { name: "再起動する" }));
 
       await waitFor(() => expect(restartEvent).toHaveBeenCalled(), { timeout: 3_000 });
+      expect(restartEvent.mock.calls[0][0].detail).toEqual({ target: "host", estimateMs: 99_000 });
       expect(onRestarted).not.toHaveBeenCalled();
     } finally {
       window.removeEventListener("leafcode:webui-restart", restartEvent);

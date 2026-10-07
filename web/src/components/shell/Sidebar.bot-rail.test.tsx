@@ -150,6 +150,8 @@ describe("Bot mode list", () => {
 
   it("フッターのトレイホスト再起動は確認後にhostを送り、再接続オーバーレイを起動する", async () => {
     localStorage.setItem("webui.sidebar.collapsed", "0");
+    mocks.sendJson.mockResolvedValueOnce({ estimateMs: 99_000 });
+    const fetchActive = vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response(JSON.stringify({ active: 0, taskIds: [] })));
     const confirm = vi.spyOn(window, "confirm").mockReturnValue(true);
     const restartEvent = vi.fn();
     window.addEventListener("leafcode:webui-restart", restartEvent);
@@ -162,12 +164,13 @@ describe("Bot mode list", () => {
       await waitFor(() => expect(confirm).toHaveBeenCalledWith(restartConfirmation("host")));
       await waitFor(() => expect(mocks.sendJson).toHaveBeenCalledWith("/api/host/restart", { target: "host" }));
       await waitFor(() => expect(restartEvent).toHaveBeenCalledOnce());
-      expect(restartEvent.mock.calls[0]?.[0]?.detail).toEqual({ target: "host" });
+      expect(restartEvent.mock.calls[0]?.[0]?.detail).toEqual({ target: "host", estimateMs: 99_000 });
       // Overlay owns wait+reload; busy must clear so a dismissed overlay does not leave buttons dead.
       await waitFor(() => expect((button as HTMLButtonElement).disabled).toBe(false));
     } finally {
       window.removeEventListener("leafcode:webui-restart", restartEvent);
       confirm.mockRestore();
+      fetchActive.mockRestore();
     }
   });
 

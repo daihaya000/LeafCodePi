@@ -106,6 +106,7 @@ export function HostRestartPanel({ onRestarted }: { onRestarted?: () => void }) 
       const data = (await res.json().catch(() => ({}))) as {
         error?: string;
         hint?: string;
+        estimateMs?: number;
       };
       if (!res.ok && res.status !== 202) {
         throw new Error(
@@ -116,7 +117,9 @@ export function HostRestartPanel({ onRestarted }: { onRestarted?: () => void }) 
       // Do not treat the still-live SPA's /api/health as success (false completion).
       if (action === "webui" || action === "host") {
         window.dispatchEvent(
-          new CustomEvent("leafcode:webui-restart", { detail: { target: action } }),
+          new CustomEvent("leafcode:webui-restart", {
+            detail: { target: action, ...(action === "host" && data.estimateMs !== undefined ? { estimateMs: data.estimateMs } : {}) },
+          }),
         );
         return;
       }

@@ -10,6 +10,7 @@ import {
   INITIAL_RESTART_PROBE,
   HOST_RESTART_ESTIMATE_MS,
   formatRestartCountdown,
+  hostRestartEstimateMs,
   isRestartOverlayVisible,
   nextRestartProbe,
   nextRestartProbeDelayMs,
@@ -27,16 +28,17 @@ function WebUiRestartOverlay() {
   const [target, setTarget] = useState<RestartOverlayTarget | null>(null);
   const [abortHint, setAbortHint] = useState<string | null>(null);
   const [restartStartedAt, setRestartStartedAt] = useState<number | null>(null);
+  const [restartEstimateMs, setRestartEstimateMs] = useState(HOST_RESTART_ESTIMATE_MS);
   const [estimatedRemainingMs, setEstimatedRemainingMs] = useState(HOST_RESTART_ESTIMATE_MS);
   const probeRef = useRef(INITIAL_RESTART_PROBE);
 
   useEffect(() => {
     if (!restarting || target !== "host" || restartStartedAt === null) return;
     const timer = window.setInterval(() => {
-      setEstimatedRemainingMs(restartEstimateRemainingMs(restartStartedAt));
+      setEstimatedRemainingMs(restartEstimateRemainingMs(restartStartedAt, Date.now(), restartEstimateMs));
     }, 1000);
     return () => window.clearInterval(timer);
-  }, [restarting, target, restartStartedAt]);
+  }, [restarting, target, restartStartedAt, restartEstimateMs]);
 
   useEffect(() => {
     let cancelled = false;
@@ -86,13 +88,15 @@ function WebUiRestartOverlay() {
     };
 
     const handleRestartRequested = (event: Event) => {
-      const detail = (event as CustomEvent<{ target?: RestartOverlayTarget }>).detail;
+      const detail = (event as CustomEvent<{ target?: RestartOverlayTarget; estimateMs?: unknown }>).detail;
       const nextTarget = detail?.target === "host" ? "host" : "webui";
       const requestedAt = Date.now();
       setTarget(nextTarget);
       setAbortHint(null);
       setRestartStartedAt(nextTarget === "host" ? requestedAt : null);
-      setEstimatedRemainingMs(HOST_RESTART_ESTIMATE_MS);
+      const estimateMs = hostRestartEstimateMs(detail?.estimateMs);
+      setRestartEstimateMs(estimateMs);
+      setEstimatedRemainingMs(estimateMs);
       probeRef.current = {
         ...probeRef.current,
         requested: true,

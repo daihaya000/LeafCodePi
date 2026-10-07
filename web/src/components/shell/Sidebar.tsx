@@ -307,13 +307,15 @@ function SidebarFooter({ health, onSettings }: { health: HealthDto | null; onSet
         } catch { /* Keep completion fail-closed if the previous process is unknown. */ }
       }
       const backendRestartCompleted = createBackendRestartCheck(previousBackend);
-      await sendJson("/api/host/restart", { target });
+      const accepted = await sendJson<{ estimateMs?: number }>("/api/host/restart", { target });
       if (target === "webui" || target === "host") {
         // ホスト再起動はWebUIも入れ替えるため、再接続オーバーレイに新しいプロセスを
         // 検知させて自動再読み込みさせる。busy はハンドオフ後に解放し、オーバーレイが
         // 畳まれたあともボタンが死んだまま残らないようにする。
         window.dispatchEvent(
-          new CustomEvent("leafcode:webui-restart", { detail: { target } }),
+          new CustomEvent("leafcode:webui-restart", {
+            detail: { target, ...(target === "host" && accepted?.estimateMs !== undefined ? { estimateMs: accepted.estimateMs } : {}) },
+          }),
         );
         restartBusyRef.current = false;
         if (mountedRef.current) setRestartBusy(null);

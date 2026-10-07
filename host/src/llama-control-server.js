@@ -85,7 +85,8 @@ async function readJsonBody(req, maxBytes = 16_384) {
  *   onRestartBackend?: () => Promise<unknown> | unknown,
  *   onRestartBackendBlocked?: () => Promise<string | null> | string | null,
  *   onRestartHostBlocked?: () => Promise<string | null> | string | null,
-  *   onRestartHost?: () => Promise<unknown> | unknown,
+ *   onRestartHost?: () => Promise<unknown> | unknown,
+ *   onRestartHostEstimate?: () => Promise<{ estimateMs: number, estimateSamples: number }> | { estimateMs: number, estimateSamples: number },
  *   onBrowserConfigRead?: () => { autoOpenBrowser: boolean },
  *   onBrowserConfigWrite?: (patch: { autoOpenBrowser: boolean }) => { autoOpenBrowser: boolean },
  *   onWebUiAuthRead?: () => object,
@@ -344,8 +345,9 @@ export function createLlamaControlServer(handlers) {
           res.end(JSON.stringify({ ok: false, target: "host", blocked: true, error: blocked }));
           return;
         }
+        const estimate = await Promise.resolve().then(() => handlers.onRestartHostEstimate?.()).catch(() => null) ?? {};
         res.writeHead(202, JSON_HEADERS);
-        res.end(JSON.stringify({ ok: true, target: "host", accepted: true }));
+        res.end(JSON.stringify({ ok: true, target: "host", accepted: true, ...estimate }));
         deferRestartUntilResponseSent(res, () => handlers.onRestartHost());
         return;
       }

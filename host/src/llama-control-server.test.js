@@ -305,7 +305,7 @@ test("POST /restart/webui is refused with 409 while a Goal Loop is live", async 
   await closeControlServer(server);
 });
 
-test("POST /restart/host returns 202 then invokes handler", async () => {
+test("POST /restart/host returns the measured estimate before invoking handler", async () => {
   let called = false;
   const port = await freePort();
   const server = createLlamaControlServer({
@@ -316,6 +316,7 @@ test("POST /restart/host returns 202 then invokes handler", async () => {
     onRestartHost: () => {
       called = true;
     },
+    onRestartHostEstimate: () => ({ estimateMs: 99_000, estimateSamples: 4 }),
   });
   await listenControlServer(server, port);
   const res = await fetch(`http://127.0.0.1:${port}/restart/host`, {
@@ -323,10 +324,33 @@ test("POST /restart/host returns 202 then invokes handler", async () => {
     headers: { host: `127.0.0.1:${port}` },
   });
   assert.equal(res.status, 202);
+  assert.deepEqual(await res.json(), { ok: true, target: "host", accepted: true, estimateMs: 99_000, estimateSamples: 4 });
   await new Promise((r) => setTimeout(r, 180));
   assert.equal(called, true);
   await closeControlServer(server);
 });
+
+for (const onRestartHostEstimate of [undefined, () => { throw new Error("unreadable history"); }, () => Promise.reject(new Error("unreadable history"))]) {
+  test(`host restart still succeeds without an estimate (${onRestartHostEstimate?.toString() ?? "old host"})`, async () => {
+    let called = false;
+    const port = await freePort();
+    const server = createLlamaControlServer({
+      controlPort: port,
+      onRestartHost: () => { called = true; },
+      onRestartHostEstimate,
+    });
+    await listenControlServer(server, port);
+    try {
+      const res = await fetch(`http://127.0.0.1:${port}/restart/host`, { method: "POST" });
+      assert.equal(res.status, 202);
+      assert.deepEqual(await res.json(), { ok: true, target: "host", accepted: true });
+      await new Promise((r) => setTimeout(r, 180));
+      assert.equal(called, true);
+    } finally {
+      await closeControlServer(server);
+    }
+  });
+}
 
 test("POST /restart/host without handler returns 501", async () => {
   const port = await freePort();

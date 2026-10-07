@@ -4,6 +4,7 @@ import {
   INITIAL_RESTART_PROBE,
   HOST_RESTART_ESTIMATE_MS,
   formatRestartCountdown,
+  hostRestartEstimateMs,
   isRestartOverlayVisible,
   nextRestartProbe,
   nextRestartProbeDelayMs,
@@ -135,6 +136,15 @@ describe("nextRestartProbe", () => {
 });
 
 describe("host restart countdown estimate", () => {
+  it("uses the measured estimate and rejects malformed or unsupported host values", () => {
+    assert.equal(restartEstimateRemainingMs(1_000, 2_000, 99_000), 98_000);
+    assert.equal(restartEstimateRemainingMs(1_000, 101_000, 99_000), 0);
+    for (const value of [undefined, null, "99000", NaN, Infinity, -1, 0, 4999, 900_001]) {
+      assert.equal(hostRestartEstimateMs(value), HOST_RESTART_ESTIMATE_MS);
+    }
+    assert.equal(hostRestartEstimateMs(99_000), 99_000);
+  });
+
   it("counts down and clamps at zero", () => {
     assert.equal(restartEstimateRemainingMs(1_000, 1_000), HOST_RESTART_ESTIMATE_MS);
     assert.equal(restartEstimateRemainingMs(1_000, 2_001), HOST_RESTART_ESTIMATE_MS - 1_001);

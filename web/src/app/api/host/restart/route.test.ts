@@ -50,6 +50,17 @@ describe("POST /api/host/restart", () => {
     });
   });
 
+  it("passes the measured host estimate to the browser", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response(JSON.stringify({
+      ok: true, target: "host", accepted: true, estimateMs: 99_000, estimateSamples: 4,
+    }), { status: 202 }));
+    const res = await POST(new Request("http://localhost/api/host/restart", {
+      method: "POST", body: JSON.stringify({ target: "host" }),
+    }));
+    expect(res.status).toBe(202);
+    await expect(res.json()).resolves.toMatchObject({ estimateMs: 99_000, estimateSamples: 4 });
+  });
+
   it("still maps unexpected host failures to 502", async () => {
     vi.spyOn(globalThis, "fetch").mockResolvedValue(
       new Response(JSON.stringify({ error: "boom" }), {

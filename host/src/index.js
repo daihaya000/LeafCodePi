@@ -25,6 +25,7 @@ import {
   waitForHostRestartChildSpawn,
 } from "./host-restart.js";
 import { serviceRestartBusyReason } from "./runtime-restart-guard.js";
+import { readHostRestartEstimate } from "./host-restart-estimate.js";
 import { DEFAULT_BACKEND_PORT } from "../../shared/backend-protocol.mjs";
 import { createBackendService, shouldRunBackend } from "./backend-service.js";
 import { readBackendHealth, waitForBackendReady } from "./backend-health.js";
@@ -1150,6 +1151,7 @@ async function startControlServer() {
     onRestartBackendBlocked: () => backendRestartBlockReason(),
     onRestartHostBlocked: async () => (await backendRestartBlockReason()) ?? (await webUiRestartBlockReason()),
     onRestartHost: () => restartHost(),
+    onRestartHostEstimate: () => readHostRestartEstimate(DATA_DIR),
     onPiUpdateRead: () => ({
       defaultVersion: DEFAULT_PI_VERSION,
       current: installedPiVersion(WEB_DIR),

@@ -13,12 +13,22 @@ export const OFFLINE_STREAK = 3;
  */
 export const RESTART_REQUEST_GIVE_UP_MS = 90_000;
 
-/** Tray-host restarts may rebuild both services; this is a display estimate, not a wait limit. */
+/** Fallback for older hosts or machines with no completed restart history. Not a wait limit. */
 export const HOST_RESTART_ESTIMATE_MS = 5 * 60_000;
 
-export function restartEstimateRemainingMs(requestedAt: number, now = Date.now()): number {
+export function hostRestartEstimateMs(value: unknown): number {
+  return typeof value === "number" && Number.isFinite(value) && value >= 5_000 && value <= 15 * 60_000
+    ? value
+    : HOST_RESTART_ESTIMATE_MS;
+}
+
+export function restartEstimateRemainingMs(
+  requestedAt: number,
+  now = Date.now(),
+  estimateMs = HOST_RESTART_ESTIMATE_MS,
+): number {
   const elapsedMs = Math.max(0, now - requestedAt);
-  return Math.max(0, HOST_RESTART_ESTIMATE_MS - elapsedMs);
+  return Math.max(0, hostRestartEstimateMs(estimateMs) - elapsedMs);
 }
 
 export function formatRestartCountdown(remainingMs: number): string {
