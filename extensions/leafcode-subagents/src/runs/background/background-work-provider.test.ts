@@ -43,6 +43,25 @@ describe("createSubagentBackgroundWorkProvider", () => {
 		expect(snapshotBackgroundWork("session-a").items).toEqual([]);
 	});
 
+	it("registers long session file identities without exceeding the provider name limit", () => {
+		const sessionId = `C:/Users/example/.pi/agent/sessions/${"long-project-".repeat(12)}/session.jsonl`;
+		const state = stateFor(sessionId, [
+			{ asyncId: "owned", asyncDir: "a", sessionId, status: "running", mode: "single" },
+		]);
+		const provider = createSubagentBackgroundWorkProvider(state, sessionId);
+		expect(provider.name.length).toBeLessThanOrEqual(128);
+		expect(createSubagentBackgroundWorkProvider(state, `${sessionId}-other`).name).not.toBe(provider.name);
+		const unregister = registerSubagentBackgroundWorkProvider(state, sessionId);
+		try {
+			expect(snapshotBackgroundWork(sessionId).items).toEqual([
+				{ provider: provider.name, id: "owned", sessionId },
+			]);
+		} finally {
+			unregister();
+		}
+		expect(snapshotBackgroundWork(sessionId).items).toEqual([]);
+	});
+
 	it("captures the owned run before runtime cleanup clears state", async () => {
 		const state = stateFor("session-a", [
 			{ asyncId: "owned", asyncDir: "a", sessionId: "session-a", status: "running", mode: "single" },

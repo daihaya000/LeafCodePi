@@ -6,6 +6,7 @@ import { basename, dirname, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { captureSessionBackgroundWorkStop, captureSessionShutdownResourceStop } from "@extensions/leafcode-subagents/src/api/background-work.ts";
 import { runBackendMcpNativeSessionShutdownActions } from "@backend-core/mcp-native-session.mjs";
+import { assertSessionLoadAllowed, isRuntimeMemoryPressure, readRuntimeMemory } from "@backend-core/session-memory-guard.mjs";
 import {
   dataDir,
   isAbsolutePath,
@@ -4389,6 +4390,7 @@ async function createSession(options: {
   // The single place a Pi session is created in this process. Guarding it here (not only at the
   // prompt entry) means no future caller can make this WebUI a second owner of the same runtime.
   assertLocalRuntimeAllowed();
+  assertSessionLoadAllowed(options.sessionFile);
   const loadPiStartedAt = options.onTiming ? performance.now() : 0;
   const pi = await loadPi();
   reportTaskDetailPhase(options.onTiming, "createSession.loadPi", loadPiStartedAt);
@@ -4399,6 +4401,8 @@ async function createSession(options: {
   const sessionManagerStartedAt = options.onTiming ? performance.now() : 0;
   let sessionManager: ReturnType<typeof pi.SessionManager.create>;
   const sessionFile = options.sessionFile;
+  // Initialization awaits above may have admitted other sessions; recheck immediately before open.
+  assertSessionLoadAllowed(sessionFile);
   const sessionTaskId = options.taskId;
   if (sessionTaskId) {
     sessionManager = withTaskSessionWriteLease(sessionTaskId, () => {
@@ -8110,6 +8114,7 @@ function readOfflineSessionSnapshot(sessionFile: string): OfflineSessionSnapshot
     return cached.snapshot;
   }
   offlineSessionSnapshots.delete(sessionFile);
+  assertSessionLoadAllowed(sessionFile);
   const sessionManager = pi.SessionManager.open(sessionFile);
   const context = sessionManager.buildSessionContext?.() ?? { messages: [] };
   const raw = Array.isArray(context.messages) ? context.messages : [];
@@ -8162,8 +8167,10 @@ async function readArchivedTaskSnapshot(task: TaskSummary): Promise<OfflineSessi
   try {
     await loadPi();
     return readOfflineSessionSnapshot(task.sessionFile);
-  } catch {
+  } catch (error) {
     offlineSessionSnapshots.delete(task.sessionFile);
+    const code = (error as { code?: string } | null)?.code;
+    if (code === "SESSION_FILE_TOO_LARGE" || code === "SESSION_MEMORY_PRESSURE") throw error;
     return { messages: [], todos: [] };
   }
 }
@@ -8188,6 +8195,9 @@ export function readTodoProgress(
       return cached.value;
     }
     const readProgress = () => {
+      // Under pressure/for oversized history use the existing bounded read-only scanner.
+      try { assertSessionLoadAllowed(sessionFile); }
+      catch { return readDiskTodoProgress(sessionFile); }
       const sessionManager = pi.SessionManager.open(sessionFile);
       return todoProgressFromTodos(
         todosFromPiMessages(sessionManager.buildSessionContext().messages),
@@ -11984,7 +11994,8 @@ const LIVE_SHUTDOWN_TIMEOUT_MS = 5_000;
 
 /** A viewed task keeps a full AgentSession (history + extensions) in memory; release it once abandoned. */
 const LIVE_IDLE_EVICT_MS = 60 * 60_000;
-const LIVE_REAPER_INTERVAL_MS = 5 * 60_000;
+const LIVE_REAPER_INTERVAL_MS = 30_000;
+const LIVE_PRESSURE_IDLE_EVICT_MS = 60_000;
 const BACKGROUND_WORK_REGISTRY_KEY = "pi-subagents.background-work.v1";
 
 /**
@@ -12024,8 +12035,11 @@ function isLiveEvictable(live: LiveRuntime, nowMs: number, idleMs: number): bool
   if (isTaskRuntimeBusyForDestructiveEdit(live.taskId)) return false;
   if (pendingPermissionForTask(live.taskId) || pendingQuestionForTask(live.taskId)) return false;
   if (botCodeRelay().originForCode(live.taskId)) return false;
-  const sessionId = live.session.sessionId;
-  if (sessionId && backgroundWorkForSession(sessionId) !== 0) return false;
+  // Native providers may key by UUID, while subagents key by the full session file.
+  const identities = [live.session.sessionId, live.session.sessionFile];
+  for (const identity of identities) {
+    if (identity && backgroundWorkForSession(identity) !== 0) return false;
+  }
   return true;
 }
 
@@ -12048,13 +12062,30 @@ export async function evictIdleLiveSessions(
 
 let liveReaperTimer: ReturnType<typeof setInterval> | undefined;
 let liveReaperRunning = false;
+let lastMemoryPressureLogAt = 0;
+
+/** Shed reconstructible caches and only safely idle sessions; never interrupt active work. */
+export async function relieveRuntimeMemoryPressure(nowMs = Date.now()): Promise<string[]> {
+  const memory = readRuntimeMemory();
+  if (!isRuntimeMemoryPressure(memory)) return [];
+  const cachedSnapshots = offlineSessionSnapshots.size;
+  offlineSessionSnapshots.clear();
+  todoProgressCache.clear();
+  if (nowMs - lastMemoryPressureLogAt >= 60_000) {
+    lastMemoryPressureLogAt = nowMs;
+    // Numeric counters only: no prompts, tokens, session paths or environment variables.
+    console.warn("[backend-memory] pressure", JSON.stringify({ ...memory, liveSessions: state().live.size, cachedSnapshots }));
+  }
+  return evictIdleLiveSessions(nowMs, LIVE_PRESSURE_IDLE_EVICT_MS);
+}
 
 function startLiveIdleReaper(): void {
   if (liveReaperTimer) return;
   liveReaperTimer = setInterval(() => {
     if (liveReaperRunning) return;
     liveReaperRunning = true;
-    void evictIdleLiveSessions()
+    void relieveRuntimeMemoryPressure()
+      .then(() => evictIdleLiveSessions())
       .catch((error) => {
         console.warn("[live-reaper] idle eviction failed:", error instanceof Error ? error.message : String(error));
       })

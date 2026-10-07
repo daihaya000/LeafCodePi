@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { registerBackgroundWorkProvider, type BackgroundWorkItem, type BackgroundWorkProvider } from "../../api/background-work.ts";
 import { stopAsyncRun } from "../foreground/async-stop-action.ts";
 import type { SubagentState } from "../../shared/types.ts";
@@ -12,8 +13,11 @@ export function createSubagentBackgroundWorkProvider(
 	sessionId: string,
 	stopRun: StopAsyncRun = stopAsyncRun,
 ): BackgroundWorkProvider {
+	// Preserve existing short provider names used by persisted wait subscriptions.
+	const name = `subagents:${sessionId}`;
 	return {
-		name: `subagents:${sessionId}`,
+		// Session identity can be a long Windows path. Keep only the registry name bounded.
+		name: name.length <= 128 ? name : `subagents:sha256:${createHash("sha256").update(sessionId).digest("hex")}`,
 		listActiveWork: () => [...state.asyncJobs.values()]
 			.filter((job) => job.sessionId === sessionId && isActive(job.status))
 			.map((job) => ({ id: job.asyncId, sessionId })),
