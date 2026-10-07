@@ -264,7 +264,7 @@ test("a hang-watch snapshot failure still saves idle and releases the lease afte
   await assert.rejects(runHangWatchdogAbort("task", f.deps), (error) => error === failure);
   assert.deepEqual(f.order, [
     "watchStart", "getLive", "attention", "queue", "cancelPrompt", "cancelSnapshot", "persist:",
-    "abort", "snapshot", "watchAfter", "idle", "release", "getLive", "emitHangIdle:live",
+    "abort", "snapshot", "emitHangAbort", "subagents:0", "watchAfter", "idle", "release", "getLive", "emitHangIdle:live",
   ]);
 });
 
