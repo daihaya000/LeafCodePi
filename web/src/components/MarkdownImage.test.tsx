@@ -41,6 +41,14 @@ describe("classifyMarkdownImageSource", () => {
     expect(classifyMarkdownImageSource("javascript:alert(1)").kind).toBe("invalid");
   });
 
+  it("decodes file URLs exactly once and accepts encoded local paths up to the native path limit", () => {
+    expect(classifyMarkdownImageSource("file:///tmp/percent%2520.wav")).toEqual({ kind: "local", path: "/tmp/percent%20.wav" });
+    const path = `${"結果/".repeat(600)}clip.mp4`;
+    expect(path.length).toBeLessThan(4096);
+    expect(encodeURI(path).length).toBeGreaterThan(8192);
+    expect(classifyMarkdownImageSource(encodeURI(path))).toEqual({ kind: "local", path });
+  });
+
   it("preserves image paths while retaining the default link URL sanitizer", () => {
     expect(markdownImageUrlTransform("C:%5Cimages%5Cshot.png", "src")).toBe("C:%5Cimages%5Cshot.png");
     expect(markdownImageUrlTransform("javascript:alert(1)", "src")).toBe("");

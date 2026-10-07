@@ -1,7 +1,6 @@
-import { realpathSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { isAbsolute, resolve } from "node:path";
-import { browseAllowedRoots, isAllowedBrowsePath } from "@/lib/browse-paths";
+import { browseAllowedRoots, resolveAllowedBrowsePath } from "@/lib/browse-paths";
 import { getProject, getTask } from "@/lib/store";
 
 export type LocalFileFailure = { ok: false; status: number; error: string };
@@ -23,17 +22,9 @@ export function resolveTaskLocalFile(taskId: string, requestedPath: string): { o
     ? resolve(homedir(), requestedPath.slice(2)) : requestedPath;
   const target = isAbsolute(expanded) ? resolve(expanded) : resolve(cwd, expanded);
   const roots = [...new Set([...browseAllowedRoots(), cwd, homedir(), tmpdir()])];
-  if (!isAllowedBrowsePath(target, { roots })) {
+  const path = resolveAllowedBrowsePath(target, { roots });
+  if (!path || /^[\\/]{2}/.test(path)) {
     return { ok: false, status: 403, error: "この場所のファイルは表示できません" };
   }
-  try {
-    const path = realpathSync.native(target);
-    // Re-check the actual spelling before the caller opens it (junction/symlink targets included).
-    if (/^[\\/]{2}/.test(path) || !isAllowedBrowsePath(path, { roots })) {
-      return { ok: false, status: 403, error: "この場所のファイルは表示できません" };
-    }
-    return { ok: true, path };
-  } catch {
-    return { ok: false, status: 404, error: "ファイルが見つからないか読み込めません" };
-  }
+  return { ok: true, path };
 }

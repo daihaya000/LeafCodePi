@@ -1,4 +1,6 @@
+import { randomUUID } from "node:crypto";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import { classifyMarkdownMediaSource, localMediaPathKey } from "@/lib/markdown-media-source";
 import { Type } from "typebox";
 import { fromMarkdown } from "mdast-util-from-markdown";
 
@@ -7,11 +9,11 @@ function visibilityPatterns(names: string, english: string) {
   const kinds = "画像|スクリーンショット|レンダー|動画|映像|ビデオ|音声|音楽|オーディオ|メディア";
   const topic = `(?:${names})(?:[/・、と](?:${kinds})){0,4}(?:(?!${kinds}|[。.!?！？;,、\\r\\n]).){0,12}`;
   return {
-    hide: new RegExp(`${topic}(?:(?:表示|再生).{0,2}(?:不要|しない)|見せない|聞かせない|貼らない|埋め込まない|不要)|(?:do not|don't|no need to)\\s+(?:show|display|embed|play)\\s+(?:the\\s+)?(?:${english})\\b`, "i"),
-    show: new RegExp(`${topic}(?:表示して|見せて|聞かせて|再生して|貼って)|(?:show|display|embed|play)\\s+(?:the\\s+)?(?:${english})\\b`, "i"),
+    hide: new RegExp(`${topic}(?:(?:表示|再生).{0,2}(?:不要|しない)|見せない|聞かせない|貼らない|埋め込まない|不要)|(?:do not|don't|no need to)\\s+(?:show|display|embed|play)\\s+(?:(?:the|any|all)\\s+)?(?:${english})\\b`, "i"),
+    show: new RegExp(`${topic}(?:表示して|見せて|聞かせて|再生して|貼って)|(?:show|display|embed|play)\\s+(?:(?:the|any|all)\\s+)?(?:${english})\\b`, "i"),
   };
 }
-const IMAGE_VISIBILITY = visibilityPatterns("画像|スクリーンショット|レンダー", "images?");
+const IMAGE_VISIBILITY = visibilityPatterns("画像|スクリーンショット|レンダー|メディア", "images?|media");
 
 export type ShownImage = { path: string; alt: string };
 export type ImageValidation = { ok: true } | { ok: false; error: string };
@@ -72,8 +74,8 @@ function presentedPaths(text: string): Set<string> {
     const destination = node.type === "image" ? node.url : node.type === "imageReference"
       ? definitions.get(node.identifier ?? "") : undefined;
     if (!destination) return;
-    try { paths.add(decodeURIComponent(destination).replace(/\\/g, "/")); }
-    catch { paths.add(destination.replace(/\\/g, "/")); }
+    const source = classifyMarkdownMediaSource(destination);
+    if (source.kind === "local") paths.add(localMediaPathKey(source.path));
   });
   return paths;
 }
@@ -111,93 +113,154 @@ export function registerShowAudio(api: ExtensionAPI, options: ShowImageOptions):
   registerPresentation(api, options, mediaConfig("audio"));
 }
 
-/** Shared native policy: explicit intent, validated files, deterministic final repair per media kind. */
-function registerPresentation(api: ExtensionAPI, options: ShowImageOptions, config: PresentationConfig): void {
-  let state = { pending: new Map<string, ShownImage>(), hidden: false };
-  const reset = () => { state = { pending: new Map(), hidden: false }; };
-  const active = () => api.getActiveTools().includes(config.name);
-  const remember = (images: ShownImage[]) => {
-    if (state.hidden) return;
-    for (const image of images) {
-      if (state.pending.size < MAX_SHOWN_IMAGES || state.pending.has(image.path)) {
-        state.pending.set(image.path, image);
-      }
+type PresentationState = { pending: Map<string, ShownImage>; hidden: boolean; requestId: string };
+type Registration = { config: PresentationConfig; options: ShowImageOptions; state: PresentationState };
+type PresentationEngine = { registrations: Map<string, Registration>; requestId: string };
+const INPUT_ENTRY = "leafcode-media-input";
+const engines = new WeakMap<ExtensionAPI, PresentationEngine>();
+const emptyState = (requestId: string): PresentationState => ({ pending: new Map(), hidden: false, requestId });
+
+/** One event pipeline per API, even when all three presentation tools are registered. */
+function createEngine(api: ExtensionAPI): PresentationEngine {
+  const engine: PresentationEngine = { registrations: new Map(), requestId: randomUUID() };
+  const reset = (id: string = randomUUID()) => {
+    engine.requestId = id;
+    for (const registration of engine.registrations.values()) registration.state = emptyState(id);
+  };
+  const visibility = (text: string, only?: (name: string) => boolean) => {
+    for (const { config, state } of engine.registrations.values()) {
+      if (only && !only(config.name)) continue;
+      if (config.hide.test(text)) { state.hidden = true; state.pending.clear(); }
+      else if (config.show.test(text)) state.hidden = false;
     }
   };
-  const updateVisibility = (text: string) => {
-    if (config.hide.test(text)) {
-      state.hidden = true;
-      state.pending.clear();
-    } else if (config.show.test(text)) state.hidden = false;
+  const remember = (registration: Registration, details: unknown) => {
+    if (registration.state.hidden) return;
+    for (const image of imagesFromDetails(details, registration.config.detailsKey)) {
+      const key = localMediaPathKey(image.path);
+      const pending = registration.state.pending;
+      if (pending.size < MAX_SHOWN_IMAGES || pending.has(key)) pending.set(key, image);
+    }
   };
   const restore = async (branch: readonly unknown[]) => {
     reset();
+    const marked = new Set<string>();
     for (const entry of branch) {
-      const record = entry as { type?: string; message?: Record<string, unknown> };
+      if (!entry || typeof entry !== "object") continue;
+      const record = entry as { type?: string; customType?: string; data?: Record<string, unknown>; message?: Record<string, unknown> };
+      if (record.type === "custom" && record.customType === INPUT_ENTRY) {
+        const data = record.data;
+        if (!data || typeof data.reset !== "boolean") continue;
+        let states: Record<string, unknown>;
+        if (data.version === 2 && data.states && typeof data.states === "object" && !Array.isArray(data.states)) {
+          states = data.states as Record<string, unknown>;
+        } else if (data.version === 1 && typeof data.requestId === "string" && Array.isArray(data.hidden)) {
+          // Compatibility with the original single-factory input ledger.
+          const hidden = data.hidden;
+          states = Object.fromEntries([...engine.registrations.keys()].map((name) =>
+            [name, { requestId: data.requestId, hidden: hidden.includes(name) }],
+          ));
+        } else continue;
+        for (const [name, registration] of engine.registrations) {
+          if (!Object.hasOwn(states, name)) continue;
+          const saved = states[name] as Record<string, unknown> | null;
+          if (!saved || typeof saved.requestId !== "string" || !saved.requestId || saved.requestId.length > 128 || typeof saved.hidden !== "boolean") continue;
+          marked.add(name);
+          if (data.reset) registration.state = emptyState(saved.requestId);
+          else registration.state.requestId = saved.requestId;
+          registration.state.hidden = saved.hidden;
+          if (saved.hidden) registration.state.pending.clear();
+        }
+        continue;
+      }
       if (record.type !== "message" || !record.message) continue;
       const message = record.message;
       if (message.role === "user") {
-        reset();
+        // Legacy branches lack input provenance; retain the conservative old task boundary per tool.
+        for (const [name, registration] of engine.registrations) {
+          if (!marked.has(name)) registration.state = emptyState(randomUUID());
+        }
         const content = message.content;
-        const text = typeof content === "string" ? content : Array.isArray(content)
-          ? content.map((part) => part?.type === "text" ? part.text : "").join("\n") : "";
-        updateVisibility(text);
-      } else if (message.role === "toolResult" && message.toolName === config.name && !message.isError) {
-        remember(imagesFromDetails(message.details, config.detailsKey));
+        visibility(typeof content === "string" ? content : Array.isArray(content)
+          ? content.map((part) => part?.type === "text" ? part.text : "").join("\n") : "", (name) => !marked.has(name));
+      } else if (message.role === "toolResult" && !message.isError) {
+        const registration = engine.registrations.get(String(message.toolName));
+        const details = message.details as Record<string, unknown> | undefined;
+        if (registration && (!marked.has(registration.config.name) || details?.presentationRequestId === registration.state.requestId)) remember(registration, details);
       } else if (message.role === "assistant" && message.stopReason === "stop") {
-        state.pending.clear();
+        for (const { state } of engine.registrations.values()) state.pending.clear();
       }
     }
-    // Branch data alone is not proof of permission or file validity. Re-check only the bounded pending set.
-    const restored = state;
-    if (!active()) {
-      restored.pending.clear();
-      return;
-    }
-    for (const image of restored.pending.values()) {
-      try {
-        if (!(await options.validate(image.path)).ok) restored.pending.delete(image.path);
-      } catch { restored.pending.delete(image.path); }
-      if (restored !== state) return;
+    const id = engine.requestId;
+    const active = new Set(api.getActiveTools());
+    // Revalidate only the bounded unfinished registrations, never the entire historical output.
+    for (const { config, state, options } of engine.registrations.values()) {
+      if (state.hidden || !active.has(config.name)) { state.pending.clear(); continue; }
+      for (const [key, image] of state.pending) {
+        try { if (!(await options.validate(image.path)).ok) state.pending.delete(key); }
+        catch { state.pending.delete(key); }
+        if (id !== engine.requestId) return;
+      }
     }
   };
   api.on("session_start", (_event, ctx) => restore(ctx.sessionManager.getBranch()));
   api.on("session_tree", (_event, ctx) => restore(ctx.sessionManager.getBranch()));
   api.on("input", (event) => {
     if (event.source === "extension") return;
-    if (event.streamingBehavior === undefined) reset();
-    updateVisibility(event.text);
+    const newRequest = event.streamingBehavior === undefined;
+    if (newRequest) reset();
+    visibility(event.text);
+    // Persist input intent, not the user text. Streaming/extension provenance is absent in UserMessage.
+    api.appendEntry?.(INPUT_ENTRY, {
+      version: 2, reset: newRequest,
+      states: Object.fromEntries([...engine.registrations].map(([name, { state }]) =>
+        [name, { requestId: state.requestId, hidden: state.hidden }],
+      )),
+    });
   });
-  api.on("before_agent_start", (event) => ({
-    systemPrompt: `${event.systemPrompt}\n\n${active() ? config.policy : config.policy.split("\n").at(-1)}`,
-  }));
+  api.on("before_agent_start", (event) => {
+    const active = new Set(api.getActiveTools());
+    const policies = [...engine.registrations.values()].map(({ config }) =>
+      active.has(config.name) ? config.policy : config.policy.split("\n").at(-1),
+    );
+    return { systemPrompt: [event.systemPrompt, ...policies].join("\n\n") };
+  });
   api.on("tool_result", (event) => {
-    if (event.toolName === config.name && !event.isError && active()) remember(imagesFromDetails(event.details, config.detailsKey));
+    const registration = engine.registrations.get(event.toolName);
+    const details = event.details as Record<string, unknown> | undefined;
+    if (registration && !event.isError && api.getActiveTools().includes(event.toolName) &&
+        details?.presentationRequestId === registration.state.requestId) remember(registration, details);
   });
   api.on("message_end", (event) => {
     const message = event.message;
     if (message.role !== "assistant" || message.stopReason !== "stop") return;
-    if (state.hidden || !active()) {
+    const active = new Set(api.getActiveTools());
+    const pending: ShownImage[] = [];
+    for (const { config, state } of engine.registrations.values()) {
+      if (!state.hidden && active.has(config.name)) pending.push(...state.pending.values());
       state.pending.clear();
-      return;
     }
-    if (state.pending.size === 0) return;
+    if (!pending.length) return;
     const text = message.content.filter((part) => part.type === "text").map((part) => part.text).join("\n");
+    // All media kinds share one AST parse and one final replacement.
     const rendered = presentedPaths(text);
-    const missing = [...state.pending.values()]
-      .filter((image) => !rendered.has(image.path.replace(/\\/g, "/")))
-      .map(shownImageMarkdown);
-    state.pending.clear();
-    if (missing.length === 0) return;
+    const missing = pending.filter((image) => !rendered.has(localMediaPathKey(image.path))).map(shownImageMarkdown);
+    if (!missing.length) return;
     return { message: { ...message, content: [
-      ...message.content,
-      { type: "text" as const, text: `\n\n${missing.join("\n\n")}` },
+      ...message.content, { type: "text" as const, text: "\n\n" + missing.join("\n\n") },
     ] } };
   });
+  return engine;
+}
 
+function registerPresentation(api: ExtensionAPI, options: ShowImageOptions, config: PresentationConfig): void {
+  let engine = engines.get(api);
+  if (!engine) { engine = createEngine(api); engines.set(api, engine); }
+  const current = engine;
+  const registration: Registration = { config, options, state: emptyState(current.requestId) };
+  current.registrations.set(config.name, registration);
   api.registerTool({
-    name: config.name,
-    label: config.label,
+    name: config.name, label: config.label,
     description: `Validate local ${config.label.slice(5)} files for user presentation and include them in the final reply. Does not read media into model context. Existing local paths only; no remote fetches.`,
     promptSnippet: `Present validated local ${config.label.slice(5)} files; the harness prevents omission from the final reply`,
     promptGuidelines: [`Use ${config.name} when presenting generated or requested ${config.noun}. Never publish internal inspection files or media the user explicitly declined.`],
@@ -207,11 +270,13 @@ function registerPresentation(api: ExtensionAPI, options: ShowImageOptions, conf
       alt: Type.String({ minLength: 1, maxLength: 200 }),
     }), { minItems: 1, maxItems: MAX_SHOWN_IMAGES }) }),
     async execute(_id, params, signal) {
-      const task = state;
-      if (!active()) throw new Error(`${config.noun}表示ツールが無効です。`);
+      const task = registration.state;
+      const requestId = task.requestId;
+      if (!api.getActiveTools().includes(config.name)) throw new Error(`${config.noun}表示ツールが無効です。`);
       if (task.hidden) throw new Error(`ユーザーが${config.noun}表示を不要と指定しています。`);
-      const images = params[config.field];
-      const paths = new Set([...task.pending.keys(), ...images.map((image) => image.path)]);
+      const unique = new Map(params[config.field].map((image) => [localMediaPathKey(image.path), { path: image.path, alt: image.alt }]));
+      const images = [...unique.values()];
+      const paths = new Set([...task.pending.keys(), ...unique.keys()]);
       if (paths.size > MAX_SHOWN_IMAGES) throw new Error(`1回の返信で表示できる${config.noun}は${MAX_SHOWN_IMAGES}件までです。`);
       for (const image of images) {
         if (!image.alt.trim()) throw new Error(`${config.noun}の内容が分かる説明文を指定してください。`);
@@ -220,10 +285,12 @@ function registerPresentation(api: ExtensionAPI, options: ShowImageOptions, conf
         if (!result.ok) throw new Error(result.error);
       }
       signal?.throwIfAborted();
-      if (task !== state || task.hidden || !active()) throw new Error(`依頼が変更されたか権限が失われたため${config.noun}表示を登録できません。`);
+      if (requestId !== registration.state.requestId || task !== registration.state || task.hidden || !api.getActiveTools().includes(config.name)) {
+        throw new Error(`依頼が変更されたか権限が失われたため${config.noun}表示を登録できません。`);
+      }
       return {
         content: [{ type: "text", text: images.map(shownImageMarkdown).join("\n\n") }],
-        details: { [config.detailsKey]: images },
+        details: { [config.detailsKey]: images, presentationRequestId: requestId },
       };
     },
   });

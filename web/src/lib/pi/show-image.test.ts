@@ -27,6 +27,7 @@ function fixture(branch: unknown[] = [], kind: "image" | "video" | "audio" = "im
     on: (name: string, handler: Handler) => handlers.set(name, handler),
     getActiveTools: () => active ? [name] : [],
     registerTool: (definition: TestTool) => { tool = definition; },
+    appendEntry: (customType: string, data: unknown) => branch.push({ type: "custom", customType, data }),
   } as unknown as ExtensionAPI;
   ({ image: registerShowImage, video: registerShowVideo, audio: registerShowAudio })[kind](api, { validate });
   const emit = (name: string, event: unknown = {}) => handlers.get(name)!(event, {
@@ -221,6 +222,46 @@ describe("show-image native policy", () => {
     run.emit("input", { source: "interactive", text: "画像を見せて、音声表示不要。" });
     await run.register();
     expect(repairedText(run.final())).toContain(shownImageMarkdown(image));
+  });
+
+  it("honors global media opt-out and natural English any-images wording", async () => {
+    for (const text of ["メディア表示不要", "Do not show any images", "Do not show media"]) {
+      const run = fixture();
+      run.emit("input", { source: "interactive", text });
+      await expect(run.execute()).rejects.toThrow("不要");
+    }
+  });
+
+  it("rejects a late tool result from a previous request", async () => {
+    const run = fixture();
+    const result = await run.execute();
+    run.emit("input", { source: "interactive", text: "次の質問" });
+    run.emit("tool_result", { toolName: "show_image", isError: false, ...result });
+    expect(run.final()).toBeUndefined();
+  });
+
+  it("deduplicates per-call validation and supports ./ Markdown aliases", async () => {
+    const run = fixture();
+    await run.register([image, { ...image, path: "./" + image.path }]);
+    expect(run.validate).toHaveBeenCalledOnce();
+    expect(run.final(shownImageMarkdown(image))).toBeUndefined();
+  });
+
+  it("preserves unfinished media and opt-out across replayed steer/extension messages", async () => {
+    const branch: unknown[] = [];
+    const run = fixture(branch);
+    run.emit("input", { source: "interactive", text: "画像を見せて" });
+    branch.push({ type: "message", message: { role: "user", content: "画像を見せて" } });
+    const result = await run.register();
+    branch.push({ type: "message", message: { role: "toolResult", toolName: "show_image", ...result } });
+    run.emit("input", { source: "interactive", streamingBehavior: "steer", text: "補足" });
+    branch.push({ type: "message", message: { role: "user", content: "補足" } });
+    await run.emit("session_tree");
+    expect(repairedText(run.final())).toContain(shownImageMarkdown(image));
+    run.emit("input", { source: "interactive", text: "画像表示不要" });
+    branch.push({ type: "message", message: { role: "user", content: "続けて" } });
+    await run.emit("session_tree");
+    await expect(run.execute()).rejects.toThrow("不要");
   });
 
   it("injects presentation guidance independently of skill discovery", () => {

@@ -35,14 +35,14 @@ export function browseAllowedRoots(): string[] {
   return [...roots];
 }
 
-export function isAllowedBrowsePath(
-  target: string,
-  options: {
-    platform?: string;
-    roots?: readonly string[];
-    realpath?: (path: string) => string;
-  } = {},
-): boolean {
+type BrowsePathOptions = {
+  platform?: string;
+  roots?: readonly string[];
+  realpath?: (path: string) => string;
+};
+
+/** Return the authorized canonical path without making callers resolve/check it again. */
+export function resolveAllowedBrowsePath(target: string, options: BrowsePathOptions = {}): string | null {
   const pathApi = (options.platform ?? process.platform) === "win32" ? win32 : posix;
   const canonicalize = options.realpath ?? realpathSync.native;
   const within = (base: string, path: string) => {
@@ -64,13 +64,17 @@ export function isAllowedBrowsePath(
   const requested = pathApi.resolve(target);
   // Do not touch the file system for an untrusted path (e.g. \\attacker\share would
   // leak Windows credentials over SMB) until it is lexically inside an allowed root.
-  if (![...rawBases, ...canonicalBases].some((base) => within(base, requested))) return false;
+  if (![...rawBases, ...canonicalBases].some((base) => within(base, requested))) return null;
   let needle: string;
   try {
     needle = canonicalize(requested);
   } catch {
-    return false;
+    return null;
   }
   // Symlinks/junctions must still resolve inside a canonical root.
-  return canonicalBases.some((base) => within(base, needle));
+  return canonicalBases.some((base) => within(base, needle)) ? needle : null;
+}
+
+export function isAllowedBrowsePath(target: string, options: BrowsePathOptions = {}): boolean {
+  return resolveAllowedBrowsePath(target, options) !== null;
 }

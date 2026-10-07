@@ -2,7 +2,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { browseAllowedRoots, isAllowedBrowsePath } from "./browse-paths";
+import { browseAllowedRoots, isAllowedBrowsePath, resolveAllowedBrowsePath } from "./browse-paths";
 
 const originalAppData = process.env.APPDATA;
 const originalDataDir = process.env.LEAFCODE_PI_DATA_DIR;
@@ -32,6 +32,15 @@ afterEach(() => {
 });
 
 describe("isAllowedBrowsePath", () => {
+  it("returns the authorized canonical path with one target lookup", () => {
+    const realpath = vi.fn((path: string) => path.replace("/home/me", "/mnt/home/me"));
+    expect(resolveAllowedBrowsePath("/home/me/image.png", {
+      platform: "linux", roots: ["/home/me"], realpath,
+    })).toBe("/mnt/home/me/image.png");
+    expect(realpath).toHaveBeenCalledTimes(2); // One trusted root + one target.
+    expect(realpath).toHaveBeenCalledWith("/home/me/image.png");
+  });
+
   it("allows homedir", () => {
     expect(isAllowedBrowsePath(homedir())).toBe(true);
   });

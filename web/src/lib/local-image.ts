@@ -1,4 +1,4 @@
-import { readFileSync, statSync } from "node:fs";
+import { closeSync, constants, fstatSync, openSync, readSync } from "node:fs";
 import { extname } from "node:path";
 import { resolveTaskLocalFile } from "@/lib/local-file";
 
@@ -51,25 +51,51 @@ function imageMimeFromBytes(bytes: Buffer): string | null {
   return null;
 }
 
-/** Serve only recognized raster images inside an existing task's trusted roots. */
-export function readTaskLocalImage(taskId: string, requestedPath: string): LocalImageResult {
+type ImageFailure = Extract<LocalImageResult, { ok: false }>;
+function withTaskLocalImage<T>(taskId: string, requestedPath: string, consume: (fd: number, size: number, mime: string) => T): T | ImageFailure {
   const resolved = resolveTaskLocalFile(taskId, requestedPath);
   if (!resolved.ok) return resolved;
   const expectedMime = IMAGE_MIME_BY_EXTENSION[extname(requestedPath).toLowerCase()];
-  if (!expectedMime) return failure(415, "PNG・JPEG・GIF・WebP・AVIF・BMPのみ表示できます");
-
+  if (!expectedMime) return { ok: false, status: 415, error: "PNG・JPEG・GIF・WebP・AVIF・BMPのみ表示できます" };
+  let fd: number | undefined;
   try {
-    const realPath = resolved.path;
-    const info = statSync(realPath);
-    if (!info.isFile()) return failure(400, "画像ファイルを指定してください");
-    if (info.size <= 0) return failure(400, "空の画像は表示できません");
-    if (info.size > MAX_LOCAL_IMAGE_BYTES) return failure(413, "画像は32 MB以下にしてください");
-    const bytes = readFileSync(realPath);
-    if (bytes.length > MAX_LOCAL_IMAGE_BYTES) return failure(413, "画像は32 MB以下にしてください");
-    const mime = imageMimeFromBytes(bytes);
-    if (!mime || mime !== expectedMime) return failure(415, "画像形式を確認できません");
-    return { ok: true, bytes, mime };
+    const flags = constants.O_RDONLY | (process.platform === "win32" ? 0 : constants.O_NONBLOCK | constants.O_NOFOLLOW);
+    fd = openSync(resolved.path, flags);
+    const info = fstatSync(fd);
+    if (!info.isFile() || info.size <= 0) return { ok: false, status: 400, error: "空ではない画像ファイルを指定してください" };
+    if (info.size > MAX_LOCAL_IMAGE_BYTES) return { ok: false, status: 413, error: "画像は32 MB以下にしてください" };
+    const header = Buffer.alloc(32);
+    const length = readSync(fd, header, 0, header.length, 0);
+    const mime = imageMimeFromBytes(header.subarray(0, length));
+    if (!mime || mime !== expectedMime) return { ok: false, status: 415, error: "画像形式を確認できません" };
+    return consume(fd, info.size, mime);
   } catch {
-    return failure(404, "画像が見つからないか読み込めません");
+    return { ok: false, status: 404, error: "画像が見つからないか読み込めません" };
+  } finally {
+    if (fd !== undefined) closeSync(fd);
   }
+}
+
+/** Registration needs only the bounded header, not up to 32 MB of pixels per image. */
+export function validateTaskLocalImage(taskId: string, requestedPath: string) {
+  return withTaskLocalImage(taskId, requestedPath, () => ({ ok: true as const }));
+}
+
+/** Serve a bounded snapshot from the same verified descriptor, even if the file grows during reading. */
+export function readTaskLocalImage(taskId: string, requestedPath: string): LocalImageResult {
+  return withTaskLocalImage(taskId, requestedPath, (fd, size, mime): LocalImageResult => {
+    const bytes = Buffer.alloc(size);
+    let offset = 0;
+    while (offset < size) {
+      const count = readSync(fd, bytes, offset, size - offset, offset);
+      if (!count) break;
+      offset += count;
+    }
+    const currentSize = fstatSync(fd).size;
+    if (currentSize > MAX_LOCAL_IMAGE_BYTES) return failure(413, "画像は32 MB以下にしてください");
+    if (offset !== size || currentSize !== size || imageMimeFromBytes(bytes) !== mime) {
+      return failure(409, "読み込み中に画像が変更されました");
+    }
+    return { ok: true, bytes, mime };
+  });
 }

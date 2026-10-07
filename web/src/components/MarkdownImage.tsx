@@ -5,6 +5,7 @@ import { Image as ImageIcon, ImageOff } from "lucide-react";
 import { defaultUrlTransform, type ExtraProps, type UrlTransform } from "react-markdown";
 import { ImageLightbox } from "@/components/Composer";
 import { mediaFormatForPath, type MediaKind } from "@/lib/media-formats";
+import { classifyMarkdownMediaSource, decodeMediaPath, type MarkdownMediaSource } from "@/lib/markdown-media-source";
 
 const ImageTaskContext = createContext<string | undefined>(undefined);
 
@@ -12,56 +13,8 @@ export function MarkdownImageScope({ taskId, children }: { taskId?: string; chil
   return <ImageTaskContext.Provider value={taskId}>{children}</ImageTaskContext.Provider>;
 }
 
-type ImageSource =
-  | { kind: "local"; path: string }
-  | { kind: "remote"; url: string; host: string }
-  | { kind: "invalid"; label: string };
-
-function decodePath(value: string): string {
-  try {
-    return decodeURIComponent(value);
-  } catch {
-    return value;
-  }
-}
-
-export function classifyMarkdownImageSource(value: string): ImageSource {
-  if (!value || value.length > 8192) return { kind: "invalid", label: value || "画像" };
-  if (/^https?:\/\//i.test(value)) {
-    try {
-      const url = new URL(value);
-      if (!url.hostname || url.username || url.password) return { kind: "invalid", label: value };
-      return { kind: "remote", url: value, host: url.host };
-    } catch {
-      return { kind: "invalid", label: value };
-    }
-  }
-
-  const decoded = decodePath(value);
-  if (/^[\\/]{2}/.test(decoded)) {
-    return { kind: "invalid", label: "ネットワーク上の画像は表示できません" };
-  }
-  if (/^file:/i.test(decoded)) {
-    try {
-      const fileUrl = new URL(decoded);
-      if (fileUrl.protocol !== "file:" || (fileUrl.hostname && fileUrl.hostname !== "localhost")) {
-        return { kind: "invalid", label: "ネットワーク上の画像は表示できません" };
-      }
-      let path = decodePath(fileUrl.pathname);
-      if (/^\/[A-Za-z]:[\\/]/.test(path)) path = path.slice(1);
-      return path ? { kind: "local", path } : { kind: "invalid", label: decoded };
-    } catch {
-      return { kind: "invalid", label: decoded };
-    }
-  }
-  if (/^[A-Za-z]:[\\/]/.test(decoded) || decoded.startsWith("/") || decoded.startsWith("~/") || decoded.startsWith("~\\")) {
-    return { kind: "local", path: decoded };
-  }
-  if (/^[A-Za-z][A-Za-z\d+.-]*:/.test(decoded)) {
-    return { kind: "invalid", label: "このURL形式の画像は表示できません" };
-  }
-  return { kind: "local", path: decoded };
-}
+type ImageSource = MarkdownMediaSource;
+export const classifyMarkdownImageSource = classifyMarkdownMediaSource;
 
 export function markdownImageUrlTransform(
   url: string,
@@ -157,7 +110,7 @@ export const MarkdownImage = memo(function MarkdownImage({ src, alt }: MarkdownI
   if (typeof src !== "string" || !src) return <UnavailableImage label={alt ?? ""} reason="画像パスが空です" />;
   const source = classifyMarkdownImageSource(src);
   const format = source.kind === "invalid" ? undefined : mediaFormatForPath(
-    source.kind === "local" ? source.path : decodePath(new URL(source.url).pathname),
+    source.kind === "local" ? source.path : decodeMediaPath(new URL(source.url).pathname),
   );
   if (source.kind !== "invalid" && format) return (
     <MediaPreview key={`${taskId ?? ""}:${src}`} source={source} kind={format.kind} alt={alt ?? ""} taskId={taskId} />

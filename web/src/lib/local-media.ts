@@ -1,3 +1,4 @@
+import { constants } from "node:fs";
 import { open, type FileHandle } from "node:fs/promises";
 import { resolveTaskLocalFile, type LocalFileFailure } from "@/lib/local-file";
 import { mediaFormatForPath, type MediaFormat, type MediaKind } from "@/lib/media-formats";
@@ -36,7 +37,8 @@ export async function openTaskLocalMedia(taskId: string, path: string): Promise<
     return { ok: false, status, error };
   };
   try {
-    file = await open(resolved.path, "r");
+    const flags = constants.O_RDONLY | (process.platform === "win32" ? 0 : constants.O_NONBLOCK | constants.O_NOFOLLOW);
+    file = await open(resolved.path, flags);
     const info = await file.stat();
     if (!info.isFile() || info.size <= 0) return await fail(400, "空ではない動画・音声ファイルを指定してください");
     if (info.size > MAX_LOCAL_MEDIA_BYTES) return await fail(413, "動画・音声は512 MB以下にしてください");

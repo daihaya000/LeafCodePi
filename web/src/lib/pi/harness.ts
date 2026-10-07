@@ -79,7 +79,7 @@ import {
 import { installToolResultCap } from "@/lib/pi/tool-result-cap";
 import { registerRequestImageCap } from "@/lib/pi/request-image-cap";
 import { registerShowImage, registerShowVideo, registerShowAudio } from "@/lib/pi/show-image";
-import { readTaskLocalImage } from "@/lib/local-image";
+import { validateTaskLocalImage } from "@/lib/local-image";
 import { validateTaskLocalMedia } from "@/lib/local-media";
 import {
   applyMessageAccountIds,
@@ -4148,10 +4148,7 @@ export function sessionExtensionFactories(input: {
     registerRequestImageCap,
     ...(input.taskId ? [(api: ExtensionAPI) => {
       registerShowImage(api, {
-        validate: (path) => {
-          const result = readTaskLocalImage(input.taskId!, path);
-          return result.ok ? { ok: true } : { ok: false, error: result.error };
-        },
+        validate: (path) => validateTaskLocalImage(input.taskId!, path),
       });
       registerShowVideo(api, { validate: (path) => validateTaskLocalMedia(input.taskId!, path, "video") });
       registerShowAudio(api, { validate: (path) => validateTaskLocalMedia(input.taskId!, path, "audio") });

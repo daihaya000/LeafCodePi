@@ -7,7 +7,7 @@ import { afterEach, beforeEach, expect, it, vi } from "vitest";
 
 const store = vi.hoisted(() => ({ getTask: vi.fn(), getProject: vi.fn(), listProjects: vi.fn(() => []) }));
 vi.mock("@/lib/store", () => store);
-import { readTaskLocalImage } from "@/lib/local-image";
+import { validateTaskLocalImage } from "@/lib/local-image";
 import { validateTaskLocalMedia } from "@/lib/local-media";
 import { registerShowImage, registerShowVideo, registerShowAudio } from "./show-image";
 
@@ -19,7 +19,7 @@ beforeEach(() => {
 });
 afterEach(() => rmSync(root, { recursive: true, force: true }));
 
-async function createSession(path: string, finalReply: string, kind: "image" | "video" | "audio" = "image") {
+async function createSession(path: string, finalReply: string, kind: "image" | "video" | "audio" = "image", allMedia = false) {
   const agentDir = join(root, "agent");
   mkdirSync(agentDir);
   const settingsManager = SettingsManager.inMemory();
@@ -27,7 +27,7 @@ async function createSession(path: string, finalReply: string, kind: "image" | "
     cwd: root, agentDir, settingsManager,
     noExtensions: true, noSkills: true, noPromptTemplates: true, noThemes: true, noContextFiles: true,
     extensionFactories: [(api) => {
-      registerShowImage(api, { validate: (path) => readTaskLocalImage("task", path) });
+      registerShowImage(api, { validate: (path) => validateTaskLocalImage("task", path) });
       registerShowVideo(api, { validate: (path) => validateTaskLocalMedia("task", path, "video") });
       registerShowAudio(api, { validate: (path) => validateTaskLocalMedia("task", path, "audio") });
     }],
@@ -35,7 +35,11 @@ async function createSession(path: string, finalReply: string, kind: "image" | "
   await loader.reload();
   const faux = fauxProvider();
   faux.setResponses([
-    fauxAssistantMessage([fauxToolCall(`show_${kind}`, {
+    fauxAssistantMessage(allMedia ? [
+      fauxToolCall("show_image", { images: [{ path: "render.png", alt: "画像" }] }),
+      fauxToolCall("show_video", { videos: [{ path: "clip.mp4", alt: "動画" }] }),
+      fauxToolCall("show_audio", { audio: [{ path: "music.wav", alt: "音声" }] }),
+    ] : [fauxToolCall(`show_${kind}`, {
       [kind === "image" ? "images" : kind === "video" ? "videos" : "audio"]: [{ path, alt: "完成画像" }],
     })], { stopReason: "toolUse" }),
     fauxAssistantMessage(finalReply),
@@ -50,6 +54,23 @@ async function createSession(path: string, finalReply: string, kind: "image" | "
   await session.bindExtensions({ onError: (error) => { throw new Error(error.error); } });
   return session;
 }
+
+it("repairs all three kinds together and persists only one input-intent entry through real SDK", async () => {
+  writeFileSync(join(root, "render.png"), png);
+  writeFileSync(join(root, "clip.mp4"), Buffer.from([0, 0, 0, 20, ...Buffer.from("ftypisom"), 0, 0, 0, 0, ...Buffer.from("isom")]));
+  writeFileSync(join(root, "music.wav"), Buffer.from("RIFF0000WAVEfmt data"));
+  const session = await createSession("render.png", "生成完了", "image", true);
+  try {
+    await session.prompt("画像・動画・音声を見せて");
+    const final = JSON.stringify(session.messages.at(-1));
+    for (const path of ["render.png", "clip.mp4", "music.wav"]) expect(final).toContain("(<" + path + ">)");
+    const branch = session.sessionManager.getBranch();
+    expect(branch.filter((entry) => entry.type === "custom" && entry.customType === "leafcode-media-input")).toHaveLength(1);
+    expect(session.messages.filter((message) => message.role === "toolResult")).toMatchObject([
+      { isError: false }, { isError: false }, { isError: false },
+    ]);
+  } finally { session.dispose(); }
+});
 
 it("repairs and persists the reply through real SDK message_end without skills or extra provider requests", async () => {
   writeFileSync(join(root, "render.png"), png);
