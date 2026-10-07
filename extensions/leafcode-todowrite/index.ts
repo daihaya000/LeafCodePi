@@ -207,16 +207,19 @@ function updateTui(ctx: ExtensionContext, todos: readonly TodoItem[]): void {
 }
 
 function reconstructState(ctx: ExtensionContext): TodoItem[] {
-  let current: TodoItem[] = [];
-  for (const entry of ctx.sessionManager.getBranch()) {
+  const branch = ctx.sessionManager.getBranch();
+  // Snapshots replace the whole list; only the latest successful valid result matters.
+  for (let index = branch.length - 1; index >= 0; index -= 1) {
+    const entry = branch[index]!;
     if (entry.type !== "message") continue;
     const message = entry.message;
-    if (message.role !== "toolResult" || message.toolName !== "todowrite") continue;
+    if (message.role !== "toolResult" || message.toolName !== "todowrite" || message.isError) continue;
     const details = asRecord(message.details);
+    if (details?.error) continue;
     const normalized = normalizeTodos(details?.todos);
-    if (!normalized.error) current = normalized.todos;
+    if (!normalized.error) return normalized.todos;
   }
-  return current;
+  return [];
 }
 
 export default function (pi: ExtensionAPI): void {
@@ -308,55 +311,45 @@ export default function (pi: ExtensionAPI): void {
       ? classifyClosingShellCommand(asRecord(event.input)?.command, event.toolName) : undefined;
     const requiresReview = action === "block" && shellPhase !== "confirmation";
 
-    // State machine: a list opened this task admits work only while an item is in_progress.
-    // Clearing the list or completing every item closes the gate again.
-    if (task.openedThisTask) {
-      if (hasInProgress()) {
-        admit(task, requiresReview);
-        return;
-      }
-      if (action === "count") return;
-      if (shellPhase !== undefined) {
-        admit(task, requiresReview);
-        return;
-      }
-      stats.closedBlocks += 1;
-      return { block: true, reason: blockedWhenClosedReason(todos) };
-    }
-
-    // A Jev waiver covers small tasks only: once the task keeps changing things it expires.
-    if (task.waived) {
-      if (action === "count" || !requiresReview) return;
-      if (task.waivedMutations < WAIVER_MUTATION_LIMIT) {
-        task.waivedMutations += 1;
-        admit(task, requiresReview);
-        return;
-      }
-      task.waived = false;
-      task.waiver = undefined;
-      task.waiverExpired = true;
-      stats.waiverExpiries += 1;
-    }
-
-    if (action === "count") {
-      task.substantiveCalls += 1;
-      refreshVisibility();
-      if (task.substantiveCalls < TODO_GATE_READ_LIMIT) return;
-    }
-    // Gate operations, not words in the prompt.
+    // Use one admission path both before and after awaiting the shared judgment.
+    // The list may have completed, or other waiting calls may have spent the waiver budget.
     const stop = () => {
       if (task !== gate) return { block: true, reason: "依頼が切り替わりました。現在のToDoを確認してから再実行してください。" };
-      if (task.openedThisTask || task.waived) {
-        if (!task.openedThisTask && requiresReview) task.waivedMutations += 1;
-        admit(task, requiresReview);
-        refreshVisibility();
-        return undefined;
+      if (ctx.signal?.aborted) return { block: true, reason: "作業が中断されたため実行を停止しました。" };
+      if (task.openedThisTask) {
+        if (hasInProgress() || action === "count" || shellPhase !== undefined) {
+          admit(task, requiresReview);
+          return undefined;
+        }
+        stats.closedBlocks += 1;
+        return { block: true, reason: blockedWhenClosedReason(todos) };
+      }
+      if (task.waived) {
+        if (action === "count" || !requiresReview) {
+          refreshVisibility();
+          return undefined;
+        }
+        if (task.waivedMutations < WAIVER_MUTATION_LIMIT) {
+          task.waivedMutations += 1;
+          admit(task, requiresReview);
+          return undefined;
+        }
+        task.waived = false;
+        task.waiver = undefined;
+        task.waiverExpired = true;
+        stats.waiverExpiries += 1;
       }
       task.violationObserved = true;
       stats.gateBlocks += 1;
       refreshVisibility();
       return { block: true, reason: TODO_GATE_REASON };
     };
+    if (task.openedThisTask || task.waived) return stop();
+    if (action === "count") {
+      task.substantiveCalls += 1;
+      refreshVisibility();
+      if (task.substantiveCalls < TODO_GATE_READ_LIMIT) return;
+    }
     // Without Jev (no host, an unknown request, or an expired waiver) this is the conventional
     // synchronous stop. Otherwise Jev is asked once whether the task needs a ToDo list at all.
     if (!task.requestText || task.waiverExpired || !hasJevNoulJudge()) return stop();

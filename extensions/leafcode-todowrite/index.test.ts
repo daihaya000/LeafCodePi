@@ -121,6 +121,63 @@ describe("normalizeTodos", () => {
 });
 
 describe("todowrite review regressions", () => {
+  it("stops an aborted waiting call even when a list opened while judgment was pending", async () => {
+    const controller = new AbortController();
+    installJudge(() => new Promise<Record<string, number> | null>(() => undefined));
+    const run = fixture({ signal: controller.signal });
+    startTask(run, "Implement a feature");
+    const pending = run.callToolAsync("edit");
+    await run.writeTodos([{ content: "Work", status: "in_progress", priority: "high" }]);
+    controller.abort();
+    expect(await pending).toMatchObject({ block: true });
+  });
+  it.each([true, false])("ignores failed restore snapshots and keeps the last successful active list: isError=%s", (isError) => {
+    const active = [{ content: "Work", status: "in_progress", priority: "high" }];
+    const run = fixture({ branch: [
+      { type: "message", message: { role: "toolResult", toolName: "todowrite", details: { todos: active } } },
+      { type: "message", message: { role: "toolResult", toolName: "todowrite", isError,
+        details: { todos: [], ...(isError ? {} : { error: "Invalid update" }) } } },
+    ] });
+    run.emit("session_start");
+    expect(run.callTool("edit")).toBeUndefined();
+  });
+  it("restores only the latest successful snapshot without normalizing older lists", () => {
+    const oldMessage = vi.fn(() => { throw Error("Older snapshot must not be scanned"); });
+    const branch = [
+      { type: "message", get message() { return oldMessage(); } },
+      { type: "message", message: { role: "toolResult", toolName: "todowrite", details: { todos: [] } } },
+    ];
+    const run = fixture({ branch });
+    run.emit("session_start");
+    expect(oldMessage).not.toHaveBeenCalled();
+    expect(branch).toHaveLength(2);
+    expect(run.callTool("edit")?.block).toBe(true);
+  });
+  it("rechecks an active list after a judgment wait instead of admitting work after completion", async () => {
+    const answer = deferred<Record<string, number> | null>();
+    installJudge(() => answer.promise);
+    const run = fixture();
+    startTask(run, "Implement a feature");
+    const pending = run.callToolAsync("edit");
+    await run.writeTodos([{ content: "Work", status: "in_progress", priority: "high" }]);
+    await run.writeTodos([{ content: "Work", status: "completed", priority: "high" }]);
+    answer.resolve(big);
+    expect(await pending).toMatchObject({ block: true });
+  });
+  it("shares a judgment but enforces the mutation budget across simultaneous waiting calls", async () => {
+    const answer = deferred<Record<string, number> | null>();
+    const judge = installJudge(() => answer.promise);
+    const run = fixture();
+    startTask(run, "Fix one typo");
+    const pending = Array.from({ length: 5 }, () => run.callToolAsync("edit"));
+    answer.resolve(small);
+    const results = await Promise.all(pending);
+    expect(results.filter((result) => result === undefined)).toHaveLength(3);
+    expect(results.filter((result) => result?.block)).toHaveLength(2);
+    expect(judge).toHaveBeenCalledOnce();
+    expect(await run.callToolAsync("edit")).toMatchObject({ block: true });
+    expect(judge).toHaveBeenCalledOnce();
+  });
   it.each([
     ["git status | sort | head -n 20", "bash", "confirmation"],
     ["git status | sort -u --reverse | head -n 20", "bash", "confirmation"],
