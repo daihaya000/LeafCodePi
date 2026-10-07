@@ -6,6 +6,7 @@ import { createJiti } from "jiti/static";
 import type { ModelRuntime } from "@earendil-works/pi-coding-agent";
 import type { Provider } from "@earendil-works/pi-ai";
 import type { UsageScope } from "@/lib/codexbar/types";
+import { withCommandCodeStreamRetry } from "./commandcode-stream-retry";
 
 export const COMMANDCODE_PROVIDER_ID = "commandcode";
 
@@ -358,7 +359,7 @@ async function installCommandCodeProvider(
       runtime.registerProvider(
         registration.name,
         withAccountScope(
-          withImageDowngrade(registration.config),
+          withImageDowngrade(withCommandCodeStreamRetry(registration.config)),
           scope,
         ) as never,
       );

@@ -13,6 +13,8 @@ it("registers and selects Command Code in a Backend bundle without a global prov
     const repo = resolve(fileURLToPath(new URL("../../../../", import.meta.url)));
     mkdirSync(join(root, "web"));
     symlinkSync(join(repo, "web", "node_modules"), join(root, "web", "node_modules"), "junction");
+    mkdirSync(join(root, "backend"));
+    symlinkSync(join(repo, "backend", "node_modules"), join(root, "backend", "node_modules"), "junction");
     const bundle = join(root, "backend", "runtime", "provider.bundle.mjs");
     const require = createRequire(import.meta.url);
     const esbuild = require("esbuild") as typeof import("esbuild");

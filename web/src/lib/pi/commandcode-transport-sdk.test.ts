@@ -68,6 +68,40 @@ function mockApi(goPlan = false) {
   }));
 }
 
+function mockResponses(variants: ("empty" | "thinking" | "text" | "complete" | "tool")[]) {
+  vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+    const url = String(input);
+    if (url.endsWith("/models")) return Response.json({ object: "list", data: [{
+      id: "test-model", name: "Test", context_length: 32_000, supported_endpoints: ["/responses"],
+    }] });
+    assert.ok(url.endsWith("/responses"));
+    requests.push({ url, body: JSON.parse(String(init?.body)), authorization: new Headers(init?.headers).get("authorization") });
+    const variant = variants[Math.min(requests.length - 1, variants.length - 1)];
+    const events: unknown[] = [{ type: "response.created", response: { id: "resp_test", status: "in_progress" } }];
+    const item = { id: "msg_test", type: "message", role: "assistant", status: "completed",
+      content: [{ type: "output_text", text: "OK", annotations: [] }] };
+    if (variant === "thinking") {
+      events.push({ type: "response.output_item.added", output_index: 0,
+        item: { type: "reasoning", id: "rs_test", summary: [], content: [] } },
+      { type: "response.reasoning.delta", output_index: 0, delta: "discarded reasoning" });
+    }
+    if (variant === "text" || variant === "complete") {
+      events.push({ type: "response.output_item.added", output_index: 0, item: { ...item, status: "in_progress", content: [] } },
+        { type: "response.output_text.delta", output_index: 0, content_index: 0, delta: "OK" });
+    }
+    if (variant === "complete") events.push({ type: "response.output_item.done", output_index: 0, item });
+    if (variant === "tool") events.push({ type: "response.output_item.added", output_index: 0,
+      item: { id: "fc_test", call_id: "call_test", type: "function_call", name: "test_tool", arguments: "" } },
+    { type: "response.function_call_arguments.delta", output_index: 0, delta: '{"partial":' });
+    if (variant === "complete" || variant === "tool") events.push({ type: "response.completed", response: {
+      id: "resp_test", status: "completed", output: variant === "complete" ? [item] : [],
+      usage: { input_tokens: 7, output_tokens: 1, total_tokens: 8 },
+    } });
+    return new Response(events.map((event) => `data: ${JSON.stringify(event)}\n\n`).join("") + "data: [DONE]\n\n",
+      { headers: { "content-type": "text/event-stream" } });
+  }));
+}
+
 const context = {
   systemPrompt: "Follow the test system instruction.",
   messages: [{ role: "user" as const, content: "Say OK.", timestamp: 1 }],
@@ -77,6 +111,36 @@ const context = {
 };
 
 describe("Command Code transport against the installed SDK", () => {
+  it.each(["empty", "thinking"] as const)("recovers a Responses EOF after %s without duplicate output", async (variant) => {
+    mockResponses([variant, "complete"]);
+    const rt = await runtime();
+    const result = await rt.completeSimple(rt.getModel("commandcode", "test-model")!, context);
+    assert.equal(result.stopReason, "stop", result.errorMessage);
+    assert.equal(requests.length, 2);
+    assert.equal(result.content.filter((block) => block.type === "thinking").length, 0);
+    assert.equal(result.content.filter((block) => block.type === "text").map((block) => block.text).join(""), "OK");
+    assert.deepEqual(requests[0].body, requests[1].body);
+    assert.equal(requests[1].authorization, "Bearer account-test-key");
+  }, 15_000);
+
+  it("does not retry a Responses EOF after an answer starts", async () => {
+    mockResponses(["text", "complete"]);
+    const rt = await runtime();
+    const result = await rt.completeSimple(rt.getModel("commandcode", "test-model")!, context);
+    assert.equal(result.stopReason, "error");
+    assert.match(result.errorMessage ?? "", /before a terminal response event/);
+    assert.equal(requests.length, 1);
+  }, 15_000);
+
+  it("keeps incomplete Responses tool calls as errors instead of replaying them", async () => {
+    mockResponses(["tool", "complete"]);
+    const rt = await runtime();
+    const result = await rt.completeSimple(rt.getModel("commandcode", "test-model")!, context);
+    assert.equal(result.stopReason, "error");
+    assert.match(result.errorMessage ?? "", /unfinished tool call/);
+    assert.equal(requests.length, 1);
+  }, 15_000);
+
   it("uses the Provider API and the account key, preserving system instructions and tools", async () => {
     mockApi();
     const rt = await runtime();
