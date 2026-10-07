@@ -4401,9 +4401,11 @@ async function createSession(options: {
   let sessionManager: ReturnType<typeof pi.SessionManager.create>;
   const sessionFile = options.sessionFile;
   const sessionTaskId = options.taskId;
-  const open = () => sessionFile
-    ? openSessionManagerSafely(sessionFile, (path, dir) => pi.SessionManager.open(path, dir))
-    : pi.SessionManager.create(options.cwd);
+  const open = () => {
+    if (sessionFile) return openSessionManagerSafely(sessionFile, (path, dir) => pi.SessionManager.open(path, dir));
+    assertSessionLoadAllowed(null);
+    return pi.SessionManager.create(options.cwd);
+  };
   if (sessionTaskId) {
     sessionManager = withTaskSessionWriteLease(sessionTaskId, () => {
       // Opening may rewrite legacy entries, and name sync may append immediately.
@@ -8165,7 +8167,7 @@ async function readArchivedTaskSnapshot(task: TaskSummary): Promise<OfflineSessi
   } catch (error) {
     offlineSessionSnapshots.delete(task.sessionFile);
     const code = (error as { code?: string } | null)?.code;
-    if (code === "SESSION_FILE_TOO_LARGE" || code === "SESSION_MEMORY_PRESSURE") throw error;
+    if (code?.startsWith("SESSION_") || ["ENOSPC", "EIO", "EACCES", "EPERM"].includes(code ?? "")) throw error;
     return { messages: [], todos: [] };
   }
 }

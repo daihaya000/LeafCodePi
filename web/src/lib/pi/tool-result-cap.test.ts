@@ -48,14 +48,29 @@ describe("tool result cap", () => {
     expect(capped![1]).toBe(content[1]);
   });
 
-  it("omits oversized and excess images before they enter retained session history", () => {
-    const first = { type: "image", mimeType: "image/png", data: "a".repeat(MAX_TOOL_RESULT_IMAGE_CHARS) };
-    const second = { type: "image", mimeType: "image/png", data: "b" };
-    const capped = capToolResultContent([first, second]);
-    expect(capped).not.toBeNull();
-    expect(capped).toHaveLength(2);
-    expect(capped![0]).toBe(first);
-    expect(capped![1]).toEqual({ type: "text", text: expect.stringContaining("omitted") });
+  it("does not discard images in the synchronous text cap", () => {
+    const first = { type: "image", mimeType: "image/png", data: "a".repeat(MAX_TOOL_RESULT_IMAGE_CHARS + 1) };
+    expect(capToolResultContent([first])).toBeNull();
+  });
+
+  it("recompresses large tool images without dropping vision input or metadata", async () => {
+    const original = { type: "image", mimeType: "image/png", data: "a".repeat(MAX_TOOL_RESULT_IMAGE_CHARS + 1) };
+    const resize = vi.fn(async () => ({ data: "smaller-base64", mimeType: "image/jpeg" }));
+    const agent: ToolCappableAgent = { afterToolCall: async () => ({ content: [original], isError: true, details: { preserved: true } }) };
+    installToolResultCap(agent, limitForTool, resize);
+    const result = await hookOf(agent)({});
+    expect(result).toMatchObject({ content: [{ type: "image", mimeType: "image/jpeg", data: "smaller-base64" }], isError: true, details: { preserved: true } });
+    expect(resize).toHaveBeenCalledOnce();
+    expect(original.data.length).toBe(MAX_TOOL_RESULT_IMAGE_CHARS + 1);
+  });
+
+  it("preserves original images if decoding fails or produces no useful reduction", async () => {
+    const image = { type: "image", mimeType: "image/png", data: "a".repeat(MAX_TOOL_RESULT_IMAGE_CHARS + 1) };
+    for (const resize of [async () => null, async () => { throw new Error("decoder failed"); }, async () => ({ data: image.data, mimeType: "image/png" })]) {
+      const agent: ToolCappableAgent = {};
+      installToolResultCap(agent, limitForTool, resize);
+      expect(await hookOf(agent)({ result: { content: [image] } })).toBeUndefined();
+    }
   });
 
   it("shares one text budget across multi-block results", () => {

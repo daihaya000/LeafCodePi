@@ -10,7 +10,7 @@
 
 /** Shared text budget per tool call. */
 export const MAX_TOOL_RESULT_CHARS = 25_000;
-/** Large base64 tool images dominate retained session history; keep a bounded vision payload per call. */
+/** Target for image recompression, not a reason to discard vision input. */
 export const MAX_TOOL_RESULT_IMAGE_CHARS = 512 * 1024;
 
 /**
@@ -39,7 +39,12 @@ export function limitForTool(toolName: unknown): number {
 const OMISSION_NOTICE =
   "文字を省略しました。全体が必要なら範囲・パターン・件数を絞って再実行してください";
 
-type ToolResultPart = { type?: unknown; text?: unknown };
+type ToolResultPart = { type?: unknown; text?: unknown; data?: unknown; mimeType?: unknown };
+type ResizeToolImage = (bytes: Uint8Array, mimeType: string, options: { maxWidth: number; maxHeight: number; maxBytes: number }) => Promise<{ data: string; mimeType: string } | null>;
+const resizeToolImage: ResizeToolImage = async (bytes, mimeType, options) => {
+  const { resizeImage } = await import("@earendil-works/pi-coding-agent");
+  return resizeImage(bytes, mimeType, options);
+};
 
 /** Move a cut off a surrogate pair so slicing cannot emit a lone surrogate. */
 function safeCut(text: string, index: number): number {
@@ -73,17 +78,7 @@ export function capToolResultContent<T extends ToolResultPart>(
   if (!Array.isArray(content)) return null;
   let capped = false;
   let remaining = limit;
-  let remainingImageChars = MAX_TOOL_RESULT_IMAGE_CHARS;
   const next = content.map((part) => {
-    if (part?.type === "image" && typeof (part as { data?: unknown }).data === "string") {
-      const image = part as T & { data: string };
-      if (image.data.length <= remainingImageChars) {
-        remainingImageChars -= image.data.length;
-        return part;
-      }
-      capped = true;
-      return { type: "text", text: "[tool-result image omitted: image exceeds the per-call history memory limit]" } as T;
-    }
     if (!part || part.type !== "text" || typeof part.text !== "string") {
       return part;
     }
@@ -131,6 +126,7 @@ const installedOn = new WeakSet<ToolCappableAgent>();
 export function installToolResultCap(
   agent: ToolCappableAgent | undefined,
   limitFor: (toolName: unknown) => number = limitForTool,
+  resize: ResizeToolImage = resizeToolImage,
 ): void {
   if (!agent) return;
   // Re-configuring a session must not stack wrappers on the same hook.
@@ -147,8 +143,29 @@ export function installToolResultCap(
       content,
       limitFor(event.toolCall?.name),
     );
-    if (!cappedContent) return hookResult;
-    return { ...(hookResult ?? {}), content: cappedContent };
+    const effective = cappedContent ?? content;
+    if (!Array.isArray(effective)) return hookResult;
+    const imageCount = effective.filter((part) => part?.type === "image" && typeof part.data === "string").length;
+    const targetChars = Math.max(32 * 1024, Math.floor(MAX_TOOL_RESULT_IMAGE_CHARS / Math.max(1, imageCount)));
+    let changed = Boolean(cappedContent);
+    const next: ToolResultPart[] = [];
+    // Process sequentially to avoid concurrent native decoders multiplying peak memory.
+    for (const part of effective) {
+      if (part?.type === "image" && typeof part.data === "string" && typeof part.mimeType === "string" && part.data.length > targetChars) {
+        try {
+          const resized = await resize(Buffer.from(part.data, "base64"), part.mimeType, {
+            maxWidth: 1280, maxHeight: 1280, maxBytes: Math.floor(targetChars * 3 / 4),
+          });
+          if (resized && resized.data.length > 0 && resized.data.length < part.data.length) {
+            next.push({ ...part, data: resized.data, mimeType: resized.mimeType });
+            changed = true;
+            continue;
+          }
+        } catch { /* Decoder failure must not erase model vision input. */ }
+      }
+      next.push(part);
+    }
+    return changed ? { ...(hookResult ?? {}), content: next } : hookResult;
   };
   agent.afterToolCall = capped;
 }
