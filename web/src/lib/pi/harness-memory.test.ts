@@ -1,12 +1,12 @@
 import assert from "node:assert/strict";
 import { EventEmitter } from "node:events";
-import { closeSync, ftruncateSync, mkdirSync, mkdtempSync, openSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { closeSync, mkdirSync, mkdtempSync, openSync, rmSync, statSync, writeFileSync, writeSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, it, vi } from "vitest";
 import { MAX_SESSION_LOAD_BYTES } from "@backend-core/session-memory-guard.mjs";
 import { insertTask, patchTask, upsertProject } from "@/lib/store";
-import { getTaskDetail, getTaskDetailReadOnly, readTaskProgressSnapshot, relieveRuntimeMemoryPressure, resetOfflineSessionSnapshotsForTests } from "./harness";
+import { getTaskDetailReadOnly, readTaskProgressSnapshot, relieveRuntimeMemoryPressure, resetOfflineSessionSnapshotsForTests } from "./harness";
 
 vi.mock("node:v8", () => ({ getHeapStatistics: () => ({ heap_size_limit: 4096 * 1024 * 1024 }) }));
 const globals = globalThis as Record<PropertyKey, unknown>;
@@ -18,6 +18,19 @@ const previousDataDir = process.env.LEAFCODE_PI_DATA_DIR;
 const dirs: string[] = [];
 const MIB = 1024 * 1024;
 
+function writeLargeSession(file: string) {
+  writeFileSync(file, `${JSON.stringify({ type: "session", version: 3, id: "large", cwd: process.cwd() })}\n`);
+  const fd = openSync(file, "a");
+  const chunk = Buffer.alloc(1024 * 1024, 0x0a);
+  try {
+    let remaining = MAX_SESSION_LOAD_BYTES + 1 - statSync(file).size;
+    while (remaining > 0) {
+      const count = Math.min(chunk.length, remaining);
+      writeSync(fd, chunk, 0, count);
+      remaining -= count;
+    }
+  } finally { closeSync(fd); }
+}
 function memory(heapUsed = 100 * MIB) {
   vi.spyOn(process, "memoryUsage").mockReturnValue({ heapUsed, heapTotal: heapUsed, rss: heapUsed, external: 0, arrayBuffers: 0 });
 }
@@ -28,7 +41,7 @@ function fixture() {
   process.env.LEAFCODE_PI_DATA_DIR = join(root, "data");
   const project = upsertProject({ rootPath: root, name: "memory" });
   const task = insertTask({ project, title: "test" });
-  const open = vi.fn(() => ({ buildSessionContext: () => ({ messages: [] }) }));
+  const open = vi.fn((_path: string, _sessionDir?: string) => ({ buildSessionContext: () => ({ messages: [] }) }));
   const live = new Map<string, ReturnType<typeof idleLive>>();
   const events = new EventEmitter();
   globals[key] = { pi: { SessionManager: { open } }, live, events };
@@ -59,18 +72,21 @@ afterEach(() => {
 });
 
 describe("session memory protection", () => {
-  it("rejects a huge history before SDK open, in cold read and live attach paths, without rewriting it", async () => {
+  it("opens a huge history through a slim copy while preserving the source file", async () => {
     const { root, task, open } = fixture();
     const file = join(root, "huge.jsonl");
-    const fd = openSync(file, "w");
-    try { ftruncateSync(fd, MAX_SESSION_LOAD_BYTES + 1); } finally { closeSync(fd); }
+    writeLargeSession(file);
+    const sourceSize = statSync(file).size;
     patchTask(task.id, { sessionFile: file });
-    await assert.rejects(readTaskProgressSnapshot(task.id), { status: 413, code: "SESSION_FILE_TOO_LARGE" });
-    await assert.rejects(getTaskDetailReadOnly(task.id), { status: 413 });
-    await assert.rejects(getTaskDetail(task.id), { status: 413 });
-    assert.equal(open.mock.calls.length, 0);
-    assert.equal(statSync(file).size, MAX_SESSION_LOAD_BYTES + 1);
-  });
+    const snapshot = await readTaskProgressSnapshot(task.id);
+    assert.equal(snapshot.messages.length, 0);
+    assert.equal(open.mock.calls.length, 1);
+    const slimPath = String(open.mock.calls[0]?.[0]);
+    assert.notEqual(slimPath, file);
+    assert.equal(statSync(file).size, sourceSize);
+    assert.throws(() => statSync(slimPath), { code: "ENOENT" }, "temporary copy is removed after opening");
+    assert.deepEqual((await getTaskDetailReadOnly(task.id)).messages, []);
+  }, 20_000);
 
   it("refuses new cold allocations under pressure but keeps already cached history available", async () => {
     const { root, task, open } = fixture();

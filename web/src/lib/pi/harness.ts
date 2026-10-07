@@ -6,7 +6,7 @@ import { basename, dirname, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { captureSessionBackgroundWorkStop, captureSessionShutdownResourceStop } from "@extensions/leafcode-subagents/src/api/background-work.ts";
 import { runBackendMcpNativeSessionShutdownActions } from "@backend-core/mcp-native-session.mjs";
-import { assertSessionLoadAllowed, isRuntimeMemoryPressure, readRuntimeMemory } from "@backend-core/session-memory-guard.mjs";
+import { assertSessionLoadAllowed, isRuntimeMemoryPressure, openSessionManagerSafely, readRuntimeMemory } from "@backend-core/session-memory-guard.mjs";
 import {
   dataDir,
   isAbsolutePath,
@@ -4390,7 +4390,6 @@ async function createSession(options: {
   // The single place a Pi session is created in this process. Guarding it here (not only at the
   // prompt entry) means no future caller can make this WebUI a second owner of the same runtime.
   assertLocalRuntimeAllowed();
-  assertSessionLoadAllowed(options.sessionFile);
   const loadPiStartedAt = options.onTiming ? performance.now() : 0;
   const pi = await loadPi();
   reportTaskDetailPhase(options.onTiming, "createSession.loadPi", loadPiStartedAt);
@@ -4401,22 +4400,19 @@ async function createSession(options: {
   const sessionManagerStartedAt = options.onTiming ? performance.now() : 0;
   let sessionManager: ReturnType<typeof pi.SessionManager.create>;
   const sessionFile = options.sessionFile;
-  // Initialization awaits above may have admitted other sessions; recheck immediately before open.
-  assertSessionLoadAllowed(sessionFile);
   const sessionTaskId = options.taskId;
+  const open = () => sessionFile
+    ? openSessionManagerSafely(sessionFile, (path, dir) => pi.SessionManager.open(path, dir))
+    : pi.SessionManager.create(options.cwd);
   if (sessionTaskId) {
     sessionManager = withTaskSessionWriteLease(sessionTaskId, () => {
       // Opening may rewrite legacy entries, and name sync may append immediately.
-      const created = sessionFile
-        ? pi.SessionManager.open(sessionFile)
-        : pi.SessionManager.create(options.cwd);
+      const created = open();
       syncSessionName(created, options.sessionName);
       return created;
     });
   } else {
-    sessionManager = sessionFile
-      ? pi.SessionManager.open(sessionFile)
-      : pi.SessionManager.create(options.cwd);
+    sessionManager = open();
     syncSessionName(sessionManager, options.sessionName);
   }
   reportTaskDetailPhase(
@@ -8114,8 +8110,7 @@ function readOfflineSessionSnapshot(sessionFile: string): OfflineSessionSnapshot
     return cached.snapshot;
   }
   offlineSessionSnapshots.delete(sessionFile);
-  assertSessionLoadAllowed(sessionFile);
-  const sessionManager = pi.SessionManager.open(sessionFile);
+  const sessionManager = openSessionManagerSafely(sessionFile, (path, dir) => pi.SessionManager.open(path, dir));
   const context = sessionManager.buildSessionContext?.() ?? { messages: [] };
   const raw = Array.isArray(context.messages) ? context.messages : [];
   // 履歴ページもライブ表示と同じ tok/s を出せるよう、永続化済み throughput を反映する。

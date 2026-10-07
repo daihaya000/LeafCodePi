@@ -6,6 +6,7 @@ import {
   limitForTool,
   MAX_SCAN_RESULT_CHARS,
   MAX_TOOL_RESULT_CHARS,
+  MAX_TOOL_RESULT_IMAGE_CHARS,
   type AfterToolCall,
   type ToolCappableAgent,
 } from "./tool-result-cap";
@@ -36,15 +37,25 @@ describe("tool result cap", () => {
     expect(capped).not.toMatch(/(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/);
   });
 
-  it("caps text blocks and leaves other blocks alone", () => {
+  it("caps text blocks while preserving images within the image budget", () => {
     const content = [
       { type: "text", text: "x".repeat(60_000) },
-      { type: "image", mimeType: "image/png", data: "zzz" },
+      { type: "image", mimeType: "image/png", data: "z".repeat(100) },
     ];
     const capped = capToolResultContent(content);
     expect(capped).not.toBeNull();
     expect((capped![0] as { text: string }).text.length).toBeLessThan(60_000);
     expect(capped![1]).toBe(content[1]);
+  });
+
+  it("omits oversized and excess images before they enter retained session history", () => {
+    const first = { type: "image", mimeType: "image/png", data: "a".repeat(MAX_TOOL_RESULT_IMAGE_CHARS) };
+    const second = { type: "image", mimeType: "image/png", data: "b" };
+    const capped = capToolResultContent([first, second]);
+    expect(capped).not.toBeNull();
+    expect(capped).toHaveLength(2);
+    expect(capped![0]).toBe(first);
+    expect(capped![1]).toEqual({ type: "text", text: expect.stringContaining("omitted") });
   });
 
   it("shares one text budget across multi-block results", () => {

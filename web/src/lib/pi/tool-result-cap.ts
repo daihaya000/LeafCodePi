@@ -10,6 +10,8 @@
 
 /** Shared text budget per tool call. */
 export const MAX_TOOL_RESULT_CHARS = 25_000;
+/** Large base64 tool images dominate retained session history; keep a bounded vision payload per call. */
+export const MAX_TOOL_RESULT_IMAGE_CHARS = 512 * 1024;
 
 /**
  * Scans dump far more than the agent asked for: in two real sessions `grep`
@@ -71,7 +73,17 @@ export function capToolResultContent<T extends ToolResultPart>(
   if (!Array.isArray(content)) return null;
   let capped = false;
   let remaining = limit;
+  let remainingImageChars = MAX_TOOL_RESULT_IMAGE_CHARS;
   const next = content.map((part) => {
+    if (part?.type === "image" && typeof (part as { data?: unknown }).data === "string") {
+      const image = part as T & { data: string };
+      if (image.data.length <= remainingImageChars) {
+        remainingImageChars -= image.data.length;
+        return part;
+      }
+      capped = true;
+      return { type: "text", text: "[tool-result image omitted: image exceeds the per-call history memory limit]" } as T;
+    }
     if (!part || part.type !== "text" || typeof part.text !== "string") {
       return part;
     }
