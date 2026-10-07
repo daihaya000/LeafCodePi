@@ -277,6 +277,10 @@ select {
   text-decoration: underline;
   text-underline-offset: 2px;
 }
+.md a[data-link-card] {
+  color: var(--text);
+  text-decoration: none;
+}
 .md code {
   font-family: var(--font-mono);
   font-size: 0.85em;

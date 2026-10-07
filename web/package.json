@@ -15,6 +15,7 @@
     "@earendil-works/pi-coding-agent": "1.0.0",
     "@rahularya01/pi-cursor": "^1.4.34",
     "better-sqlite3": "^12.9.0",
+    "htmlparser2": "^10.1.0",
     "lucide-react": "^1.24.0",
     "mdast-util-from-markdown": "^2.0.3",
     "next": "^16.3.1",

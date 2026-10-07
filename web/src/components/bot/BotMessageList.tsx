@@ -2,7 +2,7 @@
 
 import { memo, type AnchorHTMLAttributes, type ReactNode, type RefObject, useEffect, useLayoutEffect, useRef, useState } from "react";
 import Link from "next/link";
-import Markdown from "react-markdown";
+import Markdown, { type ExtraProps } from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { FileText, RotateCcw } from "lucide-react";
 import { ACTIVITY_USAGE_TITLES, activityUsageLabels, type ActivityUsage, conversationViewportClass, MessageBubble, MessageHeader, messageRowClassFor } from "@/components/ConversationLayout";
@@ -12,6 +12,8 @@ import { ProviderIcon } from "@/components/ProviderIcon";
 import { renderMentions, withMentions } from "@/components/bot/BotMention";
 import { ImageLightbox } from "@/components/Composer";
 import { MarkdownImage, MarkdownImageScope, markdownImageUrlTransform } from "@/components/MarkdownImage";
+import { MarkdownLink, UrlAttachmentText } from "@/components/LinkPreviewCard";
+import { remarkLinkCards } from "@/lib/remark-link-cards";
 import { isNearBottom, nextStickState } from "@/lib/scroll-stick";
 import { toolLabel } from "@/lib/tool-labels";
 import { Button, cx, formatElapsed, formatMessageTime } from "@/components/ui";
@@ -24,8 +26,8 @@ function linkBareTaskPaths(text: string) {
   return text.replace(/(^|\s)((\/task\/)[^\s<>()[\]{}]+)/g, (match, prefix: string, path: string) => `${prefix}[${path}](${path})`);
 }
 
-function TaskLink({ href, children, ...props }: AnchorHTMLAttributes<HTMLAnchorElement>) {
-  if (!href || !/^\/task\/[^/?#]+(?:[?#].*)?$/.test(href)) return <a href={href} {...props}>{children}</a>;
+function TaskLink({ node, href, children, ...props }: AnchorHTMLAttributes<HTMLAnchorElement> & ExtraProps) {
+  if (!href || !/^\/task\/[^/?#]+(?:[?#].*)?$/.test(href)) return <MarkdownLink node={node} href={href} {...props}>{children}</MarkdownLink>;
   return <InternalTaskLink href={href} {...props} />;
 }
 
@@ -110,7 +112,7 @@ export const BotMessageMarkdown = memo(function BotMessageMarkdown({ text, menti
     <div className="md">
       <MarkdownImageScope taskId={imageTaskId}>
         <Markdown
-          remarkPlugins={[remarkGfm]}
+          remarkPlugins={[remarkGfm, remarkLinkCards]}
           urlTransform={markdownImageUrlTransform}
           components={{ ...components, img: MarkdownImage, a: ({ href, children, ...props }) => <TaskLink href={href} {...props}>{children}</TaskLink> }}
         >
@@ -295,7 +297,7 @@ export function BotChatMessage({ user, createdAt, sender, text, mentions = [], p
   return <BotMessageRow user={user} createdAt={createdAt} timeInHeader={!user}
     header={user ? undefined : <BotMessageSender {...sender} createdAt={createdAt} providerID={providerID} modelLabel={modelLabel} responseDurationMs={responseDurationMs} />} footer={footer} after={after} bubble={bubble}>
     {text && (user
-      ? <div className="whitespace-pre-wrap break-words">{renderMentions(text, mentions, "user", "user")}</div>
+      ? <div className="whitespace-pre-wrap break-words"><UrlAttachmentText text={text} renderText={(value) => renderMentions(value, mentions, "user", "user")} /></div>
       : <BotMessageMarkdown text={text} mentions={mentions} imageTaskId={imageTaskId} />)}
     {!user && streaming ? (
       <span aria-hidden="true" data-streaming-caret className="mt-1 inline-block h-4 w-0.5 animate-pulse bg-accent" />

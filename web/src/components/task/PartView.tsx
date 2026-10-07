@@ -36,6 +36,8 @@ import {
   messageRowClassFor,
 } from "@/components/ConversationLayout";
 import { MarkdownImageScope, markdownImageComponents, markdownImageUrlTransform } from "@/components/MarkdownImage";
+import { UrlAttachmentText } from "@/components/LinkPreviewCard";
+import { remarkLinkCards } from "@/lib/remark-link-cards";
 import { ProviderIcon } from "@/components/ProviderIcon";
 import { LazyImagePart } from "@/components/task/LazyImagePart";
 import { ReferenceHighlight, type ReferenceHighlightReferences } from "@/components/ReferenceHighlight";
@@ -210,7 +212,7 @@ const MarkdownBody = memo(function MarkdownBody({
     <div className={cx("md", className ?? "text-sm")} data-search-text={searchable ? "" : undefined}>
       <MarkdownImageScope taskId={taskId}>
         <Markdown
-          remarkPlugins={[remarkGfm]}
+          remarkPlugins={[remarkGfm, remarkLinkCards]}
           components={markdownImageComponents}
           urlTransform={markdownImageUrlTransform}
         >
@@ -284,7 +286,7 @@ const UserTextPart = memo(function UserTextPart({
   if (!invocation) {
     return (
       <div className="whitespace-pre-wrap break-words" data-search-text="">
-        {renderText(text)}
+        <UrlAttachmentText text={text} renderText={renderText} />
       </div>
     );
   }
@@ -297,7 +299,7 @@ const UserTextPart = memo(function UserTextPart({
     <div className="whitespace-pre-wrap break-words" data-search-text="">
       <ReferenceHighlight text={`/skill:${invocation.name}`} references={skillReference} />
       {invocation.userMessage && (
-        <>{" "}{renderText(invocation.userMessage)}</>
+        <>{" "}<UrlAttachmentText text={invocation.userMessage} renderText={renderText} /></>
       )}
     </div>
   );

@@ -1,0 +1,117 @@
+import { randomBytes } from "node:crypto";
+import { Parser } from "htmlparser2";
+import { isSensitivePreviewUrl, normalizeLinkUrl, type LinkPreview } from "@/lib/link-preview-shared";
+import { fetchPublicWebBytes } from "@/lib/public-web-fetch";
+import { imageMimeFromBytes } from "@/lib/raster-image";
+
+const PAGE_TTL = 5 * 60_000;
+const IMAGE_TTL = 10 * 60_000;
+const MAX_ENTRIES = 128;
+const MAX_IMAGE_BYTES = 2 * 1024 * 1024;
+type Thumbnail = { url: string; expires: number; pending?: Promise<{ bytes: Buffer; mime: string }> };
+type PreviewState = {
+  pages: Map<string, { value: LinkPreview; expires: number }>;
+  pending: Map<string, Promise<LinkPreview>>;
+  images: Map<string, Thumbnail>;
+  activeImages: number;
+};
+const globalCache = globalThis as typeof globalThis & { __leafcodeLinkPreviews?: PreviewState };
+const state = globalCache.__leafcodeLinkPreviews ??= { pages: new Map(), pending: new Map(), images: new Map(), activeImages: 0 };
+function prune<T extends { expires: number }>(map: Map<string, T>, limit = MAX_ENTRIES) {
+  for (const [key, value] of map) if (value.expires <= Date.now()) map.delete(key);
+  while (map.size > limit) map.delete(map.keys().next().value!);
+}
+const clean = (value: string, limit: number) => value.replace(/[\u0000-\u001f\u007f]/g, " ").replace(/\s+/g, " ").trim().slice(0, limit);
+
+export function parseLinkMetadata(html: string, baseUrl: string): Omit<LinkPreview, "url" | "image"> & { imageUrl?: string } {
+  const metadata = new Map<string, string>();
+  let inTitle = false;
+  let title = "";
+  const parser = new Parser({
+    onopentag(name, attributes) {
+      if (name === "title") inTitle = true;
+      if (name !== "meta") return;
+      const key = (attributes.property ?? attributes.name ?? "").toLowerCase();
+      if (/^(?:og:(?:title|description|image|site_name)|twitter:(?:title|description|image)|description)$/.test(key) && attributes.content && !metadata.has(key)) {
+        metadata.set(key, attributes.content.slice(0, 8192));
+      }
+    },
+    ontext(text) { if (inTitle && title.length < 4096) title += text.slice(0, 4096 - title.length); },
+    onclosetag(name) { if (name === "title") inTitle = false; },
+  }, { decodeEntities: true });
+  parser.end(html);
+  const result: Omit<LinkPreview, "url" | "image"> & { imageUrl?: string } = {
+    title: clean(metadata.get("og:title") ?? metadata.get("twitter:title") ?? title, 200) || new URL(baseUrl).hostname,
+    description: clean(metadata.get("og:description") ?? metadata.get("twitter:description") ?? metadata.get("description") ?? "", 400),
+    siteName: clean(metadata.get("og:site_name") ?? "", 80),
+  };
+  const image = metadata.get("og:image") ?? metadata.get("twitter:image");
+  if (image) {
+    try { result.imageUrl = normalizeLinkUrl(new URL(image, baseUrl).href) ?? undefined; } catch { /* No image. */ }
+  }
+  return result;
+}
+
+export async function getLinkPreview(value: string): Promise<LinkPreview> {
+  const normalized = normalizeLinkUrl(value);
+  if (!normalized) throw new Error("Invalid URL");
+  const parsed = new URL(normalized);
+  parsed.hash = "";
+  const url = parsed.href;
+  prune(state.pages);
+  prune(state.images);
+  const cached = state.pages.get(url);
+  if (cached) return cached.value;
+  const inflight = state.pending.get(url);
+  if (inflight) return inflight;
+  const fallback: LinkPreview = { url, title: parsed.hostname, siteName: parsed.hostname };
+  if (isSensitivePreviewUrl(normalized) || state.pending.size >= 8) return fallback;
+  const work = (async () => {
+    let result = fallback;
+    let resolved = false;
+    try {
+      const page = await fetchPublicWebBytes(url, { accept: "text/html,application/xhtml+xml", maxBytes: 256 * 1024, prefix: true, noSensitiveLinks: true });
+      if (!/^(?:text\/html|application\/xhtml\+xml)(?:;|$)/i.test(page.contentType)) throw new Error("Not HTML");
+      const charset = /charset\s*=\s*["']?([^\s;"']+)/i.exec(page.contentType)?.[1]
+        ?? /<meta[^>]+charset\s*=\s*["']?([^\s>"']+)/i.exec(page.bytes.subarray(0, 2048).toString("ascii"))?.[1];
+      let html: string;
+      try { html = new TextDecoder(charset ?? "utf-8").decode(page.bytes); }
+      catch { html = page.bytes.toString("utf8"); }
+      const { imageUrl, ...metadata } = parseLinkMetadata(html, page.url);
+      result = { url, ...metadata };
+      if (imageUrl) {
+        const id = randomBytes(16).toString("hex");
+        state.images.set(id, { url: imageUrl, expires: Date.now() + IMAGE_TTL });
+        result.image = `/api/link-preview/image?id=${id}`;
+        prune(state.images);
+      }
+      resolved = true;
+    } catch { /* Private, unavailable and sign-in-only pages still yield a clickable card. No URL logging. */ }
+    state.pages.set(url, { value: result, expires: Date.now() + (resolved ? PAGE_TTL : 30_000) });
+    prune(state.pages);
+    return result;
+  })();
+  state.pending.set(url, work);
+  try { return await work; } finally { state.pending.delete(url); }
+}
+
+/** Opaque IDs only: the browser cannot turn this endpoint into an arbitrary remote-image proxy. */
+export async function getLinkPreviewImage(id: string): Promise<{ bytes: Buffer; mime: string } | null> {
+  if (!/^[a-f0-9]{32}$/.test(id)) return null;
+  prune(state.images);
+  const image = state.images.get(id);
+  if (!image) return null;
+  if (image.pending) return image.pending;
+  if (state.activeImages >= 8) return null;
+  state.activeImages++;
+  const work = (async () => {
+    const result = await fetchPublicWebBytes(image.url, { accept: "image/avif,image/webp,image/*", maxBytes: MAX_IMAGE_BYTES });
+    const mime = imageMimeFromBytes(result.bytes);
+    if (!mime) throw new Error("Unsupported thumbnail");
+    return { bytes: result.bytes, mime };
+  })();
+  image.pending = work;
+  try { return await work; }
+  catch { state.images.delete(id); return null; }
+  finally { state.activeImages--; delete image.pending; }
+}

@@ -29,6 +29,7 @@ import {
 import { isImeComposingEvent } from "@/lib/composer-ime";
 import { pasteLargeText } from "@/lib/clipboard-image";
 import { renderHighlightedReferenceText } from "@/components/ReferenceHighlight";
+import { DraftLinkPreviews } from "@/components/LinkPreviewCard";
 import {
   hasStoredComposerPromptPresets,
   readComposerPromptPresets,
@@ -492,6 +493,7 @@ export function Composer({
           })}
         </div>
       )}
+      <DraftLinkPreviews text={textarea.value} />
       <div className="relative">
         <div
           ref={previewRef}

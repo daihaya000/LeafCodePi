@@ -4,6 +4,7 @@ import { createContext, memo, useContext, useState, type ImgHTMLAttributes, type
 import { Image as ImageIcon, ImageOff } from "lucide-react";
 import { defaultUrlTransform, type ExtraProps, type UrlTransform } from "react-markdown";
 import { ImageLightbox } from "@/components/Composer";
+import { MarkdownLink } from "@/components/LinkPreviewCard";
 import { mediaFormatForPath, type MediaKind } from "@/lib/media-formats";
 import { classifyMarkdownMediaSource, decodeMediaPath, type MarkdownMediaSource } from "@/lib/markdown-media-source";
 
@@ -119,4 +120,4 @@ export const MarkdownImage = memo(function MarkdownImage({ src, alt }: MarkdownI
 });
 
 /** Shared React Markdown options for message bodies. */
-export const markdownImageComponents = { img: MarkdownImage };
+export const markdownImageComponents = { img: MarkdownImage, a: MarkdownLink };
