@@ -168,7 +168,8 @@ describe("ModelSelect loading state", () => {
 });
 
 describe("ModelSelect unavailable models", () => {
-  it("hides only models explicitly confirmed unavailable and preserves the selected label", () => {
+  it("greys out only confirmed unavailable models and skips them during selection", () => {
+    const onChange = vi.fn();
     const blocked = option({
       codexbarUsedPercent: 100,
       codexbarMaxed: true,
@@ -195,19 +196,37 @@ describe("ModelSelect unavailable models", () => {
       <ModelSelect
         value={blocked.value}
         options={[blocked, highUsage, staleMaxed]}
-        onChange={() => {}}
+        onChange={onChange}
       />,
     );
 
     const trigger = screen.getByRole("button", { name: "モデル" });
     expect(trigger.textContent).toContain("Claude");
     fireEvent.click(trigger);
-    expect(screen.queryByRole("option", { name: /Claude/ })).toBeNull();
-    expect(screen.getByRole("option", { name: /High usage/ })).toBeTruthy();
-    expect(screen.getByRole("option", { name: /Stale maxed/ })).toBeTruthy();
+    const blockedRow = screen.getByRole("option", { name: /Claude/ }) as HTMLButtonElement;
+    const highUsageRow = screen.getByRole("option", { name: /High usage/ }) as HTMLButtonElement;
+    const staleRow = screen.getByRole("option", { name: /Stale maxed/ }) as HTMLButtonElement;
+    expect(blockedRow.disabled).toBe(true);
+    expect(blockedRow.getAttribute("aria-disabled")).toBe("true");
+    expect(blockedRow.className).toContain("text-faint");
+    expect(blockedRow.className).toContain("grayscale");
+    expect(blockedRow.className).not.toContain("hover:bg");
+    expect(highUsageRow.disabled).toBe(false);
+    expect(staleRow.disabled).toBe(false);
+    expect(document.activeElement).toBe(highUsageRow);
+    fireEvent.click(blockedRow);
+    fireEvent.keyDown(blockedRow, { key: "Enter" });
+    fireEvent.keyDown(blockedRow, { key: " " });
+    expect(onChange).not.toHaveBeenCalled();
+    fireEvent.keyDown(highUsageRow, { key: "ArrowUp" });
+    expect(document.activeElement).toBe(staleRow);
+    fireEvent.keyDown(staleRow, { key: "ArrowDown" });
+    expect(document.activeElement).toBe(highUsageRow);
+    fireEvent.keyDown(highUsageRow, { key: "Enter" });
+    expect(onChange).toHaveBeenCalledWith(highUsage.value);
   });
 
-  it("keeps the trigger enabled and shows an empty state when every model is unavailable", () => {
+  it("keeps the trigger enabled and shows greyed-out models when every model is unavailable", () => {
     render(
       <ModelSelect
         value=""
@@ -221,8 +240,27 @@ describe("ModelSelect unavailable models", () => {
     expect(trigger.textContent).toContain("利用可能なモデルなし");
     fireEvent.click(trigger);
     expect(screen.getByRole("listbox")).toBeTruthy();
-    expect(screen.queryAllByRole("option")).toHaveLength(0);
+    const rows = screen.getAllByRole("option") as HTMLButtonElement[];
+    expect(rows).toHaveLength(1);
+    expect(rows.every((row) => row.disabled)).toBe(true);
     expect(screen.getByRole("listbox").textContent).toContain("利用可能なモデルなし");
+    fireEvent.keyDown(trigger, { key: "Escape" });
+    expect(screen.queryByRole("listbox")).toBeNull();
+  });
+
+  it("re-enables an unavailable model after its limit clears", () => {
+    const onChange = vi.fn();
+    const blocked = option({ codexbarUnavailable: true });
+    const view = render(<ModelSelect value={blocked.value} options={[blocked]} onChange={onChange} />);
+    fireEvent.click(screen.getByRole("button", { name: "モデル" }));
+    expect((screen.getByRole("option") as HTMLButtonElement).disabled).toBe(true);
+
+    view.rerender(<ModelSelect value={blocked.value} options={[option({ codexbarUnavailable: false })]} onChange={onChange} />);
+    const row = screen.getByRole("option") as HTMLButtonElement;
+    expect(row.disabled).toBe(false);
+    expect(row.className).not.toContain("grayscale");
+    fireEvent.click(row);
+    expect(onChange).toHaveBeenCalledWith(blocked.value);
   });
 });
 

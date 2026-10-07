@@ -59,7 +59,7 @@ export function modelNearLimit(option: ModelOption | undefined): boolean {
   return modelUsageTone(option) === "warn";
 }
 
-/** Provider hit its limit (100%): render the option in red (still selectable). */
+/** Danger usage tone (>=90%); confirmed unavailable models are greyed out separately. */
 export function modelLimitReached(option: ModelOption | undefined): boolean {
   return modelUsageTone(option) === "danger";
 }
@@ -106,16 +106,13 @@ export function ModelSelect({
   // exact 照合だけでは integrated / 旧アカウント接頭辞の値が「モデル」空表示になる。
   const selected = modelOptionForValue(options, value);
   const selectedSupportsImage = modelSupportsImage(selected);
-  const selectableOptions = useMemo(
-    () => options.filter((option) => option.codexbarUnavailable !== true),
-    [options],
-  );
+  const hasAvailableOptions = options.some((option) => option.codexbarUnavailable !== true);
 
   // アカウント指定があれば「プロバイダ × アカウント」で枠を分ける。
   const grouped = useMemo(() => {
     const order: { key: string; header: string; options: ModelOption[] }[] = [];
     const index = new Map<string, number>();
-    for (const option of selectableOptions) {
+    for (const option of options) {
       const key = `${option.providerID}::${option.accountId ?? ""}`;
       let team = index.get(key);
       if (team === undefined) {
@@ -126,10 +123,11 @@ export function ModelSelect({
       order[team].options.push(option);
     }
     return order;
-  }, [selectableOptions]);
+  }, [options]);
 
   const chooseOption = useCallback(
     (option: ModelOption) => {
+      if (option.codexbarUnavailable === true) return;
       onChange(option.value);
       setOpen(false);
       triggerRef.current?.focus();
@@ -180,7 +178,7 @@ export function ModelSelect({
   useLayoutEffect(() => {
     if (!open) return;
     const optionButtons = Array.from(
-      menuRef.current?.querySelectorAll<HTMLButtonElement>('[role="option"]') ?? [],
+      menuRef.current?.querySelectorAll<HTMLButtonElement>('[role="option"]:not(:disabled)') ?? [],
     );
     const selectedOption = optionButtons.find(
       (option) => option.getAttribute("aria-selected") === "true",
@@ -194,7 +192,7 @@ export function ModelSelect({
 
   const handleListboxKeyDown = useCallback((event: React.KeyboardEvent<HTMLDivElement>) => {
     const optionButtons = Array.from(
-      event.currentTarget.querySelectorAll<HTMLButtonElement>('[role="option"]'),
+      event.currentTarget.querySelectorAll<HTMLButtonElement>('[role="option"]:not(:disabled)'),
     );
     if (event.key === "Tab") {
       event.preventDefault();
@@ -206,7 +204,7 @@ export function ModelSelect({
     const current = (event.target as HTMLElement).closest<HTMLButtonElement>('[role="option"]');
 
     if (event.key === "Enter" || event.key === " ") {
-      if (!current) return;
+      if (!current || current.disabled) return;
       event.preventDefault();
       current.click();
       return;
@@ -266,13 +264,14 @@ export function ModelSelect({
   const isDisabled = disabled || loading || options.length === 0;
   const emptyStateLabel = loading
     ? "モデルを読み込み中…"
-    : selectableOptions.length === 0
+    : !hasAvailableOptions
       ? options.length > 0
         ? "利用可能なモデルなし"
         : emptyLabel
       : "モデル";
-  const selectedNearLimit = !isDisabled && modelNearLimit(selected);
-  const selectedMaxed = !isDisabled && modelLimitReached(selected);
+  const selectedUnavailable = selected?.codexbarUnavailable === true;
+  const selectedNearLimit = !isDisabled && !selectedUnavailable && modelNearLimit(selected);
+  const selectedMaxed = !isDisabled && !selectedUnavailable && modelLimitReached(selected);
 
   const menu = open && !isDisabled && (
     <div
@@ -292,15 +291,17 @@ export function ModelSelect({
         onKeyDown={handleListboxKeyDown}
         className="max-h-[min(20rem,calc(100dvh-2rem))] overflow-y-auto p-1"
       >
-        {grouped.length === 0 ? (
+        {!hasAvailableOptions && (
           <div className="px-2 py-3 text-center text-muted">利用可能なモデルなし</div>
-        ) : grouped.map((group) => (
+        )}
+        {grouped.map((group) => (
           <div key={group.key}>
             <div className="min-w-0 truncate px-2 py-1 text-[11px] font-semibold text-faint" title={group.header}>
               {group.header}
             </div>
             {group.options.map((option) => {
               const image = modelSupportsImage(option);
+              const unavailable = option.codexbarUnavailable === true;
               const maxed = modelLimitReached(option);
               const nearLimit = modelNearLimit(option);
               return (
@@ -309,16 +310,21 @@ export function ModelSelect({
                   type="button"
                   role="option"
                   aria-selected={option.value === value}
+                  aria-disabled={unavailable || undefined}
+                  disabled={unavailable}
                   tabIndex={-1}
-                  title={option.label}
+                  title={unavailable ? `${option.label}（利用上限のため選択不可）` : option.label}
                   onClick={() => chooseOption(option)}
                   className={cx(
-                    "flex w-full appearance-none items-center gap-2 rounded-lg border-0 bg-transparent px-2 py-1.5 text-left hover:bg-surface-2 focus:bg-surface-2 focus:outline-none",
-                    maxed
+                    "flex w-full appearance-none items-center gap-2 rounded-lg border-0 bg-transparent px-2 py-1.5 text-left focus:outline-none",
+                    unavailable
+                      ? "cursor-not-allowed text-faint opacity-50 grayscale"
+                      : "hover:bg-surface-2 focus:bg-surface-2",
+                    !unavailable && (maxed
                       ? "text-danger hover:text-danger focus:text-danger"
                       : nearLimit
                         ? "text-warning hover:text-warning focus:text-warning"
-                        : "text-muted hover:text-text focus:text-text",
+                        : "text-muted hover:text-text focus:text-text"),
                     option.value === value && "bg-surface-2",
                   )}
                 >
@@ -390,6 +396,7 @@ export function ModelSelect({
         <span
           className={cx(
             "min-w-0 flex-1 truncate text-left",
+            selectedUnavailable && "text-faint",
             selectedNearLimit && "text-warning",
             selectedMaxed && "text-danger",
           )}
