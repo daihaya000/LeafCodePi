@@ -828,6 +828,7 @@ export const TaskView = memo(function TaskView({
   const [modelsLoading, setModelsLoading] = useState(() => models.length === 0);
   const [modelSelection, setModelSelection] = useState("");
   const modelChangeRef = useRef(0);
+  const thinkingChangeRef = useRef(0);
   const [autoModelEnabled, setAutoModelEnabled] = useState(() => readAutoModelEnabled());
   const [autoOptimizeMode, setAutoOptimizeMode] = useState<AutoOptimizeMode>(
     () => readAutoOptimizeMode(),
@@ -1959,6 +1960,8 @@ export const TaskView = memo(function TaskView({
     navigationMessageIdsRef.current = [];
     stickRef.current = true;
     lastScrollTopRef.current = 0;
+    // Pending model/effort replies no longer own the pane after teardown.
+    return () => { modelChangeRef.current += 1; };
   }, [cachedSession, taskId]);
 
   useForkDraft(taskId, setPrompt, setAttachments);
@@ -4695,6 +4698,9 @@ export const TaskView = memo(function TaskView({
                   disabled={compacting || archived}
                   className="h-8 shrink-0"
                   onChange={(value) => {
+                    const changeId = ++thinkingChangeRef.current;
+                    const modelChangeId = modelChangeRef.current;
+                    const isCurrent = () => thinkingChangeRef.current === changeId && modelChangeRef.current === modelChangeId;
                     void (async () => {
                       try {
                         setError(null);
@@ -4702,11 +4708,17 @@ export const TaskView = memo(function TaskView({
                           `/api/tasks/${taskId}/thinking`,
                           { thinkingLevel: value },
                         );
-                        setTask((current) => (current ? { ...current, ...result.task } : current));
-                        writeStoredThinkingLevel(
-                          isThinkingLevel(result.task.thinkingLevel) ? result.task.thinkingLevel : value,
-                        );
+                        if (!isCurrent()) return;
+                        const level = isThinkingLevel(result.task.thinkingLevel) ? result.task.thinkingLevel : value;
+                        // This mutation owns effort only. A late HTTP summary must not
+                        // roll back a newer SSE status, route, or task projection.
+                        setTask((current) => {
+                          if (!isCurrent() || !current || current.id !== taskId || current.thinkingLevel === level) return current;
+                          return { ...current, thinkingLevel: level };
+                        });
+                        writeStoredThinkingLevel(level);
                       } catch (err) {
+                        if (!isCurrent()) return;
                         setError(err instanceof Error ? err.message : "思考レベルの切替に失敗しました");
                       }
                     })();

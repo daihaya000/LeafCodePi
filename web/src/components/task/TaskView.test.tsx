@@ -2573,6 +2573,96 @@ describe("TaskView draft submission", () => {
     expect(screen.getByRole("button", { name: "モデル" }).textContent).toContain("Model C");
   });
 
+  it.each(["success", "error", "fallback", "task-switch", "model-switch", "unmount"])("ignores an obsolete effort response (%s)", async (outcome) => {
+    class TestEventSource extends EventTarget {
+      static latest: TestEventSource;
+      constructor() { super(); TestEventSource.latest = this; }
+      close() {}
+    }
+    vi.stubGlobal("EventSource", TestEventSource);
+    const modelTask = { ...task, providerID: "provider", modelID: "a", thinkingLevel: "medium" as const };
+    const models: ModelOption[] = [
+      { value: "provider::a", label: "Model A", providerID: "provider", modelID: "a", thinkingLevels: ["low", "medium", "high"] },
+      { value: "fallback::b", label: "Model B", providerID: "fallback", modelID: "b", thinkingLevels: ["low", "high"] },
+    ];
+    writeCachedModels(models);
+    saveTaskSessionCache({ task: modelTask, messages: [], isStreaming: false, isCompacting: false });
+    mocks.getJson.mockResolvedValue({ models, agents: [], skills: [], accounts: [] });
+    let resolveOlder!: (result: { task: TaskSummary }) => void;
+    let rejectOlder!: (reason: Error) => void;
+    const olderResponse = new Promise<{ task: TaskSummary }>((resolve, reject) => { resolveOlder = resolve; rejectOlder = reject; });
+    mocks.sendJson.mockReturnValueOnce(olderResponse).mockResolvedValue({ task: { ...modelTask, thinkingLevel: "high" } });
+    const view = render(<TaskView taskId={task.id} mdUp />);
+    const choose = (level: string) => {
+      fireEvent.click(screen.getByRole("button", { name: "思考レベル" }));
+      fireEvent.click(screen.getByRole("option", { name: level }));
+    };
+    choose("low");
+    await waitFor(() => expect(mocks.sendJson).toHaveBeenCalledTimes(1));
+    if (outcome === "fallback") {
+      await act(async () => {
+        TestEventSource.latest.dispatchEvent(new MessageEvent("snapshot", {
+          data: JSON.stringify({ eventType: "provider_fallback", task: { ...modelTask, providerID: "fallback", modelID: "b", thinkingLevel: "high" }, isStreaming: false }),
+        }));
+      });
+    } else if (outcome === "task-switch") {
+      const nextTask = { ...modelTask, id: "next-task", thinkingLevel: "high" as const };
+      saveTaskSessionCache({ task: nextTask, messages: [], isStreaming: false, isCompacting: false });
+      view.rerender(<TaskView taskId={nextTask.id} mdUp />);
+    } else if (outcome === "model-switch") {
+      mocks.sendJson.mockResolvedValue({ task: { ...modelTask, providerID: "fallback", modelID: "b", thinkingLevel: "high" } });
+      fireEvent.click(screen.getByRole("button", { name: "モデル" }));
+      fireEvent.click(screen.getByRole("option", { name: "Model B" }));
+      await waitFor(() => expect(screen.getByRole("button", { name: "思考レベル" }).textContent).toContain("high"));
+    } else if (outcome === "unmount") {
+      view.unmount();
+    } else {
+      choose("high");
+      await waitFor(() => expect(screen.getByRole("button", { name: "思考レベル" }).textContent).toContain("high"));
+    }
+    await act(async () => {
+      if (outcome === "error") rejectOlder(new Error("obsolete effort failure"));
+      else resolveOlder({ task: { ...modelTask, thinkingLevel: "low" } });
+      await olderResponse.catch(() => undefined);
+    });
+    if (outcome !== "unmount") expect(screen.getByRole("button", { name: "思考レベル" }).textContent).toContain("high");
+    expect(screen.queryByRole("alert")).toBeNull();
+    expect(localStorage.getItem("leafcodepi.thinkingLevel")).not.toBe("low");
+    if (outcome === "fallback") expect(screen.getByRole("button", { name: "モデル" }).textContent).toContain("Model B");
+  });
+
+  it("does not repaint stale task status from an effort-only response", async () => {
+    class TestEventSource extends EventTarget {
+      static latest: TestEventSource;
+      constructor() { super(); TestEventSource.latest = this; }
+      close() {}
+    }
+    vi.stubGlobal("EventSource", TestEventSource);
+    const modelTask = { ...task, sessionId: "session-1", providerID: "provider", modelID: "a", thinkingLevel: "medium" as const };
+    const models: ModelOption[] = [{ value: "provider::a", label: "Model A", providerID: "provider", modelID: "a", thinkingLevels: ["low", "medium", "high"] }];
+    writeCachedModels(models);
+    saveTaskSessionCache({ task: modelTask, messages: [], isStreaming: false, isCompacting: false });
+    mocks.getJson.mockResolvedValue({ models, agents: [], skills: [], accounts: [] });
+    let resolve!: (result: { task: TaskSummary }) => void;
+    const response = new Promise<{ task: TaskSummary }>((done) => { resolve = done; });
+    mocks.sendJson.mockReturnValue(response);
+    render(<TaskView taskId={task.id} mdUp />);
+    fireEvent.click(screen.getByRole("button", { name: "思考レベル" }));
+    fireEvent.click(screen.getByRole("option", { name: "high" }));
+    await act(async () => {
+      TestEventSource.latest.dispatchEvent(new MessageEvent("snapshot", {
+        data: JSON.stringify({ eventType: "agent_start", task: { ...modelTask, status: "working" }, isStreaming: false }),
+      }));
+    });
+    expect(screen.getByRole("button", { name: "進捗を確認" })).toBeTruthy();
+    await act(async () => {
+      resolve({ task: { ...modelTask, thinkingLevel: "high" } });
+      await response;
+    });
+    expect(screen.getByRole("button", { name: "進捗を確認" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "思考レベル" }).textContent).toContain("high");
+  });
+
   it.each(["snapshot", "response", "late-response"])("uses the fallback model's effort options after a manual model selection (%s)", async (delivery) => {
     class TestEventSource extends EventTarget {
       static latest: TestEventSource;

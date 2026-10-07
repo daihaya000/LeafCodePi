@@ -1,6 +1,7 @@
 // @vitest-environment happy-dom
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { Profiler } from "react";
 import { GhostSelect, subscribeSharedElapsedClock, Switch } from "./ui";
 
 let restoreVisibilityState: (() => void) | undefined;
@@ -24,6 +25,36 @@ afterEach(() => {
 });
 
 describe("GhostSelect effort navigation", () => {
+  it("does not trigger an extra render when the menu position is unchanged", () => {
+    const onRender = vi.fn();
+    const picker = () => (
+      <Profiler id="effort" onRender={onRender}>
+        <GhostSelect icon={null} valueLabel="medium" value="medium" aria-label="effort" onChange={vi.fn()}>
+          <option value="medium">medium</option>
+          <option value="high">high</option>
+        </GhostSelect>
+      </Profiler>
+    );
+    const { rerender } = render(picker());
+    fireEvent.click(screen.getByRole("button", { name: "effort" }));
+    onRender.mockClear();
+    rerender(picker());
+    expect(onRender).toHaveBeenCalledTimes(1);
+  });
+
+  it("moves focus away from an option that becomes disabled", () => {
+    const picker = (disabled: boolean) => (
+      <GhostSelect icon={null} valueLabel="medium" value="medium" aria-label="effort" onChange={vi.fn()}>
+        <option value="medium">medium</option>
+        <option value="high" disabled={disabled}>high</option>
+      </GhostSelect>
+    );
+    const { rerender } = render(picker(false));
+    fireEvent.click(screen.getByRole("button", { name: "effort" }));
+    fireEvent.keyDown(screen.getByRole("option", { name: "medium" }), { key: "ArrowDown" });
+    rerender(picker(true));
+    expect(document.activeElement).toBe(screen.getByRole("option", { name: "medium" }));
+  });
   it("preserves keyboard focus across streaming rerenders", () => {
     const onChange = vi.fn();
     const picker = () => (

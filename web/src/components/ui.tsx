@@ -156,7 +156,7 @@ export function GhostSelect({
       topAbove >= viewportPadding
         ? topAbove
         : Math.min(topBelow, window.innerHeight - viewportPadding - menuHeight);
-    setMenuPosition({
+    const nextPosition = {
       top: Math.max(viewportPadding, top),
       left: Math.max(
         viewportPadding,
@@ -166,7 +166,12 @@ export function GhostSelect({
         ),
       ),
       minWidth: Math.min(rect.width, maxMenuWidth),
-    });
+    };
+    setMenuPosition((current) =>
+      current?.top === nextPosition.top && current.left === nextPosition.left && current.minWidth === nextPosition.minWidth
+        ? current
+        : nextPosition,
+    );
   }, []);
 
   useLayoutEffect(() => {
@@ -177,7 +182,8 @@ export function GhostSelect({
   useLayoutEffect(() => {
     if (!open) return;
     // Streaming rerenders must not reset keyboard navigation (or action focus).
-    if (menuRef.current?.contains(document.activeElement)) return;
+    // A dynamically disabled option is no longer a valid navigation target.
+    if (menuRef.current?.contains(document.activeElement) && !document.activeElement?.matches(":disabled")) return;
     const optionButtons = Array.from(
       menuRef.current?.querySelectorAll<HTMLButtonElement>('[role="option"]:not(:disabled)') ?? [],
     );
