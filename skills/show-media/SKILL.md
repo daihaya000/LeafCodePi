@@ -1,11 +1,11 @@
 ---
-name: show-image
+name: show-media
 description: メッセージで画像・動画・音声を見せるときに読む。生成結果・スクリーンショット・レンダー・音楽の表示方法とパスの指定方法。
 ---
 
-# Show Image / Video / Audio — メッセージでメディアを見せる
+# Show Media — メッセージで画像・動画・音声を見せる
 
-Code・Bot・Room の返信で画像を見せたいときに使う。WebUIのハーネスはスキルとは独立して画像表示を案内する。
+Code・Bot・Room の返信で画像・動画・音声を見せたいときに使う。WebUIのハーネスはスキルとは独立してメディア表示を案内する。
 
 ## ハーネス標準の `show_image`
 

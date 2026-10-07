@@ -162,7 +162,7 @@ WebUIハーネスが標準ツールを登録し、スキル無効時も画像表
 
 動画は `show_video({ videos: [{ path: "renders/clip.mp4", alt: "完成動画" }] })`、音声は `show_audio({ audio: [{ path: "output/music.wav", alt: "生成した音楽" }] })` で登録します。各種類1返信最大8件、1ファイル512 MB以下。動画はMP4/M4V/MOV/WebM、音声はMP3/WAV/M4A/AAC/OGG/Opus/FLAC/WebAの拡張子・ヘッダーを検証し、許可された同一ファイルからRange配信します。WebUIでは再生コントロール付きプレイヤーになり、自動再生・事前読み込みはしません。コーデックの対応はブラウザ依存で、再生できない場合もダウンロードできます。種類ごとの表示不要指定・権限無効化を尊重します。
 
-権限で無効化された場合・旧ハーネスでは従来の `![説明](<画像パス>)` を利用できます。動画・音声も同じMarkdown構文で埋め込めます（対応WebUIのみ）。新しいBotの既定ツールにも追加していますが、既存の明示的なツール許可リストは拡張しません。詳細は [`skills/show-image/SKILL.md`](skills/show-image/SKILL.md)。
+権限で無効化された場合・旧ハーネスでは従来の `![説明](<画像パス>)` を利用できます。動画・音声も同じMarkdown構文で埋め込めます（対応WebUIのみ）。新しいBotの既定ツールにも追加していますが、既存の明示的なツール許可リストは拡張しません。詳細は [`skills/show-media/SKILL.md`](skills/show-media/SKILL.md)。
 
 ### ToDo (`todowrite`)
 

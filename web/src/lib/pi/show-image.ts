@@ -21,7 +21,7 @@ export type ShowImageOptions = {
 };
 
 const POLICY = [
-  "Image presentation is handled by the harness, not just the show-image skill.",
+  "Image presentation is handled by the harness, not just the show-media skill.",
   "When presenting generated images, renders or requested screenshots, call show_image with existing local paths and descriptive alt text. The harness adds validated images to the final reply if omitted.",
   "Do not end with only filenames or a generation-success report. Do not call show_image for internal inspection screenshots or when the user requested no images. Read/inspect an image first when visual verification is needed.",
   "Without show_image, use ![description](<local path>) explicitly. PNG/JPEG/GIF/WebP/AVIF/BMP up to 32 MB are supported; SVG and network paths are not. Remote URLs are click-to-load; do not put secrets in URLs. Keep displayed files in place.",
