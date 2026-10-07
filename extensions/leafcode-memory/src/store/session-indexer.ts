@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import { DEFAULT_MAX_MESSAGE_CONTENT_LENGTH } from '../constants.js';
 import { DatabaseManager } from './db.js';
-import { parseSessionFile, getSessionFiles, type ParsedSession } from './session-parser.js';
+import { parseSessionFile, getSessionFiles, MAX_LIVE_SESSION_FILE_BYTES, MAX_BULK_SESSION_FILE_BYTES, type ParsedSession } from './session-parser.js';
 
 export const LAST_SESSION_BACKFILL_KEY = 'last_session_backfill';
 export const SESSION_BACKFILL_INTERVAL_MS = 24 * 60 * 60 * 1000;
@@ -228,6 +228,9 @@ export function indexLiveSession(dbManager: DatabaseManager, sessionManager: Ses
 function indexLiveSessionOnce(dbManager: DatabaseManager, sessionManager: SessionManagerSnapshot): IndexResult | null {
   const sessionFile = sessionManager.getSessionFile?.();
   if (sessionFile && fs.existsSync(sessionFile)) {
+    // A huge session is re-parsed on every message_end: skip it (bulk/startup indexing streams it)
+    // instead of risking a heap out-of-memory abort of the whole Backend.
+    if (fs.statSync(sessionFile).size > MAX_LIVE_SESSION_FILE_BYTES) return null;
     const session = parseSessionFile(sessionFile);
     if (session) {
       const result = indexSession(dbManager, session);
@@ -285,7 +288,9 @@ function emptyBulkIndexResult(): BulkIndexResult {
 function indexSessionFile(dbManager: DatabaseManager, file: string, result: BulkIndexResult): void {
   result.sessionsProcessed++;
 
-  const session = parseSessionFile(file);
+  // Streaming keeps memory flat per line, but the parsed messages of a multi-hundred-MB session are
+  // still held (and parsed synchronously): skip such files instead of stalling/exhausting the process.
+  const session = parseSessionFile(file, { maxBytes: MAX_BULK_SESSION_FILE_BYTES });
   if (!session) {
     result.errors.push(`Failed to parse: ${file}`);
     return;

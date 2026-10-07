@@ -3,7 +3,7 @@ import assert from 'node:assert';
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
-import { parseSessionFile, getSessionFiles, decodeProjectDir } from '../../src/store/session-parser.js';
+import { parseSessionFile, getSessionFiles, decodeProjectDir, MAX_JSONL_LINE_BYTES } from '../../src/store/session-parser.js';
 
 describe('session-parser', () => {
   let tmpDir: string;
@@ -195,6 +195,41 @@ describe('session-parser', () => {
 
       const result = parseSessionFile(filePath);
       assert.strictEqual(result, null);
+    });
+
+    it('streams lines across chunk boundaries, CRLF and a missing trailing newline', () => {
+      const filePath = path.join(tmpDir, 'stream.jsonl');
+      const big = 'x'.repeat(1_500_000); // spans more than one 1MB read chunk
+      const lines = [
+        JSON.stringify({ type: 'session', id: 's-stream', timestamp: '2026-05-03T00:00:00Z', cwd: '/p/proj' }),
+        JSON.stringify({ type: 'message', id: 'm1', timestamp: '2026-05-03T00:01:00Z', message: { role: 'user', content: [{ type: 'text', text: big + '日本語' }] } }),
+        JSON.stringify({ type: 'message', id: 'm2', timestamp: '2026-05-03T00:02:00Z', message: { role: 'assistant', content: [{ type: 'text', text: 'tail' }] } }),
+      ];
+      fs.writeFileSync(filePath, lines.join('\r\n'));
+      const result = parseSessionFile(filePath);
+      assert.ok(result);
+      assert.deepStrictEqual(result.messages.map((m) => m.id), ['m1', 'm2']);
+      assert.ok(result.messages[0].content.endsWith('日本語'));
+    });
+
+    it('skips a single oversized line without dropping the neighbours', () => {
+      const filePath = path.join(tmpDir, 'oversized.jsonl');
+      const huge = Buffer.alloc(MAX_JSONL_LINE_BYTES + 10, 0x61).toString('latin1');
+      fs.writeFileSync(filePath, [
+        JSON.stringify({ type: 'session', id: 's-big', timestamp: '2026-05-03T00:00:00Z', cwd: '/p/proj' }),
+        JSON.stringify({ type: 'message', id: 'big', timestamp: '2026-05-03T00:01:00Z', message: { role: 'user', content: [{ type: 'text', text: huge }] } }),
+        JSON.stringify({ type: 'message', id: 'ok', timestamp: '2026-05-03T00:02:00Z', message: { role: 'user', content: [{ type: 'text', text: 'kept' }] } }),
+      ].join('\n'));
+      const result = parseSessionFile(filePath);
+      assert.ok(result);
+      assert.deepStrictEqual(result.messages.map((m) => m.id), ['ok']);
+    });
+
+    it('returns null for a file above maxBytes without reading it', () => {
+      const filePath = path.join(tmpDir, 'limit.jsonl');
+      fs.writeFileSync(filePath, JSON.stringify({ type: 'session', id: 's', timestamp: 't', cwd: '/p' }));
+      assert.strictEqual(parseSessionFile(filePath, { maxBytes: 5 }), null);
+      assert.ok(parseSessionFile(filePath, { maxBytes: 5000 }));
     });
 
     it('should return null if no session entry found', () => {

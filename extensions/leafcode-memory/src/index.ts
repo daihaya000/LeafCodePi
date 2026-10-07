@@ -31,7 +31,7 @@ import { DatabaseManager } from "./store/db.js";
 import { indexSession, upsertSessionFileMetadata } from "./store/session-indexer.js";
 import { scheduleSessionBackfill, waitForSessionBackfill, SESSION_BACKFILL_SHUTDOWN_TIMEOUT_MS } from "./handlers/session-backfill.js";
 import { scheduleLiveSessionIndex, waitForLiveSessionIndex, SESSION_LIVE_INDEX_SHUTDOWN_TIMEOUT_MS } from "./handlers/session-live-index.js";
-import { parseSessionFile } from "./store/session-parser.js";
+import { parseSessionFile, MAX_LIVE_SESSION_FILE_BYTES } from "./store/session-parser.js";
 import { registerMemoryTool } from "./tools/memory-tool.js";
 import { registerSkillTool } from "./tools/skill-tool.js";
 import { registerSessionSearchTool } from "./tools/session-search-tool.js";
@@ -356,7 +356,7 @@ export default function (pi: ExtensionAPI) {
     try {
       const sessionFile = ctx.sessionManager.getSessionFile();
       if (sessionFile && require("node:fs").existsSync(sessionFile)) {
-        const sessionData = parseSessionFile(sessionFile);
+        const sessionData = parseSessionFile(sessionFile, { maxBytes: MAX_LIVE_SESSION_FILE_BYTES });
         if (sessionData) {
           dbManager.withCorruptionRecovery(() => {
             indexSession(dbManager, sessionData);

@@ -90,29 +90,91 @@ function extractToolCalls(content: unknown): string[] | undefined {
   return toolNames.length > 0 ? toolNames : undefined;
 }
 
+export interface ParseSessionFileOptions {
+  /** Files larger than this are not parsed (returns null): live indexing must not load huge sessions. */
+  maxBytes?: number;
+}
+
+/** Sessions above this size are never re-parsed on every message by live indexing or shutdown. */
+export const MAX_LIVE_SESSION_FILE_BYTES = 32 * 1024 * 1024;
+/** Bulk/startup indexing skips sessions above this size (the 517MB one exceeded V8's string limit). */
+export const MAX_BULK_SESSION_FILE_BYTES = 256 * 1024 * 1024;
+/** A single JSONL line above this size (for example an embedded image) is skipped, not buffered. */
+export const MAX_JSONL_LINE_BYTES = 32 * 1024 * 1024;
+const READ_CHUNK_BYTES = 1024 * 1024;
+
+/**
+ * Calls `onLine` for every non-blank line without ever materialising the whole file as one string.
+ * `readFileSync(..., 'utf-8')` throws above V8's string limit (~512MB) and doubles memory below it.
+ */
+export function forEachJsonlLine(filePath: string, onLine: (line: string) => void): void {
+  const fd = fs.openSync(filePath, 'r');
+  try {
+    const chunk = Buffer.allocUnsafe(READ_CHUNK_BYTES);
+    let pending: Buffer[] = [];
+    let pendingBytes = 0;
+    let discarding = false;
+    const flush = () => {
+      if (!discarding && pendingBytes > 0) {
+        const line = Buffer.concat(pending, pendingBytes).toString('utf-8');
+        if (line.trim()) onLine(line);
+      }
+      pending = [];
+      pendingBytes = 0;
+      discarding = false;
+    };
+    for (;;) {
+      const read = fs.readSync(fd, chunk, 0, READ_CHUNK_BYTES, null);
+      if (read === 0) break;
+      let start = 0;
+      while (start < read) {
+        const newline = chunk.indexOf(0x0a, start);
+        const end = newline === -1 || newline >= read ? read : newline;
+        if (!discarding) {
+          pendingBytes += end - start;
+          if (pendingBytes > MAX_JSONL_LINE_BYTES) {
+            discarding = true;
+            pending = [];
+            pendingBytes = 0;
+          } else {
+            pending.push(Buffer.from(chunk.subarray(start, end)));
+          }
+        }
+        if (end === read) break;
+        flush();
+        start = end + 1;
+      }
+    }
+    flush();
+  } finally {
+    fs.closeSync(fd);
+  }
+}
+
 /**
  * Parse a Pi session JSONL file.
  *
  * @param filePath — Path to the .jsonl file
  * @returns Parsed session data, or null if the file is invalid
  */
-export function parseSessionFile(filePath: string): ParsedSession | null {
-  const content = fs.readFileSync(filePath, 'utf-8');
-  const lines = content.split('\n').filter(line => line.trim());
+export function parseSessionFile(filePath: string, options: ParseSessionFileOptions = {}): ParsedSession | null {
+  const maxBytes = options.maxBytes;
+  if (maxBytes !== undefined && fs.statSync(filePath).size > maxBytes) return null;
 
-  if (lines.length === 0) return null;
-
-  let sessionId: string | null = null;
-  let sessionCwd: string | null = null;
-  let sessionTimestamp: string | null = null;
+  // Assigned inside the line callback: widen so control-flow analysis does not narrow them to null.
+  let sessionId = null as string | null;
+  let sessionCwd = null as string | null;
+  let sessionTimestamp = null as string | null;
   const messages: ParsedMessage[] = [];
 
-  for (const line of lines) {
+  let sawLine = false;
+  forEachJsonlLine(filePath, (line) => {
+    sawLine = true;
     let entry: JsonlEntry;
     try {
       entry = JSON.parse(line);
     } catch {
-      continue; // Skip malformed lines
+      return; // Skip malformed lines
     }
 
     switch (entry.type) {
@@ -144,8 +206,9 @@ export function parseSessionFile(filePath: string): ParsedSession | null {
       }
       // Skip other entry types (model_change, thinking_level_change, custom, etc.)
     }
-  }
+  });
 
+  if (!sawLine) return null;
   if (!sessionId || !sessionCwd || !sessionTimestamp) return null;
 
   // Decode project name from cwd-encoded directory name
