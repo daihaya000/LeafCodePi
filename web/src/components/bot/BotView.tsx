@@ -2,6 +2,7 @@
 
 import { memo, startTransition, type CSSProperties, type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
+import { useComposerDraft } from "@/lib/use-composer-draft";
 import { Volume2, VolumeX, X } from "lucide-react";
 import Markdown from "react-markdown";
 import remarkGfm from "remark-gfm";
@@ -218,9 +219,8 @@ export const BotView = memo(function BotView({ id, active = true }: { id: string
   const [historyError, setHistoryError] = useState<string | null>(null);
   const [timelineLoading, setTimelineLoading] = useState(() => !cachedSession);
   const viewportRef = useRef<HTMLElement | null>(null);
-  const [prompt, setPrompt] = useState("");
+  const { prompt, setPrompt, attachments, setAttachments } = useComposerDraft(`bot:${id}`);
   const promptPresetReferences = useComposerPromptPresetReferences();
-  const [attachments, setAttachments] = useState<ComposerAttachment[]>([]);
   const [soul, setSoul] = useState("");
   const [soulEditing, setSoulEditing] = useState(false);
   const [profileName, setProfileName] = useState("");
@@ -510,8 +510,6 @@ export const BotView = memo(function BotView({ id, active = true }: { id: string
     clearedPermissionIdsRef.current.clear();
     clearedQuestionIdsRef.current.clear();
     setError(null);
-    setPrompt("");
-    setAttachments([]);
     setRoutines([]);
     setIntercomInbox(EMPTY_INTERCOM_INBOX);
     setIntercomEnabled(false);
@@ -1007,7 +1005,7 @@ export const BotView = memo(function BotView({ id, active = true }: { id: string
     } finally {
       if (botRequestContextRef.current === requestContext) setReverting(false);
     }
-  }, [id, reverting, sending]);
+  }, [id, reverting, sending, setAttachments, setPrompt]);
 
   const respond = async (approved: boolean) => {
     if (!permission || attentionBusy) return;

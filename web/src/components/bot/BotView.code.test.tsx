@@ -61,6 +61,14 @@ beforeEach(() => {
 });
 afterEach(() => { cleanup(); setNotificationDeliveryEnabled(true); localStorage.clear(); vi.unstubAllGlobals(); vi.clearAllMocks(); vi.useRealTimers(); });
 
+it("retains the Bot draft when splitting remounts its view", async () => {
+  const view = render(<ShellProvider><BotView id="one" /></ShellProvider>);
+  fireEvent.change(await screen.findByRole("textbox", { name: /Botにメッセージ/ }), { target: { value: "Botの未送信入力" } });
+  view.unmount();
+  render(<ShellProvider><BotView id="one" /></ShellProvider>);
+  expect((await screen.findByRole<HTMLTextAreaElement>("textbox", { name: /Botにメッセージ/ })).value).toBe("Botの未送信入力");
+});
+
 it("restores the cached Bot transcript and sends its revision to SSE", async () => {
   const task: TaskSummary = {
     id: "bot:one",

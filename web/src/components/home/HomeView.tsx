@@ -2,6 +2,7 @@
 
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
+import { useComposerDraft } from "@/lib/use-composer-draft";
 import { ArrowUp, FolderGit2, GitGraph, PanelRight } from "lucide-react";
 import { AddProjectButton } from "@/components/AddProjectButton";
 import { ProjectFilePicker } from "@/components/ProjectFilePicker";
@@ -18,7 +19,6 @@ import {
   composerPromptAttachments,
   readComposerFiles,
   useComposerPromptPresetReferences,
-  type ComposerAttachment,
   type ComposerReference,
 } from "@/components/Composer";
 import { GoalLoopOptions, GoalLoopToggle } from "@/components/GoalLoopComposer";
@@ -175,13 +175,12 @@ export const HomeView = memo(function HomeView({
   const [thinkingLevel, setThinkingLevel] = useState<ThinkingLevel>(
     () => readStoredThinkingLevel() ?? "off",
   );
-  const [prompt, setPrompt] = useState("");
+  const { prompt, setPrompt, attachments, setAttachments, clearDraft } = useComposerDraft("home");
   const [goalLoopEnabled, setGoalLoopEnabled] = useState(false);
   const [goalLoopAcceptance, setGoalLoopAcceptance] = useState("");
   const [goalLoopMaxTurns, setGoalLoopMaxTurns] = useState(DEFAULT_GOAL_LOOP_MAX_TURNS);
   const [goalLoopCooldownSeconds, setGoalLoopCooldownSeconds] = useState(0);
   const [goalLoopForceFullRun, setGoalLoopForceFullRun] = useState(false);
-  const [attachments, setAttachments] = useState<ComposerAttachment[]>([]);
   const [health, setHealth] = useState<HealthDto | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -500,6 +499,7 @@ export const HomeView = memo(function HomeView({
       }
       writeStoredModel(model);
       writeStoredThinkingLevel(thinkingLevel);
+      clearDraft();
       notifyTasksChanged();
       router.push(`/task/${result.task.id}`);
     } catch (err) {

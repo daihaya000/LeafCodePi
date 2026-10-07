@@ -44,6 +44,20 @@ async function ready(task: TaskSummary) {
 }
 
 describe("TaskView fork draft integration", () => {
+  it("keeps edited fork text and attachments when a layout change remounts TaskView", async () => {
+    saveForkDraft(source.id, {
+      text: "分割前の入力", images: [],
+      files: [{ uri: "data:text/plain;base64,YQ==", mime: "text/plain", name: "保持.txt" }],
+    });
+    const view = render(<StrictMode><TaskView taskId={source.id} mdUp /></StrictMode>);
+    await ready(source);
+    fireEvent.change(screen.getByRole("textbox", { name: "フォローアップ" }), { target: { value: "分割直前の編集\n😀" } });
+    view.unmount();
+    render(<StrictMode><TaskView taskId={source.id} mdUp /></StrictMode>);
+    await ready(source);
+    expect(screen.getByRole<HTMLTextAreaElement>("textbox", { name: "フォローアップ" }).value).toBe("分割直前の編集\n😀");
+    expect(screen.getByText("保持.txt")).toBeTruthy();
+  });
   it("restores the unsent draft and attachments after the same pane switches tasks, including StrictMode", async () => {
     const view = render(<StrictMode><TaskView taskId={source.id} mdUp /></StrictMode>);
     await ready(source);
@@ -64,5 +78,12 @@ describe("TaskView fork draft integration", () => {
     expect(input.value).toBe("別パターンへ変更");
     expect(mocks.sendJson.mock.calls.filter(([path]) => String(path).endsWith("/prompt"))).toHaveLength(0);
     expect(screen.getByText("前の応答")).toBeTruthy();
+    view.rerender(<StrictMode><TaskView taskId={source.id} mdUp /></StrictMode>);
+    await ready(source);
+    expect(screen.getByRole<HTMLTextAreaElement>("textbox", { name: "フォローアップ" }).value).toBe("元タスクの入力");
+    view.rerender(<StrictMode><TaskView taskId={forked.id} mdUp /></StrictMode>);
+    await ready(forked);
+    expect(screen.getByRole<HTMLTextAreaElement>("textbox", { name: "フォローアップ" }).value).toBe("別パターンへ変更");
+    expect(screen.getByText("分岐資料.txt")).toBeTruthy();
   });
 });

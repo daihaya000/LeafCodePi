@@ -62,6 +62,13 @@ afterEach(() => {
 });
 
 describe("RoomView loading", () => {
+  it("retains the room draft when splitting remounts its view", async () => {
+    const view = render(<RoomView id="room-1" />);
+    fireEvent.change(await screen.findByRole("textbox", { name: /Teamにメッセージ/ }), { target: { value: "ルームの未送信入力" } });
+    view.unmount();
+    render(<RoomView id="room-1" />);
+    expect((await screen.findByRole<HTMLTextAreaElement>("textbox", { name: /Teamにメッセージ/ })).value).toBe("ルームの未送信入力");
+  });
   it("retains the room body when an SSE snapshot marks it as reused", async () => {
     render(<RoomView id="room-1" />);
     await screen.findByRole("heading", { name: "Team" });

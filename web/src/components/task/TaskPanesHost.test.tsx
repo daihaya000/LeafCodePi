@@ -3,6 +3,7 @@ import { cleanup, createEvent, fireEvent, render, screen, waitFor } from "@testi
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { PaneLayout, TaskPanesState } from "@/lib/task-panes";
 import { resetUnreadStateForTests } from "@/lib/bot-unread";
+import { useComposerDraft } from "@/lib/use-composer-draft";
 
 const mocks = vi.hoisted(() => ({
   getJson: vi.fn(),
@@ -36,7 +37,11 @@ vi.mock("next/navigation", () => ({
 }));
 vi.mock("next/dynamic", () => ({
   default: () => function DynamicPane({ taskId, id, active }: { taskId?: string; id?: string; active?: boolean }) {
-    return <div data-testid="dynamic-pane" data-task-id={taskId} data-bot-id={id} data-active={String(active)} />;
+    const key = taskId ? `task:${taskId}` : id ? `bot:${id}` : "home";
+    const { prompt, setPrompt } = useComposerDraft(key);
+    return <div data-testid="dynamic-pane" data-task-id={taskId} data-bot-id={id} data-active={String(active)}>
+      <textarea aria-label={key} value={prompt} onChange={(event) => setPrompt(event.target.value)} />
+    </div>;
   },
 }));
 vi.mock("./TaskTabs", () => ({
@@ -139,6 +144,31 @@ function createThreePaneState(): TaskPanesState {
 }
 
 describe("TaskPanesHost lazy tab mounting", () => {
+  it.each([
+    ["row", "active", "task:active"], ["column", "active", "task:active"],
+    ["row", "home", "home"], ["column", "home", "home"],
+  ] as const)("preserves %s %s drafts through splits, pane moves, and collapse", (orientation, tabId, draftKey) => {
+    let state: TaskPanesState = {
+      panes: [{ id: "pane-1", tabs: [tabId], activeTabId: tabId }], activePaneId: "pane-1",
+    };
+    const navigation = { ...mocks.useTaskPanes(), state };
+    mocks.useTaskPanes.mockReturnValue(navigation);
+    const view = render(<TaskPanesHost />);
+    fireEvent.change(screen.getByRole("textbox", { name: draftKey }), { target: { value: "消えない下書き" } });
+    state = {
+      panes: [...state.panes, { id: "pane-2", tabs: [], activeTabId: null }], activePaneId: "pane-1",
+      layout: { type: "split", id: "split", orientation, children: [{ type: "pane", paneId: "pane-1" }, { type: "pane", paneId: "pane-2" }] },
+    };
+    navigation.state = state;
+    view.rerender(<TaskPanesHost />);
+    expect(screen.getByRole<HTMLTextAreaElement>("textbox", { name: draftKey }).value).toBe("消えない下書き");
+    navigation.state = { ...state, panes: [{ id: "pane-1", tabs: [], activeTabId: null }, { id: "pane-2", tabs: [tabId], activeTabId: tabId }], activePaneId: "pane-2" };
+    view.rerender(<TaskPanesHost />);
+    expect(screen.getByRole<HTMLTextAreaElement>("textbox", { name: draftKey }).value).toBe("消えない下書き");
+    navigation.state = { panes: [navigation.state.panes[1]!], activePaneId: "pane-2" };
+    view.rerender(<TaskPanesHost />);
+    expect(screen.getByRole<HTMLTextAreaElement>("textbox", { name: draftKey }).value).toBe("消えない下書き");
+  });
   beforeEach(() => {
     mocks.getJson.mockResolvedValue({ tasks: [] });
     mocks.isTaskDrag.mockReturnValue(false);

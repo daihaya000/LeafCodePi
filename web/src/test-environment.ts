@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, vi } from "vitest";
+import { resetComposerDraftsForTests } from "./lib/use-composer-draft";
 
 // Keep LEAFCODE_PI_DATA_DIR from vitest.config.ts. Linux dataDir() ignores
 // APPDATA, so deleting the override sent tests at ~/.leafcode-pi and
@@ -12,7 +13,10 @@ function restoreEnv(): void {
   Object.assign(process.env, initialEnv);
 }
 
-beforeEach(restoreEnv);
+beforeEach(() => {
+  restoreEnv();
+  resetComposerDraftsForTests();
+});
 afterEach(() => {
   vi.unstubAllEnvs();
   restoreEnv();

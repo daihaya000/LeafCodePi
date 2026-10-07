@@ -63,6 +63,37 @@ afterEach(() => {
   clearCachedModels();
 });
 
+describe("HomeView drafts", () => {
+  it("retains the home draft across remounts and project entry changes", async () => {
+    const view = render(<HomeView initialNoProject />);
+    const input = await screen.findByRole("textbox", { name: "タスクの説明" });
+    fireEvent.change(input, { target: { value: "新規タスクの下書き" } });
+    view.unmount();
+    const remounted = render(<HomeView initialNoProject />);
+    expect((await screen.findByRole<HTMLTextAreaElement>("textbox", { name: "タスクの説明" })).value).toBe("新規タスクの下書き");
+    remounted.unmount();
+    render(<HomeView initialProjectId="project-two" />);
+    expect((await screen.findByRole<HTMLTextAreaElement>("textbox", { name: "タスクの説明" })).value).toBe("新規タスクの下書き");
+  });
+
+  it("clears the draft after successful creation but retains it after failure", async () => {
+    writeCachedModels([model("provider::model-a", "Model A")]);
+    mocks.sendJson.mockRejectedValueOnce(new Error("creation failed"));
+    const view = render(<HomeView initialNoProject />);
+    const input = await screen.findByRole("textbox", { name: "タスクの説明" });
+    fireEvent.change(input, { target: { value: "未送信" } });
+    fireEvent.submit(screen.getByRole("form", { name: "タスク作成" }));
+    await screen.findByText("creation failed");
+    expect((input as HTMLTextAreaElement).value).toBe("未送信");
+    mocks.sendJson.mockResolvedValueOnce({ task: { id: "created" } });
+    fireEvent.submit(screen.getByRole("form", { name: "タスク作成" }));
+    await waitFor(() => expect(mocks.push).toHaveBeenCalledWith("/task/created"));
+    view.unmount();
+    render(<HomeView initialNoProject />);
+    expect((await screen.findByRole<HTMLTextAreaElement>("textbox", { name: "タスクの説明" })).value).toBe("");
+  });
+});
+
 describe("HomeView project icons", () => {
   const project: ProjectDto = {
     id: "project-icon",

@@ -2,6 +2,7 @@
 
 import { Fragment, type KeyboardEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
+import { useComposerDraft } from "@/lib/use-composer-draft";
 import { Users, X } from "lucide-react";
 import { getJson, sendJson } from "@/lib/client";
 import { notifyBotSidebarChanged } from "@/lib/events";
@@ -172,8 +173,7 @@ export function RoomView({ id, active = true }: { id: string; active?: boolean }
   const [attentionBusy, setAttentionBusy] = useState<string | null>(null);
   const [stoppingCode, setStoppingCode] = useState<string[]>([]);
   const [reverting, setReverting] = useState(false);
-  const [attachments, setAttachments] = useState<ComposerAttachment[]>([]);
-  const [prompt, setPrompt] = useState("");
+  const { prompt, setPrompt, attachments, setAttachments } = useComposerDraft(`room:${id}`);
   const promptPresetReferences = useComposerPromptPresetReferences();
   const [broadcast, setBroadcast] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -246,8 +246,6 @@ export function RoomView({ id, active = true }: { id: string; active?: boolean }
     clearedQuestionIdsRef.current.clear();
     setError(null);
     setSseError(null);
-    setPrompt("");
-    setAttachments([]);
     setBusy(false);
     sendLatchRef.current = false;
     sendSeqRef.current += 1;
@@ -536,7 +534,7 @@ export function RoomView({ id, active = true }: { id: string; active?: boolean }
     readComposerFiles(files, (attachment) => {
       setAttachments((current) => [...current, attachment]);
     });
-  }, [reverting]);
+  }, [reverting, setAttachments]);
 
   const send = async () => {
     const value = prompt.trim();
@@ -689,7 +687,7 @@ export function RoomView({ id, active = true }: { id: string; active?: boolean }
     finally {
       if (roomRequestContextRef.current === requestContext) setReverting(false);
     }
-  }, [id, reverting]);
+  }, [id, reverting, setAttachments, setPrompt]);
 
   const rendered = useMemo(() => (room?.messages ?? []).map((message) => {
     const user = message.role === "user";

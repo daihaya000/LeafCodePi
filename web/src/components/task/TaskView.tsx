@@ -47,6 +47,7 @@ import { ProjectExplorerButton } from "@/components/task/ProjectExplorerButton";
 import { TaskFindPanel } from "@/components/task/TaskFindPanel";
 import { useTaskFind } from "@/components/task/use-task-find";
 import { useForkDraft } from "@/components/task/use-fork-draft";
+import { useComposerDraft } from "@/lib/use-composer-draft";
 import { ProjectFilePicker } from "@/components/ProjectFilePicker";
 import { SessionLabelBadge } from "@/components/SessionLabelBadge";
 import { TodoProgressPanel } from "@/components/task/TodoProgressPanel";
@@ -850,7 +851,7 @@ export const TaskView = memo(function TaskView({
   const [revertConfirmOpen, setRevertConfirmOpen] = useState(false);
   const [revertBusy, setRevertBusy] = useState(false);
   const revertEntryRef = useRef<{ messageId: string; message: UiMessage | undefined } | null>(null);
-  const [prompt, setPrompt] = useState("");
+  const { prompt, setPrompt, attachments, setAttachments } = useComposerDraft(`task:${taskId}`);
   const [titleEditing, setTitleEditing] = useState(false);
   const [titleDraft, setTitleDraft] = useState("");
   const [titleBusy, setTitleBusy] = useState(false);
@@ -874,7 +875,6 @@ export const TaskView = memo(function TaskView({
     graph: readSidePanelWidth("webui.graphpanel.width"),
     diff: readSidePanelWidth("webui.diffpane.width"),
   }));
-  const [attachments, setAttachments] = useState<ComposerAttachment[]>([]);
   const [queuedFollowUps, setQueuedFollowUps] = useState<QueuedFollowUp[]>([]);
   const [queuedAutoSend, setQueuedAutoSend] = useState(false);
   const [failedQueuedId, setFailedQueuedId] = useState<number | null>(null);
@@ -1905,8 +1905,6 @@ export const TaskView = memo(function TaskView({
     setIsCompacting(Boolean(cached?.isCompacting));
     setCompactingLocal(false);
     setWorktreeStatus(null);
-    setPrompt("");
-    setAttachments([]);
     const nextAutoRecord = readAutoTaskRecord(taskId);
     // Composer 既定の Auto はタスクへ持ち込まない。Auto 表示は当該タスクの Auto 記録があるときだけ。
     setModelSelection(nextAutoRecord ? AUTO_MODEL_VALUE : "");
