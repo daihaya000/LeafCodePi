@@ -262,6 +262,54 @@ test("normal prompts stop at the first verified completion", () => {
   assert.match(buildVerificationPrompt(recovering), /Restart recovery: continue without repeating completed operations/);
 });
 
+test("all goal phases replay operator notes before the final result contract", () => {
+  const loop = { goal: "demo", acceptance: [], maxTurns: 1, forceFullRun: false, progress: [], notes: ["Do not restart Backend, Host or WebUI."] };
+  for (const prompt of [buildGoalPrompt(loop, 1), buildGoalContinuationPrompt(loop, 1), buildVerificationPrompt(loop)]) {
+    assert.match(prompt, /Operator notes[\s\S]*- Do not restart Backend, Host or WebUI\./);
+    assert.ok(prompt.indexOf("Operator notes") < prompt.indexOf("very last thing you output"));
+  }
+  assert.doesNotMatch(buildVerificationPrompt({ ...loop, notes: [] }), /Operator notes/);
+});
+
+test("verification and its resumed retry retain added operator restrictions", async () => {
+  const cwd = mkdtempSync(join(tmpdir(), "leafcode-goal-loop-verification-notes-"));
+  const previousDataDir = process.env.LEAFCODE_PI_DATA_DIR;
+  process.env.LEAFCODE_PI_DATA_DIR = cwd;
+  const { ctx, pi, handlers, commands, readState, sent, setBusy } = loopEndNoticeHarness("verification-notes");
+  pi.captureGoalLoopEndNotice = false;
+  const settle = async (status) => {
+    setBusy(false);
+    await handlers.get("agent_end")?.({ messages: [{ role: "assistant", content: [{ type: "text", text: JSON.stringify({ status, summary: status }) }] }] }, ctx);
+    await handlers.get("agent_settled")?.({}, ctx);
+  };
+  try {
+    goalLoopExtension(pi);
+    await handlers.get("session_start")?.({}, ctx);
+    await commands.get("goal-start")?.(Buffer.from(JSON.stringify({ goal: "demo", maxTurns: 1 })).toString("base64url"), ctx);
+    await waitFor(() => sent.length === 1);
+    await handlers.get("input")?.({ text: "Do not restart Backend.", source: "rpc", streamingBehavior: "steer" }, ctx);
+    await settle("completed");
+    await waitFor(() => sent.length === 2);
+    assert.match(sent[1].message.content, /Operator notes[\s\S]*Do not restart Backend\./);
+    await handlers.get("input")?.({ text: "Only run targeted tests.", source: "rpc", streamingBehavior: "steer" }, ctx);
+    await settle("blocked");
+    await commands.get("goal-resume")?.("", ctx);
+    await waitFor(() => sent.length === 3);
+    const prompt = sent[2].message.content;
+    assert.match(prompt, /Do not restart Backend\./);
+    assert.match(prompt, /Only run targeted tests\./);
+    assert.ok(prompt.indexOf("Operator notes") < prompt.indexOf("very last thing you output"));
+    assert.equal(readState().turnCount, 1);
+    await settle("verified_completed");
+    assert.equal(readState().status, "completed");
+  } finally {
+    await handlers.get("session_shutdown")?.({}, ctx);
+    if (previousDataDir === undefined) delete process.env.LEAFCODE_PI_DATA_DIR;
+    else process.env.LEAFCODE_PI_DATA_DIR = previousDataDir;
+    rmSync(cwd, { recursive: true, force: true });
+  }
+});
+
 test("normal mode requires a verification turn", () => {
   const cwd = mkdtempSync(join(tmpdir(), "leafcode-goal-loop-"));
   process.env.LEAFCODE_PI_DATA_DIR = cwd;

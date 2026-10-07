@@ -220,6 +220,35 @@ test("a lifecycle-interrupted Goal Loop resumes through its control path with th
   assert.equal(existsSync(join(dir, "restart-resume.json")), true);
 });
 
+test("startup accepts a Goal Loop completed by late verification recovery", async (t) => {
+  const { dir, file } = fixture(t, [task("late-verified", "working", { sessionId: "session-1" })]);
+  mkdirSync(join(dir, "goals-loop"), { recursive: true });
+  writeFileSync(join(dir, "goals-loop", "session-1.json"), JSON.stringify({
+    goal: "Verify completion", status: "paused", pauseReason: "session_end",
+    turnKind: "verification", pendingTurnRecovery: true,
+  }), "utf8");
+  const logs = [];
+  const commands = [];
+  const scheduled = [];
+  const started = createBackendStartup({
+    dataDir: () => dir,
+    warn: (...args) => logs.push(args),
+    schedule: (callback) => scheduled.push(callback),
+    promptTask: async () => { assert.fail("must not send a normal task prompt"); },
+    loadRuntime: async () => ({ ok: true, runtime: {
+      goalLoopCommand: async (...args) => { commands.push(args); return { status: "completed" }; },
+    } }),
+  });
+  started.store.storePath = () => file;
+  await started.startup.start();
+  assert.equal(scheduled.length, 1);
+  scheduled[0]();
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.deepEqual(commands, [["late-verified", { action: "resume", restartPrompt: RESTART_RESUME_PROMPT }]]);
+  assert.ok(logs.some(([message]) => message === "resumed Goal Loop late-verified after restart"));
+  assert.equal(logs.some(([, error]) => error !== undefined), false);
+});
+
 test("an operator-paused Goal Loop remains skipped during startup recovery", async (t) => {
   const { dir, file } = fixture(t, [task("loop-hold", "working", { sessionId: "session-1" })]);
   const loopDir = join(dir, "goals-loop");

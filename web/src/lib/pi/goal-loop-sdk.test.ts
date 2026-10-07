@@ -16,6 +16,7 @@ import {
 } from "@earendil-works/pi-coding-agent";
 import type { AssistantMessage } from "@earendil-works/pi-ai";
 import goalLoopExtension, { HOST_ROUTING_CHANNEL, goalLoopTestSeams } from "../../../../extensions/leafcode-goal-loop/index";
+import { isGoalLoopCommandApplied } from "./goal-loop-command";
 
 it.each(["provider-abort", "timeout-abort"])("automatically retries an aborted Goal Loop turn through the real SDK without consuming its budget (%s)", async (cause) => {
   const cwd = mkdtempSync(join(tmpdir(), "leafcode-goal-loop-abort-sdk-"));
@@ -75,11 +76,16 @@ it("resumes blocked final-turn verification through the real SDK without more go
   const cwd = mkdtempSync(join(tmpdir(), "leafcode-goal-loop-verification-sdk-"));
   vi.stubEnv("LEAFCODE_PI_DATA_DIR", cwd);
   const manager = SessionManager.inMemory(cwd);
+  const stateFile = join(cwd, "goals-loop", `${manager.getSessionId()}.json`);
+  let pendingVerification: Record<string, unknown> | undefined;
   const faux = fauxProvider();
   faux.setResponses([
     fauxAssistantMessage(JSON.stringify({ status: "completed", summary: "done" })),
     fauxAssistantMessage(JSON.stringify({ status: "blocked", summary: "check needs input" })),
-    fauxAssistantMessage(JSON.stringify({ status: "verified_completed", summary: "verified" })),
+    () => {
+      pendingVerification = JSON.parse(readFileSync(stateFile, "utf8"));
+      return fauxAssistantMessage(JSON.stringify({ status: "verified_completed", summary: "verified" }));
+    },
   ]);
   const modelRuntime = await ModelRuntime.create({ authPath: join(cwd, "auth.json"), modelsPath: null, refreshOnCreate: false });
   modelRuntime.registerNativeProvider(faux.provider);
@@ -107,6 +113,15 @@ it("resumes blocked final-turn verification through the real SDK without more go
     expect(faux.state.callCount).toBe(3);
     expect(manager.getBranch().filter((entry) => entry.type === "custom_message" && entry.customType === "leafcode-goal-turn")).toHaveLength(1);
     expect(manager.getBranch().filter((entry) => entry.type === "custom_message" && entry.customType === "leafcode-goal-verification")).toHaveLength(2);
+    await session.waitForIdle();
+    // A lifecycle write can precede the final transcript result while its
+    // settlement write is lost. Restore that snapshot, not a fabricated result.
+    expect(pendingVerification).toMatchObject({ status: "running", turnKind: "verification" });
+    writeFileSync(stateFile, JSON.stringify({ ...pendingVerification, status: "paused", pauseReason: "session_end", pendingTurnRecovery: true, retryInterruptedTurn: true }), "utf8");
+    await runner.getCommand("goal-resume")!.handler("", runner.createCommandContext());
+    expect(state()).toMatchObject({ status: "completed", turnCount: 1, pendingTurnRecovery: false });
+    expect(isGoalLoopCommandApplied("resume", state())).toBe(true);
+    expect(faux.state.callCount).toBe(3);
   } finally {
     await session?.extensionRunner.emit({ type: "session_shutdown", reason: "quit" });
     session?.dispose();

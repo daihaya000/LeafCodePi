@@ -4,7 +4,11 @@ import { isGoalLoopLiveStatus } from "@/lib/goal-loop-settings";
 /** A command handler can refuse without throwing; verify the resulting durable state. */
 export function isGoalLoopCommandApplied(action: "start" | "resume" | "pause" | "stop" | "complete", loop: { status?: unknown } | null): boolean {
   if (!loop) return false;
-  if (action === "start" || action === "resume") return isGoalLoopLiveStatus(typeof loop.status === "string" ? loop.status : null);
+  const live = isGoalLoopLiveStatus(typeof loop.status === "string" ? loop.status : null);
+  if (action === "start") return live;
+  // Resume can recover the final verification result without scheduling another
+  // turn. An already completed goal also satisfies this idempotent operation.
+  if (action === "resume") return live || loop.status === "completed";
   if (action === "pause") return loop.status === "paused";
   if (action === "complete") return loop.status === "completed";
   return loop.status === "stopped" || loop.status === "completed";

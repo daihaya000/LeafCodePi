@@ -5,7 +5,16 @@ import { fauxAssistantMessage, fauxProvider } from "@earendil-works/pi-ai";
 import { createAgentSession, DefaultResourceLoader, ModelRuntime, SessionManager, SettingsManager, type AgentSession } from "@earendil-works/pi-coding-agent";
 import { expect, it, vi } from "vitest";
 import goalLoopExtension from "../../../../extensions/leafcode-goal-loop/index";
-import { buildGoalLoopResumeCommand, dispatchGoalLoopCommand } from "./goal-loop-command";
+import { buildGoalLoopResumeCommand, dispatchGoalLoopCommand, isGoalLoopCommandApplied } from "./goal-loop-command";
+
+it("acknowledges a resume that recovered completed verification, but not a new start", () => {
+  expect(isGoalLoopCommandApplied("resume", { status: "completed" })).toBe(true);
+  expect(isGoalLoopCommandApplied("start", { status: "completed" })).toBe(false);
+  for (const status of ["paused", "blocked", "stopped", "unknown"]) {
+    expect(isGoalLoopCommandApplied("resume", { status })).toBe(false);
+  }
+  expect(isGoalLoopCommandApplied("resume", null)).toBe(false);
+});
 
 it.each(["pause", "stop", "complete", "start", "resume"] as const)("applies %s immediately while the real SDK is settling", async (action) => {
   const cwd = mkdtempSync(join(tmpdir(), "leafcode-goal-control-"));

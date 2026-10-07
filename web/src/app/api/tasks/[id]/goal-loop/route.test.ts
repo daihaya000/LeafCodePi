@@ -119,6 +119,15 @@ describe("Goal Loop control after the cutover", () => {
     expect(mocks.forwardGoalLoopControl).toHaveBeenLastCalledWith("task-1", { action: "resume", maxTurns: 100 });
   });
 
+  it("acknowledges owner resume when late verification already completed the loop", async () => {
+    const loop = { id: "task-1", status: "completed" };
+    mocks.forwardGoalLoopControl.mockResolvedValue({ ok: true, loop });
+    const response = await PATCH(patchRequest({ action: "resume" }), { params: Promise.resolve({ id: "task-1" }) });
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toEqual({ loop });
+    expect(mocks.goalLoopCommand).not.toHaveBeenCalled();
+  });
+
   it("never controls the loop locally when the Backend cannot take it", async () => {
     mocks.forwardGoalLoopControl.mockResolvedValue({ ok: false, reason: "not-found", status: 404 });
     expect((await PATCH(patchRequest({ action: "pause" }), { params: Promise.resolve({ id: "task-1" }) })).status).toBe(404);
@@ -529,6 +538,14 @@ describe("PATCH /api/tasks/[id]/goal-loop", () => {
 
     expect(response.status).toBe(409);
     expect(await response.json()).toEqual({ error: "Goal Loop を再開できませんでした" });
+  });
+
+  it("acknowledges local resume when late verification already completed the loop", async () => {
+    const loop = { id: "loop-1", status: "completed" };
+    mocks.goalLoopCommand.mockResolvedValue(loop);
+    const response = await PATCH(patchRequest({ action: "resume" }), { params: Promise.resolve({ id: "task-1" }) });
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toEqual({ loop });
   });
 
   it("accepts a live resume result", async () => {

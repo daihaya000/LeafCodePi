@@ -127,7 +127,8 @@ export function createBackendStartup({
       throw Object.assign(new Error("Goal Loop runtime unavailable"), { status: 503 });
     }
     const loop = await runtime.goalLoopCommand(id, { action: "resume", restartPrompt: prompt });
-    if (!loop || !isGoalLoopLiveStatus(loop.status)) {
+    // Recovery can finish verification immediately; no live turn is then needed.
+    if (!loop || (!isGoalLoopLiveStatus(loop.status) && loop.status !== "completed")) {
       throw Object.assign(new Error("Goal Loop restart resume was not applied"), { status: 409 });
     }
     return loop;
