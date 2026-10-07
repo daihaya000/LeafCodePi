@@ -442,6 +442,7 @@ import {
   type ThroughputTiming,
 } from "@/lib/token-throughput";
 import { recordModelThroughput } from "@/lib/model-throughput-stats";
+import { recordAssistantTokenUsage } from "@/lib/codexbar/token-usage";
 import { BOT_CODE_SESSION_CHANGED_EVENT } from "@/lib/types";
 import type {
   CompactionSettingsDto,
@@ -1360,6 +1361,8 @@ function trackMessageEndEvent(
     return;
   }
   if (role !== "assistant") return;
+
+  recordAssistantTokenUsage(live.session.sessionManager.getSessionId?.() ?? "", live.accountId, message);
 
   const startedAt =
     typeof (message as { timestamp?: unknown }).timestamp === "number"

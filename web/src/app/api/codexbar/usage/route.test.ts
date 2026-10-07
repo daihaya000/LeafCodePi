@@ -3,11 +3,13 @@ import { describe, expect, it, vi } from "vitest";
 import { emptyUsage } from "@/lib/codexbar";
 import { GET } from "./route";
 
-const { fetchNativeUsage } = vi.hoisted(() => ({
+const { fetchNativeUsage, attachTokenUsage } = vi.hoisted(() => ({
   fetchNativeUsage: vi.fn(),
+  attachTokenUsage: vi.fn((usage: unknown) => usage),
 }));
 
 vi.mock("@/lib/codexbar/orchestrator", () => ({ fetchNativeUsage }));
+vi.mock("@/lib/codexbar/token-usage", () => ({ attachTokenUsage }));
 
 describe("GET /api/codexbar/usage", () => {
   it("rejects an account scope without an account id", async () => {
@@ -44,6 +46,16 @@ describe("GET /api/codexbar/usage", () => {
       forceRefresh: false,
       scope: { kind: "account", accountId: "paused" },
     });
+  });
+
+  it("decorates usage outside the native cache with token telemetry", async () => {
+    const cached = emptyUsage("test");
+    const decorated = { ...cached, reason: "token telemetry attached" };
+    fetchNativeUsage.mockResolvedValueOnce(cached);
+    attachTokenUsage.mockReturnValueOnce(decorated);
+    const response = await GET(new NextRequest("http://localhost/api/codexbar/usage"));
+    expect(attachTokenUsage).toHaveBeenLastCalledWith(cached);
+    expect(await response.json()).toEqual(decorated);
   });
 
   it("rejects an unknown scope", async () => {

@@ -6,11 +6,14 @@
  */
 
 import { providerIconSrc as piProviderIconSrc } from "@/lib/provider-icons";
+import type { ProviderTokenUsage } from "@/lib/codexbar/token-usage-types";
 
 export const CODEXBAR_SCHEMA = "codexbar.usage-snapshot/v1";
 
 /** A single rate-limit window (e.g. 5時間 / 週間 / 月間) for a provider. */
 export type CodexBarWindow = {
+  /** False for breakdown rows that do not represent the provider allowance. */
+  countsTowardLimit?: boolean;
   id: string;
   title: string;
   usedPercent: number | null;
@@ -52,6 +55,8 @@ export type CodexBarScope = {
 };
 
 export type CodexBarProvider = {
+  /** Local finalized-response telemetry, attached outside the upstream usage cache. */
+  tokenUsage?: ProviderTokenUsage;
   /** codexBarProviderId (codex/claude/cursor/opencode-go/ollama/synthetic), falls back to opencode id. */
   id: string;
   /** Stable instance key. Optional only for old snapshots supplied by callers. */
@@ -228,6 +233,7 @@ export function parseCodexBarSnapshot(raw: unknown): CodexBarUsage {
               usedPercent: asNumber(w.usedPercent),
               resetsAt: asString(w.resetsAt),
               windowMinutes: asNumber(w.windowMinutes),
+              ...(typeof w.countsTowardLimit === "boolean" ? { countsTowardLimit: w.countsTowardLimit } : {}),
             }))
         : [];
       const creditValue = p.credits;

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildEntry, buildSnapshotFile, toOpencodeProviderId } from "./export";
+import { buildEntry, buildSnapshotFile, buildUsageFromEntries, toOpencodeProviderId } from "./export";
 import { tryGetMonthlyUsd } from "./plan-pricing";
 import type { UsageSnapshot } from "./types";
 import { representativePercent } from "./utils";
@@ -105,6 +105,7 @@ describe("buildEntry", () => {
       maxed: false,
     });
     expect(entry!.windows).toHaveLength(2);
+    expect(buildUsageFromEntries([entry!]).providers[0].windows.map((w) => w.countsTowardLimit)).toEqual([true, false]);
   });
 
   it("sets limited/maxed thresholds and plan monthly total", () => {

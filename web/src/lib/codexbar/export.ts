@@ -17,6 +17,7 @@ import {
 } from "@/lib/codexbar/utils";
 
 export type ExportWindow = {
+  countsTowardLimit: boolean;
   id: string;
   title: string;
   usedPercent: number;
@@ -135,6 +136,7 @@ export function buildEntry(
         soonestReset = w.resetsAt;
       }
       windows.push({
+        countsTowardLimit: counts,
         id: w.id,
         title: w.title,
         usedPercent: w.usedPercent,

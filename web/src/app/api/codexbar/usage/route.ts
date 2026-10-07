@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { emptyUsage } from "@/lib/codexbar";
+import { attachTokenUsage } from "@/lib/codexbar/token-usage";
 import { fetchNativeUsage, type UsageRequestScope } from "@/lib/codexbar/orchestrator";
 
 export const runtime = "nodejs";
@@ -35,7 +36,7 @@ export async function GET(req: NextRequest) {
   try {
     const forceRefresh = req.nextUrl.searchParams.get("refresh") === "1";
     const usage = await fetchNativeUsage({ forceRefresh, scope });
-    return NextResponse.json(usage);
+    return NextResponse.json(attachTokenUsage(usage));
   } catch (error) {
     const status =
       error && typeof error === "object" && "status" in error

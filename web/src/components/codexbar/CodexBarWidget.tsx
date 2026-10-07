@@ -15,6 +15,7 @@ import {
 } from "lucide-react";
 import { cx, timeAgo } from "@/components/ui";
 import { useCodexUsage } from "@/components/codexbar/use-codex-usage";
+import { TokenUsageDetails } from "@/components/codexbar/TokenUsageDetails";
 import {
   useCodexProviders,
   type ConfigProvider,
@@ -509,7 +510,7 @@ function ProviderRow({
   const resets = formatResetsIn(p.resetsAt, now);
   const hasWindows = p.windows.length > 0;
   const showErrorOnly = !unconfigured && !!p.error && !hasLastGoodUsage(p);
-  const canExpand = !unconfigured && (showErrorOnly || hasLastGoodUsage(p));
+  const canExpand = !unconfigured && (showErrorOnly || hasLastGoodUsage(p) || !!p.tokenUsage);
   const label = labelOverride ?? providerLabel(p.id);
   const planBadge = formatPlanBadge(p.plan, p.planMonthlyUsd);
 
@@ -623,6 +624,11 @@ function ProviderRow({
       ) : (
         <div className={contentIndent}>
           <UsageBar tone={tone} percent={p.usedPercent} />
+        </div>
+      )}
+      {!collapsed && p.tokenUsage && (
+        <div className={contentIndent}>
+          <TokenUsageDetails usage={p.tokenUsage} />
         </div>
       )}
     </li>

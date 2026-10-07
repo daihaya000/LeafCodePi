@@ -99,6 +99,17 @@ function setServerSettings(value: object) {
 }
 
 describe("CodexBarWidget", () => {
+  it("displays token measurements on the expanded provider row", async () => {
+    setServerSettings({ collapsed: false, providerCollapsed: {} });
+    useCodexUsage.mockReturnValue({ usage: { ...usage, providers: [{ ...usage.providers[0], tokenUsage: {
+      input: 700, output: 100, cacheRead: 150, cacheWrite: 50, totalTokens: 1000, responses: 1, startedAt: null,
+      windows: [{ id: "5h", title: "5時間", sampledTokens: 1000, sampledPercent: 2, tokensPerPercent: 500, estimatedRemainingTokens: 44000 }],
+    } }] }, loadError: null, refreshing: false, refresh: vi.fn(), now: Date.now() });
+    render(<CodexBarWidget />);
+    await waitFor(() => expect(screen.getByText("推定残 44,000 tok")).toBeTruthy());
+    fireEvent.click(screen.getByRole("button", { name: /Codex を最小化/ }));
+    await waitFor(() => expect(screen.queryByText("推定残 44,000 tok")).toBeNull());
+  });
   beforeEach(() => {
     localStorage.clear();
     resetWidgetSettingsCache();

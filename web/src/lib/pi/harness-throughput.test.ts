@@ -3,6 +3,9 @@ import { afterEach, describe, it, vi } from "vitest";
 import { snapshotThroughput, THROUGHPUT_CUSTOM_TYPE, type ThroughputTiming } from "@/lib/token-throughput";
 import { loadThroughputFromSession, restoredThroughputState, trackThroughputEvent } from "./harness";
 import { VersionedThroughputMap } from "./versioned-throughput-map";
+import { recordAssistantTokenUsage } from "@/lib/codexbar/token-usage";
+
+vi.mock("@/lib/codexbar/token-usage", () => ({ recordAssistantTokenUsage: vi.fn() }));
 
 function liveState() {
   const persisted: unknown[][] = [];
@@ -16,6 +19,7 @@ function liveState() {
       session: {
         sessionManager: {
           appendCustomEntry: (...args: unknown[]) => persisted.push(args),
+          getSessionId: () => "test-session",
         },
       },
     } as unknown as Parameters<typeof trackThroughputEvent>[0],
@@ -24,8 +28,31 @@ function liveState() {
 }
 
 afterEach(() => {
+  vi.clearAllMocks();
   vi.useRealTimers();
 });
+
+describe("CodexBar final usage hook", () => {
+  it("records finalized assistant usage with the executing account and session", () => {
+    const { live } = liveState();
+    live.accountId = "account-a";
+    const message = { role: "assistant", timestamp: 1000, provider: "opencode-go", model: "gpt-test",
+      stopReason: "stop", usage: { input: 300, output: 50, cacheRead: 100, cacheWrite: 0, totalTokens: 450 } };
+    trackThroughputEvent(live, { type: "message_update", message });
+    expectNoRecording();
+    trackThroughputEvent(live, { type: "message_end", message });
+    assert.deepEqual(vi.mocked(recordAssistantTokenUsage).mock.calls[0], ["test-session", "account-a", message]);
+  });
+  it("does not attribute tool-result aggregate usage to the main provider", () => {
+    const { live } = liveState();
+    trackThroughputEvent(live, { type: "message_end", message: { role: "toolResult", usage: { totalTokens: 100 } } });
+    expectNoRecording();
+  });
+});
+
+function expectNoRecording() {
+  assert.equal(vi.mocked(recordAssistantTokenUsage).mock.calls.length, 0);
+}
 
 describe("loadThroughputFromSession", () => {
   it("returns empty collections when session entries are unavailable", () => {
