@@ -43,17 +43,31 @@ test("a package whose name carries an @ only as its scope separator is matched w
   assert.equal(isReplacedPackageSource("@scope/pkg", scoped), true, "a git-style entry keeps its name");
 });
 
-test("only the forks that skip discovery exclude their upstream package", () => {
-  assert.deepEqual([...replacedUpstreamPackages(new Set(["leafcode-intercom"]))], ["pi-intercom", "pi-mcp-adapter"]);
-  assert.deepEqual([...replacedUpstreamPackages(new Set(["leafcode-subagents"]))], ["pi-mcp-adapter"], "the subagents fork keeps its upstream discoverable");
-  assert.deepEqual([...replacedUpstreamPackages(new Set(["leafcode-computer-use"]))], ["@injaneity/pi-computer-use", "pi-mcp-adapter"]);
-  assert.deepEqual([...replacedUpstreamPackages(new Set(["pi-anthropic-auth"]))], ["@gotgenes/pi-anthropic-auth", "pi-mcp-adapter"]);
-  assert.deepEqual([...replacedUpstreamPackages(new Set())], ["pi-mcp-adapter"], "the retired MCP upstream is excluded unconditionally");
+test("only forks that skip discovery exclude their upstream; integrated providers are always excluded", () => {
+  const integrated = ["pi-mcp-adapter", "pi-commandcode-provider"];
+  assert.deepEqual([...replacedUpstreamPackages(new Set(["leafcode-intercom"]))], ["pi-intercom", ...integrated]);
+  assert.deepEqual([...replacedUpstreamPackages(new Set(["leafcode-subagents"]))], integrated, "the subagents fork keeps its upstream discoverable");
+  assert.deepEqual([...replacedUpstreamPackages(new Set(["leafcode-computer-use"]))], ["@injaneity/pi-computer-use", ...integrated]);
+  assert.deepEqual([...replacedUpstreamPackages(new Set(["pi-anthropic-auth"]))], ["@gotgenes/pi-anthropic-auth", ...integrated]);
+  assert.deepEqual([...replacedUpstreamPackages(new Set())], integrated, "retired MCP and directly integrated providers are excluded unconditionally");
 });
 
 const bundled = (...names) => ({
   names: new Set(names),
   paths: new Set(names.map((name) => resolve(`/repo/extensions/${name}/index.ts`))),
+});
+
+test("Command Code cannot be loaded again as a global extension", () => {
+  const names = replacedUpstreamPackages(new Set());
+  assert.equal(isReplacedPackageSource("npm:pi-commandcode-provider@0.7.6", names), true);
+  assert.equal(isReplacedPackageSource({ source: "npm:pi-commandcode-provider" }, names), true);
+  assert.equal(isReplacedPackageSource("npm:pi-commandcode-provider-extra", names), false);
+  const index = bundled();
+  assert.equal(keepsLoadedExtension("/npm/pi-commandcode-provider/index.ts", index), false);
+  assert.equal(keepsLoadedExtension("/npm/pi-commandcode-provider/src/index.ts", index), false);
+  assert.equal(keepsLoadedExtension("C:\\npm\\pi-commandcode-provider\\index.ts", index), false);
+  assert.equal(keepsLoadedExtension("/agent/extensions/pi-commandcode-provider.ts", index), false);
+  assert.equal(keepsLoadedExtension("/npm/pi-commandcode-provider-extra/index.ts", index), true);
 });
 
 test("a replaced upstream and a stale copy of a bundled extension are dropped", () => {

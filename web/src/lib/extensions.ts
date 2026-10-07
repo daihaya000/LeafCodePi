@@ -29,6 +29,7 @@ import { basename, dirname, isAbsolute, join, relative, resolve } from "node:pat
 import { resolvePiAgentDir } from "@/lib/agents-md";
 import { dataDir } from "@/lib/paths";
 import { basenameKey, isWebUiRequiredExtension } from "@backend-core/bot-runtime-context.mjs";
+import { INTEGRATED_PROVIDER_EXTENSIONS } from "@backend-core/replaced-packages.mjs";
 
 // Extension identity lives in backend core; keep the same named exports here.
 export { basenameKey, isWebUiRequiredExtension };
@@ -111,6 +112,8 @@ const RETIRED_EXTENSION_NAMES = new Set([
   // Retired with the native MCP cutover: a stale global copy must never come back.
   "leafcode-mcp-adapter",
   "pi-mcp-adapter",
+  // Command Code is registered directly by the repository ModelRuntime.
+  ...INTEGRATED_PROVIDER_EXTENSIONS,
 ]);
 const BUNDLED_REPLACEMENTS = new Map([
   ["pi-intercom", "leafcode-intercom"],

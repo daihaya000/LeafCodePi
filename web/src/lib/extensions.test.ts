@@ -158,6 +158,20 @@ describe("listExtensions / setExtensionEnabled", () => {
     expect(listExtensions(agent).extensions.map((entry) => entry.name)).not.toContain("leafcode-collaboration");
   });
 
+  it("hides the integrated Command Code provider even when a global package remains", () => {
+    const { agentDir: agent } = fixture();
+    const npmDir = join(agent, "npm", "node_modules", "pi-commandcode-provider");
+    mkdirSync(npmDir, { recursive: true });
+    writeFileSync(join(npmDir, "package.json"), JSON.stringify({ pi: { extensions: ["./index.ts"] } }), "utf8");
+    const entry = join(npmDir, "index.ts");
+    writeFileSync(entry, "export default () => {};\n", "utf8");
+    writeFileSync(join(agent, "settings.json"), JSON.stringify({ packages: ["npm:pi-commandcode-provider@0.7.6"] }), "utf8");
+    writeExtension(join(agent, "extensions"), "pi-commandcode-provider");
+    expectNames(listExtensions(agent).extensions, ["one"]);
+    assert.deepEqual(filterExtensionsByState([{ path: entry }], { disabled: {} }, agent), []);
+    assert.throws(() => setExtensionEnabled("pi-commandcode-provider", false, agent), /見つかりません/);
+  });
+
   it("does not discover test files as extensions", () => {
     const { agentDir: agent } = fixture();
     writeFileSync(join(agent, "extensions", "accidental.test.ts"), "export {};\n", "utf8");

@@ -43,13 +43,17 @@ export const FORK_REPLACED_EXTENSIONS = [
  */
 export const RETIRED_MCP_EXTENSIONS = ["leafcode-mcp-adapter", "pi-mcp-adapter"];
 
-/** npm packages excluded from discovery because a bundled fork replaces them, plus the retired MCP pair. */
+/** Provider extensions owned by the repository's ModelRuntime, not the session extension loader. */
+export const INTEGRATED_PROVIDER_EXTENSIONS = ["pi-commandcode-provider"];
+
+/** npm packages excluded from discovery: bundled replacements, retired MCP and integrated providers. */
 export function replacedUpstreamPackages(bundledNames) {
   return new Set([
     ...FORK_REPLACED_EXTENSIONS.filter(
       (entry) => entry.skipDiscovery && bundledNames.has(entry.fork),
     ).map((entry) => entry.upstream),
     "pi-mcp-adapter",
+    ...INTEGRATED_PROVIDER_EXTENSIONS,
   ]);
 }
 
@@ -61,6 +65,8 @@ export function keepsLoadedExtension(extensionPath, bundled) {
   );
   if (replacedByFork) return false;
   if (RETIRED_MCP_EXTENSIONS.includes(key)) return false;
+  const segments = resolve(extensionPath).split(/[\\/]/);
+  if (INTEGRATED_PROVIDER_EXTENSIONS.some((name) => key === name || segments.includes(name))) return false;
   if (bundled.names.has("leafcode-computer-use") &&
       (key === "pi-computer-use" || /(?:^|[\\/])pi-computer-use(?:[\\/]|$)/i.test(extensionPath))) return false;
   // An entry such as leafcode-memory/src/index.ts is keyed "src"; match its package directory too.

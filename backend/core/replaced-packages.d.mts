@@ -14,7 +14,10 @@ export const FORK_REPLACED_EXTENSIONS: ReadonlyArray<{
   skipDiscovery: boolean;
 }>;
 
-/** npm packages excluded from discovery because a bundled fork replaces them. */
+/** Provider extensions registered directly by the repository's ModelRuntime. */
+export const INTEGRATED_PROVIDER_EXTENSIONS: ReadonlyArray<string>;
+
+/** npm packages excluded from discovery: bundled replacements, retired MCP and integrated providers. */
 export function replacedUpstreamPackages(bundledNames: ReadonlySet<string>): Set<string>;
 
 /** Keep one copy of every extension: drop replaced upstreams and stale bundled duplicates. */

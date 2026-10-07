@@ -106,20 +106,21 @@ describe("session extension replacement", () => {
     paths: new Set(names.map((name) => resolve(`/repo/extensions/${name}/index.ts`))),
   });
 
-  it("skips discovery only for the npm packages a bundled fork replaces", () => {
+  it("skips replaced upstreams and directly integrated providers", () => {
+    const integrated = ["pi-mcp-adapter", "pi-commandcode-provider"];
     assert.deepEqual(
       [...replacedUpstreamPackages(new Set(["leafcode-intercom"]))],
-      ["pi-intercom", "pi-mcp-adapter"],
+      ["pi-intercom", ...integrated],
     );
     // The subagents fork keeps its upstream discoverable; only loaded copies are dropped.
-    assert.deepEqual([...replacedUpstreamPackages(new Set(["leafcode-subagents"]))], ["pi-mcp-adapter"]);
+    assert.deepEqual([...replacedUpstreamPackages(new Set(["leafcode-subagents"]))], integrated);
     assert.deepEqual(
       [...replacedUpstreamPackages(new Set(["leafcode-computer-use"]))],
-      ["@injaneity/pi-computer-use", "pi-mcp-adapter"],
+      ["@injaneity/pi-computer-use", ...integrated],
     );
-    assert.deepEqual([...replacedUpstreamPackages(new Set())], ["pi-mcp-adapter"], "the retired MCP upstream stays excluded");
+    assert.deepEqual([...replacedUpstreamPackages(new Set())], integrated, "retired MCP and integrated providers stay excluded");
     const anthropic = replacedUpstreamPackages(new Set(["pi-anthropic-auth"]));
-    assert.deepEqual([...anthropic], ["@gotgenes/pi-anthropic-auth", "pi-mcp-adapter"]);
+    assert.deepEqual([...anthropic], ["@gotgenes/pi-anthropic-auth", ...integrated]);
     assert.equal(isReplacedPackageSource("npm:@gotgenes/pi-anthropic-auth@3.3.3", anthropic), true);
     assert.equal(isReplacedPackageSource({ source: "npm:@gotgenes/pi-anthropic-auth" }, anthropic), true);
     assert.equal(isReplacedPackageSource("npm:@other/pi-anthropic-auth", anthropic), false);
@@ -154,6 +155,16 @@ describe("session extension replacement", () => {
     assert.equal(keepsLoadedExtension("/other/pi-anthropic-auth/index.ts", anthropic), false);
     assert.equal(keepsLoadedExtension(resolve("/repo/extensions/pi-anthropic-auth/index.ts"), anthropic), true);
     assert.equal(keepsLoadedExtension(npmAuth, bundled()), true);
+  });
+
+  it("never loads a global Command Code extension over the integrated runtime provider", () => {
+    const names = replacedUpstreamPackages(new Set());
+    assert.equal(isReplacedPackageSource("npm:pi-commandcode-provider@0.7.6", names), true);
+    assert.equal(isReplacedPackageSource({ source: "npm:pi-commandcode-provider" }, names), true);
+    assert.equal(keepsLoadedExtension("/npm/pi-commandcode-provider/index.ts", bundled()), false);
+    const override = sessionExtensionsOverride(bundled());
+    const extensions = [{ path: "/npm/pi-commandcode-provider/index.ts" }, { path: "/npm/unrelated/index.ts" }];
+    assert.deepEqual(override({ extensions, errors: [] } as unknown as Parameters<typeof override>[0]).extensions.map((entry) => entry.path), ["/npm/unrelated/index.ts"]);
   });
 
   it("keeps the upstream extension when its fork is not bundled", () => {
