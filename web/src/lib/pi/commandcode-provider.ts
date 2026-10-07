@@ -1,7 +1,7 @@
 import { existsSync } from "node:fs";
 import { createRequire } from "node:module";
 import { dirname, join } from "node:path";
-import { pathToFileURL } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { createJiti } from "jiti/static";
 import type { ModelRuntime } from "@earendil-works/pi-coding-agent";
 import type { Provider } from "@earendil-works/pi-ai";
@@ -18,16 +18,21 @@ type ExtensionApiStub = {
   registerCommand: (...args: unknown[]) => void;
 };
 
-/** Resolve pi-commandcode-provider entry (Next bundled chunks break createRequire alone). */
+/** Resolve the web dependency from both Next chunks and backend/runtime bundles. */
 export function resolveCommandCodeExtensionEntry(
   cwd = process.cwd(),
+  moduleUrl = import.meta.url,
 ): string | null {
   const candidates = [
+    // Backend runs from the repository root, with no provider in backend/node_modules.
+    fileURLToPath(new URL("../../web/node_modules/pi-commandcode-provider/index.ts", moduleUrl)),
+    join(cwd, "web", "node_modules", "pi-commandcode-provider", "index.ts"),
+    join(cwd, "..", "web", "node_modules", "pi-commandcode-provider", "index.ts"),
     join(cwd, "node_modules", "pi-commandcode-provider", "index.ts"),
     join(cwd, "..", "node_modules", "pi-commandcode-provider", "index.ts"),
   ];
   try {
-    const require = createRequire(import.meta.url);
+    const require = createRequire(moduleUrl);
     const pkgJson = require.resolve("pi-commandcode-provider/package.json");
     candidates.unshift(join(dirname(pkgJson), "index.ts"));
   } catch {

@@ -1,7 +1,8 @@
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { pathToFileURL } from "node:url";
 import { afterEach, describe, it } from "vitest";
 import { InMemoryCredentialStore, InMemoryModelsStore } from "@earendil-works/pi-ai";
 import { ModelRuntime } from "@earendil-works/pi-coding-agent";
@@ -238,6 +239,29 @@ describe("withImageDowngrade", () => {
 });
 
 describe("resolveCommandCodeExtensionEntry", () => {
+  const roots: string[] = [];
+  afterEach(() => {
+    for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true });
+  });
+
+  it("finds the repository web dependency from the Backend bundle and repository cwd", () => {
+    const root = mkdtempSync(join(tmpdir(), "commandcode-backend-entry-"));
+    roots.push(root);
+    const entry = join(root, "web", "node_modules", "pi-commandcode-provider", "index.ts");
+    mkdirSync(join(root, "web", "node_modules", "pi-commandcode-provider"), { recursive: true });
+    writeFileSync(entry, "export default () => {};\n", "utf8");
+    const bundleUrl = pathToFileURL(join(root, "backend", "runtime", "runtime.bundle.mjs")).href;
+    assert.equal(resolveCommandCodeExtensionEntry(root, bundleUrl), entry);
+    assert.equal(resolveCommandCodeExtensionEntry(join(root, "backend"), bundleUrl), entry);
+  });
+
+  it("returns null when the Backend has no installed repository dependency", () => {
+    const root = mkdtempSync(join(tmpdir(), "commandcode-backend-missing-"));
+    roots.push(root);
+    const bundleUrl = pathToFileURL(join(root, "backend", "runtime", "runtime.bundle.mjs")).href;
+    assert.equal(resolveCommandCodeExtensionEntry(root, bundleUrl), null);
+  });
+
   it("finds the installed package index.ts from cwd", () => {
     const entry = resolveCommandCodeExtensionEntry();
     assert.ok(entry);
