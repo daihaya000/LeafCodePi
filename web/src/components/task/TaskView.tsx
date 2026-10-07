@@ -122,7 +122,7 @@ import { formatTokensPerSecond, isSlowTokensPerSecond, summarizeThroughput } fro
 import { notifyBotSidebarChanged, notifyTasksChanged } from "@/lib/events";
 import { taskSidebarNotifyKey } from "@/lib/task-sidebar-notify";
 import { markRead } from "@/lib/bot-unread";
-import { getJson, sendJson } from "@/lib/client";
+import { getJson, sendJson, sendTaskPrompt } from "@/lib/client";
 import {
   hasNewUserMessageSince,
   hasReceivedSubmittedPrompt,
@@ -208,6 +208,9 @@ const USER_OWNERSHIP_OPTION = "__user_ownership__";
 const WORKTREE_STATUS_POLL_MS = 10_000;
 // 自動更新の実装は復帰用に保持し、現在の仕様では手動生成だけを有効にする。
 const TITLE_AUTO_UPDATE_ENABLED = false;
+// Backend prompt forwarding is bounded at 60s (180s for Auto/auto-agent); leave a short reply margin.
+const PROMPT_SUBMIT_TIMEOUT_MS = 65_000;
+const LONG_PROMPT_SUBMIT_TIMEOUT_MS = 185_000;
 const PROMPT_DELIVERY_RECONCILE_TIMEOUT_MS = 10_000;
 const PROMPT_DELIVERY_READ_TIMEOUT_MS = 2_000;
 /** Longest an accepted prompt echo may wait for the owner's transcript row before it is dropped. */
@@ -2580,23 +2583,30 @@ export const TaskView = memo(function TaskView({
             accepted: false,
           });
         }
-        const result = await sendJson<{
+        const promptTimeoutMs = isAuto || agentSelection === AUTO_AGENT_VALUE
+          ? LONG_PROMPT_SUBMIT_TIMEOUT_MS
+          : PROMPT_SUBMIT_TIMEOUT_MS;
+        const result = await sendTaskPrompt<{
           task: TaskSummary;
           autoDecision?: AutoDecision;
-        }>(`/api/tasks/${taskId}/prompt`, {
-          prompt: submittedPrompt,
-          images,
-          files,
-          ...(isAuto
-            ? {
-                auto: true,
-                autoOptimize: autoOptimizeMode,
-                autoRouteOverrides: autoRouteConfig,
-              }
-            : {}),
-          ...(agentSelection ? { agent: agentSelection } : {}),
-          ...(streamingBehavior ? { streamingBehavior, interruptIfSafe: true } : {}),
-        });
+        }>(
+          `/api/tasks/${taskId}/prompt`,
+          {
+            prompt: submittedPrompt,
+            images,
+            files,
+            ...(isAuto
+              ? {
+                  auto: true,
+                  autoOptimize: autoOptimizeMode,
+                  autoRouteOverrides: autoRouteConfig,
+                }
+              : {}),
+            ...(agentSelection ? { agent: agentSelection } : {}),
+            ...(streamingBehavior ? { streamingBehavior, interruptIfSafe: true } : {}),
+          },
+          promptTimeoutMs,
+        );
         resolvedAgent = result.task.agent ?? null;
         resolvedAutoDecision = result.autoDecision;
         setTask((current) => (current ? { ...current, ...result.task } : current));

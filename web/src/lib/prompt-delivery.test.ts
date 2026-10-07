@@ -16,7 +16,7 @@ const message = (id: string, text: string, createdAt: number): UiMessage => ({
   id,
   role: "user",
   createdAt,
-  parts: [{ type: "text", text }],
+  parts: [{ id: `${id}-text`, type: "text", text }],
 });
 
 describe("prompt-delivery", () => {
@@ -25,6 +25,8 @@ describe("prompt-delivery", () => {
     expect(isUnconfirmedPromptDelivery(new ApiError("x", 502, { code: "BACKEND_FORWARD_FAILED", reason: "bad-response" }))).toBe(true);
     expect(isUnconfirmedPromptDelivery(new ApiError("x", 409, { code: "BACKEND_FORWARD_FAILED", reason: "not-configured" }))).toBe(false);
     expect(isUnconfirmedPromptDelivery(new ApiError("x", 401, { code: "BACKEND_FORWARD_FAILED", reason: "unauthorized" }))).toBe(false);
+    expect(isUnconfirmedPromptDelivery(new ApiError("x", 408, { reason: "timeout" }))).toBe(true);
+    expect(isUnconfirmedPromptDelivery(new ApiError("x", 408))).toBe(false);
     expect(isUnconfirmedPromptDelivery(new ApiError("plain", 500))).toBe(false);
   });
 

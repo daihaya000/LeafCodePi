@@ -7,7 +7,16 @@ import { COMPACTION_ACTION_SETTING_KEY } from "@/lib/compaction-settings";
 import { DEFAULT_SESSION_LABELS } from "@/lib/session-label-settings";
 import { setNotificationDeliveryEnabled } from "@/lib/notification-delivery-client";
 
-const mocks = vi.hoisted(() => ({ getJson: vi.fn(), sendJson: vi.fn(), apiUrl: (path: string) => path, partView: vi.fn(), toolCard: vi.fn(), messageMetaHeader: vi.fn(), workingRow: vi.fn(() => null), markRead: vi.fn(), botFor: vi.fn(), iconFor: vi.fn() }));
+const mocks = vi.hoisted(() => {
+  const sendJson = vi.fn();
+  return {
+    getJson: vi.fn(), sendJson,
+    sendTaskPrompt: vi.fn((path: string, body: unknown) => sendJson(path, body)),
+    apiUrl: (path: string) => path,
+    partView: vi.fn(), toolCard: vi.fn(), messageMetaHeader: vi.fn(), workingRow: vi.fn(() => null),
+    markRead: vi.fn(), botFor: vi.fn(), iconFor: vi.fn(),
+  };
+});
 vi.mock("@/lib/client", () => mocks);
 vi.mock("@/lib/bot-unread", () => ({ markRead: mocks.markRead }));
 vi.mock("@/components/shell/MobileMenuHeader", () => ({ MobileMenuButton: () => null }));
@@ -443,6 +452,11 @@ it("echoes a submitted prompt until the authoritative SSE message replaces it, n
     `/api/tasks/${task.id}/prompt`,
     expect.objectContaining({ prompt: "同じ指示" }),
   ));
+  expect(mocks.sendTaskPrompt).toHaveBeenCalledWith(
+    `/api/tasks/${task.id}/prompt`,
+    expect.objectContaining({ prompt: "同じ指示" }),
+    65_000,
+  );
   // The local echo shows at once (outside the transcript state) ...
   await waitFor(() => expect(document.querySelectorAll("[data-task-message]")).toHaveLength(1));
   expect(document.querySelector("[data-task-message]")?.getAttribute("data-task-message")).toMatch(/^optimistic-user:/);
@@ -2944,7 +2958,7 @@ describe("TaskView draft submission", () => {
     });
     mocks.sendJson.mockImplementation(async () => {
       sendFailed = true;
-      throw Object.assign(new Error("Backendへ転送できません"), { code: "BACKEND_FORWARD_FAILED", reason: "timeout" });
+      throw Object.assign(new Error("リクエストがタイムアウトしました"), { status: 408, reason: "timeout" });
     });
     mocks.partView.mockImplementation(({ message }: { message: UiMessage }) => (
       <div>{message.parts.filter((part) => part.type === "text").map((part) => part.type === "text" ? part.text : "").join(" ")}</div>

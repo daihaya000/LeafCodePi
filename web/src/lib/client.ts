@@ -109,12 +109,16 @@ export async function sendJson<T>(
   const timeoutMs = options?.timeoutMs;
   const external = options?.signal;
   let timeout: ReturnType<typeof setTimeout> | undefined;
+  let timedOut = false;
   let removeExternalAbortListener: (() => void) | undefined;
   let signal = external;
 
   if (timeoutMs && timeoutMs > 0) {
     const controller = new AbortController();
-    timeout = setTimeout(() => controller.abort(), timeoutMs);
+    timeout = setTimeout(() => {
+      timedOut = true;
+      controller.abort();
+    }, timeoutMs);
     if (external) {
       const abortFromExternal = () => controller.abort();
       if (external.aborted) controller.abort();
@@ -139,11 +143,20 @@ export async function sendJson<T>(
     return (await res.json()) as T;
   } catch (error) {
     if (error instanceof Error && error.name === "AbortError") {
-      throw new ApiError("リクエストがタイムアウトまたはキャンセルされました", 408);
+      throw new ApiError(
+        "リクエストがタイムアウトまたはキャンセルされました",
+        408,
+        timedOut ? { reason: "timeout" } : undefined,
+      );
     }
     throw error;
   } finally {
     if (timeout) clearTimeout(timeout);
     removeExternalAbortListener?.();
   }
+}
+
+/** Send a task prompt with an explicit client-side deadline. */
+export function sendTaskPrompt<T>(path: string, body: unknown, timeoutMs: number): Promise<T> {
+  return sendJson<T>(path, body, "POST", { timeoutMs });
 }
