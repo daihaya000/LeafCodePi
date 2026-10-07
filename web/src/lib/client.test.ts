@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { ApiError, clearEtagBodiesForTest, getJson, sendJson } from "./client";
+import { ApiError, clearEtagBodiesForTest, getJson, sendJson, sendTaskPrompt } from "./client";
 
 afterEach(() => vi.unstubAllGlobals());
 
@@ -82,6 +82,30 @@ describe("getJson", () => {
     const listener = addEventListener.mock.calls[0]?.[1];
     expect(listener).toBeTypeOf("function");
     expect(removeEventListener).toHaveBeenCalledWith("abort", listener);
+  });
+
+  it("aborts a stalled task prompt and marks delivery as uncertain timeout", async () => {
+    vi.useFakeTimers();
+    try {
+      vi.stubGlobal("window", { location: { origin: "http://localhost" } });
+      const fetchMock = vi.fn<typeof fetch>((_input, init) => new Promise<Response>((_resolve, reject) => {
+        init?.signal?.addEventListener("abort", () => {
+          reject(Object.assign(new Error("aborted"), { name: "AbortError" }));
+        }, { once: true });
+      }));
+      vi.stubGlobal("fetch", fetchMock);
+
+      const request = sendTaskPrompt("/api/tasks/task-1/prompt", { prompt: "hello" }, 1_000);
+      const timeoutAssertion = expect(request).rejects.toMatchObject({ status: 408, reason: "timeout" });
+      await vi.advanceTimersByTimeAsync(1_000);
+      await timeoutAssertion;
+      expect(fetchMock).toHaveBeenCalledWith(
+        "http://localhost/api/tasks/task-1/prompt",
+        expect.objectContaining({ signal: expect.any(AbortSignal) }),
+      );
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
 

@@ -2,11 +2,11 @@ import type { UiMessage } from "@/lib/types";
 
 /** Only transport/response failures can be reconciled; explicit owner rejections stay errors. */
 export function isUnconfirmedPromptDelivery(error: unknown): boolean {
-  return typeof error === "object" && error !== null && "code" in error &&
-    (error as { code?: unknown }).code === "BACKEND_FORWARD_FAILED" &&
-    !("reason" in error && ["unauthorized", "incompatible", "not-configured"].includes(
-      String((error as { reason?: unknown }).reason),
-    ));
+  if (typeof error !== "object" || error === null) return false;
+  const details = error as { status?: unknown; code?: unknown; reason?: unknown };
+  if (details.status === 408 && details.reason === "timeout") return true;
+  return details.code === "BACKEND_FORWARD_FAILED" &&
+    !["unauthorized", "incompatible", "not-configured"].includes(String(details.reason));
 }
 
 /** A remapped old message or a working status is not proof that this input was received. */
