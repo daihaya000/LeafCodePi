@@ -19,8 +19,7 @@ import {
   blockedWhenClosedReason,
   buildStateNote,
   buildStopMessage,
-  isClosingShellCommand,
-  isNonReviewShellCommand,
+  classifyClosingShellCommand,
   isShellTool,
 } from "./enforcement.ts";
 import { normalizeTodos, type TodoItem } from "./state.ts";
@@ -295,10 +294,8 @@ export default function (pi: ExtensionAPI): void {
     refreshVisibility();
   });
   // Work the list is meant to track. Counted when a call is admitted, for the end-of-run audit.
-  const needsReview = (toolName: string, input: unknown, action: TodoGateAction) =>
-    action === "block" && !(isShellTool(toolName) && isNonReviewShellCommand(asRecord(input)?.command, toolName));
-  const admit = (task: TodoGateState, toolName: string, action: TodoGateAction, input: unknown) => {
-    if (!needsReview(toolName, input, action)) return;
+  const admit = (task: TodoGateState, requiresReview: boolean) => {
+    if (!requiresReview) return;
     task.mutationVersion += 1;
     task.reviewRequired = true;
     refreshVisibility();
@@ -307,18 +304,20 @@ export default function (pi: ExtensionAPI): void {
     const task = gate;
     const action = classifyToolForTodoGate(event.toolName, event.input);
     if (action === "allow" || !gateEnabled()) return;
+    const shellPhase = isShellTool(event.toolName)
+      ? classifyClosingShellCommand(asRecord(event.input)?.command, event.toolName) : undefined;
+    const requiresReview = action === "block" && shellPhase !== "confirmation";
 
     // State machine: a list opened this task admits work only while an item is in_progress.
     // Clearing the list or completing every item closes the gate again.
     if (task.openedThisTask) {
       if (hasInProgress()) {
-        admit(task, event.toolName, action, event.input);
+        admit(task, requiresReview);
         return;
       }
       if (action === "count") return;
-      const command = asRecord(event.input)?.command;
-      if (isShellTool(event.toolName) && isClosingShellCommand(command, event.toolName)) {
-        admit(task, event.toolName, action, event.input);
+      if (shellPhase !== undefined) {
+        admit(task, requiresReview);
         return;
       }
       stats.closedBlocks += 1;
@@ -327,10 +326,10 @@ export default function (pi: ExtensionAPI): void {
 
     // A Jev waiver covers small tasks only: once the task keeps changing things it expires.
     if (task.waived) {
-      if (action === "count" || !needsReview(event.toolName, event.input, action)) return;
+      if (action === "count" || !requiresReview) return;
       if (task.waivedMutations < WAIVER_MUTATION_LIMIT) {
         task.waivedMutations += 1;
-        admit(task, event.toolName, action, event.input);
+        admit(task, requiresReview);
         return;
       }
       task.waived = false;
@@ -348,8 +347,8 @@ export default function (pi: ExtensionAPI): void {
     const stop = () => {
       if (task !== gate) return { block: true, reason: "依頼が切り替わりました。現在のToDoを確認してから再実行してください。" };
       if (task.openedThisTask || task.waived) {
-        if (!task.openedThisTask && needsReview(event.toolName, event.input, action)) task.waivedMutations += 1;
-        admit(task, event.toolName, action, event.input);
+        if (!task.openedThisTask && requiresReview) task.waivedMutations += 1;
+        admit(task, requiresReview);
         refreshVisibility();
         return undefined;
       }

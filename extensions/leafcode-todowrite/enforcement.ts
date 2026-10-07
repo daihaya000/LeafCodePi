@@ -26,8 +26,19 @@ const CLOSING_GIT_SUBCOMMANDS = new Set([
   "fetch", "merge",
 ]);
 /** Pipe targets that only shape or filter output. */
-const OUTPUT_FILTER = /^(select-object|select|select-string|out-string|measure-object|sort-object|where-object|head|tail|findstr|grep|wc|sort|more)\b/i;
-const GIT_FORBIDDEN_FLAGS = /(^|\s)(--force(?:-with-lease|-if-includes)?(?:=[^\s]+)?|--hard|--amend|--rebase|--abort|--quit|--output(?:=[^\s]+)?|--ext-diff|--textconv|-f)(?=\s|$)/i;
+const OUTPUT_FILTER = /^(select-object|select|select-string|out-string|measure-object|sort-object|where-object|head|tail|findstr|grep|wc|sort|more)(?=\s|$)/i;
+const FILTER_FORBIDDEN_FLAGS = /(^|\s)(--(?:output|compress-program)(?:=[^\s]*)?|-o[^\s]*)(?=\s|$)/i;
+// GNU sort also accepts bundled short flags and abbreviated long flags. Only known read-only
+// switches are safe after completion; unsupported arguments require an active ToDo instead.
+const SAFE_SORT_ARGUMENT = /^(?:-[bdfghinrRsuVMcC]+|--(?:reverse|unique|numeric-sort|general-numeric-sort|human-numeric-sort|ignore-case|version-sort|stable|check)|-Unique|-Descending|-CaseSensitive)$/;
+function isClosingOutputFilter(filter: string): boolean {
+  const match = OUTPUT_FILTER.exec(filter);
+  if (!match || FILTER_FORBIDDEN_FLAGS.test(filter)) return false;
+  if (match[1]!.toLowerCase() !== "sort") return true;
+  const args = filter.slice(match[0].length).trim();
+  return !args || args.split(/\s+/).every((arg) => SAFE_SORT_ARGUMENT.test(arg));
+}
+const GIT_FORBIDDEN_FLAGS = /(^|\s)(--force(?:-with-lease|-if-includes)?(?:=[^\s]+)?|--hard|--amend|--rebase|--abort|--quit|--output(?:=[^\s]+)?|--ext-diff|--textconv|-[a-z]*f[a-z]*)(?=\s|$)/i;
 
 export function isShellTool(toolName: string): boolean {
   return SHELL_TOOLS.has(toolName);
@@ -48,13 +59,16 @@ function parseShellCommand(command: string, toolName: string): ShellCommandShape
   let quoted = "";
   let malformed = false;
   let dangerous = false;
-  const pushPart = () => {
+  let expectsPart = false;
+  const pushPart = (required = false) => {
     const trimmed = part.trim();
     if (trimmed) pipeline.push(trimmed);
+    else if (required || expectsPart) malformed = true;
     part = "";
+    expectsPart = false;
   };
-  const pushStatement = () => {
-    pushPart();
+  const pushStatement = (required = false) => {
+    pushPart(required);
     if (pipeline.length) statements.push(pipeline);
     pipeline = [];
   };
@@ -62,8 +76,9 @@ function parseShellCommand(command: string, toolName: string): ShellCommandShape
   const closeQuote = (next: string | undefined) => {
     // Adjacent fragments can construct hidden flags (e.g. "--fo"rce). Reject instead of guessing.
     if (next && !/[\s;|&]/.test(next)) malformed = true;
-    const option = /^(--[a-z][\w-]*|-f)(?:=|$)/i.exec(quoted);
-    part += option ? ` ${option[1]} ` : " '' ";
+    const option = /^(--[a-z][\w-]*(?==|$))/i.exec(quoted);
+    // Preserve whole short-option tokens: reducing '-uo' to '-u' hides sort's write flag.
+    part += option ? ` ${option[1]} ` : /^-[a-z]/i.test(quoted) ? ` ${quoted} ` : " '' ";
     quote = undefined;
     quoted = "";
   };
@@ -110,7 +125,8 @@ function parseShellCommand(command: string, toolName: string): ShellCommandShape
       continue;
     }
     if (char === "&" && next === "&") {
-      pushStatement();
+      pushStatement(true);
+      expectsPart = true;
       i += 1;
       continue;
     }
@@ -121,9 +137,10 @@ function parseShellCommand(command: string, toolName: string): ShellCommandShape
     }
     if (char === "|") {
       if (next === "|") {
-        pushStatement();
+        pushStatement(true);
         i += 1;
-      } else pushPart();
+      } else pushPart(true);
+      expectsPart = true;
       continue;
     }
     if (char === ";" || char === "\n" || char === "\r") {
@@ -138,30 +155,37 @@ function parseShellCommand(command: string, toolName: string): ShellCommandShape
   return { statements, malformed, dangerous };
 }
 
-export function isClosingShellCommand(command: unknown, toolName = "powershell"): boolean {
-  if (typeof command !== "string" || !command.trim()) return false;
+export type ClosingShellPhase = "confirmation" | "merge";
+
+/** Parse once to distinguish safe closing work, tree-changing merges and unsupported commands. */
+export function classifyClosingShellCommand(command: unknown, toolName = "powershell"): ClosingShellPhase | undefined {
+  if (typeof command !== "string" || !command.trim()) return undefined;
   const parsed = parseShellCommand(command, toolName);
-  if (parsed.malformed || parsed.dangerous || parsed.statements.length === 0) return false;
+  if (parsed.malformed || parsed.dangerous || parsed.statements.length === 0) return undefined;
   const directoryChange = toolName === "powershell"
     ? /^(cd|set-location|pushd|sl)\s+\S/i
     : /^(cd|pushd)\s+\S/i;
-  return parsed.statements.every((pipeline) => {
+  let phase: ClosingShellPhase = "confirmation";
+  const valid = parsed.statements.every((pipeline) => {
     const [head = "", ...filters] = pipeline;
-    if (!filters.every((filter) => OUTPUT_FILTER.test(filter))) return false;
+    if (!filters.every(isClosingOutputFilter)) return false;
     if (directoryChange.test(head)) return true;
     const match = /^git(?:\s+-C\s+\S+)?\s+([a-z-]+)(.*)$/i.exec(head);
     if (!match) return false;
     const subcommand = match[1]!.toLowerCase();
+    if (subcommand === "merge") phase = "merge";
     return CLOSING_GIT_SUBCOMMANDS.has(subcommand) && !GIT_FORBIDDEN_FLAGS.test(match[2] ?? "");
   });
+  return valid ? phase : undefined;
+}
+
+export function isClosingShellCommand(command: unknown, toolName = "powershell"): boolean {
+  return classifyClosingShellCommand(command, toolName) !== undefined;
 }
 
 /** Commit/confirmation does not modify reviewed working-tree content. Merge still needs review. */
 export function isNonReviewShellCommand(command: unknown, toolName: string): boolean {
-  if (!isClosingShellCommand(command, toolName)) return false;
-  return !parseShellCommand(command as string, toolName).statements.some(([head = ""]) =>
-    /^git(?:\s+-C\s+\S+)?\s+merge\b/i.test(head),
-  );
+  return classifyClosingShellCommand(command, toolName) === "confirmation";
 }
 
 function clip(text: string): string {

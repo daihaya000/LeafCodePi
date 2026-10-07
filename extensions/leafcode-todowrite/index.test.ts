@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import registerTodowrite, { normalizeTodos, todowriteTestSeams } from "./index.ts";
 import { JEV_NOUL_JUDGE_KEY, type JevNoulJudge, type JevNoulRequest } from "./jev-bridge.ts";
 import { TODO_JEV_TIMEOUT_MS, TODO_REQUEST_MAX_CHARS } from "./todo-need.ts";
+import { classifyClosingShellCommand, isClosingShellCommand, isNonReviewShellCommand } from "./enforcement.ts";
 
 type Handler = (event: any, ctx: ExtensionContext) => unknown;
 type TodoTool = {
@@ -120,6 +121,35 @@ describe("normalizeTodos", () => {
 });
 
 describe("todowrite review regressions", () => {
+  it.each([
+    ["git status | sort | head -n 20", "bash", "confirmation"],
+    ["git status | sort -u --reverse | head -n 20", "bash", "confirmation"],
+    ["git status | sort '-ru'", "bash", "confirmation"],
+    ["git status | Select-Object -First 20 | Out-String", "powershell", "confirmation"],
+    ["git status && git diff || git log -1", "bash", "confirmation"],
+    ["git fetch origin; git -C 'repo path' merge --no-edit origin/master | Out-String", "powershell", "merge"],
+    ["git merge origin/master; git status", "bash", "merge"],
+  ])("preserves safe closing pipelines and merge review: %s", (command, toolName, expected) => {
+    expect(classifyClosingShellCommand(command, toolName)).toBe(expected);
+    expect(isClosingShellCommand(command, toolName)).toBe(true);
+    expect(isNonReviewShellCommand(command, toolName)).toBe(expected === "confirmation");
+  });
+  it.each([
+    'git status | sort --output=source.ts', 'git status | sort -o source.ts',
+    'git status | sort "--output=source.ts"', 'git status | sort -osource.ts',
+    'git status | sort --compress-program=custom', 'git status | head-custom file',
+    "git status | sort '-osource.ts'", "git status | sort '--compress-program=custom'",
+    'git status | sort |', 'git status && || git diff',
+    'git status | sort --out=source.ts', 'git status | sort --compress-prog=custom',
+    'git status | sort -uo source.ts', "git status | sort '-uo' source.ts",
+    'git push -qf', "git push '-qf'", 'git push -fq',
+    'git status |', '| git status', 'git status ||', 'git status &&',
+  ])("rejects output-filter side effects and malformed pipelines: %s", async (command) => {
+    const run = fixture();
+    await run.writeTodos([{ content: "Work", status: "in_progress", priority: "high" }]);
+    await run.writeTodos([{ content: "Work", status: "completed", priority: "high" }]);
+    expect(run.callTool("bash", { command })?.block).toBe(true);
+  });
   it("rejects escaped unquoted POSIX flag fragments after completion", async () => {
     const run = fixture();
     await run.writeTodos([{ content: "Work", status: "in_progress", priority: "high" }]);
