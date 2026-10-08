@@ -249,8 +249,8 @@ describe("ProviderAuthPanel provider-scoped accounts", () => {
 
   it.each([
     { credentialKind: undefined, oauthLabel: "ログイン", apiLabel: "APIキー登録" },
-    { credentialKind: "api_key", oauthLabel: "ログイン", apiLabel: "APIキー変更" },
-    { credentialKind: "oauth", oauthLabel: "再ログイン", apiLabel: "APIキー登録" },
+    { credentialKind: "api_key", oauthLabel: null, apiLabel: "APIキー変更" },
+    { credentialKind: "oauth", oauthLabel: "再ログイン", apiLabel: null },
   ] as const)("labels dual-method buttons by the stored $credentialKind credential", async ({ credentialKind, oauthLabel, apiLabel }) => {
     fetchMock.mockImplementation((input: RequestInfo | URL) => {
       const url = String(input);
@@ -267,8 +267,38 @@ describe("ProviderAuthPanel provider-scoped accounts", () => {
     });
     render(<ProviderAuthPanel providers={[modernProvider]} onChanged={() => {}} />);
     const modern = await accountRegion("OpenAI");
-    expect(await within(modern).findByRole("button", { name: oauthLabel })).toBeTruthy();
-    expect(await within(modern).findByRole("button", { name: apiLabel })).toBeTruthy();
+    if (oauthLabel) expect(await within(modern).findByRole("button", { name: oauthLabel })).toBeTruthy();
+    if (apiLabel) expect(await within(modern).findByRole("button", { name: apiLabel })).toBeTruthy();
+    expect(within(modern).queryByRole("button", { name: "ログイン" }) !== null).toBe(!credentialKind);
+    expect(within(modern).queryByRole("button", { name: "APIキー登録" }) !== null).toBe(!credentialKind);
+  });
+
+  it.each(["oauth", "api_key"] as const)("restores both authentication options after logging out of $credentialKind", async (initialKind) => {
+    let credentialKind: "oauth" | "api_key" | undefined = initialKind;
+    fetchMock.mockImplementation((input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url.endsWith("/api/accounts")) {
+        return Promise.resolve(jsonResponse({ accounts: [modernAccounts[0]] }));
+      }
+      if (url.endsWith("/auth-status")) {
+        return Promise.resolve(jsonResponse({
+          providers: credentialKind ? ["openai"] : [],
+          credentialKinds: credentialKind ? { openai: credentialKind } : {},
+        }));
+      }
+      if (url.includes("/logout") && init?.method === "POST") credentialKind = undefined;
+      return Promise.resolve(jsonResponse({}));
+    });
+    render(<ProviderAuthPanel providers={[modernProvider]} onChanged={() => {}} />);
+    const modern = await accountRegion("OpenAI");
+    expect(await within(modern).findByRole("button", {
+      name: initialKind === "oauth" ? "再ログイン" : "APIキー変更",
+    })).toBeTruthy();
+    expect(within(modern).queryByRole("button", { name: "ログイン" })).toBeNull();
+    expect(within(modern).queryByRole("button", { name: "APIキー登録" })).toBeNull();
+    fireEvent.click(within(modern).getByRole("button", { name: "ログアウト" }));
+    expect(await within(modern).findByRole("button", { name: "ログイン" })).toBeTruthy();
+    expect(await within(modern).findByRole("button", { name: "APIキー登録" })).toBeTruthy();
   });
 
   it.each([false, true])("labels OpenCode Go API-key controls with authenticated=%s", async (authenticated) => {
@@ -298,8 +328,8 @@ describe("ProviderAuthPanel provider-scoped accounts", () => {
 
   it.each([
     { authenticated: false, subscription: false, oauthLabel: "ログイン", apiLabel: "APIキー登録" },
-    { authenticated: true, subscription: false, oauthLabel: "ログイン", apiLabel: "APIキー変更" },
-    { authenticated: true, subscription: true, oauthLabel: "再ログイン", apiLabel: "APIキー登録" },
+    { authenticated: true, subscription: false, oauthLabel: null, apiLabel: "APIキー変更" },
+    { authenticated: true, subscription: true, oauthLabel: "再ログイン", apiLabel: null },
   ])("labels shared-provider controls with authenticated=$authenticated subscription=$subscription", ({ authenticated, subscription, oauthLabel, apiLabel }) => {
     mockAccountsApi([]);
     render(<ProviderAuthPanel providers={[{
@@ -307,8 +337,10 @@ describe("ProviderAuthPanel provider-scoped accounts", () => {
       methods: ["api_key", "oauth"],
     }]} onChanged={() => {}} />);
     const card = screen.getByText("TypeSafe", { selector: "span" }).closest("li")!;
-    expect(within(card).getByRole("button", { name: oauthLabel })).toBeTruthy();
-    expect(within(card).getByRole("button", { name: apiLabel })).toBeTruthy();
+    if (oauthLabel) expect(within(card).getByRole("button", { name: oauthLabel })).toBeTruthy();
+    if (apiLabel) expect(within(card).getByRole("button", { name: apiLabel })).toBeTruthy();
+    expect(within(card).queryByRole("button", { name: "ログイン" }) !== null).toBe(!authenticated);
+    expect(within(card).queryByRole("button", { name: "APIキー登録" }) !== null).toBe(!authenticated);
   });
 
   it("removes legacy Jev keys from provider connections, including inactive endpoints", async () => {
@@ -1243,8 +1275,8 @@ describe("ProviderAuthPanel provider-scoped accounts", () => {
 
     const anthropic = await accountRegion("Anthropic");
     expect(
-      within(anthropic).getByRole("button", { name: "ログイン" }),
-    ).toBeTruthy();
+      within(anthropic).queryByRole("button", { name: "ログイン" }),
+    ).toBeNull();
     fireEvent.click(within(anthropic).getByRole("button", { name: "APIキー変更" }));
 
     await waitFor(() => {

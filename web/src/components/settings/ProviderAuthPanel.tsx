@@ -1581,6 +1581,10 @@ export const ProviderAuthPanel = memo(function ProviderAuthPanel({
                     (providerId === "opencode-go" && cookieConfigured);
                   const peerManaged = peerAccountIds.has(account.id);
                   const currentCookieKey = cookieKey(providerId, account.id);
+                  const credentialKind = credentialKinds[currentCookieKey];
+                  const visibleAuthTypes = piAuthenticated && credentialKind
+                    ? accountAuthTypes.filter((authType) => authType === credentialKind)
+                    : accountAuthTypes;
                   const cookieEditing = cookieEditingKey === currentCookieKey;
                   const cookieAccountBusy = cookieBusy === currentCookieKey;
                   const baselineStored = creditBaselines[currentCookieKey] ?? null;
@@ -1724,7 +1728,7 @@ export const ProviderAuthPanel = memo(function ProviderAuthPanel({
                                 <Badge tone="neutral">別のLCP</Badge>
                               ) : (
                                 <>
-                                  {accountAuthTypes.map((authType) => (
+                                  {visibleAuthTypes.map((authType) => (
                                     <Button
                                       key={authType}
                                       size="sm"
@@ -2340,12 +2344,12 @@ function ProviderRow({
           {hint && <p className="mt-0.5 text-xs text-muted">{hint}</p>}
         </div>
         <div className="flex flex-wrap gap-1">
-          {!accountManaged && onOAuth && (
+          {!accountManaged && onOAuth && (!provider.authenticated || provider.subscription === true) && (
             <Button size="sm" disabled={disabled} onClick={onOAuth}>
               {providerLoginLabel("oauth", provider.authenticated && provider.subscription === true)}
             </Button>
           )}
-          {!accountManaged && onApiKey && (
+          {!accountManaged && onApiKey && (!provider.authenticated || !provider.subscription) && (
             <Button
               size="sm"
               variant="ghost"
