@@ -56,7 +56,7 @@ import { AUTO_TASK_PROMPT_MAX, writeAutoTaskRecord } from "@/lib/auto-task-recor
 import { notifyTasksChanged } from "@/lib/events";
 import { getJson, sendJson } from "@/lib/client";
 import { PROJECT_ORDER_API_PATH, parseProjectOrder } from "@/lib/sidebar-settings";
-import { projectsForSidebar } from "@/lib/sidebar-order";
+import { compareIsoUpdatedAtDescending, projectsForSidebar } from "@/lib/sidebar-order";
 import { DEFAULT_AGENT, hasMultipleAgentChoices, readStoredAgent, resolveAgentSelection, writeStoredAgent } from "@/lib/default-agent";
 import {
   readStoredThinkingLevel,
@@ -261,7 +261,7 @@ export const HomeView = memo(function HomeView({
         if (modelRefreshRef.current === refreshId) setModelsLoading(false);
       });
 
-    const [projectRes, healthRes, agentRes, skillRes, projectOrderRes] = await Promise.allSettled([
+    const [projectRes, healthRes, agentRes, skillRes, projectOrderRes, taskRes] = await Promise.allSettled([
       getJson<{ projects: ProjectDto[] }>("/api/projects"),
       getJson<HealthDto>("/api/health"),
       getJson<{
@@ -270,6 +270,7 @@ export const HomeView = memo(function HomeView({
       }>("/api/agents"),
       getJson<{ skills: { name: string; description?: string; enabled: boolean }[] }>("/api/skills"),
       getJson<{ value?: string | null }>(PROJECT_ORDER_API_PATH),
+      getJson<{ tasks?: TaskSummary[] }>("/api/tasks?kind=all"),
     ]);
     if (projectOrderRes.status === "fulfilled") {
       setProjectOrder(parseProjectOrder(projectOrderRes.value?.value) ?? []);
@@ -292,13 +293,22 @@ export const HomeView = memo(function HomeView({
           ? current
           : nextProjects,
       );
+      // 完了済み（working / archived 以外）で最も新しいタスクのプロジェクトをデフォルトにする。
+      const completedTasks = (taskRes.status === "fulfilled" ? taskRes.value.tasks ?? [] : [])
+        .filter((task) => task.status !== "working" && task.status !== "archived" && task.projectId);
+      const lastCompleted = completedTasks
+        .sort((a, b) => compareIsoUpdatedAtDescending(b.updatedAt, a.updatedAt))[0];
+      const defaultProjectId =
+        lastCompleted && nextProjects.some((project) => project.id === lastCompleted.projectId)
+          ? lastCompleted.projectId
+          : orderedNext[0]?.id ?? null;
       setProjectId((current) => {
         if (preferredProjectId && nextProjects.some((project) => project.id === preferredProjectId)) {
           return preferredProjectId;
         }
         if (current === null) return null;
         if (current && nextProjects.some((project) => project.id === current)) return current;
-        return orderedNext[0]?.id ?? null;
+        return defaultProjectId;
       });
     }
     if (healthRes.status === "fulfilled") {
