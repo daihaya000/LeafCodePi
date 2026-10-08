@@ -1,2 +1,2 @@
-/** Compatibility entrypoint during the SDK runtime's incremental migration. */
-export { AccountRuntimeManager } from "@backend-core/account-runtime-manager.mjs";
+// Compatibility entrypoint. Implementation is owned by Backend.
+export * from "@backend-runtime/lib/pi/account-runtime-manager";

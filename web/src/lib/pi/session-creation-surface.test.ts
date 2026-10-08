@@ -10,7 +10,7 @@ import { describe, expect, it } from "vitest";
  * test is the executable inventory — it fails when a second creation site appears, and it shrinks
  * to nothing when the owner path is deleted.
  */
-const SRC_DIR = join(__dirname, "..", "..");
+const SRC_DIR = join(__dirname, "..", "..", "..", "..", "backend", "runtime-src");
 /** A real call, not a type reference (`ReturnType<PiModule["createAgentSession"]>` is a type). */
 const SESSION_CREATION = /createAgentSession\s*\(/;
 

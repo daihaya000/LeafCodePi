@@ -1,0 +1,46 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "lib": [
+      "ESNext",
+      "DOM",
+      "DOM.Iterable"
+    ],
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "strict": true,
+    "noEmit": true,
+    "skipLibCheck": true,
+    "esModuleInterop": true,
+    "allowJs": true,
+    "allowImportingTsExtensions": true,
+    "resolveJsonModule": true,
+    "types": [
+      "node"
+    ],
+    "paths": {
+      "@/*": [
+        "./runtime-src/*"
+      ],
+      "@backend-runtime/*": [
+        "./runtime-src/*"
+      ],
+      "@backend-core/*": [
+        "./core/*"
+      ],
+      "@shared/*": [
+        "../shared/*"
+      ],
+      "@extensions/*": [
+        "../extensions/*"
+      ]
+    }
+  },
+  "include": [
+    "runtime-src/**/*.ts",
+    "types/**/*.d.ts"
+  ],
+  "exclude": [
+    "node_modules"
+  ]
+}

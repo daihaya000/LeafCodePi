@@ -1,9 +1,2 @@
-// Compatibility entrypoint: session identity reconciliation lives in backend core
-// so the Backend process can project session metadata onto tasks.
-export {
-  hasIdentityChanges,
-  sessionIdentityPatch,
-  sessionIdentitySource,
-  type SessionIdentity,
-  type SessionIdentityPatch,
-} from "@backend-core/session-identity.mjs";
+// Compatibility entrypoint. Implementation is owned by Backend.
+export * from "@backend-runtime/lib/pi/session-identity";

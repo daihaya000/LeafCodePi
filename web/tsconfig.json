@@ -35,6 +35,10 @@
         "./shared/*",
         "../shared/*"
       ],
+      "@backend-runtime/*": [
+        "./backend/runtime-src/*",
+        "../backend/runtime-src/*"
+      ],
       "@backend-core/*": [
         "./backend/core/*",
         "../backend/core/*"

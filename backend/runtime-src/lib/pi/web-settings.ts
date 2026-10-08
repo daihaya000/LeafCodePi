@@ -1,0 +1,175 @@
+import { randomUUID } from "node:crypto";
+import {
+  mkdirSync,
+  readFileSync,
+  renameSync,
+  rmSync,
+  statSync,
+  writeFileSync,
+} from "node:fs";
+import { dirname, join } from "node:path";
+import { dataDir } from "@/lib/paths";
+
+/**
+ * 文字列設定の永続保存（本家 LeafCode の settings 表相当）。
+ * localStorage 同期を使う設定のバックアップだけでなく、サーバーを正本とする設定も
+ * hang-settings.ts と同じ web-settings.json を共有し、read/write もここへ集約する。
+ * （旧: hang-settings.ts が同じファイルを別実装で読み書きしており、開発サーバの
+ * 再起動やクラッシュで書き込み途中のファイルが読まれて設定が丸ごと消える障害があった）。
+ * setting-sync を使う設定でもここが正本で、クライアントの localStorage は起動時 hydrate されるキャッシュ。
+ */
+export type WebSettingsFile = {
+  version: 1;
+  [key: string]: unknown;
+};
+
+function settingsPath(): string {
+  return join(dataDir(), "web-settings.json");
+}
+
+let cachedSettings: {
+  file: string;
+  mtimeMs: number;
+  size: number;
+  value: WebSettingsFile;
+} | null = null;
+
+/** 破損・欠損時は空設定へフォールバック（例外で他設定まで巻き込まない）。 */
+export function readSettingsFile(): WebSettingsFile {
+  const file = settingsPath();
+  let stat: ReturnType<typeof statSync>;
+  try {
+    stat = statSync(file);
+  } catch {
+    if (cachedSettings?.file === file) cachedSettings = null;
+    return { version: 1 };
+  }
+  if (
+    cachedSettings?.file === file &&
+    cachedSettings.mtimeMs === stat.mtimeMs &&
+    cachedSettings.size === stat.size
+  ) {
+    return cachedSettings.value;
+  }
+  try {
+    const parsed = JSON.parse(readFileSync(file, "utf8")) as WebSettingsFile;
+    if (!parsed || parsed.version !== 1) {
+      cachedSettings = null;
+      return { version: 1 };
+    }
+    cachedSettings = {
+      file,
+      mtimeMs: stat.mtimeMs,
+      size: stat.size,
+      value: parsed,
+    };
+    return parsed;
+  } catch {
+    cachedSettings = null;
+    return { version: 1 };
+  }
+}
+
+/**
+ * 一時ファイルへ書いてから rename する原子的書き込み。
+ * 直接上書きだとプロセスが書き込み途中で落ちた（サーバ再起動・クラッシュ）場合に
+ * ファイルが壊れ、readSettingsFile が JSON.parse 失敗で全設定を失っていた。
+ * rename は POSIX/Windows とも既存ファイルへの上書きを含めて原子的。
+ */
+export function writeSettingsFile(settings: WebSettingsFile): void {
+  const file = settingsPath();
+  const dir = dirname(file);
+  mkdirSync(dir, { recursive: true });
+  const tmp = join(dir, `.web-settings.json.${process.pid}.${Date.now()}.tmp`);
+  try {
+    writeFileSync(tmp, `${JSON.stringify(settings, null, 2)}\n`, "utf8");
+    renameSync(tmp, file);
+  } finally {
+    rmSync(tmp, { force: true });
+    // The object passed to updateSettingsFile is mutable; never serve it from
+    // the read cache after a write attempt (including a failed one).
+    cachedSettings = null;
+  }
+}
+
+const lockWait = new Int32Array(new SharedArrayBuffer(4));
+
+function ownerIsAlive(lock: string): boolean {
+  try {
+    if (Date.now() - statSync(lock).mtimeMs >= 30_000) return false;
+    const [rawPid] = readFileSync(join(lock, "owner"), "utf8").split(":");
+    const pid = Number(rawPid);
+    if (!Number.isInteger(pid) || pid <= 0) return true;
+    process.kill(pid, 0);
+    return true;
+  } catch (error) {
+    return (error as NodeJS.ErrnoException).code !== "ESRCH";
+  }
+}
+
+/** 複数Nodeプロセス間でもread-modify-writeを直列化する。 */
+export function updateSettingsFile<T>(update: (settings: WebSettingsFile) => T): T {
+  const file = settingsPath();
+  const lock = `${file}.lock`;
+  const owner = `${process.pid}:${randomUUID()}`;
+  mkdirSync(dirname(file), { recursive: true });
+  const deadline = Date.now() + 5_000;
+  for (;;) {
+    try {
+      mkdirSync(lock);
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
+      if (!ownerIsAlive(lock)) {
+        rmSync(lock, { recursive: true, force: true });
+        continue;
+      }
+      if (Date.now() >= deadline) throw new Error("web-settings lock timeout");
+      Atomics.wait(lockWait, 0, 0, 25);
+      continue;
+    }
+    try {
+      writeFileSync(join(lock, "owner"), owner, "utf8");
+    } catch (error) {
+      rmSync(lock, { recursive: true, force: true });
+      throw error;
+    }
+    break;
+  }
+
+  try {
+    const settings = readSettingsFile();
+    const result = update(settings);
+    writeSettingsFile(settings);
+    return result;
+  } finally {
+    try {
+      if (readFileSync(join(lock, "owner"), "utf8") === owner) {
+        rmSync(lock, { recursive: true, force: true });
+      }
+    } catch {
+      /* 期限切れとして別プロセスが引き継いだ場合は触らない。 */
+    }
+  }
+}
+
+/** 転送失敗時に元のバイト列へ戻した後、古い設定オブジェクトを再利用しない。 */
+export function invalidateSettingsFileCache(): void {
+  cachedSettings = null;
+}
+
+const readSettings = readSettingsFile;
+
+/** 最大 4KB。この BFF は認証なしで LAN から到達可能なため。 */
+export const MAX_SETTING_VALUE_CHARS = 4096;
+
+export function getSetting(key: string): string | null {
+  const raw = readSettings()[key];
+  return typeof raw === "string" && raw.length > 0 ? raw : null;
+}
+
+export function setSetting(key: string, value: string | null): void {
+  updateSettingsFile((settings) => {
+    if (value === null || value.length === 0) delete settings[key];
+    else settings[key] = value;
+  });
+}

@@ -102,5 +102,5 @@ test("the built bundle exposes the current native MCP runtime API", { skip: !exi
 test("the runtime entry source and build script exist", () => {
   const root = resolve(HERE, "..", "..");
   assert.ok(existsSync(join(root, "scripts", "build-backend-runtime.mjs")), "build script is missing");
-  assert.ok(existsSync(join(root, "web", "src", "lib", "pi", "backend-runtime-entry.ts")), "runtime entry is missing");
+  assert.ok(existsSync(join(root, "backend", "runtime-src", "lib", "pi", "backend-runtime-entry.ts")), "runtime entry is missing");
 });

@@ -223,7 +223,7 @@ test("syncMirror copies only the ToDo visibility bridge and keeps sibling runtim
     // @extensions resolves inside the mirror, with a checkout-sibling fallback for development.
     const config = JSON.parse(readFileSync(join(REPO_ROOT, "web", "tsconfig.json"), "utf8"));
     assert.deepEqual(config.compilerOptions.paths["@extensions/*"], ["./extensions/*", "../extensions/*"]);
-    const deferredTools = readFileSync(join(REPO_ROOT, "web", "src", "lib", "pi", "deferred-tools.ts"), "utf8");
+    const deferredTools = readFileSync(join(REPO_ROOT, "backend", "runtime-src", "lib", "pi", "deferred-tools.ts"), "utf8");
     assert.ok(deferredTools.includes(`from "${importPath}"`));
     const mirroredBridge = resolve(mirror, config.compilerOptions.paths["@extensions/*"][0].replace("*", "leafcode-todowrite/visibility.ts"));
     const mirroredExtension = dirname(mirroredBridge);

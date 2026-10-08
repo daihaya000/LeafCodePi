@@ -76,7 +76,7 @@ describe("native MCP session selection", () => {
     assert.equal(loaded.extensions.filter((extension) => extension.tools.has("codemode")).length, 1);
     assert.equal(loaded.extensions.some((extension) => extension.tools.has("tool_search")), true);
     // The harness must resolve the provider per loader run (and per reload), not capture its factories.
-    const harnessSource = readFileSync(new URL("./harness.ts", import.meta.url), "utf8");
+    const harnessSource = readFileSync(new URL("../../../../backend/runtime-src/lib/pi/harness.ts", import.meta.url), "utf8");
     assert.match(harnessSource, /nativeMcpExtensionFactory\(\s*options\.cwd, \(api\) => \{\s*pi\.createCodemodeExtension\(\{ mode: "on", models: false \}\)\(api\)/);
     assert.ok(harnessSource.includes("pi.createToolSearchExtension()(api)"));
     assert.equal(harnessSource.includes("...nativeMcp.factories"), false);

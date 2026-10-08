@@ -1,0 +1,258 @@
+import {
+  existsSync,
+  lstatSync,
+  mkdirSync,
+  readFileSync,
+  realpathSync,
+  statSync,
+  writeFileSync,
+} from "node:fs";
+import { homedir } from "node:os";
+import { basename, dirname, join, resolve } from "node:path";
+
+export const MAX_AGENTS_MD_BYTES = 2 * 1024 * 1024;
+export const AGENTS_MD_FILENAME = "AGENTS.md";
+/** Global agent personality/tone. Code sessions read it; bots use their own SOUL.md. */
+export const SOUL_MD_FILENAME = "SOUL.md";
+/** Global user profile. Code sessions read it. */
+export const USER_MD_FILENAME = "USER.md";
+/** Common instructions for bot mode. Bots never read AGENTS.md. */
+export const BOTS_MD_FILENAME = "BOTS.md";
+/** Optional Code reference for tool usage. Loaded on demand, never into the base prompt. */
+export const TOOLS_MD_FILENAME = "TOOLS.md";
+/** Optional Code reference for UI design. Loaded on demand, never into the base prompt. */
+export const DESIGN_MD_FILENAME = "DESIGN.md";
+/** Optional Code reference for changes, verification, and Git workflow. */
+export const WORKFLOW_MD_FILENAME = "WORKFLOW.md";
+
+export type AgentsMdDto = {
+  path: string;
+  exists: boolean;
+  content: string;
+};
+
+function expandTilde(value: string): string {
+  if (value === "~") return homedir();
+  if (value.startsWith("~/") || value.startsWith("~\\")) {
+    return join(homedir(), value.slice(2));
+  }
+  return value;
+}
+
+export type AgentsMdEnv = { [key: string]: string | undefined };
+
+/** Pi's agent dir (`~/.pi/agent` or `PI_CODING_AGENT_DIR`). */
+export function resolvePiAgentDir(env: AgentsMdEnv = process.env): string {
+  const fromEnv = env.PI_CODING_AGENT_DIR?.trim();
+  if (fromEnv) return resolve(expandTilde(fromEnv));
+  return join(homedir(), ".pi", "agent");
+}
+
+export function globalAgentsMdPath(env: AgentsMdEnv = process.env): string {
+  return join(resolvePiAgentDir(env), AGENTS_MD_FILENAME);
+}
+
+export function globalBotsMdPath(env: AgentsMdEnv = process.env): string {
+  return join(resolvePiAgentDir(env), BOTS_MD_FILENAME);
+}
+
+export function globalSoulMdPath(env: AgentsMdEnv = process.env): string {
+  return join(resolvePiAgentDir(env), SOUL_MD_FILENAME);
+}
+
+export function globalUserMdPath(env: AgentsMdEnv = process.env): string {
+  return join(resolvePiAgentDir(env), USER_MD_FILENAME);
+}
+
+export function globalToolsMdPath(env: AgentsMdEnv = process.env): string {
+  return join(resolvePiAgentDir(env), TOOLS_MD_FILENAME);
+}
+
+export function globalDesignMdPath(env: AgentsMdEnv = process.env): string {
+  return join(resolvePiAgentDir(env), DESIGN_MD_FILENAME);
+}
+
+export function globalWorkflowMdPath(env: AgentsMdEnv = process.env): string {
+  return join(resolvePiAgentDir(env), WORKFLOW_MD_FILENAME);
+}
+
+function assertUtf8Size(filePath: string, content: string): void {
+  if (Buffer.byteLength(content, "utf8") > MAX_AGENTS_MD_BYTES) {
+    throw Object.assign(new Error(`${basename(filePath)}は2MB以内で指定してください`), { status: 413 });
+  }
+}
+
+/** Last read per real path, reused while size, mtime (ns) and inode are unchanged. */
+const AGENTS_MD_CACHE_LIMIT = 32;
+const agentsMdContentCache = new Map<string, { stamp: string; content: string }>();
+
+export function readAgentsMdFile(filePath: string): AgentsMdDto {
+  const resolved = resolve(filePath);
+  const name = basename(resolved);
+  let link: ReturnType<typeof lstatSync>;
+  try {
+    link = lstatSync(resolved);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException)?.code === "ENOENT") return { path: resolved, exists: false, content: "" };
+    throw error;
+  }
+  if (link.isSymbolicLink()) {
+    throw Object.assign(new Error(`${name}はシンボリックリンクのため読み込めません`), {
+      status: 400,
+    });
+  }
+  const real = realpathSync.native(resolved);
+  const stat = statSync(real, { bigint: true });
+  if (!stat.isFile()) {
+    throw Object.assign(new Error(`${name}を安全に読み込めません`), { status: 400 });
+  }
+  if (stat.size > BigInt(MAX_AGENTS_MD_BYTES)) {
+    throw Object.assign(new Error(`${name}は2MBを超えているため編集できません`), { status: 413 });
+  }
+  const stamp = `${stat.size}:${stat.mtimeNs}:${stat.ino}`;
+  const cached = agentsMdContentCache.get(real);
+  if (cached?.stamp === stamp) return { path: real, exists: true, content: cached.content };
+  const content = readFileSync(real, "utf8");
+  agentsMdContentCache.delete(real);
+  agentsMdContentCache.set(real, { stamp, content });
+  if (agentsMdContentCache.size > AGENTS_MD_CACHE_LIMIT) {
+    const oldest = agentsMdContentCache.keys().next().value;
+    if (oldest !== undefined) agentsMdContentCache.delete(oldest);
+  }
+  return { path: real, exists: true, content };
+}
+
+export function writeAgentsMdFile(filePath: string, content: string): AgentsMdDto {
+  assertUtf8Size(filePath, content);
+  const target = resolve(filePath);
+  const parent = dirname(target);
+  mkdirSync(parent, { recursive: true });
+  if (existsSync(target) && lstatSync(target).isSymbolicLink()) {
+    throw Object.assign(new Error(`${basename(target)}はシンボリックリンクのため編集できません`), {
+      status: 400,
+    });
+  }
+  writeFileSync(target, content, "utf8");
+  return { path: target, exists: true, content };
+}
+
+export function readGlobalAgentsMd(env: AgentsMdEnv = process.env): AgentsMdDto {
+  return readAgentsMdFile(globalAgentsMdPath(env));
+}
+
+export function writeGlobalAgentsMd(content: string, env: AgentsMdEnv = process.env): AgentsMdDto {
+  return writeAgentsMdFile(globalAgentsMdPath(env), content);
+}
+
+export function readGlobalBotsMd(env: AgentsMdEnv = process.env): AgentsMdDto {
+  return readAgentsMdFile(globalBotsMdPath(env));
+}
+
+export function writeGlobalBotsMd(content: string, env: AgentsMdEnv = process.env): AgentsMdDto {
+  return writeAgentsMdFile(globalBotsMdPath(env), content);
+}
+
+export function readGlobalSoulMd(env: AgentsMdEnv = process.env): AgentsMdDto {
+  return readAgentsMdFile(globalSoulMdPath(env));
+}
+
+export function writeGlobalSoulMd(content: string, env: AgentsMdEnv = process.env): AgentsMdDto {
+  return writeAgentsMdFile(globalSoulMdPath(env), content);
+}
+
+export function readGlobalUserMd(env: AgentsMdEnv = process.env): AgentsMdDto {
+  return readAgentsMdFile(globalUserMdPath(env));
+}
+
+export function writeGlobalUserMd(content: string, env: AgentsMdEnv = process.env): AgentsMdDto {
+  return writeAgentsMdFile(globalUserMdPath(env), content);
+}
+
+export function readGlobalToolsMd(env: AgentsMdEnv = process.env): AgentsMdDto {
+  return readAgentsMdFile(globalToolsMdPath(env));
+}
+
+export function writeGlobalToolsMd(content: string, env: AgentsMdEnv = process.env): AgentsMdDto {
+  return writeAgentsMdFile(globalToolsMdPath(env), content);
+}
+
+export function readGlobalDesignMd(env: AgentsMdEnv = process.env): AgentsMdDto {
+  return readAgentsMdFile(globalDesignMdPath(env));
+}
+
+export function writeGlobalDesignMd(content: string, env: AgentsMdEnv = process.env): AgentsMdDto {
+  return writeAgentsMdFile(globalDesignMdPath(env), content);
+}
+
+export function readGlobalWorkflowMd(env: AgentsMdEnv = process.env): AgentsMdDto {
+  return readAgentsMdFile(globalWorkflowMdPath(env));
+}
+
+export function writeGlobalWorkflowMd(content: string, env: AgentsMdEnv = process.env): AgentsMdDto {
+  return writeAgentsMdFile(globalWorkflowMdPath(env), content);
+}
+
+/** Shorten only the SDK's stock guide, never a custom persona or user file. */
+export function compactSdkDocumentation(prompt: string): string {
+  if (!prompt.startsWith("You are an expert coding assistant operating inside pi, a coding agent harness.")) return prompt;
+  return prompt.replace(
+    /Pi documentation \(read only when[^\n]*\n(- Main documentation:[^\n]*\n- Additional docs:[^\n]*\n- Examples:[^\n]*)\n- When reading pi docs[^\n]*\n- When asked about:[^\n]*\n- When working on pi topics[^\n]*\n- Always read pi \.md files completely and follow links to related docs[^\n]*/,
+    // Keep the SDK's opening anchor verbatim: pi-anthropic-auth drops this
+    // whole section for Anthropic OAuth requests by matching it.
+    "Pi documentation (read only when the user asks about pi itself): read the relevant local .md files completely and follow their links. Resolve docs/examples under these directories:\n$1",
+  );
+}
+
+/**
+ * Code session prompt sources (paths, re-read on reload).
+ * Pi loads AGENTS.md natively; SOUL.md/USER.md are appended when present.
+ */
+export function codePromptSources(agentDir: string): string[] {
+  const sources: string[] = [];
+  const soul = join(agentDir, SOUL_MD_FILENAME);
+  const user = join(agentDir, USER_MD_FILENAME);
+  if (existsSync(soul)) sources.push(soul);
+  if (existsSync(user)) sources.push(user);
+  return sources;
+}
+
+/**
+ * Small catalog for optional Code references. The files themselves stay out of
+ * the base prompt; the model reads one only when the task needs it.
+ */
+export function codeOnDemandPrompt(agentDir: string): string {
+  const entries = [
+    [TOOLS_MD_FILENAME, "read relevant sections before tool-specific work"],
+    [DESIGN_MD_FILENAME, "read before UI work"],
+    [WORKFLOW_MD_FILENAME, "read before changes, verification, or Git operations"],
+  ].flatMap(([fileName, when]) => {
+    const filePath = join(agentDir, fileName);
+    // Optional references may be absent, directories, or uneditable symlinks.
+    // Inspect metadata only: their bodies must never enter the base prompt.
+    try {
+      const stat = lstatSync(filePath);
+      if (!stat.isFile() || stat.size === 0) return [];
+    } catch {
+      return [];
+    }
+    return [`- ${fileName} (${when}): ${JSON.stringify(filePath.replaceAll("\\", "/"))}`];
+  });
+  if (!entries.length) return "";
+  return [
+    "<on_demand_context>",
+    "Optional reference files are not loaded automatically. Read one with the read tool only when the task needs it:",
+    ...entries,
+    "Follow the relevant file after reading it; do not spend context loading unrelated files.",
+    "</on_demand_context>",
+  ].join("\n");
+}
+
+export function errorStatus(error: unknown, fallback = 500): number {
+  if (error && typeof error === "object" && "status" in error) {
+    const status = (error as { status?: unknown }).status;
+    if (typeof status === "number" && Number.isInteger(status) && status >= 400 && status < 600) {
+      return status;
+    }
+  }
+  return fallback;
+}

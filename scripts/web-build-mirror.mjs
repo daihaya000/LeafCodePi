@@ -196,6 +196,7 @@ export function syncMirror(options = {}) {
   const extras = [
     { name: "shared", path: ["shared"], source: join(dirname(sourceDir), "shared") },
     { name: "backend/core", path: ["backend", "core"], source: join(dirname(sourceDir), "backend", "core") },
+    { name: "backend/runtime-src", path: ["backend", "runtime-src"], source: join(dirname(sourceDir), "backend", "runtime-src") },
     {
       name: "extensions/leafcode-subagents",
       path: ["extensions", "leafcode-subagents"],
