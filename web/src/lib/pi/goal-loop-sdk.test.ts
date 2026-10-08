@@ -15,8 +15,9 @@ import {
   type ModelRegistry,
 } from "@earendil-works/pi-coding-agent";
 import type { AssistantMessage } from "@earendil-works/pi-ai";
-import goalLoopExtension, { HOST_ROUTING_CHANNEL, goalLoopTestSeams } from "../../../../extensions/leafcode-goal-loop/index";
+import goalLoopExtension, { HOST_ROUTING_CHANNEL, HOST_ROUTING_READY_CHANNEL, goalLoopTestSeams } from "../../../../extensions/leafcode-goal-loop/index";
 import { isGoalLoopCommandApplied } from "./goal-loop-command";
+import { shouldApplySettledStatus } from "@backend-core/session-event-decisions.mjs";
 
 it.each(["provider-abort", "timeout-abort"])("automatically retries an aborted Goal Loop turn through the real SDK without consuming its budget (%s)", async (cause) => {
   const cwd = mkdtempSync(join(tmpdir(), "leafcode-goal-loop-abort-sdk-"));
@@ -67,6 +68,91 @@ it.each(["provider-abort", "timeout-abort"])("automatically retries an aborted G
     await session?.extensionRunner.emit({ type: "session_shutdown", reason: "quit" });
     session?.dispose();
     goalLoopTestSeams.setTurnTimeoutMs();
+    vi.unstubAllEnvs();
+    rmSync(cwd, { recursive: true, force: true });
+  }
+});
+
+it.each([
+  { promptActive: false, checkpoint: true },
+  { promptActive: true, checkpoint: false },
+])("keeps the run lease until Goal Loop settlement writes finish (promptActive=$promptActive)", async ({ promptActive, checkpoint }) => {
+  const cwd = mkdtempSync(join(tmpdir(), "leafcode-goal-loop-settlement-lease-"));
+  vi.stubEnv("LEAFCODE_PI_DATA_DIR", cwd);
+  const manager = SessionManager.inMemory(cwd);
+  const faux = fauxProvider();
+  faux.setResponses([
+    fauxAssistantMessage(JSON.stringify({ status: "completed", summary: "done" })),
+    fauxAssistantMessage(JSON.stringify({ status: "verified_completed", summary: "verified" })),
+  ]);
+  const modelRuntime = await ModelRuntime.create({ authPath: join(cwd, "auth.json"), modelsPath: null, refreshOnCreate: false });
+  modelRuntime.registerNativeProvider(faux.provider);
+  const settingsManager = SettingsManager.inMemory({ retry: { enabled: false } });
+  const loader = new DefaultResourceLoader({
+    cwd, agentDir: cwd, settingsManager,
+    noExtensions: true, noSkills: true, noPromptTemplates: true, noThemes: true, noContextFiles: true,
+    extensionFactories: [goalLoopExtension as unknown as ExtensionFactory, (api) => {
+      api.events.emit(HOST_ROUTING_CHANNEL, {});
+      api.on("session_start", (_event, ctx) => {
+        api.events.emit(HOST_ROUTING_READY_CHANNEL, {
+          sessionManager: ctx.sessionManager,
+          prepareGoalLoopTurn: async () => { ownsLease = true; return true; },
+        });
+      });
+      // Extensions can still persist checkpoints or request continuation after agent_end.
+      if (checkpoint) api.on("agent_before_settle", () => { api.appendEntry("settle-checkpoint", {}); });
+    }],
+  });
+  let session: Awaited<ReturnType<typeof createAgentSession>>["session"] | undefined;
+  let ownsLease = false;
+  const lostLeaseWrites: string[] = [];
+  const endLeases: boolean[] = [];
+  const snapshots: string[] = [];
+  const errors: string[] = [];
+  try {
+    await loader.reload();
+    ({ session } = await createAgentSession({
+      cwd, agentDir: cwd, resourceLoader: loader, settingsManager, sessionManager: manager,
+      modelRuntime, model: faux.getModel(), tools: [],
+    }));
+    // Mirror attachSession's write fence: an in-flight run without its lease is
+    // aborted/disposed. The decision below is the production harness decision.
+    const append = manager.appendCustomEntry.bind(manager);
+    manager.appendCustomEntry = (type, data) => {
+      if ((promptActive || session!.isStreaming) && !ownsLease) {
+        lostLeaseWrites.push(type);
+        session!.dispose();
+        return "";
+      }
+      if (type === "leafcode-goal-loop") snapshots.push((data as { snapshot: { status: string } }).snapshot.status);
+      return append(type, data);
+    };
+    session.subscribe((event) => {
+      if (event.type === "agent_start") ownsLease = true;
+      if (shouldApplySettledStatus(event, false)) ownsLease = false;
+      if (event.type === "agent_end") endLeases.push(ownsLease);
+    });
+    // Start commands and host preparation own their lease before writing.
+    ownsLease = true;
+    await session.bindExtensions({ onError: (error) => { errors.push(error.error); } });
+    await session.prompt(`/goal-start ${Buffer.from(JSON.stringify({ goal: "Verify completion", maxTurns: 1 })).toString("base64url")}`);
+    await vi.waitFor(() => expect(endLeases.length).toBeGreaterThan(0), { timeout: 3_000, interval: 10 });
+    expect(lostLeaseWrites).toEqual([]);
+    expect(endLeases[0]).toBe(true);
+    const state = () => JSON.parse(readFileSync(join(cwd, "goals-loop", `${manager.getSessionId()}.json`), "utf8"));
+    await vi.waitFor(() => expect(state()).toMatchObject({ status: "completed", turnCount: 1 }), { timeout: 3_000, interval: 10 });
+    await session.waitForIdle();
+    expect(lostLeaseWrites).toEqual([]);
+    expect(endLeases).toEqual([true, true]);
+    expect(snapshots).toContain("verifying_completed");
+    expect(snapshots).toContain("completed");
+    expect(faux.state.callCount).toBe(2);
+    expect(ownsLease).toBe(false);
+    expect(errors).toEqual([]);
+  } finally {
+    ownsLease = true;
+    await session?.extensionRunner.emit({ type: "session_shutdown", reason: "quit" });
+    session?.dispose();
     vi.unstubAllEnvs();
     rmSync(cwd, { recursive: true, force: true });
   }

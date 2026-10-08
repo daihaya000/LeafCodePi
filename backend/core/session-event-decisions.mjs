@@ -25,12 +25,15 @@ export function shouldSyncTaskFromSessionEvent(event, harnessAutoCompactionError
 }
 
 /**
- * A settled turn: `agent_settled`, or `agent_end` that will not retry. While a
- * transport recovery is pending the outcome belongs to the replacement attempt.
+ * Only agent_settled closes the run. Even a non-retrying agent_end precedes
+ * post-run extension writes, compaction and before-settle continuations. Releasing
+ * the lease there makes those writes look like lost ownership and disposes the
+ * session before Goal Loop can send its verification turn. While transport
+ * recovery is pending the outcome belongs to the replacement attempt.
  */
 export function shouldApplySettledStatus(event, pendingTransportRecovery) {
   if (pendingTransportRecovery === true) return false;
-  return event.type === "agent_settled" || (event.type === "agent_end" && !event.willRetry);
+  return event.type === "agent_settled";
 }
 
 /** The message to record as a task error, or null when this event carries none. */

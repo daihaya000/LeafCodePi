@@ -30,9 +30,11 @@ test("task sync happens on turn boundaries and on a recorded compaction failure"
   }
 });
 
-test("a settled turn is agent_settled or a final agent_end, unless a transport recovery is pending", () => {
+test("only agent_settled releases the run, unless a transport recovery is pending", () => {
   assert.equal(shouldApplySettledStatus({ type: "agent_settled" }, false), true);
-  assert.equal(shouldApplySettledStatus({ type: "agent_end" }, false), true);
+  // agent_end still precedes extension settlement writes and possible continuations.
+  assert.equal(shouldApplySettledStatus({ type: "agent_end" }, false), false);
+  assert.equal(shouldApplySettledStatus({ type: "agent_end", willRetry: false }, false), false);
   assert.equal(shouldApplySettledStatus({ type: "agent_end", willRetry: true }, false), false);
   assert.equal(shouldApplySettledStatus({ type: "message_update" }, false), false);
   assert.equal(shouldApplySettledStatus({ type: "agent_settled" }, true), false);
