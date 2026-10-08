@@ -2,9 +2,9 @@
 
 ## 進捗・範囲
 
-Phase3全体は未完了。Phase0のBackend/Phase3/JSON分類は118経路・182操作。Git・Diff・コミット文生成13経路・14操作、定義管理14経路・25操作、Provider/モデル設定7経路・8操作、Provider認証JSON4経路・5操作、アカウント管理/資格情報9経路・19操作、利用量/クレジット3経路・5操作、Peer認証共有5経路・9操作、Workspaceファイル/次タスク提案3経路・3操作、Project lifecycle1経路・4操作、Task collection1経路・3操作、個別Task lifecycle2経路・4操作、Task履歴/検索/bookmark3経路・5操作の合計65経路・104操作の境界を移管した。認証に付随するログインSSE 1経路・1操作も同じownerへ移管した（Phase3 JSONの集計には加算しない）。残る53経路・78操作には既存Backend中継も含まれ、受入条件の確認・残存業務処理の移管が必要。
+Phase3全体は未完了。Phase0のBackend/Phase3/JSON分類は118経路・182操作。Git・Diff・コミット文生成13経路・14操作、定義管理14経路・25操作、Provider/モデル設定7経路・8操作、Provider認証JSON4経路・5操作、アカウント管理/資格情報9経路・19操作、利用量/クレジット3経路・5操作、Peer認証共有5経路・9操作、Workspaceファイル/次タスク提案3経路・3操作、Project lifecycle1経路・4操作、Task collection1経路・3操作、個別Task lifecycle2経路・4操作、Task履歴/検索/bookmark3経路・5操作、Task実行設定4経路・4操作の合計69経路・108操作の境界を移管した。認証に付随するログインSSE 1経路・1操作も同じownerへ移管した（Phase3 JSONの集計には加算しない）。残る49経路・74操作には既存Backend中継も含まれ、受入条件の確認・残存業務処理の移管が必要。
 
-以下は第1区切り（Git・Diff・コミット文生成）の記録。第2区切りの定義管理、第3区切りのProvider/モデル設定、第4区切りのProvider認証、第5区切りのアカウント管理/資格情報、第6区切りの利用量/クレジット、第7区切りのPeer認証共有、第8区切りのWorkspaceファイル/次タスク提案、第9区切りのProject lifecycle、第10区切りのTask collection、第11区切りの個別Task lifecycle、第12区切りのTask履歴/検索/bookmarkは末尾に記載する。
+以下は第1区切り（Git・Diff・コミット文生成）の記録。第2区切りの定義管理、第3区切りのProvider/モデル設定、第4区切りのProvider認証、第5区切りのアカウント管理/資格情報、第6区切りの利用量/クレジット、第7区切りのPeer認証共有、第8区切りのWorkspaceファイル/次タスク提案、第9区切りのProject lifecycle、第10区切りのTask collection、第11区切りの個別Task lifecycle、第12区切りのTask履歴/検索/bookmark、第13区切りのTask実行設定は末尾に記載する。
 
 | 経路 | 操作 |
 | --- | --- |
@@ -223,4 +223,19 @@ Phase3全体は未完了。Phase0のBackend/Phase3/JSON分類は118経路・182�
 - Task history/search/bookmark owner・実BFF・reader cache・旧UI履歴回帰60/60成功。実205-message transcriptのcursor/古い画像省略/全文検索/UTF-16 highlight、bookmarkのmissing・重複・削除、認証/Origin/不正body/byte上限/ID/Next writer拒否を検証。個別Task/collection/共有型/runtime ownership/bounded readerの関連回帰25/25成功。
 - pure DTO/履歴/検索/bookmark store/共有Task admission・Backend transport・AST境界100/100成功。累計65経路・104操作がNext transport-only。途中の認可済context/byte上限のownerチェック不足、テストの無効operation IDを修正・再検証した。既存の有限timestamp互換性を投影でも維持する。
 - Backend/Web typecheck、Backend強制ビルド7,050 KiB成功。Webなし実Backend fixtureで実205-message履歴2page/不明cursor/full search、bookmark追加/verify、実再起動後の保存・重複拒否・削除を検証（7.3秒）。
-- 全体スイートは今回再実行していない。実有料生成・稼働ユーザーsession/サービス変更なし。Phase3全体は未完了で、prompt・model/thinking/Agent・Goal制御・fork/promote/revert等の53経路・78操作が残る。
+- 全体スイートは今回再実行していない。実有料生成・稼働ユーザーsession/サービス変更なし。第12区切り時点では53経路・78操作が残る。model/thinking/Agent・Goal Auto指定は第13区切りで移管。
+
+## 第13区切り: Task実行設定（4経路・4操作）
+
+- `tasks/[id]/model`・`thinking`・`agent` POST、`goal-loop-auto-model` PUTをBackendへ移管。Nextはparamsのtransport encodeと単一relay returnだけ。入力検証、model/accountの解決・pin、thinking適用、Agent変更/解除、Goal所有状態確認とAuto markerの保存/解除はownerが担当する。
+- `task-execution-settings`の専用guarded入口を設け、Backend runtime entryの旧model/thinking/Agent呼び出しも接続。SDKのcold model切替・last responseModel保持・実行中/Goal queued時のpending settingsと次ターン適用、Agent transcript notice/再生成、thinking clampを維持する。他セッションのharness.tsは編集しない。
+- 明示model変更の成功後にownerがGoal Auto markerを解除する。内部Auto-per-turnのSDK呼び出しはmarkerを解除しない。model変更失敗ではmarkerを維持し、model適用後に解除が失敗した場合はunknownの部分結果として扱い、modelをrollback/再実行しない。Auto有効化は所有中のGoalのcreatedAtへbindし、終了済みGoalも無効化できる。
+- Task collection/lifecycle/historyと同じprivate admission ledger/queueで未知結果を実行前checkpoint。4 KiBの本文上限、単一decode/安全ID・trusted認可/Origin・readiness・Next guard、深いTaskSummary/account pin/nullable Agent/Auto booleanのDTOとoperation ACK、accepted操作のdisconnect非取消、無自動再送/ローカルfallbackを維持する。completeはJSON変更要求の終了であり、保留設定のSDK適用完了・Goal次ターン成功・model/markerの原子性を保証しない。
+
+### 第13区切りの検証結果
+
+- owner・実BFF・4 handler・runtime ownership53/53成功。model成功/失敗/marker解除失敗のpartial unknownと重複拒否、thinking/Agent変更・空文字解除、実Goal状態とmarker保存、認証/Origin/body/ID/Next拒否・DTO秘匿を検証。SDK Agent/model selection回帰41/41成功、routingのmodel/明示pin/Goal deferred・Auto identity対象12/12成功（残る82ケースは対象外skip）。
+- pure contract・共通Task admission・Backend transport・AST境界84/84成功。累計69経路・108操作でNextに業務処理が残らないことを確認。
+- Backend/Web typecheck、Backend強制ビルド7,057 KiB成功。Webなしの実Backend fixtureで到達不能なfixture専用modelをcold選択、実SDK sessionのthinking変更、Agent空選択、Goal marker保存・実再起動後のmodel/marker保持・重複拒否・Auto解除を検証（8.8秒）。モデル生成・外部資格情報/稼働サービス操作なし。
+- 広いSDK routing再実行は30秒上限で中断。soft accountId作成の待機timeout 1件は単独でも再現。原因の分離: 変更前`7c9abd4f`を隔離した同じテストは成功、同HEADへ開始時の他者差分7ファイルだけを加えると失敗した（第13区切りの変更は一切含まない）。他者差分を保持し、今回のコミットへ混ぜない。全体スイート成功とは扱わない。
+- Web型チェックで検証mockのThinkingLevel型を修正し、型チェック/関連47件を再実行成功。Phase3全体は未完了で、prompt・Goal制御・fork/promote/revert等49経路・74操作が残る。

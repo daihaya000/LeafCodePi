@@ -18,6 +18,10 @@ import { GET as historyPage } from "../app/api/tasks/[id]/messages/route";
 import { GET as historySearch } from "../app/api/tasks/[id]/search/route";
 import { GET as bookmarks, PUT as addBookmark, DELETE as removeBookmark } from "../app/api/tasks/[id]/bookmarks/route";
 import { TASK_HISTORY_BODY_LIMIT } from "@shared/task-history-contract.mjs";
+import { POST as selectTaskModel } from "../app/api/tasks/[id]/model/route";
+import { POST as selectTaskThinking } from "../app/api/tasks/[id]/thinking/route";
+import { POST as selectTaskAgent } from "../app/api/tasks/[id]/agent/route";
+import { PUT as selectGoalAuto } from "../app/api/tasks/[id]/goal-loop-auto-model/route";
 import { POST as nextTask } from "../app/api/projects/[id]/next-task/route";
 let root: string;
 const fetcher = vi.fn();
@@ -31,6 +35,21 @@ beforeEach(() => {
 });
 afterEach(() => { vi.unstubAllGlobals(); vi.unstubAllEnvs(); rmSync(root, { recursive: true, force: true }); });
 describe("JSON business ingress", () => {
+  it("actual task model/thinking/Agent/Auto routes relay opaque input and require matching Task ACKs without local writes",async()=>{
+    const context={params:Promise.resolve({id:"bot:fixture"})};
+    for(const [suffix,method,handler,body] of [["model","POST",selectTaskModel,{model:"pin::p::m"}],["thinking","POST",selectTaskThinking,{thinkingLevel:"high"}],["agent","POST",selectTaskAgent,{agent:""}],["goal-loop-auto-model","PUT",selectGoalAuto,{enabled:true}]] as const){
+      fetcher.mockImplementationOnce(async(_url,options)=>Response.json({status:200,body:{...(suffix==="goal-loop-auto-model"?{enabled:true}:{task:{id:"bot:fixture",status:"working",accountId:"pin",accountIdExplicit:true,agent:null,credentials:"PRIVATE"}}),operation:{id:new Headers(options.headers).get("x-leafcode-business-operation"),execution:"complete"}}}));
+      const input=JSON.stringify(body);const response=await handler(new NextRequest("http://localhost/api/tasks/bot%3Afixture/"+suffix,{method,body:input}),context);expect(response.status).toBe(200);expect(JSON.stringify(await response.json())).not.toContain("PRIVATE");const call=fetcher.mock.calls.at(-1)!;expect(call[0]).toContain("/tasks/bot%3Afixture/"+suffix);expect(new TextDecoder().decode(call[1].body)).toBe(input);
+    }
+    expect(readdirSync(root)).toEqual([]);expect(fetcher).toHaveBeenCalledTimes(4);
+    fetcher.mockResolvedValueOnce(Response.json({status:200,body:{enabled:true}}));const lost=await selectGoalAuto(new NextRequest("http://localhost/api/tasks/bot%3Afixture/goal-loop-auto-model",{method:"PUT",body:'{"enabled":true}'}),context);expect((await lost.json()).execution).toBe("unknown");expect(fetcher).toHaveBeenCalledTimes(5);
+  });
+  it("task execution setting body/auth/Origin refuse before Backend contact",async()=>{
+    const context={params:Promise.resolve({id:"t"})};
+    expect((await selectTaskModel(new NextRequest("http://localhost/api/tasks/t/model",{method:"POST",body:"x".repeat(4097)}),context)).status).toBe(413);
+    expect((await selectGoalAuto(new NextRequest("http://localhost/api/tasks/t/goal-loop-auto-model",{method:"PUT",body:"{}",headers:{origin:"https://evil.test"}}),context)).status).toBe(403);
+    vi.stubEnv("LEAFCODE_PI_WEBUI_AUTH","required");expect((await selectTaskAgent(new NextRequest("http://localhost/api/tasks/t/agent",{method:"POST",body:"{}"}),context)).status).toBe(401);expect(fetcher).not.toHaveBeenCalled();expect(readdirSync(root)).toEqual([]);
+  });
   it("actual history/search/bookmark routes relay query/encoded IDs and strip nested private data without local work",async()=>{
     const context={params:Promise.resolve({id:"bot:fixture"})};
     fetcher.mockResolvedValueOnce(Response.json({status:200,body:{messages:[{id:"u",role:"user",createdAt:1,parts:[{id:"p",type:"text",text:"authored",token:"PRIVATE"}],session:"PRIVATE"}],messageHistory:{hasMore:false,nextCursor:null},token:"PRIVATE"}}));

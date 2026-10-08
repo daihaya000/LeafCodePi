@@ -13,6 +13,7 @@ export { dispatchJsonBusinessRequest } from "../../json-business/index";
 export { openProviderLoginEvents } from "../../json-business/provider-auth-events";
 
 export { createTask } from "../task-collection";
+export { setTaskModel, setTaskThinkingLevel, setTaskAgent } from "../task-execution-settings";
 export { getTaskDetail, archiveTask, destroyTask, abortTaskIncludingColdGoalLoop, stopBotCodeTask } from "../task-lifecycle";
 export {
   promptTask,
@@ -56,10 +57,6 @@ export {
   // Compaction summarizes inside the session, so only the owner may run or stop it.
   compactTask,
   abortTaskCompaction,
-  // Live session settings: a running session must be told by its owner.
-  setTaskModel,
-  setTaskThinkingLevel,
-  setTaskAgent,
 } from "@/lib/pi/harness";
 // Stopping a Bot Code request also updates the outbox, which the owning process must do.
 export { cancelBotCodeRequests, isRoomDelegatedCodeTask, stopBotCodeRequest } from "@/lib/pi/bot-code-relay";
