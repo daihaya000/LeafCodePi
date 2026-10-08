@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { providerAuthTarget, publicAuthOperation } from "@shared/provider-auth-contract.mjs";
 import { publicConfigurationMutation } from "@shared/configuration-contract.mjs";
+import { usageExternalCommand, publicUsageOperation } from "@shared/usage-contract.mjs";
 import { isCrossOriginRequest } from "@/lib/same-origin";
 import { backendBaseUrl, expectedBackendGeneration, isBackendGenerationCompatible, readBackendHealth } from "@/lib/backend-client";
 import { isWebUiRequestAuthorized, webUiAuthRequired } from "@/lib/webui-auth";
@@ -90,6 +91,9 @@ export async function relayJsonBusiness(request: Request, route: string): Promis
       if (providerAuthTarget(route)) {
         const operation = publicAuthOperation(result.body?.operation);
         if (!operation || operation.id !== operationId) return failure(503, "Backendの認証操作結果を確認できません", unknown);
+      } else if (usageExternalCommand(route, request.method)) {
+        const operation = publicUsageOperation(result.body?.operation);
+        if (!operation || operation.id !== operationId) return failure(503, "Backendの消費操作結果を確認できません", unknown);
       } else {
         const mutation = publicConfigurationMutation(result.body?.mutation);
         if (!mutation || mutation.operationId !== operationId) return failure(503, "Backendの操作結果を確認できません", unknown);

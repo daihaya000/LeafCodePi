@@ -11,6 +11,7 @@
  */
 
 import { randomUUID } from "node:crypto";
+import { assertConfigurationOwner } from "@backend-core/configuration-command.mjs";
 import {
   createCookieHeaderForUrl,
   type BrowserCookieSession,
@@ -225,6 +226,7 @@ export async function consumeClaudeResetGrant(
   session: BrowserCookieSession,
   options: { grantId: string; requestId?: string; signal?: AbortSignal },
 ): Promise<ClaudeResetConsumeResult> {
+  assertConfigurationOwner();
   const { cookie, orgId } = requireWebAuth(session);
   const { status, body, ok } = await fetchText(
     `${API_ORIGIN}/api/organizations/${encodeURIComponent(orgId)}/reset_rate_limits`,

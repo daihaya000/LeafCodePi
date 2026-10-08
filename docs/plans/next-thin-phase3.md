@@ -2,9 +2,9 @@
 
 ## 進捗・範囲
 
-Phase3全体は未完了。Phase0のBackend/Phase3/JSON分類は118経路・182操作。Git・Diff・コミット文生成13経路・14操作、定義管理14経路・25操作、Provider/モデル設定7経路・8操作、Provider認証JSON4経路・5操作、アカウント管理/資格情報9経路・19操作の合計47経路・71操作の境界を移管した。認証に付随するログインSSE 1経路・1操作も同じownerへ移管した（Phase3 JSONの集計には加算しない）。残る71経路・111操作には既存Backend中継も含まれ、受入条件の確認・残存業務処理の移管が必要。
+Phase3全体は未完了。Phase0のBackend/Phase3/JSON分類は118経路・182操作。Git・Diff・コミット文生成13経路・14操作、定義管理14経路・25操作、Provider/モデル設定7経路・8操作、Provider認証JSON4経路・5操作、アカウント管理/資格情報9経路・19操作、利用量/クレジット3経路・5操作の合計50経路・76操作の境界を移管した。認証に付随するログインSSE 1経路・1操作も同じownerへ移管した（Phase3 JSONの集計には加算しない）。残る68経路・106操作には既存Backend中継も含まれ、受入条件の確認・残存業務処理の移管が必要。
 
-以下は第1区切り（Git・Diff・コミット文生成）の記録。第2区切りの定義管理、第3区切りのProvider/モデル設定、第4区切りのProvider認証、第5区切りのアカウント管理/資格情報は末尾に記載する。
+以下は第1区切り（Git・Diff・コミット文生成）の記録。第2区切りの定義管理、第3区切りのProvider/モデル設定、第4区切りのProvider認証、第5区切りのアカウント管理/資格情報、第6区切りの利用量/クレジットは末尾に記載する。
 
 | 経路 | 操作 |
 | --- | --- |
@@ -112,3 +112,20 @@ Phase3全体は未完了。Phase0のBackend/Phase3/JSON分類は118経路・182�
 - Backend/Web typecheck成功。Webの初回30秒timeoutは独立runnerで再実行成功（19.9秒）、最終直接実行も12.1秒で成功。Backend強制ビルド6,889 KiB成功。
 - Webなしの実Backend fixtureでAccount作成・private key保存・auth-status、危険ID拒否、実プロセス再起動後のAccount/key/receipt読込、作成とkey書込の重複受付拒否を検証（8.6秒）。検証は隔離data/agent/APPDATAで実施し、実ユーザーのアカウント・資格情報・サービスは変更していない。
 - 全体Web/Backendスイートは今回再実行していない。以前の全体baselineを今回の全体通過として流用しない。
+
+## 第6区切り: 利用量/クレジット（3経路・5操作）
+
+- `codexbar/providers` GET/PUT、`codexbar/usage` GET、`codexbar/reset-credits` GET/POSTをBackendへ移管。対象Nextルートは認可・bounded transportだけで、Provider表示設定/並び順・optimistic version・native usage/account scope/refresh・token telemetry・reset一覧/消費を実行しない。
+- Provider設定は既存のprivate config/optimistic lockを維持し、設定queue/ledgerと保存観測を利用する。lock/mkdir/write前にNextを拒否する。別設定キーや既存enabled/order形式を保持し、cache invalidation後はnot-requiredを返す。
+- usageのscope・paused account閲覧・shared/account/peer統合、provider concurrency=4、aggregate/inflight/per-provider cache・429 backoff・stale last-good・表示専用baseline・finalized-token telemetryを維持。利用量/credits/windows/token-estimate/accounts/catalog/reset DTOをネスト内も型付きで投影し、credentials・private path・任意SDK/configフィールド・生のProvider例外を返さない。Nextでnative polling/reset消費を拒否し、telemetryのreadでもSQLiteを開く/移行することを抑止する。
+- reset POSTはprivate `usage-command.json`（0600・最大128件）にoperation ID/unknownを外部実行前にcheckpointし、結果complete/unknownを保存する。入力・credit ID・cookie・OAuth tokenはledgerへ保存しない。同じIDはowner再起動後も再実行しない。受付不能はnot-started、Provider応答喪失/5xxはunknownで、自動再送/fallbackなし。省略時の外部redeem request IDには同じoperation IDを渡す。
+- `operation.execution:complete`はJSON操作完了であり、設定保存/credit消費を意味しない。消費結果は既存の`ok/code/message/windowsReset`で区別し、nothing_to_reset/no_credit等のHTTP 200・ok:falseを維持する。未知の結果から別IDで再試行する前にはProvider側のcredit状態確認が必要。128件の保持窓を超える恒久的exactly-onceを保証するものではない。
+- account一時停止時の一覧/消費拒否、Claudeのaccount-only claude.ai cookie、OAuthの認証失敗、成功時のusage/provider cache invalidationを維持する。JSON null/array、未知Provider、危険account ID、過大/control-character credit/request IDをnative呼出前に拒否する。共通の自動reset処理は既存のowner scheduler/独立journalを維持し、手動操作用ledgerへ混同しない。
+
+### 第6区切りの検証結果
+
+- Native usage/API/owner/BFF/SQLite telemetry/Codex・Claude reset/既存auto-resetの対象回帰163/163成功。controlled Providerでcheckpoint-before-consume、同じ外部request ID、declined/unknown/replay拒否、account cookie、入力/paused拒否、deep DTO、Next共通呼出拒否を検証。
+- usage contract/admission ledger・既存configuration/transport・AST ownership/API inventory111/111成功。JSON累計50経路・76操作が中継のみの構造を検証。admission ledgerの破損/Next拒否、owner再作成後の重複拒否と未知結果・秘密非保存を検証。
+- Backend/Web typecheck成功。Backend強制ビルド6,925 KiB成功。
+- Webなしの実Backend fixtureでProvider表示設定保存/版番号読込、scope/未知account拒否、消費入力拒否の実ACK/ledger、実プロセス再起動後の設定/receipt読込・消費重複受付拒否を検証（9.1秒）。実クレジット消費・外部OAuth grant・ユーザー設定/資格情報・稼働サービスの変更は実行していない。
+- 全体Web/Backendスイートは今回再実行していない。今回の対象回帰と過去の全体baselineを区別する。

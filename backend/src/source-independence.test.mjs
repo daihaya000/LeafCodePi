@@ -178,6 +178,19 @@ test("Backend builds and serves its runtime API without Web sources or Web packa
   assert.ok(!readFileSync(join(data, "configuration-command.json"), "utf8").includes("PRIVATE"));
   const illegalAccount = await fetch(`${base}/internal/json-business/accounts/%2E%2E%2Fescape/openrouter-credits`, { method: "POST", headers: { ...businessHeaders, "x-leafcode-business-operation": "44444444-5555-6666-7777-888888888888" }, body: JSON.stringify({ managementKey: "PRIVATE-REFUSED" }), signal: AbortSignal.timeout(3000) });
   assert.equal(illegalAccount.status, 404); assert.equal(existsSync(join(agent, "escape")), false);
+  // Native usage feature: real catalog save/read and admission rejection; never redeem a real external credit.
+  const usageCatalog = await business("codexbar/providers", undefined);
+  assert.equal(usageCatalog.status, 200); assert.ok(Array.isArray(usageCatalog.body.providers));
+  const usageConfigOperation = "55555555-6666-7777-8888-999999999999";
+  const usageConfig = await business("codexbar/providers", { providerId: "cursor", enabled: false, version: usageCatalog.body.version }, "", { "x-leafcode-business-operation": usageConfigOperation }, "PUT");
+  assert.equal(usageConfig.status, 200, JSON.stringify(usageConfig)); assert.equal(usageConfig.body.mutation.saved, true);
+  assert.equal(JSON.parse(readFileSync(join(fixture, "roaming", "CodexBar", "config.json"), "utf8")).enabledProviders.includes("cursor"), false);
+  assert.equal((await business("codexbar/usage", undefined, "?scope=invalid")).status, 400);
+  assert.equal((await business("codexbar/reset-credits", undefined, "?accountId=missing")).status, 404);
+  const usageOperation = "66666666-7777-8888-9999-aaaaaaaaaaaa";
+  const rejectedConsume = await business("codexbar/reset-credits", { creditId: "" }, "", { "x-leafcode-business-operation": usageOperation });
+  assert.equal(rejectedConsume.status, 400); assert.equal(rejectedConsume.body.operation.execution, "complete"); assert.equal(rejectedConsume.body.mutation, undefined);
+  assert.deepEqual(JSON.parse(readFileSync(join(data, "usage-command.json"), "utf8")).operations, [{ id: usageOperation, execution: "complete" }]);
   // Restart the actual owner process, retaining only its disk state, not a Web fallback or a module cache.
   const exited = new Promise((done) => child.once("exit", done)); child.kill(); await exited;
   stdout = ""; stderr = ""; listening = undefined; child = launch();
@@ -229,5 +242,11 @@ test("Backend builds and serves its runtime API without Web sources or Web packa
   assert.equal((await accountReplay.json()).status, 409);
   const creditReplay = await fetch(`${restartedBase}/internal/json-business/accounts/${accountId}/openrouter-credits`, { method: "POST", headers: { ...businessHeaders, "x-leafcode-business-operation": creditOperation }, body: JSON.stringify({ managementKey: "PRIVATE-NO-REPLAY" }), signal: AbortSignal.timeout(3000) });
   assert.equal((await creditReplay.json()).status, 409); assert.equal(JSON.parse(readFileSync(creditPath, "utf8")).managementKey, "PRIVATE-FIXTURE-KEY");
+  const usageCatalogRestored = await fetch(`${restartedBase}/internal/json-business/codexbar/providers`, { headers: businessHeaders, signal: AbortSignal.timeout(3000) });
+  assert.equal((await usageCatalogRestored.json()).body.version, usageConfig.body.version);
+  const usageConfigOutcome = await fetch(`${restartedBase}/internal/configuration/settings?operationId=${usageConfigOperation}`, { headers: configHeaders, signal: AbortSignal.timeout(3000) });
+  assert.deepEqual((await usageConfigOutcome.json()).mutation, usageConfig.body.mutation);
+  const consumeReplay = await fetch(`${restartedBase}/internal/json-business/codexbar/reset-credits`, { method: "POST", headers: { ...businessHeaders, "x-leafcode-business-operation": usageOperation }, body: JSON.stringify({ creditId: "must-not-execute" }), signal: AbortSignal.timeout(3000) });
+  assert.equal((await consumeReplay.json()).status, 409);
   assert.equal(existsSync(join(fixture, "web")), false);
 });

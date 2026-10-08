@@ -1,7 +1,7 @@
 import { NextRequest } from "next/server";
 import { describe, expect, it, vi } from "vitest";
 import { emptyUsage } from "@/lib/codexbar";
-import { GET } from "./route";
+import { GET } from "@backend-runtime/json-business/handlers/codexbar/usage/route";
 
 const { fetchNativeUsage, attachTokenUsage } = vi.hoisted(() => ({
   fetchNativeUsage: vi.fn(),

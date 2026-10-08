@@ -96,6 +96,8 @@ function openStore(): Store {
 
 /** Short atomic transactions keep Backend/BFF counters consistent without reopening/checkpointing on each token event. */
 function withStore<T>(operation: (db: Database) => T, writable = true, busyTimeout = 1000): T | null {
+  // Next must never open/migrate a SQLite file, even when a caller asks for a read.
+  if (process.env.LEAFCODE_PI_PROCESS_ROLE === "next") return null;
   let store: Store | undefined;
   try {
     store = openStore();

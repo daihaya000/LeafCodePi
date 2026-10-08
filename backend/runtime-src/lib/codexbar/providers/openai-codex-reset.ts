@@ -8,6 +8,7 @@
  */
 
 import { randomUUID } from "node:crypto";
+import { assertConfigurationOwner } from "@backend-core/configuration-command.mjs";
 import { ProviderError } from "@/lib/codexbar/types";
 import {
   asRecord,
@@ -175,6 +176,7 @@ export async function consumeCodexResetCredit(
     signal?: AbortSignal;
   },
 ): Promise<CodexResetConsumeResult> {
+  assertConfigurationOwner();
   const redeemRequestId = options.redeemRequestId?.trim() || randomUUID();
   const { status, body, ok } = await fetchText(CONSUME_URL, {
     method: "POST",

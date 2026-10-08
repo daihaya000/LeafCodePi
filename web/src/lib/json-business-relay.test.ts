@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { relayJsonBusiness } from "./json-business-relay";
 import { NextRequest } from "next/server";
 import { POST as saveAccountKey } from "../app/api/accounts/[id]/openrouter-credits/route";
+import { POST as consumeResetCredit } from "../app/api/codexbar/reset-credits/route";
 let root: string;
 const fetcher = vi.fn();
 const request = (route = "git/init", body = '{"directory":"repo"}') => new Request(`http://localhost/api/${route}`, { method: "POST", body });
@@ -17,6 +18,17 @@ beforeEach(() => {
 });
 afterEach(() => { vi.unstubAllGlobals(); vi.unstubAllEnvs(); rmSync(root, { recursive: true, force: true }); });
 describe("JSON business ingress", () => {
+  it("actual Next consume route verifies execution ACK, not a settings-save claim, and never retries an uncertain response", async () => {
+    fetcher.mockImplementationOnce(async (_url, options) => {
+      const id = new Headers(options.headers).get("x-leafcode-business-operation");
+      return Response.json({ status: 200, body: { ok: false, code: "nothing_to_reset", message: "safe", creditId: "c", accountId: null, windowsReset: null, token: "PRIVATE", operation: { id, execution: "complete" } } });
+    });
+    const body = '{"creditId":"c"}'; const response = await consumeResetCredit(new NextRequest("http://localhost/api/codexbar/reset-credits", { method: "POST", body }));
+    expect(response.status).toBe(200); const outcome = await response.json(); expect(outcome).toMatchObject({ ok: false, operation: { execution: "complete" } }); expect(outcome.mutation).toBeUndefined(); expect(JSON.stringify(outcome)).not.toContain("PRIVATE");
+    expect(new TextDecoder().decode(fetcher.mock.calls[0][1].body)).toBe(body); expect(readdirSync(root)).toEqual([]);
+    fetcher.mockResolvedValueOnce(Response.json({ status: 200, body: { ok: true, code: "reset", creditId: "c" } }));
+    const lost = await consumeResetCredit(new NextRequest("http://localhost/api/codexbar/reset-credits", { method: "POST", body })); expect((await lost.json()).execution).toBe("unknown"); expect(fetcher).toHaveBeenCalledTimes(2);
+  });
   it("actual Next account route relays opaque credential input, verifies its receipt and never writes locally", async () => {
     fetcher.mockImplementationOnce(async (_url, options) => {
       const id = new Headers(options.headers).get("x-leafcode-business-operation");

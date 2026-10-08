@@ -7,6 +7,7 @@
  * - In-flight promise coalescing (Strict Mode / multi-tab races)
  */
 
+import { assertConfigurationOwner } from "@backend-core/configuration-command.mjs";
 import {
   accountAuthPath,
   accountDir,
@@ -459,6 +460,7 @@ const inflight = new Map<string, Promise<CodexBarUsage>>();
 export async function fetchNativeUsage(
   options: FetchUsageOptions = {},
 ): Promise<CodexBarUsage> {
+  assertConfigurationOwner();
   const forceRefresh = options.forceRefresh === true;
   if (forceRefresh) clearPeerUsageCache();
   const plan = await buildFetchPlan(options.scope ?? { kind: "all" });
