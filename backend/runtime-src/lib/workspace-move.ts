@@ -3,6 +3,7 @@ import { cp, mkdir, readdir, rename, rm, stat } from "node:fs/promises";
 import type { Dirent } from "node:fs";
 import { randomUUID } from "node:crypto";
 import { dirname, resolve } from "node:path";
+import { assertConfigurationOwner } from "@backend-core/configuration-command.mjs";
 import { sameOrDescendantPath } from "./paths";
 
 export class WorkspaceMoveError extends Error {
@@ -32,6 +33,7 @@ export async function prepareWorkspaceMove(
   sourcePath: string,
   destinationPath: string,
 ): Promise<PreparedWorkspaceMove> {
+  assertConfigurationOwner();
   const source = resolve(sourcePath);
   const destination = resolve(destinationPath);
   if (

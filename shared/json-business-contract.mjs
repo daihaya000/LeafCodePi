@@ -5,6 +5,7 @@ import { ACCOUNT_ROUTES, accountTarget, publicAccountBody } from "./account-cont
 import { USAGE_ROUTES, usageTarget, publicUsageBody } from "./usage-contract.mjs";
 import { PEER_ROUTES, peerTarget, peerFacing, peerCommand, publicPeerBody } from "./peer-contract.mjs";
 import { WORKSPACE_ROUTES, WORKSPACE_BODY_LIMIT, workspaceTarget, publicWorkspaceBody } from "./workspace-contract.mjs";
+import { PROJECT_ROUTES, PROJECT_BODY_LIMIT, projectTarget, publicProjectBody } from "./project-contract.mjs";
 /** Pure wire contract. Owner validation/commands never run in the Web relay. */
 export const JSON_BUSINESS_PATH = "/internal/json-business";
 export const JSON_BUSINESS_HEADERS = Object.freeze({ origin: "x-leafcode-business-origin", host: "x-leafcode-business-host", authorized: "x-leafcode-business-authorized", operation: "x-leafcode-business-operation" });
@@ -13,15 +14,15 @@ export const JSON_BUSINESS_ROUTES = Object.freeze({
   "git/init": ["POST"], "git/log": ["GET"], "git/merge": ["POST"],
   "git/pr": ["GET", "POST"], "git/pull": ["POST"], "git/push": ["POST"],
   "git/repositories": ["GET"], "git/rm": ["POST"], "git/show": ["GET"], "diff/files": ["GET"],
-  ...DEFINITION_ROUTES, ...PROVIDER_ROUTES, ...PROVIDER_AUTH_ROUTES, ...ACCOUNT_ROUTES, ...USAGE_ROUTES, ...PEER_ROUTES, ...WORKSPACE_ROUTES,
+  ...DEFINITION_ROUTES, ...PROVIDER_ROUTES, ...PROVIDER_AUTH_ROUTES, ...ACCOUNT_ROUTES, ...USAGE_ROUTES, ...PEER_ROUTES, ...WORKSPACE_ROUTES, ...PROJECT_ROUTES,
 });
 export const JSON_BUSINESS_BODY_LIMIT = 1024 * 1024;
 export function jsonBusinessTarget(path) {
   if (Object.hasOwn(JSON_BUSINESS_ROUTES, path) && !path.includes("[")) return { route: path, params: {} };
-  return definitionTarget(path) ?? providerTarget(path) ?? providerAuthTarget(path) ?? accountTarget(path) ?? usageTarget(path) ?? peerTarget(path) ?? workspaceTarget(path);
+  return definitionTarget(path) ?? providerTarget(path) ?? providerAuthTarget(path) ?? accountTarget(path) ?? usageTarget(path) ?? peerTarget(path) ?? workspaceTarget(path) ?? projectTarget(path);
 }
-export function jsonBusinessBodyLimit(path) { if (workspaceTarget(path)) return WORKSPACE_BODY_LIMIT; if (peerFacing(path)) return 4096; const target = definitionTarget(path); return target ? definitionBodyLimit(target.route) : JSON_BUSINESS_BODY_LIMIT; }
-export function jsonBusinessCommand(path, method) { return method !== "GET" && Boolean(definitionTarget(path) || providerTarget(path) || providerAuthTarget(path) || accountTarget(path) || usageTarget(path) || peerCommand(path, method)); }
+export function jsonBusinessBodyLimit(path) { if (projectTarget(path)) return PROJECT_BODY_LIMIT; if (workspaceTarget(path)) return WORKSPACE_BODY_LIMIT; if (peerFacing(path)) return 4096; const target = definitionTarget(path); return target ? definitionBodyLimit(target.route) : JSON_BUSINESS_BODY_LIMIT; }
+export function jsonBusinessCommand(path, method) { return method !== "GET" && Boolean(definitionTarget(path) || providerTarget(path) || providerAuthTarget(path) || accountTarget(path) || usageTarget(path) || peerCommand(path, method) || projectTarget(path)); }
 export const JSON_BUSINESS_RESPONSE_LIMIT = 32 * 1024 * 1024;
 export function jsonBusinessTimeout(route) { return route === "git/pr" ? 200_000 : 180_000; }
 export function jsonBusinessMutates(route, method) { return method !== "GET" && route !== "git/commit-message" && !peerFacing(route) && !workspaceTarget(route); }
@@ -48,6 +49,10 @@ export function publicJsonBusinessResult(route, value) {
     if (field !== undefined) headers[name] = field;
   }
   if (value.status === 304) return value.body === null ? { status: 304, headers, body: null } : null;
+  if (Object.hasOwn(PROJECT_ROUTES, route)) {
+    const body = publicProjectBody(value.body, value.status);
+    return body ? { status: value.status, headers, body } : null;
+  }
   if (Object.hasOwn(WORKSPACE_ROUTES, route)) {
     const body = publicWorkspaceBody(route, value.body, value.status);
     return body ? { status: value.status, headers, body } : null;

@@ -1,0 +1,95 @@
+import { type ConfigurationRequest as NextRequest, ConfigurationResponse as NextResponse } from "../../../configuration/http";
+import { etagJsonResponse } from "@/lib/etag-json";
+import { withProjectIconUrls } from "@/lib/project-icon-url";
+import {
+  addProject,
+  archiveProjectAndStopTasks,
+  destroyProject,
+  migrateProject,
+  patchProject,
+  restoreProject,
+} from "../../../lib/project-lifecycle";
+import { getProjects, jsonError } from "@/lib/pi/harness";
+import { PROJECT_ICON_COLORS, type ProjectIconColor } from "@/lib/types";
+
+export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
+
+export async function GET(req: NextRequest) {
+  const includeArchived = req.nextUrl.searchParams.get("archived") === "1";
+  return etagJsonResponse(req, { projects: withProjectIconUrls(getProjects(includeArchived)) });
+}
+
+export async function POST(req: NextRequest) {
+  try {
+    const body = (await req.json().catch(() => null)) as { rootPath?: string } | null;
+    if (!body || typeof body.rootPath !== "string" || !body.rootPath.trim()) {
+      return NextResponse.json({ error: "rootPath is required" }, { status: 400 });
+    }
+    const project = addProject(body.rootPath);
+    return NextResponse.json({ project });
+  } catch (error) {
+    const { error: message, status } = jsonError(error);
+    return NextResponse.json({ error: message }, { status });
+  }
+}
+
+export async function PATCH(req: NextRequest) {
+  try {
+    const body = (await req.json().catch(() => null)) as {
+      id?: string;
+      archived?: boolean;
+      icon?: unknown;
+      iconColor?: unknown;
+      destinationPath?: unknown;
+    } | null;
+    if (!body || typeof body.id !== "string" || !/^[A-Za-z0-9_-]{1,128}$/.test(body.id)) {
+      return NextResponse.json({ error: "id is required" }, { status: 400 });
+    }
+    if (body.archived === true) {
+      return NextResponse.json({ project: await archiveProjectAndStopTasks(body.id) });
+    }
+    if (body.archived === false) {
+      return NextResponse.json({ project: restoreProject(body.id) });
+    }
+    if (body.destinationPath !== undefined) {
+      if (typeof body.destinationPath !== "string" || !body.destinationPath.trim()) {
+        return NextResponse.json({ error: "destinationPath が必要です" }, { status: 400 });
+      }
+      return NextResponse.json(await migrateProject(body.id, body.destinationPath));
+    }
+    if (typeof body.icon === "string" || body.icon === null) {
+      if (typeof body.icon === "string" && (!/^data:image\/(png|jpeg|gif|webp|x-icon|vnd\.microsoft\.icon);base64,[A-Za-z0-9+/=]+$/.test(body.icon) || body.icon.length > 3_000_000)) {
+        return NextResponse.json({ error: "icon must be a valid image under 2 MB" }, { status: 400 });
+      }
+      const project = patchProject(body.id, { icon: body.icon });
+      if (!project) return NextResponse.json({ error: "プロジェクトが見つかりません" }, { status: 404 });
+      return NextResponse.json({ project });
+    }
+    if (
+      body.iconColor === null ||
+      (typeof body.iconColor === "string" && PROJECT_ICON_COLORS.includes(body.iconColor as ProjectIconColor))
+    ) {
+      const project = patchProject(body.id, { iconColor: body.iconColor as ProjectIconColor | null });
+      if (!project) return NextResponse.json({ error: "プロジェクトが見つかりません" }, { status: 404 });
+      return NextResponse.json({ project });
+    }
+    return NextResponse.json({ error: "unsupported patch" }, { status: 400 });
+  } catch (error) {
+    const { error: message, status } = jsonError(error);
+    return NextResponse.json({ error: message }, { status });
+  }
+}
+
+export async function DELETE(req: NextRequest) {
+  try {
+    const id = req.nextUrl.searchParams.get("id");
+    if (!id || !/^[A-Za-z0-9_-]{1,128}$/.test(id)) {
+      return NextResponse.json({ error: "id is required" }, { status: 400 });
+    }
+    return NextResponse.json(await destroyProject(id));
+  } catch (error) {
+    const { error: message, status } = jsonError(error);
+    return NextResponse.json({ error: message }, { status });
+  }
+}

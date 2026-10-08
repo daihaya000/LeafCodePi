@@ -9,6 +9,7 @@ import { POST as consumeResetCredit } from "../app/api/codexbar/reset-credits/ro
 import { POST as resolvePeer } from "../app/api/peer-auth/resolve/route";
 import { GET as peerImports } from "../app/api/peer-auth/import/route";
 import { GET as workspaceFiles } from "../app/api/projects/[id]/files/route";
+import { PATCH as patchProject, GET as listProjects } from "../app/api/projects/route";
 import { POST as nextTask } from "../app/api/projects/[id]/next-task/route";
 let root: string;
 const fetcher = vi.fn();
@@ -22,6 +23,18 @@ beforeEach(() => {
 });
 afterEach(() => { vi.unstubAllGlobals(); vi.unstubAllEnvs(); rmSync(root, { recursive: true, force: true }); });
 describe("JSON business ingress", () => {
+  it("actual Project route relays lifecycle input, verifies its execution ACK and never retries or falls back locally", async () => {
+    fetcher.mockImplementationOnce(async (_url, options) => {
+      const id = new Headers(options.headers).get("x-leafcode-business-operation");
+      return Response.json({ status: 200, headers: {}, body: { project: { id: "p1", name: "P", rootPath: "C:\\moved", token: "PRIVATE" }, warning: "source cleanup pending", operation: { id, execution: "complete" } } });
+    });
+    const input = '{"id":"p1","destinationPath":"C:\\moved"}';
+    const response = await patchProject(new NextRequest("http://localhost/api/projects", { method: "PATCH", body: input })); const body = await response.json();
+    expect(response.status).toBe(200); expect(body).toMatchObject({ warning: "source cleanup pending", operation: { execution: "complete" } }); expect(JSON.stringify(body)).not.toContain("PRIVATE"); expect(new TextDecoder().decode(fetcher.mock.calls[0][1].body)).toBe(input);
+    fetcher.mockResolvedValueOnce(Response.json({ status: 200, body: { project: { id: "p1", name: "P", rootPath: "C:\\moved" } } }));
+    const lost = await patchProject(new NextRequest("http://localhost/api/projects", { method: "PATCH", body: input })); expect((await lost.json()).execution).toBe("unknown"); expect(fetcher).toHaveBeenCalledTimes(2);
+    fetcher.mockResolvedValueOnce(Response.json({ status: 200, headers: { etag: "e" }, body: { projects: [] } })); expect((await listProjects(new NextRequest("http://localhost/api/projects?archived=1"))).status).toBe(200); expect(fetcher.mock.calls[2][0]).toContain("/projects?archived=1"); expect(readdirSync(root)).toEqual([]);
+  });
   it("actual Workspace routes relay ID/query/input without local filesystem/Git/model work or save ACK", async () => {
     fetcher.mockResolvedValueOnce(Response.json({ status: 200, headers: { "cache-control": "no-store" }, body: { name: "src/a.ts", mimeType: "text/plain", size: 1, data: "YQ==", token: "PRIVATE" } }));
     const file = await workspaceFiles(new NextRequest("http://localhost/api/projects/p%252Fone/files?path=src%2Fa.ts&read=1"), { params: Promise.resolve({ id: "p%2Fone" }) }); expect(file.status).toBe(200); expect(await file.json()).toEqual({ name: "src/a.ts", mimeType: "text/plain", size: 1, data: "YQ==" }); expect(fetcher.mock.calls[0][0]).toContain("/projects/p%252Fone/files?path=src%2Fa.ts&read=1");

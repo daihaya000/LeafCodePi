@@ -2,9 +2,9 @@
 
 ## 進捗・範囲
 
-Phase3全体は未完了。Phase0のBackend/Phase3/JSON分類は118経路・182操作。Git・Diff・コミット文生成13経路・14操作、定義管理14経路・25操作、Provider/モデル設定7経路・8操作、Provider認証JSON4経路・5操作、アカウント管理/資格情報9経路・19操作、利用量/クレジット3経路・5操作、Peer認証共有5経路・9操作、Workspaceファイル/次タスク提案3経路・3操作の合計58経路・88操作の境界を移管した。認証に付随するログインSSE 1経路・1操作も同じownerへ移管した（Phase3 JSONの集計には加算しない）。残る60経路・94操作には既存Backend中継も含まれ、受入条件の確認・残存業務処理の移管が必要。
+Phase3全体は未完了。Phase0のBackend/Phase3/JSON分類は118経路・182操作。Git・Diff・コミット文生成13経路・14操作、定義管理14経路・25操作、Provider/モデル設定7経路・8操作、Provider認証JSON4経路・5操作、アカウント管理/資格情報9経路・19操作、利用量/クレジット3経路・5操作、Peer認証共有5経路・9操作、Workspaceファイル/次タスク提案3経路・3操作、Project lifecycle1経路・4操作の合計59経路・92操作の境界を移管した。認証に付随するログインSSE 1経路・1操作も同じownerへ移管した（Phase3 JSONの集計には加算しない）。残る59経路・90操作には既存Backend中継も含まれ、受入条件の確認・残存業務処理の移管が必要。
 
-以下は第1区切り（Git・Diff・コミット文生成）の記録。第2区切りの定義管理、第3区切りのProvider/モデル設定、第4区切りのProvider認証、第5区切りのアカウント管理/資格情報、第6区切りの利用量/クレジット、第7区切りのPeer認証共有、第8区切りのWorkspaceファイル/次タスク提案は末尾に記載する。
+以下は第1区切り（Git・Diff・コミット文生成）の記録。第2区切りの定義管理、第3区切りのProvider/モデル設定、第4区切りのProvider認証、第5区切りのアカウント管理/資格情報、第6区切りの利用量/クレジット、第7区切りのPeer認証共有、第8区切りのWorkspaceファイル/次タスク提案、第9区切りのProject lifecycleは末尾に記載する。
 
 | 経路 | 操作 |
 | --- | --- |
@@ -160,3 +160,18 @@ Phase3全体は未完了。Phase0のBackend/Phase3/JSON分類は118経路・182�
 - Backend/Web typecheck成功。Backend強制ビルド6,985 KiB成功。
 - Webなしの実Backend fixtureでregistered project/taskのファイル列挙と内容・root escape/二重エスケープID/不正UTF-8の拒否、モデル未設定の生成拒否、実プロセス再起動後の同じファイルpayloadを検証（7.8秒）。実Providerの有料生成・ユーザーworkspace/設定/資格情報変更・稼働サービス再起動は行っていない。
 - 全体Web/Backendスイートは今回再実行していない。対象回帰と過去の全体baselineを区別する。
+
+## 第9区切り: Project lifecycle（1経路・4操作）
+
+- `projects` GET/POST/PATCH/DELETEをBackendの単一JSON業務入口へ移管。Nextは中継returnだけ。一覧/archived/ETag/icon URL投影、登録・restore・icon/color入力検証、archive/session停止・移動・削除をBackendが実行し、旧NextのlocalRuntimeBlocked分岐とteardown専用forwardを除去する。
+- Project lifecycle専用のguarded entryを追加し、session停止/dispose・FS copy・store更新より前にNextを拒否する。既存Backend runtime entryのarchive/migrate/destroyもこの入口へ接続。共通AppStoreのproject writerとworkspace copyにもNext拒否を追加する。他セッション変更中のharness.tsは編集せず、他の未移管task store操作はこの変更で一律拒否しない。
+- 変更はprivate `project-command.json`（0600・最大128件）のowner queueで実行前unknownをcheckpointし、同じoperation IDの再実行を再起動後も拒否する。入力/パス/icon/資格情報をledgerへ保存しない。応答喪失/5xx/結果記録失敗はunknown、自動再送/Next fallbackなし。`operation.execution:complete`はJSON操作完了であって、保存/移動/停止の原子性を保証しない。既存SDKのmigration rollback・非空/入れ子/重複destination/active task拒否・cleanup warningと既存teardown方針を維持する。
+- 純粋なProject DTOを深く投影し、nullable/legacy metadataとwarningを維持し、SDK/秘密フィールドを除去する。valid raster iconの既存3,000,000文字上限を4 MiBのbounded transportで妨げない。Project削除は記録/所属task/session処理であり、ユーザーのproject directory自体の削除ではない。
+
+### 第9区切りの検証結果
+
+- Project API/owner/BFF・migration/promote・session停止/削除・runtime ownership回帰82/82成功。実隔離store/FSで登録/icon URL/ETag/archived/restore/migrate/delete、不正入力/非空destination/Next拒否/ACK欠損/重複拒否を検証。
+- pure contract・project admission・AppStore/競合書込・transport・AST/API ownership98/98成功。累計59経路・92操作でNextの業務処理がないことを検証。
+- Backend/Web typecheck成功。WebのBackend-only aliasとtestのnullable body型を修正して再実行した。Backend強制ビルド6,998 KiB成功。
+- Webなしの実Backend fixtureで登録/icon/migrate/元copy除去/archive/restore、実再起動後のmetadata/重複作成拒否・delete後のdirectory保持を検証（最終7.7秒）。移動/削除検証は隔離workspace内だけで、実ユーザーworkspace/設定/資格情報/稼働サービスは変更していない。
+- 全体スイートは今回再実行していない。対象回帰を全体成功と扱わない。

@@ -7,6 +7,7 @@
  * task detail reads, abort handling and the attention services. Anything the Web UI needs only for
  * rendering stays out, so the bundle does not grow a UI dependency.
  */
+export { archiveProjectAndStopTasks, destroyProject, migrateProject } from "../project-lifecycle";
 export { dispatchConfigurationRequest } from "../../configuration/index";
 export { dispatchJsonBusinessRequest } from "../../json-business/index";
 export { openProviderLoginEvents } from "../../json-business/provider-auth-events";
@@ -55,9 +56,6 @@ export {
   promoteTask,
   handoffTaskToBot,
   releaseTaskFromBot,
-  archiveProjectAndStopTasks,
-  destroyProject,
-  migrateProject,
   destroyTask,
   // Compaction summarizes inside the session, so only the owner may run or stop it.
   compactTask,
