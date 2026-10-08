@@ -6,7 +6,7 @@ import { NextRequest } from "next/server";
 import { afterEach, describe, it } from "vitest";
 import { createAccount } from "@/lib/accounts";
 import { accountOllamaCookiePath } from "@/lib/codexbar/providers/ollama-cloud";
-import { DELETE, POST } from "./route";
+import { DELETE, POST } from "@backend-runtime/json-business/handlers/accounts/[id]/ollama-cookie/route";
 
 const dirs: string[] = [];
 const previousAppData = process.env.APPDATA;

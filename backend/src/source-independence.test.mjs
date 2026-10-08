@@ -55,7 +55,7 @@ test("Backend builds and serves its runtime API without Web sources or Web packa
   const launchOptions = {
     cwd: fixture, stdio: ["ignore", "pipe", "pipe"],
     env: { ...process.env, NODE_ENV: "test", PI_CODING_AGENT_DIR: agent,
-      LEAFCODE_PI_DATA_DIR: data, LEAFCODE_PI_DEFAULT_DIR: join(fixture, "workspaces"),
+      LEAFCODE_PI_DATA_DIR: data, LEAFCODE_PI_DEFAULT_DIR: join(fixture, "workspaces"), APPDATA: join(fixture, "roaming"),
       LEAFCODE_PI_BACKEND_PORT: "0", LEAFCODE_PI_BACKEND_TOKEN: token, LEAFCODE_PI_BACKEND_RUNTIME: "1",
       LEAFCODE_PI_BACKEND_GENERATION: "", LEAFCODE_PI_MCP_NATIVE: "", LEAFCODE_PI_PROCESS_ROLE: "backend",
       LEAFCODE_PI_BACKEND_RUNTIME_BUNDLE: join(backend, "runtime", "runtime.bundle.mjs"),
@@ -162,6 +162,22 @@ test("Backend builds and serves its runtime API without Web sources or Web packa
   const modelReply = await business("provider-models/fixture%3A%3Amodel", { contextWindow: 16384 }, "", { "x-leafcode-business-operation": "ffffffff-aaaa-bbbb-cccc-dddddddddddd" }, "PATCH");
   assert.equal(modelReply.status, 200, JSON.stringify(modelReply)); assert.equal(modelReply.body.mutation.saved, true);
   assert.equal(JSON.parse(readFileSync(join(data, "provider-model-state.json"), "utf8")).contextWindow["fixture::model"], 16384);
+  // Account records and credentials are persisted by this same owner, not a Next or global-user fallback.
+  const accountOperation = "22222222-3333-4444-5555-666666666666";
+  const accountReply = await business("accounts", { label: "Isolated account", providers: ["openrouter"] }, "", { "x-leafcode-business-operation": accountOperation });
+  assert.equal(accountReply.status, 200, JSON.stringify(accountReply)); assert.equal(accountReply.body.mutation.saved, true);
+  const accountId = accountReply.body.account.id;
+  const creditOperation = "33333333-4444-5555-6666-777777777777";
+  const creditReply = await business(`accounts/${accountId}/openrouter-credits`, { managementKey: "PRIVATE-FIXTURE-KEY" }, "", { "x-leafcode-business-operation": creditOperation });
+  assert.equal(creditReply.status, 200); assert.equal(creditReply.body.mutation.saved, true);
+  assert.ok(!JSON.stringify(creditReply).includes("PRIVATE"));
+  const creditPath = join(agent, "accounts", accountId, "openrouter.json");
+  assert.equal(JSON.parse(readFileSync(creditPath, "utf8")).managementKey, "PRIVATE-FIXTURE-KEY");
+  const accountStatus = await business(`accounts/${accountId}/auth-status`);
+  assert.equal(accountStatus.body.openrouterManagementKeyConfigured, true); assert.ok(!JSON.stringify(accountStatus).includes("PRIVATE"));
+  assert.ok(!readFileSync(join(data, "configuration-command.json"), "utf8").includes("PRIVATE"));
+  const illegalAccount = await fetch(`${base}/internal/json-business/accounts/%2E%2E%2Fescape/openrouter-credits`, { method: "POST", headers: { ...businessHeaders, "x-leafcode-business-operation": "44444444-5555-6666-7777-888888888888" }, body: JSON.stringify({ managementKey: "PRIVATE-REFUSED" }), signal: AbortSignal.timeout(3000) });
+  assert.equal(illegalAccount.status, 404); assert.equal(existsSync(join(agent, "escape")), false);
   // Restart the actual owner process, retaining only its disk state, not a Web fallback or a module cache.
   const exited = new Promise((done) => child.once("exit", done)); child.kill(); await exited;
   stdout = ""; stderr = ""; listening = undefined; child = launch();
@@ -203,5 +219,15 @@ test("Backend builds and serves its runtime API without Web sources or Web packa
   assert.equal(JSON.parse(readFileSync(join(data, "provider-model-state.json"), "utf8")).contextWindow["fixture::model"], 16384);
   const authReplay = await fetch(`${restartedBase}/internal/json-business/providers/fixture/login`, { method: "POST", headers: { ...businessHeaders, "x-leafcode-business-operation": authOperation }, body: JSON.stringify({ type: "invalid" }), signal: AbortSignal.timeout(3000) });
   assert.equal((await authReplay.json()).status, 409);
+  const accountsRestored = await fetch(`${restartedBase}/internal/json-business/accounts`, { headers: businessHeaders, signal: AbortSignal.timeout(3000) });
+  assert.equal((await accountsRestored.json()).body.accounts[0].id, accountId);
+  const accountStatusRestored = await fetch(`${restartedBase}/internal/json-business/accounts/${accountId}/auth-status`, { headers: businessHeaders, signal: AbortSignal.timeout(3000) });
+  const restoredStatus = await accountStatusRestored.json(); assert.equal(restoredStatus.body.openrouterManagementKeyConfigured, true); assert.ok(!JSON.stringify(restoredStatus).includes("PRIVATE"));
+  const creditOutcome = await fetch(`${restartedBase}/internal/configuration/settings?operationId=${creditOperation}`, { headers: configHeaders, signal: AbortSignal.timeout(3000) });
+  assert.deepEqual((await creditOutcome.json()).mutation, creditReply.body.mutation);
+  const accountReplay = await fetch(`${restartedBase}/internal/json-business/accounts`, { method: "POST", headers: { ...businessHeaders, "x-leafcode-business-operation": accountOperation }, body: JSON.stringify({ label: "No replay", providers: ["openrouter"] }), signal: AbortSignal.timeout(3000) });
+  assert.equal((await accountReplay.json()).status, 409);
+  const creditReplay = await fetch(`${restartedBase}/internal/json-business/accounts/${accountId}/openrouter-credits`, { method: "POST", headers: { ...businessHeaders, "x-leafcode-business-operation": creditOperation }, body: JSON.stringify({ managementKey: "PRIVATE-NO-REPLAY" }), signal: AbortSignal.timeout(3000) });
+  assert.equal((await creditReplay.json()).status, 409); assert.equal(JSON.parse(readFileSync(creditPath, "utf8")).managementKey, "PRIVATE-FIXTURE-KEY");
   assert.equal(existsSync(join(fixture, "web")), false);
 });

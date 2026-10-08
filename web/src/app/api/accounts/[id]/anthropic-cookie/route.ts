@@ -1,62 +1,13 @@
-import { NextRequest, NextResponse } from "next/server";
-import { accountAuthPath, getAccount, resolvePiAgentDir } from "@/lib/accounts";
-import {
-  deleteAccountAnthropicCookieFile,
-  saveAccountAnthropicCookieFile,
-} from "@/lib/codexbar/browser-cookies";
-import { invalidateCachedUsage } from "@/lib/codexbar/cache";
-import { clearProviderCache } from "@/lib/codexbar/provider-cache";
-import { jsonError } from "@/lib/pi/harness";
+import type { NextRequest } from "next/server";
+import { relayJsonBusiness } from "@/lib/json-business-relay";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-type Context = { params: Promise<{ id: string }> };
-
-function requireAnthropicAccount(id: string): void {
-  const account = getAccount(id);
-  if (!account) {
-    throw Object.assign(new Error("アカウントが見つかりません"), { status: 404 });
-  }
-  if (!account.providers.includes("anthropic")) {
-    throw Object.assign(new Error("このアカウントは Anthropic に対応していません"), {
-      status: 400,
-    });
-  }
+export async function POST(req: NextRequest, context: { params: Promise<{ id: string }> }) {
+  return relayJsonBusiness(req, `accounts/${encodeURIComponent((await context.params).id)}/anthropic-cookie`);
 }
 
-/** Console の cookie 本文は返さず、アカウント別ファイルへ保存する。 */
-export async function POST(req: NextRequest, context: Context) {
-  const { id } = await context.params;
-  try {
-    requireAnthropicAccount(id);
-    const body = (await req.json().catch(() => null)) as Record<string, unknown> | null;
-    if (!body || typeof body.cookies !== "string") {
-      return NextResponse.json({ error: "cookies は文字列で指定してください" }, { status: 400 });
-    }
-    const agentDir = await resolvePiAgentDir();
-    saveAccountAnthropicCookieFile(accountAuthPath(id, agentDir), body.cookies);
-    invalidateCachedUsage();
-    clearProviderCache(`account:${id}:anthropic`);
-    return NextResponse.json({ ok: true, configured: true });
-  } catch (error) {
-    const { error: message, status } = jsonError(error);
-    return NextResponse.json({ error: message }, { status });
-  }
-}
-
-/** アカウント別 Anthropic Console cookie を削除する。 */
-export async function DELETE(_req: NextRequest, context: Context) {
-  const { id } = await context.params;
-  try {
-    requireAnthropicAccount(id);
-    const agentDir = await resolvePiAgentDir();
-    deleteAccountAnthropicCookieFile(accountAuthPath(id, agentDir));
-    invalidateCachedUsage();
-    clearProviderCache(`account:${id}:anthropic`);
-    return NextResponse.json({ ok: true, configured: false });
-  } catch (error) {
-    const { error: message, status } = jsonError(error);
-    return NextResponse.json({ error: message }, { status });
-  }
+export async function DELETE(req: NextRequest, context: { params: Promise<{ id: string }> }) {
+  return relayJsonBusiness(req, `accounts/${encodeURIComponent((await context.params).id)}/anthropic-cookie`);
 }

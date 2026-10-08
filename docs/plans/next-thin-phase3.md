@@ -2,9 +2,9 @@
 
 ## 進捗・範囲
 
-Phase3全体は未完了。Phase0のBackend/Phase3/JSON分類は118経路・182操作。Git・Diff・コミット文生成13経路・14操作、定義管理14経路・25操作、Provider/モデル設定7経路・8操作、Provider認証JSON4経路・5操作の合計38経路・52操作の境界を移管した。認証に付随するログインSSE 1経路・1操作も同じownerへ移管した（Phase3 JSONの集計には加算しない）。残る80経路・130操作には既存Backend中継も含まれ、受入条件の確認・残存業務処理の移管が必要。
+Phase3全体は未完了。Phase0のBackend/Phase3/JSON分類は118経路・182操作。Git・Diff・コミット文生成13経路・14操作、定義管理14経路・25操作、Provider/モデル設定7経路・8操作、Provider認証JSON4経路・5操作、アカウント管理/資格情報9経路・19操作の合計47経路・71操作の境界を移管した。認証に付随するログインSSE 1経路・1操作も同じownerへ移管した（Phase3 JSONの集計には加算しない）。残る71経路・111操作には既存Backend中継も含まれ、受入条件の確認・残存業務処理の移管が必要。
 
-以下は第1区切り（Git・Diff・コミット文生成）の記録。第2区切りの定義管理、第3区切りのProvider/モデル設定、第4区切りのProvider認証は末尾に記載する。
+以下は第1区切り（Git・Diff・コミット文生成）の記録。第2区切りの定義管理、第3区切りのProvider/モデル設定、第4区切りのProvider認証、第5区切りのアカウント管理/資格情報は末尾に記載する。
 
 | 経路 | 操作 |
 | --- | --- |
@@ -96,3 +96,19 @@ Phase3全体は未完了。Phase0のBackend/Phase3/JSON分類は118経路・182�
 - Backend/Web typecheck成功。Webのtest nullable session型は修正後に再実行成功。Backend強制ビルド6,857 KiB成功。
 - Webなしの実Backend fixtureで認証入力拒否のACK、実SSE done失敗、実プロセス再起動後のoperation重複拒否を検証（13.2秒）。外部Providerへの実ログイン/OAuth grant・稼働中ユーザーの資格情報変更は実行していない。
 - 全体Web/Backendスイートは今回再実行していない。対象回帰と過去全体baselineを区別する。
+
+## 第5区切り: アカウント管理/資格情報（9経路・19操作）
+
+- `accounts` GET/PATCH/POST、`accounts/[id]` PATCH/DELETE、`auth-status` GET、`anthropic-cookie` POST/DELETE、`anthropic-baseline` POST/DELETE、`ollama-cookie` POST/DELETE、`opencode-go-cookie` GET/POST/DELETE、`openrouter-baseline` POST/DELETE、`openrouter-credits` POST/DELETEをBackendへ移管。
+- 対象Nextルートは中継returnだけ。Account CRUD/表示順・immutable Provider制約・実行中タスク/Goal Loop/lease/hang復旧時の無効化/削除拒否・管理キー削除前のアカウント削除拒否・Cookie検証/保存・基準残高・workspace設定・auth badge読込をownerが実行する。アカウントIDは1回decode後に安全な形式を検証し、Nextは業務入力を解釈しない。
+- 設定/定義と同じconfiguration queue/ledgerとoperation ACKを利用する。Account一覧lock、Cookie/各private設定writerのmkdir/write/unlink前にNextを拒否し、秘密の保存観測hash/入力値をledger/応答へ出さない。Cookieは既存のアカウント別保存位置を維持し、private atomic replace（0600）へ変更した。削除はENOENTだけを成功とし、他のI/O失敗を隠さない。
+- auth-statusはcredential種別・configured flag・baseline・peer flagだけ、一覧/編集はAccount公開フィールドだけをネスト内も投影する。Cookie・APIキー・管理キー・AuthStorage/raw SDKフィールド・private path・例外本文は返さない。OpenRouter JSONの破損はbaseline編集で上書きせず、明示的な管理キー再登録だけで修復する。Nextでの読込に伴うOpenRouter chmodも抑止した。
+- idle peer削除時のpeer token除去とauth directory保持を維持する。OpenCode Cookie保存後のworkspace失敗はpartial保存として報告する。動的Account読込/usage/provider/health cacheの無効化を維持し、セッション置換を必要としない変更はnot-requiredとする。
+
+### 第5区切りの検証結果
+
+- Account API/owner/CRUD・BFFの対象回帰79/79成功。実Cookie/key保存と削除、auth-status、表示順/patch、Next common writer拒否、partial保存、破損設定の拒否/明示修復、private ledger非漏洩を検証。移動後の既存domain testはowner handlerへ接続し、実Next routeのopaque relay/ACK欠損/無書込も別途検証した。
+- pure contract・configuration queue/ledger・transport・AST ownership・既存設定境界/API inventory100/100成功。対象累計47経路・71操作が中継だけであることをASTで検証。
+- Backend/Web typecheck成功。Webの初回30秒timeoutは独立runnerで再実行成功（19.9秒）、最終直接実行も12.1秒で成功。Backend強制ビルド6,889 KiB成功。
+- Webなしの実Backend fixtureでAccount作成・private key保存・auth-status、危険ID拒否、実プロセス再起動後のAccount/key/receipt読込、作成とkey書込の重複受付拒否を検証（8.6秒）。検証は隔離data/agent/APPDATAで実施し、実ユーザーのアカウント・資格情報・サービスは変更していない。
+- 全体Web/Backendスイートは今回再実行していない。以前の全体baselineを今回の全体通過として流用しない。

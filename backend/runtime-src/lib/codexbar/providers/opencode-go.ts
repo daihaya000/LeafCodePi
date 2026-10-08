@@ -5,6 +5,7 @@
  * Credential order: OpenCodeTray DPAPI → Netscape cookies + config workspace id.
  */
 
+import { watchConfigurationPath } from "@backend-core/configuration-command.mjs";
 import { existsSync, mkdirSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import {
@@ -68,6 +69,7 @@ export function writeAccountOpenCodeGoWorkspace(
   workspaceId: string,
 ): void {
   const path = accountOpenCodeGoConfigPath(authPath);
+  watchConfigurationPath(path);
   mkdirSync(dirname(path), { recursive: true });
   atomicWriteText(path, `${JSON.stringify({ workspaceId }, null, 2)}\n`);
 }

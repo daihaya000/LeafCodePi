@@ -4,6 +4,7 @@
  * Key spending limits via /key remain available without a management key.
  */
 
+import { watchConfigurationPath } from "@backend-core/configuration-command.mjs";
 import { chmodSync, existsSync, lstatSync, readFileSync, unlinkSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { applyCreditBaseline } from "@/lib/codexbar/providers/anthropic";
@@ -35,7 +36,7 @@ function readAccountConfig(authPath: string, strict = false): Record<string, unk
     const info = lstatSync(path);
     if (!info.isFile()) throw new Error("OpenRouter 設定ファイルが通常のファイルではありません");
     // 旧版で作った 0644 ファイルも読み取り時に Pi auth.json と同じ権限へ移行。
-    if (process.platform !== "win32" && (info.mode & 0o077) !== 0) chmodSync(path, 0o600);
+    if (process.env.LEAFCODE_PI_PROCESS_ROLE !== "next" && process.platform !== "win32" && (info.mode & 0o077) !== 0) chmodSync(path, 0o600);
     return asRecord(JSON.parse(readFileSync(path, "utf8"))) ?? {};
   } catch (error) {
     if (strict && (error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
@@ -58,7 +59,14 @@ export function writeOpenRouterAccountConfig(
   update: { managementKey?: string | null; creditBaselineUsd?: number | null },
 ): void {
   const path = accountConfigPath(authPath);
-  const config = readAccountConfig(authPath);
+  watchConfigurationPath(path);
+  let config: Record<string, unknown>;
+  try { config = readAccountConfig(authPath, true); }
+  catch (error) {
+    // An explicit replacement key can repair malformed JSON; baseline edits must never erase an unreadable key.
+    if (!(error instanceof SyntaxError) || typeof update.managementKey !== "string") throw error;
+    config = {};
+  }
   for (const [key, value] of Object.entries(update)) {
     if (value === null) delete config[key];
     else if (value !== undefined) config[key] = value;

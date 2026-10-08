@@ -10,7 +10,7 @@ import {
   createAccount,
 } from "@/lib/accounts";
 import { accountAnthropicCookiePath } from "@/lib/codexbar/browser-cookies";
-import { DELETE, POST } from "./route";
+import { DELETE, POST } from "@backend-runtime/json-business/handlers/accounts/[id]/anthropic-cookie/route";
 
 const dirs: string[] = [];
 const previousAgentDir = process.env.PI_CODING_AGENT_DIR;

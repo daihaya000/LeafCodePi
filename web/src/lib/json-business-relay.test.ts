@@ -3,6 +3,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { relayJsonBusiness } from "./json-business-relay";
+import { NextRequest } from "next/server";
+import { POST as saveAccountKey } from "../app/api/accounts/[id]/openrouter-credits/route";
 let root: string;
 const fetcher = vi.fn();
 const request = (route = "git/init", body = '{"directory":"repo"}') => new Request(`http://localhost/api/${route}`, { method: "POST", body });
@@ -15,6 +17,21 @@ beforeEach(() => {
 });
 afterEach(() => { vi.unstubAllGlobals(); vi.unstubAllEnvs(); rmSync(root, { recursive: true, force: true }); });
 describe("JSON business ingress", () => {
+  it("actual Next account route relays opaque credential input, verifies its receipt and never writes locally", async () => {
+    fetcher.mockImplementationOnce(async (_url, options) => {
+      const id = new Headers(options.headers).get("x-leafcode-business-operation");
+      return Response.json({ status: 200, headers: {}, body: { ok: true, configured: true, managementKey: "PRIVATE", mutation: {
+        operationId: id, saved: true, saveStatus: "complete", revision: "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee", apply: "not-required", recovery: "none" } } });
+    });
+    const input = '{"managementKey":"PRIVATE-CREDENTIAL"}';
+    const response = await saveAccountKey(new NextRequest("http://localhost/api/accounts/fixture/openrouter-credits", { method: "POST", body: input }), { params: Promise.resolve({ id: "fixture" }) });
+    expect(response.status).toBe(200); expect(JSON.stringify(await response.json())).not.toContain("PRIVATE");
+    expect(new TextDecoder().decode(fetcher.mock.calls[0][1].body)).toBe(input);
+    expect(fetcher.mock.calls[0][0]).toContain("/accounts/fixture/openrouter-credits"); expect(fetcher).toHaveBeenCalledOnce(); expect(readdirSync(root)).toEqual([]);
+    fetcher.mockResolvedValueOnce(Response.json({ status: 200, headers: {}, body: { ok: true, configured: true } }));
+    const lost = await saveAccountKey(new NextRequest("http://localhost/api/accounts/fixture/openrouter-credits", { method: "POST", body: input }), { params: Promise.resolve({ id: "fixture" }) });
+    expect((await lost.json()).execution).toBe("unknown"); expect(fetcher).toHaveBeenCalledTimes(2);
+  });
   it("acknowledges auth execution without claiming asynchronous credential save and sends input only to the owner", async () => {
     fetcher.mockImplementationOnce(async (_url, options) => {
       const id = new Headers(options.headers).get("x-leafcode-business-operation");

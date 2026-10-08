@@ -34,7 +34,8 @@ import {
   listChromiumProfiles,
   readChromiumCookiesFromProfile,
 } from "@/lib/codexbar/chromium-cookies";
-import { asRecord } from "@/lib/codexbar/utils";
+import { asRecord, atomicWriteText } from "@/lib/codexbar/utils";
+import { watchConfigurationPath } from "@backend-core/configuration-command.mjs";
 
 const OPENCODE_DOMAIN = "opencode.ai";
 const QWEN_COOKIE_FILE = "home.qwencloud.com_cookies.txt";
@@ -557,8 +558,8 @@ export function saveAccountAnthropicCookieFile(
     );
   }
   const path = accountAnthropicCookiePath(authPath);
-  mkdirSync(dirname(path), { recursive: true });
-  writeFileSync(path, `${text.trim()}\n`, "utf8");
+  watchConfigurationPath(path);
+  atomicWriteText(path, `${text.trim()}\n`, 0o600);
   try {
     chmodSync(path, 0o600);
   } catch {
@@ -567,11 +568,10 @@ export function saveAccountAnthropicCookieFile(
 }
 
 export function deleteAccountAnthropicCookieFile(authPath: string): void {
-  try {
-    unlinkSync(accountAnthropicCookiePath(authPath));
-  } catch {
-    /* already absent */
-  }
+  const path = accountAnthropicCookiePath(authPath);
+  watchConfigurationPath(path);
+  try { unlinkSync(path); }
+  catch (error) { if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error; }
 }
 
 function extractOpenCodeCookieFromChromium(): string | null {
@@ -659,8 +659,8 @@ export function saveAccountOpenCodeCookieFile(
     );
   }
   const path = accountOpenCodeCookiePath(authPath);
-  mkdirSync(dirname(path), { recursive: true });
-  writeFileSync(path, `${text.trim()}\n`, "utf8");
+  watchConfigurationPath(path);
+  atomicWriteText(path, `${text.trim()}\n`, 0o600);
   try {
     chmodSync(path, 0o600);
   } catch {
@@ -669,11 +669,10 @@ export function saveAccountOpenCodeCookieFile(
 }
 
 export function deleteAccountOpenCodeCookieFile(authPath: string): void {
-  try {
-    unlinkSync(accountOpenCodeCookiePath(authPath));
-  } catch {
-    /* already absent */
-  }
+  const path = accountOpenCodeCookiePath(authPath);
+  watchConfigurationPath(path);
+  try { unlinkSync(path); }
+  catch (error) { if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error; }
 }
 
 function openCodeTrayCredentialsPath(): string {

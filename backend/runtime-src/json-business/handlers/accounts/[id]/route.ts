@@ -1,0 +1,73 @@
+import { ConfigurationRequest as NextRequest, ConfigurationResponse as NextResponse } from "../../../../configuration/http";
+import { removePeerConfig, peerConfigPath } from "@backend-core/peer-auth-config.mjs";
+import { watchConfigurationPath } from "@backend-core/configuration-command.mjs";
+import { accountAuthPath, accountDir, deleteAccount, getAccount, patchAccount, resolvePiAgentDir } from "@/lib/accounts";
+import { readOpenRouterManagementKey } from "@/lib/codexbar/providers/openrouter";
+import { invalidateHealthCache, jsonError } from "@/lib/pi/harness";
+
+export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
+
+type Context = { params: Promise<{ id: string }> };
+
+/** アカウントの表示名・メモ・使用状態を更新する（providers は変更不可）。 */
+export async function PATCH(req: NextRequest, context: Context) {
+  const { id } = await context.params;
+  try {
+    const body = (await req.json().catch(() => null)) as Record<string, unknown> | null;
+    if (!body || typeof body !== "object") {
+      return NextResponse.json({ error: "リクエストボディが不正です" }, { status: 400 });
+    }
+    if ("providers" in body) {
+      return NextResponse.json(
+        { error: "providers は変更できません。アカウントを作り直してください" },
+        { status: 400 },
+      );
+    }
+    // 未指定のキーは未変更扱い（note の意図しない消去を防ぐため "in" で判定）
+    const patch: { label?: unknown; note?: unknown; enabled?: unknown; codexResetAutoConsume?: unknown; anthropicResetAutoConsume?: unknown } = {};
+    if ("label" in body) patch.label = body.label;
+    if ("note" in body) patch.note = body.note;
+    if ("enabled" in body) patch.enabled = body.enabled;
+    if ("codexResetAutoConsume" in body) patch.codexResetAutoConsume = body.codexResetAutoConsume;
+    if ("anthropicResetAutoConsume" in body) patch.anthropicResetAutoConsume = body.anthropicResetAutoConsume;
+    if (!("label" in patch) && !("note" in patch) && !("enabled" in patch) && !("codexResetAutoConsume" in patch) && !("anthropicResetAutoConsume" in patch)) {
+      return NextResponse.json({ error: "label、note、enabled、codexResetAutoConsume、anthropicResetAutoConsume のいずれかを指定してください" }, { status: 400 });
+    }
+    const account = patchAccount(id, patch);
+    if ("enabled" in patch) {
+      invalidateHealthCache();
+    }
+    return NextResponse.json({ account });
+  } catch (error) {
+    const { error: message, status } = jsonError(error);
+    return NextResponse.json({ error: message }, { status });
+  }
+}
+
+/** アカウントを削除する（実行中タスクから参照されている間は 409）。 */
+export async function DELETE(_req: NextRequest, context: Context) {
+  const { id } = await context.params;
+  try {
+    const account = getAccount(id);
+    if (account?.providers.includes("openrouter")) {
+      const agentDir = await resolvePiAgentDir();
+      if (readOpenRouterManagementKey(accountAuthPath(id, agentDir), true)) {
+        return NextResponse.json(
+          { error: "OpenRouter の管理キーを先に削除してください。アカウント削除後は設定画面から削除できません" },
+          { status: 409 },
+        );
+      }
+    }
+    deleteAccount(id);
+    // The auth directory is kept on purpose, but a peer account's token must not outlive the account.
+    const peerDir = accountDir(id, await resolvePiAgentDir());
+    watchConfigurationPath(peerConfigPath(peerDir));
+    removePeerConfig(peerDir);
+    invalidateHealthCache();
+    return NextResponse.json({ ok: true });
+  } catch (error) {
+    const { error: message, status } = jsonError(error);
+    return NextResponse.json({ error: message }, { status });
+  }
+}

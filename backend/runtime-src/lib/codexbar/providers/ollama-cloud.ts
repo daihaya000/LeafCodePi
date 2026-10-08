@@ -2,6 +2,7 @@
  * Ollama Cloud usage scraped from https://ollama.com/settings (Netscape cookies).
  */
 
+import { assertConfigurationOwner, watchConfigurationPath } from "@backend-core/configuration-command.mjs";
 import { chmodSync, unlinkSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
@@ -75,7 +76,8 @@ export function saveOllamaCookieFile(accountId: string, text: string): void {
     throw cookieInputError("有効な ollama.com の Netscape cookie が見つかりません");
   }
 
-  atomicWriteText(path, `${text.trim()}\n`);
+  watchConfigurationPath(path);
+  atomicWriteText(path, `${text.trim()}\n`, 0o600);
   try {
     chmodSync(path, 0o600);
   } catch {
@@ -84,8 +86,10 @@ export function saveOllamaCookieFile(accountId: string, text: string): void {
 }
 
 export function deleteOllamaCookieFile(accountId: string): void {
+  assertConfigurationOwner();
   const path = accountOllamaCookiePath(accountId);
   if (!path) throw cookieInputError("アカウントIDが不正です");
+  watchConfigurationPath(path);
   try {
     unlinkSync(path);
   } catch (error) {

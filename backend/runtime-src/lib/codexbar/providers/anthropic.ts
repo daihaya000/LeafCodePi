@@ -6,6 +6,7 @@
  * （platform.claude.com）でプリペイドのクレジット残高を表示する。
  */
 
+import { watchConfigurationPath } from "@backend-core/configuration-command.mjs";
 import { existsSync, readFileSync, unlinkSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
@@ -817,11 +818,12 @@ export function writeAnthropicCreditBaseline(
   baselineUsd: number | null,
 ): void {
   const path = accountAnthropicConfigPath(authPath);
+  watchConfigurationPath(path);
   if (baselineUsd === null || !(baselineUsd > 0)) {
     try {
       unlinkSync(path);
-    } catch {
-      /* already absent */
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
     }
     return;
   }

@@ -3,6 +3,7 @@ import { readFileSync, statSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { readPeerConfig } from "@backend-core/peer-auth-config.mjs";
 import { withDirectoryLock } from "@backend-core/directory-lock.mjs";
+import { assertConfigurationOwner, watchConfigurationPath } from "@backend-core/configuration-command.mjs";
 import { dataDir } from "./paths";
 import { atomicWriteText } from "./codexbar/utils";
 import { invalidateCachedUsage } from "./codexbar/cache";
@@ -306,6 +307,7 @@ function writeAccountsFile(file: AccountsFile): void {
  */
 function withAccountsLock<T>(action: () => T): T {
   const path = accountsPath();
+  watchConfigurationPath(path);
   return withDirectoryLock({
     lockPath: `${path}.lock`,
     parentDir: dirname(path),
@@ -579,6 +581,7 @@ function patchAccountLocked(
  * （実行中セッションが認証を読み続けられるようにするため。再作成時も同じパスを使う）。
  */
 export function deleteAccount(id: string): void {
+  assertConfigurationOwner();
   // code / bot 双方。Goal Loop は idle でも継続中の場合、削除を拒否する。
   assertAccountIdleForDisable(id, "delete");
   withAccountsLock(() => {
