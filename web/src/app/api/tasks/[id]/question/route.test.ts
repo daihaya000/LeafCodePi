@@ -11,7 +11,7 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock("@/lib/pi/harness", () => mocks);
 
-import { POST } from "./route";
+import { POST } from "@backend-runtime/json-business/handlers/tasks/[id]/question/route";
 
 function request(body: unknown): NextRequest {
   return new NextRequest("http://localhost/api/tasks/task-1/question", {

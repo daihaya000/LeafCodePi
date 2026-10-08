@@ -262,6 +262,17 @@ test("Backend builds and serves its runtime API without Web sources or Web packa
   const individualRestore = await business("tasks/individual-task", { archived: false }, "", { "x-leafcode-business-operation": individualRestoreId }, "PATCH"); assert.equal(individualRestore.status, 200); assert.equal(individualRestore.body.task.status, "idle");
   const individualColdRead = await business("tasks/individual-task", undefined, "?messages=omit"); assert.equal(individualColdRead.status, 200); assert.equal(individualColdRead.body.task.status, "idle"); assert.deepEqual(individualColdRead.body.task.messages, []);
   const settingsThinking = await business("tasks/individual-task/thinking",{thinkingLevel:"high"},"",{"x-leafcode-business-operation":"bcbcbcbc-5678-4321-abcd-eeeeeeeeeeee"}); assert.equal(settingsThinking.status,200,JSON.stringify(settingsThinking)); assert.equal(settingsThinking.body.task.thinkingLevel,"high"); assert.equal(settingsThinking.body.operation.execution,"complete");
+  // Actual SDK admission targets only the unreachable localhost fixture model, never a paid provider or tool.
+  const conversationPromptId="abababab-5678-4321-abcd-eeeeeeeeeeee";
+  const fixturePrompt="Fixture local-only conversation request";
+  const acceptedPrompt=await business("tasks/individual-task/prompt",{prompt:fixturePrompt},"",{"x-leafcode-business-operation":conversationPromptId});
+  assert.equal(acceptedPrompt.status,200,JSON.stringify(acceptedPrompt));assert.equal(acceptedPrompt.body.task.id,"individual-task");assert.equal(acceptedPrompt.body.operation.execution,"complete");
+  const conversationPermissionId="cdcdcdcd-5678-4321-abcd-eeeeeeeeeeee",conversationQuestionId="dededede-5678-4321-abcd-eeeeeeeeeeee";
+  const stalePermission=await business("tasks/individual-task/permission",{requestId:"fixture-expired",approved:false},"",{"x-leafcode-business-operation":conversationPermissionId});
+  const staleQuestion=await business("tasks/individual-task/question",{requestId:"fixture-expired",answers:[["Fixture private 日本語"]]},"",{"x-leafcode-business-operation":conversationQuestionId});
+  assert.equal(stalePermission.status,404);assert.equal(staleQuestion.status,404);assert.equal(stalePermission.body.operation.execution,"complete");assert.equal(staleQuestion.body.operation.execution,"complete");
+  const conversationLedger=readFileSync(join(data,"task-conversation-command.json"),"utf8");assert.ok(!conversationLedger.includes(fixturePrompt));assert.ok(!conversationLedger.includes("fixture-expired"));assert.ok(!conversationLedger.includes("Fixture private"));
+  assert.equal((await business("tasks/individual-task/prompt",{prompt:fixturePrompt},"",{"x-leafcode-business-operation":conversationPromptId})).status,409);
   const individualStop = await business("tasks/individual-task/abort", {}, "", { "x-leafcode-business-operation": "dfdfdfdf-bbbb-cccc-dddd-eeeeeeeeeeee" }); assert.equal(individualStop.status, 200);
   const individualArchive = await fetch(`${base}/internal/json-business/tasks/individual-task`, { method: "DELETE", headers: { ...businessHeaders, "x-leafcode-business-operation": "eaeaeaea-bbbb-cccc-dddd-eeeeeeeeeeee" }, signal: AbortSignal.timeout(5000) }); assert.equal((await individualArchive.json()).body.task.status, "archived");
   assert.equal((await business("tasks/%252F", undefined)).status, 400);
@@ -288,6 +299,10 @@ test("Backend builds and serves its runtime API without Web sources or Web packa
   assert.equal(restored?.value, "100", stderr);
   const outcome = await fetch(`${restartedBase}/internal/configuration/settings?operationId=${committed.mutation.operationId}`, { headers: configHeaders, signal: AbortSignal.timeout(3_000) });
   assert.equal(outcome.status, 200); assert.deepEqual((await outcome.json()).mutation, committed.mutation);
+  for(const [suffix,id,body] of [["prompt",conversationPromptId,{prompt:fixturePrompt}],["permission",conversationPermissionId,{requestId:"fixture-expired",approved:true}],["question",conversationQuestionId,{requestId:"fixture-expired",reject:true}]]) {
+    const replay=await fetch(`${restartedBase}/internal/json-business/tasks/individual-task/${suffix}`,{method:"POST",headers:{...businessHeaders,"x-leafcode-business-operation":id},body:JSON.stringify(body),signal:AbortSignal.timeout(3000)});
+    assert.equal(replay.status,200);const result=await replay.json();assert.equal(result.status,409);assert.equal(result.body.operation.execution,"complete");
+  }
   const gitAfterRestart = await fetch(`${restartedBase}/internal/json-business/git/log${query}`, { headers: businessHeaders, signal: AbortSignal.timeout(5000) });
   assert.equal(gitAfterRestart.status, 200);
   assert.equal((await gitAfterRestart.json()).body.commits[0].hash, history.body.commits[0].hash);

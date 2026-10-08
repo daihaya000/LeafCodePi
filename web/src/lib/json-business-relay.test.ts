@@ -22,6 +22,10 @@ import { POST as selectTaskModel } from "../app/api/tasks/[id]/model/route";
 import { POST as selectTaskThinking } from "../app/api/tasks/[id]/thinking/route";
 import { POST as selectTaskAgent } from "../app/api/tasks/[id]/agent/route";
 import { PUT as selectGoalAuto } from "../app/api/tasks/[id]/goal-loop-auto-model/route";
+import { POST as sendPrompt } from "../app/api/tasks/[id]/prompt/route";
+import { POST as answerPermission } from "../app/api/tasks/[id]/permission/route";
+import { POST as answerQuestion } from "../app/api/tasks/[id]/question/route";
+import * as dirtyHub from "./backend-task-dirty-hub";
 import { POST as nextTask } from "../app/api/projects/[id]/next-task/route";
 let root: string;
 const fetcher = vi.fn();
@@ -33,8 +37,39 @@ beforeEach(() => {
   fetcher.mockReset().mockImplementation(async () => Response.json({ status: 200, body: { ok: true, directory: "repo", token: "PRIVATE" }, headers: { "set-cookie": "PRIVATE" } }));
   vi.stubGlobal("fetch", fetcher);
 });
-afterEach(() => { vi.unstubAllGlobals(); vi.unstubAllEnvs(); rmSync(root, { recursive: true, force: true }); });
+afterEach(() => { vi.restoreAllMocks(); vi.unstubAllGlobals(); vi.unstubAllEnvs(); rmSync(root, { recursive: true, force: true }); });
 describe("JSON business ingress", () => {
+  it("actual prompt/permission/question routes relay opaque input, scrub owner output and wake only accepted prompts",async()=>{
+    const wake=vi.spyOn(dirtyHub,"wakeBackendTaskListeners"),context={params:Promise.resolve({id:"bot:fixture"})};
+    for(const [suffix,handler] of [["prompt",sendPrompt],["permission",answerPermission],["question",answerQuestion]] as const){
+      fetcher.mockImplementationOnce(async(_url,init)=>Response.json({status:200,body:{...(suffix==="prompt"?{task:{id:"bot:fixture",status:"working",token:"PRIVATE"},autoDecision:{providerID:"p",modelID:"m",escalation:{providerID:"p",modelID:"b",token:"PRIVATE"}}}:{ok:true}),operation:{id:new Headers(init.headers).get("x-leafcode-business-operation"),execution:"complete",token:"PRIVATE"},credentials:"PRIVATE"}}));
+      const body='{"opaque":"日本語","fromBot":true,"invalidDomainInput":42}';
+      const response=await handler(new NextRequest(`http://localhost/api/tasks/bot%3Afixture/${suffix}`,{method:"POST",body}),context);
+      expect(response.status).toBe(200);expect(JSON.stringify(await response.json())).not.toContain("PRIVATE");
+      const [url,init]=fetcher.mock.calls.at(-1)!;expect(url).toContain(`/tasks/bot%3Afixture/${suffix}`);expect(new TextDecoder().decode(init.body)).toBe(body);
+    }
+    expect(wake).toHaveBeenCalledExactlyOnceWith("bot:fixture","prompt");expect(readdirSync(root)).toEqual([]);
+  });
+  it("conversation ACK loss, mismatch or owner uncertainty never retries or falls back",async()=>{
+    const context={params:Promise.resolve({id:"t"})},wake=vi.spyOn(dirtyHub,"wakeBackendTaskListeners");
+    for(const operation of [undefined,{id:"aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee",execution:"complete"}]){
+      fetcher.mockResolvedValueOnce(Response.json({status:200,body:{ok:true,operation}}));const lost=await answerPermission(new NextRequest("http://localhost/api/tasks/t/permission",{method:"POST",body:"{}"}),context);
+      expect(lost.status).toBe(503);expect((await lost.json()).execution).toBe("unknown");
+    }
+    fetcher.mockImplementationOnce(async(_url,init)=>Response.json({status:503,body:{error:"Unknown accepted prompt",operation:{id:new Headers(init.headers).get("x-leafcode-business-operation"),execution:"unknown"}}}));
+    const failed=await sendPrompt(new NextRequest("http://localhost/api/tasks/t/prompt",{method:"POST",body:"{}"}),context);expect(failed.status).toBe(503);expect((await failed.json()).operation.execution).toBe("unknown");expect(fetcher).toHaveBeenCalledTimes(3);expect(wake).not.toHaveBeenCalled();expect(readdirSync(root)).toEqual([]);
+  });
+  it("conversation auth, Origin and byte bounds fail before forwarding; unauth input is not read",async()=>{
+    const context={params:Promise.resolve({id:"t"})};
+    for(const [suffix,limit,handler] of [["prompt",18*1024*1024,sendPrompt],["permission",4096,answerPermission],["question",16384,answerQuestion]] as const){
+      const url=`http://localhost/api/tasks/t/${suffix}`;
+      expect((await handler(new NextRequest(url,{method:"POST",body:"{}",headers:{"content-length":String(limit+1)}}),context)).status).toBe(413);
+      expect((await handler(new NextRequest(url,{method:"POST",body:"{}",headers:{origin:"https://evil.test"}}),context)).status).toBe(403);
+    }
+    expect((await answerQuestion(new NextRequest("http://localhost/api/tasks/t/question",{method:"POST",body:'{"answers":[["'+"日".repeat(6000)+'"]]}'}),context)).status).toBe(413);
+    vi.stubEnv("LEAFCODE_PI_WEBUI_AUTH","required");expect((await sendPrompt(new NextRequest("http://localhost/api/tasks/t/prompt",{method:"POST",body:"{invalid"}),context)).status).toBe(401);expect(fetcher).not.toHaveBeenCalled();expect(readdirSync(root)).toEqual([]);
+  });
+
   it("actual task model/thinking/Agent/Auto routes relay opaque input and require matching Task ACKs without local writes",async()=>{
     const context={params:Promise.resolve({id:"bot:fixture"})};
     for(const [suffix,method,handler,body] of [["model","POST",selectTaskModel,{model:"pin::p::m"}],["thinking","POST",selectTaskThinking,{thinkingLevel:"high"}],["agent","POST",selectTaskAgent,{agent:""}],["goal-loop-auto-model","PUT",selectGoalAuto,{enabled:true}]] as const){

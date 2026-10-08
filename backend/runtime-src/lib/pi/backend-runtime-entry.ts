@@ -13,18 +13,16 @@ export { dispatchJsonBusinessRequest } from "../../json-business/index";
 export { openProviderLoginEvents } from "../../json-business/provider-auth-events";
 
 export { createTask } from "../task-collection";
+export { promptTask, respondToPermissionPrompt, respondToQuestionPrompt } from "../task-conversation";
 export { setTaskModel, setTaskThinkingLevel, setTaskAgent } from "../task-execution-settings";
 export { getTaskDetail, archiveTask, destroyTask, abortTaskIncludingColdGoalLoop, stopBotCodeTask } from "../task-lifecycle";
 export {
-  promptTask,
   getTaskDetailReadOnly,
   abortTask,
   // Abort must reproduce both the Goal Loop (cold) path and the Bot-owned outbox path.
   listPendingAttention,
   pendingPermissionForTask,
   pendingQuestionForTask,
-  respondToPermissionPrompt,
-  respondToQuestionPrompt,
   clearPendingAttentionForTask,
   completeBotCodeRequest,
   createBotCodeTask,

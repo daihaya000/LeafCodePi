@@ -2,9 +2,9 @@
 
 ## 進捗・範囲
 
-Phase3全体は未完了。Phase0のBackend/Phase3/JSON分類は118経路・182操作。Git・Diff・コミット文生成13経路・14操作、定義管理14経路・25操作、Provider/モデル設定7経路・8操作、Provider認証JSON4経路・5操作、アカウント管理/資格情報9経路・19操作、利用量/クレジット3経路・5操作、Peer認証共有5経路・9操作、Workspaceファイル/次タスク提案3経路・3操作、Project lifecycle1経路・4操作、Task collection1経路・3操作、個別Task lifecycle2経路・4操作、Task履歴/検索/bookmark3経路・5操作、Task実行設定4経路・4操作の合計69経路・108操作の境界を移管した。認証に付随するログインSSE 1経路・1操作も同じownerへ移管した（Phase3 JSONの集計には加算しない）。残る49経路・74操作には既存Backend中継も含まれ、受入条件の確認・残存業務処理の移管が必要。
+Phase3全体は未完了。Phase0のBackend/Phase3/JSON分類は118経路・182操作。Git・Diff・コミット文生成13経路・14操作、定義管理14経路・25操作、Provider/モデル設定7経路・8操作、Provider認証JSON4経路・5操作、アカウント管理/資格情報9経路・19操作、利用量/クレジット3経路・5操作、Peer認証共有5経路・9操作、Workspaceファイル/次タスク提案3経路・3操作、Project lifecycle1経路・4操作、Task collection1経路・3操作、個別Task lifecycle2経路・4操作、Task履歴/検索/bookmark3経路・5操作、Task実行設定4経路・4操作、Task送信/対話応答3経路・3操作の合計72経路・111操作の境界を移管した。認証に付随するログインSSE 1経路・1操作も同じownerへ移管した（Phase3 JSONの集計には加算しない）。残る46経路・71操作には既存Backend中継も含まれ、受入条件の確認・残存業務処理の移管が必要。
 
-以下は第1区切り（Git・Diff・コミット文生成）の記録。第2区切りの定義管理、第3区切りのProvider/モデル設定、第4区切りのProvider認証、第5区切りのアカウント管理/資格情報、第6区切りの利用量/クレジット、第7区切りのPeer認証共有、第8区切りのWorkspaceファイル/次タスク提案、第9区切りのProject lifecycle、第10区切りのTask collection、第11区切りの個別Task lifecycle、第12区切りのTask履歴/検索/bookmark、第13区切りのTask実行設定は末尾に記載する。
+以下は第1区切り（Git・Diff・コミット文生成）の記録。第2区切りの定義管理、第3区切りのProvider/モデル設定、第4区切りのProvider認証、第5区切りのアカウント管理/資格情報、第6区切りの利用量/クレジット、第7区切りのPeer認証共有、第8区切りのWorkspaceファイル/次タスク提案、第9区切りのProject lifecycle、第10区切りのTask collection、第11区切りの個別Task lifecycle、第12区切りのTask履歴/検索/bookmark、第13区切りのTask実行設定、第14区切りのTask送信/対話応答は末尾に記載する。
 
 | 経路 | 操作 |
 | --- | --- |
@@ -238,4 +238,19 @@ Phase3全体は未完了。Phase0のBackend/Phase3/JSON分類は118経路・182�
 - pure contract・共通Task admission・Backend transport・AST境界84/84成功。累計69経路・108操作でNextに業務処理が残らないことを確認。
 - Backend/Web typecheck、Backend強制ビルド7,057 KiB成功。Webなしの実Backend fixtureで到達不能なfixture専用modelをcold選択、実SDK sessionのthinking変更、Agent空選択、Goal marker保存・実再起動後のmodel/marker保持・重複拒否・Auto解除を検証（8.8秒）。モデル生成・外部資格情報/稼働サービス操作なし。
 - 広いSDK routing再実行は30秒上限で中断。soft accountId作成の待機timeout 1件は単独でも再現。原因の分離: 変更前`7c9abd4f`を隔離した同じテストは成功、同HEADへ開始時の他者差分7ファイルだけを加えると失敗した（第13区切りの変更は一切含まない）。他者差分を保持し、今回のコミットへ混ぜない。全体スイート成功とは扱わない。
-- Web型チェックで検証mockのThinkingLevel型を修正し、型チェック/関連47件を再実行成功。Phase3全体は未完了で、prompt・Goal制御・fork/promote/revert等49経路・74操作が残る。
+- Web型チェックで検証mockのThinkingLevel型を修正し、型チェック/関連47件を再実行成功。第13区切り時点ではprompt・Goal制御・fork/promote/revert等49経路・74操作が残る。
+
+## 第14区切り: Task送信・対話応答（3経路・3操作）
+
+- `tasks/[id]/prompt`・`permission`・`question` POSTをBackendへ移管。Nextはparamsのtransport encodeと単一relay returnだけ。本文/添付の検証、Auto model/Agent・account/再開/steer選択、SDK送信、pending permission/questionの所有Task・FIFO先頭確認と回答/拒否はownerが担当する。
+- 既存ownerの`handleTaskPrompt`を正規入口とし、Next roleを本文検証・会話読取・Auto推論前に拒否する。Backend runtime entryの旧prompt/permission/question呼び出しにも専用guarded wrapperを接続する。SDKのprepare/Stop取消・送信queue・Bot委譲先のattention解決・expired requestの404を維持し、稼働中の他者harness変更には触れない。
+- `task-conversation-command.json`にprivateな128件上限の受付ledgerを設ける。check/replay拒否/unknown checkpointを一つのfile-lock内で実行するが、handlerを全体queueへ入れない。Auto/SDKの送信準備が未完了でも回答・既存Stopは独立して実行できる。unknownを保持してcompleteだけを間引き、全件unknownなら新規受付をnot-startedで拒否する。exactly-onceや無期限の重複履歴保持を保証しない。
+- ledgerにはoperation ID/uncertaintyのみ保存し、本文・添付・approval・回答は保存しない。completeは送信/応答要求の受付処理終了であり、生成完了・tool実行成功・複合操作の原子性ではない。accepted操作はdisconnectで取消せず、重複/再起動後replay・Next fallback・transport自動再送を拒否する。SDK既存の内部queue/retryとは区別する。
+- prompt 18 MiB、permission 4 KiB、question 16 KiBの実byte上限。trusted認可/Origin/readiness/世代/安全ID/単一decode、Task/Auto decision/escalationの深い公開投影、ACK一致確認を維持する。HTTP本文のfromBot/codeRequestId/waitForCompletion/permission等の内部指定はSDKへ渡さない。正しいACKの送信受付後だけWeb内のopen streamをwakeする。
+
+### 第14区切りの検証結果
+
+- 対象Web/owner/handler/SDK service/prepare/実BFF/ownership回帰106件、Core/契約/transport/AST/runtime bundle125件が成功。独立fixture1件を含め、重複を除く対象232件を検証した。送信準備中の実Stop・回答、disconnect後の継続、実pending serviceのTask/FIFO照合・approval/denial/answers/reject/expired、unknown/重複・満杯ledger、秘匿と内部権限指定の無視を確認。
+- Backend/Web typecheck、Backend強制ビルド7,067 KiB成功。Webソース/パッケージのない実Backend fixtureで、到達不能なlocalhost専用modelへの実SDK送信受付、期限切れpermission/questionの404、ledger非記録、実プロセス再起動後の3操作replay拒否を検証（10.0秒）。生成成功や実tool実行の検証とは扱わず、有料Provider・稼働ユーザーTask/資格情報/サービスへ操作していない。
+- 原因: 境界テストの古い期待値。Next SDK入口数の23→20を反映し、collection専用matcherと既に移管済みの個別Task matcherを区別した。後者の古い期待値と既存Task lifecycle matcherは開始時HEADにも存在したことを確認し、関連テスト再実行で成功。Web typecheckが検出したowner handlerのaliasと検証fixtureのDTO型も修正済み。
+- 全体スイートは今回再実行していない。第13区切りで分離済みの他者差分のみで再現するSDK routing待機timeoutを今回解消したとは扱わず、開始時の7ファイルを保持する。Phase3全体は未完了で、Goal制御・fork/promote/revert・compaction・Bot業務等46経路・71操作が残る。

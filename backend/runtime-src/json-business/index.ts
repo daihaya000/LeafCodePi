@@ -11,6 +11,8 @@ import { usageTarget } from "@shared/usage-contract.mjs";
 import { dispatchUsageRequest } from "./usage";
 import { peerTarget } from "@shared/peer-contract.mjs";
 import { dispatchPeerRequest } from "./peer";
+import { taskConversationTarget } from "@shared/task-conversation-contract.mjs";
+import { dispatchTaskConversationRequest } from "./task-conversation";
 import { taskExecutionSettingsTarget } from "@shared/task-execution-settings-contract.mjs";
 import { dispatchTaskExecutionSettingsRequest } from "./task-execution-settings";
 import { taskHistoryTarget } from "@shared/task-history-contract.mjs";
@@ -55,6 +57,8 @@ export async function dispatchJsonBusinessRequest(input: JsonBusinessInput): Pro
   const request = configurationRequest(new Request(input.url, { method: input.method, headers: input.headers,
     signal, ...(input.body?.byteLength ? { body: new Uint8Array(input.body).slice().buffer } : {}) }), input.authorized);
   if (input.method !== "GET" && isCrossOriginRequest(request)) return { status: 403, headers: {}, body: { error: "Cross-origin request refused" } };
+  const conversation = taskConversationTarget(input.route);
+  if (conversation) return dispatchTaskConversationRequest(input, request, conversation);
   const executionSettings = taskExecutionSettingsTarget(input.route);
   if (executionSettings) return dispatchTaskExecutionSettingsRequest(input, request, executionSettings);
   const history = taskHistoryTarget(input.route);

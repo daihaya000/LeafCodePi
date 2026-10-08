@@ -3,6 +3,8 @@ import { providerAuthTarget, publicAuthOperation } from "@shared/provider-auth-c
 import { publicConfigurationMutation } from "@shared/configuration-contract.mjs";
 import { usageExternalCommand, publicUsageOperation } from "@shared/usage-contract.mjs";
 import { peerFacing, PEER_AUTHORIZATION_HEADER } from "@shared/peer-contract.mjs";
+import { taskConversationTarget } from "@shared/task-conversation-contract.mjs";
+import { wakeBackendTaskListeners } from "@/lib/backend-task-dirty-hub";
 import { taskExecutionSettingsTarget } from "@shared/task-execution-settings-contract.mjs";
 import { taskHistoryTarget } from "@shared/task-history-contract.mjs";
 import { taskLifecycleTarget } from "@shared/task-lifecycle-contract.mjs";
@@ -103,7 +105,7 @@ export async function relayJsonBusiness(request: Request, route: string): Promis
       if (providerAuthTarget(route)) {
         const operation = publicAuthOperation(result.body?.operation);
         if (!operation || operation.id !== operationId) return failure(503, "Backendの認証操作結果を確認できません", unknown);
-      } else if (taskCollectionTarget(route) || taskLifecycleTarget(route) || taskHistoryTarget(route) || taskExecutionSettingsTarget(route)) {
+      } else if (taskCollectionTarget(route) || taskLifecycleTarget(route) || taskHistoryTarget(route) || taskExecutionSettingsTarget(route) || taskConversationTarget(route)) {
         const operation = publicTaskOperation(result.body?.operation);
         if (!operation || operation.id !== operationId) return failure(503, "Backendのタスク操作結果を確認できません", unknown);
       } else if (projectTarget(route)) {
@@ -117,6 +119,8 @@ export async function relayJsonBusiness(request: Request, route: string): Promis
         if (!mutation || mutation.operationId !== operationId) return failure(503, "Backendの操作結果を確認できません", unknown);
       }
     }
+    const conversation = taskConversationTarget(route);
+    if (conversation?.route.endsWith("/prompt") && result.status < 400) wakeBackendTaskListeners(conversation.params.id, "prompt");
     const outputHeaders = new Headers(noStore);
     for (const [key, value] of Object.entries(result.headers)) outputHeaders.set(key, value);
     return result.status === 304 ? new Response(null, { status: 304, headers: outputHeaders })

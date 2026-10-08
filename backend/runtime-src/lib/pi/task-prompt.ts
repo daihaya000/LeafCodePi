@@ -1,3 +1,4 @@
+import { assertConfigurationOwner } from "@backend-core/configuration-command.mjs";
 import { getTask } from "@/lib/store";
 import { readSessionConversation } from "@/lib/direct-session";
 import { parseDirectModelKey } from "@/lib/direct-generation";
@@ -29,6 +30,7 @@ export type TaskPromptResult = {
 
 /** Shared owning-mode ladder: Backend and standalone development use identical selection/recovery. */
 export async function handleTaskPrompt(id: string, body: TaskPromptBody): Promise<TaskPromptResult> {
+  assertConfigurationOwner();
   try {
     assertLocalRuntimeAllowed();
     if (!body || typeof body !== "object" || Array.isArray(body)

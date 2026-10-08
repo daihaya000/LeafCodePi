@@ -1,9 +1,9 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { publicTaskCollectionBody, publicTaskSummary, TASK_COLLECTION_BODY_LIMIT } from "./task-collection-contract.mjs";
+import { publicTaskCollectionBody, publicTaskSummary, taskCollectionTarget, TASK_COLLECTION_BODY_LIMIT } from "./task-collection-contract.mjs";
 import { jsonBusinessTarget, jsonBusinessCommand, jsonBusinessBodyLimit, publicJsonBusinessResult } from "./json-business-contract.mjs";
 test("task collection transport preserves aggregate image/file/prompt room and command ownership", () => {
-  assert.equal(jsonBusinessTarget("tasks").route,"tasks"); assert.equal(jsonBusinessTarget("tasks/x"),null); assert.equal(jsonBusinessCommand("tasks","POST"),true); assert.equal(jsonBusinessCommand("tasks","GET"),false);
+  assert.equal(jsonBusinessTarget("tasks").route,"tasks"); assert.equal(taskCollectionTarget("tasks/x"),null); assert.equal(jsonBusinessTarget("tasks/x").route,"tasks/[id]"); assert.equal(jsonBusinessCommand("tasks","POST"),true); assert.equal(jsonBusinessCommand("tasks","GET"),false);
   assert.equal(jsonBusinessBodyLimit("tasks"),TASK_COLLECTION_BODY_LIMIT); assert.ok(TASK_COLLECTION_BODY_LIMIT > 16*1024*1024+256000);
 });
 test("task rows deeply project metadata and remove SDK, credential and initial prompt payloads", () => {
