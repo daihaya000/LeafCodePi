@@ -16,7 +16,7 @@ vi.mock("@/lib/pi/harness", () => ({
   }),
 }));
 
-import { GET, PUT } from "./route";
+import { GET, PUT } from "@backend-runtime/json-business/handlers/providers/[id]/base-url/route";
 
 function request(method: "GET" | "PUT", body?: unknown): NextRequest {
   return new NextRequest("http://127.0.0.1:3010/api/providers/ollama-cloud/base-url", {

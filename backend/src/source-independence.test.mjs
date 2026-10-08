@@ -149,6 +149,14 @@ test("Backend builds and serves its runtime API without Web sources or Web packa
   const illegalAgent = await business("agents/%2E%2E%2Fescape", { enabled: true }, "", { "x-leafcode-business-operation": "dddddddd-eeee-ffff-aaaa-bbbbbbbbbbbb" }, "PATCH");
   assert.equal(illegalAgent.status, 400);
   assert.equal(existsSync(join(fixture, "escape.md")), false);
+  const endpointOperation = "eeeeeeee-ffff-aaaa-bbbb-cccccccccccc";
+  const endpointReply = await business("providers/leafcodecloud/base-url", { baseUrl: "http://127.0.0.1:1/v1" }, "", { "x-leafcode-business-operation": endpointOperation }, "PUT");
+  assert.equal(endpointReply.status, 200, JSON.stringify(endpointReply));
+  assert.equal(endpointReply.body.mutation.saved, true); assert.equal(endpointReply.body.mutation.apply, "deferred");
+  assert.equal((await business("providers/leafcodecloud/base-url")).body.baseUrl, "http://127.0.0.1:1/v1");
+  const modelReply = await business("provider-models/fixture%3A%3Amodel", { contextWindow: 16384 }, "", { "x-leafcode-business-operation": "ffffffff-aaaa-bbbb-cccc-dddddddddddd" }, "PATCH");
+  assert.equal(modelReply.status, 200, JSON.stringify(modelReply)); assert.equal(modelReply.body.mutation.saved, true);
+  assert.equal(JSON.parse(readFileSync(join(data, "provider-model-state.json"), "utf8")).contextWindow["fixture::model"], 16384);
   // Restart the actual owner process, retaining only its disk state, not a Web fallback or a module cache.
   const exited = new Promise((done) => child.once("exit", done)); child.kill(); await exited;
   stdout = ""; stderr = ""; listening = undefined; child = launch();
@@ -183,5 +191,10 @@ test("Backend builds and serves its runtime API without Web sources or Web packa
     body: JSON.stringify({ content: "No replay" }), signal: AbortSignal.timeout(5000) });
   assert.equal((await definitionReplay.json()).status, 409);
   assert.equal(readFileSync(join(agent, "AGENTS.md"), "utf8"), "Isolated owner 日本語");
+  const endpointRestored = await fetch(`${restartedBase}/internal/json-business/providers/leafcodecloud/base-url`, { headers: businessHeaders, signal: AbortSignal.timeout(5000) });
+  assert.equal((await endpointRestored.json()).body.baseUrl, "http://127.0.0.1:1/v1");
+  const endpointOutcome = await fetch(`${restartedBase}/internal/configuration/settings?operationId=${endpointOperation}`, { headers: configHeaders, signal: AbortSignal.timeout(3000) });
+  assert.deepEqual((await endpointOutcome.json()).mutation, endpointReply.body.mutation);
+  assert.equal(JSON.parse(readFileSync(join(data, "provider-model-state.json"), "utf8")).contextWindow["fixture::model"], 16384);
   assert.equal(existsSync(join(fixture, "web")), false);
 });

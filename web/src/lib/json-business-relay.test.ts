@@ -15,6 +15,17 @@ beforeEach(() => {
 });
 afterEach(() => { vi.unstubAllGlobals(); vi.unstubAllEnvs(); rmSync(root, { recursive: true, force: true }); });
 describe("JSON business ingress", () => {
+  it("relays provider identifier/query bytes and preserves a saved endpoint's deferred receipt", async () => {
+    fetcher.mockImplementationOnce(async (_url, options) => {
+      const id = new Headers(options.headers).get("x-leafcode-business-operation");
+      return Response.json({ status: 200, headers: {}, body: { baseUrl: "https://fixture.test/v1", token: "PRIVATE", mutation: {
+        operationId: id, saved: true, saveStatus: "complete", revision: "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee", apply: "deferred", recovery: "none" } } });
+    });
+    const response = await relayJsonBusiness(new Request("http://localhost/api/providers/leafcodecloud/base-url?accountId=account-1", { method: "PUT", body: '{"baseUrl":"https://fixture.test/v1"}' }), "providers/leafcodecloud/base-url");
+    expect(response.status).toBe(200); expect(await response.json()).toMatchObject({ mutation: { saved: true, apply: "deferred" } });
+    expect(fetcher.mock.calls[0][0]).toContain("/providers/leafcodecloud/base-url?accountId=account-1");
+    expect(readdirSync(root)).toEqual([]); expect(fetcher).toHaveBeenCalledOnce();
+  });
   it("preserves definition save/apply failure and checks the opaque operation acknowledgement", async () => {
     fetcher.mockImplementation(async (_url, options) => {
       const id = new Headers(options.headers).get("x-leafcode-business-operation");

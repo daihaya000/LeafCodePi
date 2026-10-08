@@ -4,6 +4,7 @@ export const JSON_BUSINESS_ROUTES: Readonly<Record<string, readonly string[]>>;
 export const JSON_BUSINESS_BODY_LIMIT: number;
 export function jsonBusinessTarget(path: string): { route: string; params: Record<string, string> } | null;
 export function jsonBusinessBodyLimit(path: string): number;
+export function jsonBusinessCommand(path: string, method: string): boolean;
 export const JSON_BUSINESS_RESPONSE_LIMIT: number;
 export function jsonBusinessTimeout(route: string): number;
 export function jsonBusinessMutates(route: string, method: string): boolean;

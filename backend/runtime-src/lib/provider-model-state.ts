@@ -1,5 +1,6 @@
 import { mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
+import { watchConfigurationPath } from "@backend-core/configuration-command.mjs";
 import { dataDir } from "@/lib/paths";
 import { isThinkingLevel } from "@/lib/thinking-levels";
 import type { ThinkingLevel } from "@/lib/types";
@@ -48,6 +49,7 @@ export function accountModelKey(
 }
 
 function atomicWrite(filePath: string, content: string): void {
+  watchConfigurationPath(filePath);
   const dir = dirname(filePath);
   mkdirSync(dir, { recursive: true });
   const tmp = join(dir, `.${Date.now()}.${process.pid}.tmp`);

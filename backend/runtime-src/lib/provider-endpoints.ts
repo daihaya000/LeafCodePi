@@ -12,6 +12,7 @@ import {
   writeFileSync,
 } from "node:fs";
 import { dirname, join } from "node:path";
+import { watchConfigurationPath } from "@backend-core/configuration-command.mjs";
 import { dataDir } from "@/lib/paths";
 
 export const DEFAULT_OLLAMA_CLOUD_BASE = "https://ollama.com/v1";
@@ -107,6 +108,7 @@ export function isEditableBaseUrlProvider(
 }
 
 function atomicWrite(filePath: string, content: string): void {
+  watchConfigurationPath(filePath);
   const dir = dirname(filePath);
   mkdirSync(dir, { recursive: true });
   const tmp = join(dir, `.${Date.now()}.${process.pid}.tmp`);

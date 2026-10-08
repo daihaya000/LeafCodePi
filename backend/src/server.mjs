@@ -4,8 +4,7 @@ import { once } from "node:events";
 import { streamRuntimeEvents } from "./runtime-events.mjs";
 import { readJsonBody, JsonBodyReadError } from "./json-body.mjs";
 import { readConfigurationBody } from "./configuration-body.mjs";
-import { JSON_BUSINESS_PATH, JSON_BUSINESS_ROUTES, JSON_BUSINESS_HEADERS, jsonBusinessTarget, jsonBusinessBodyLimit, JSON_BUSINESS_RESPONSE_LIMIT, jsonBusinessMutates, publicJsonBusinessResult } from "../../shared/json-business-contract.mjs";
-import { DEFINITION_ROUTES } from "../../shared/definition-contract.mjs";
+import { JSON_BUSINESS_PATH, JSON_BUSINESS_ROUTES, JSON_BUSINESS_HEADERS, jsonBusinessTarget, jsonBusinessBodyLimit, JSON_BUSINESS_RESPONSE_LIMIT, jsonBusinessMutates, jsonBusinessCommand, publicJsonBusinessResult } from "../../shared/json-business-contract.mjs";
 import { CONFIGURATION_PATH, CONFIGURATION_ROUTES, CONFIGURATION_HEADERS, configurationTarget, configurationBodyLimit } from "../../shared/configuration-contract.mjs";
 export { BACKEND_PROMPT_BODY_LIMIT_BYTES } from "./json-body.mjs";
 import { parseMcpPresetRequest } from "../../shared/mcp-preset-request.mjs";
@@ -442,9 +441,9 @@ export function createBackendServer({
         if (!["http:", "https:"].includes(url.protocol) || url.origin !== origin || typeof host !== "string" || !["0", "1"].includes(access)) throw new Error();
       } catch { sendJson(response, 400, { error: "Invalid business context", code: BACKEND_ERROR_CODES.badRequest }); return; }
       if (process.env.LEAFCODE_PI_WEBUI_AUTH === "required" && access !== "1") { sendJson(response, 403, { error: "WebUI access required", code: BACKEND_ERROR_CODES.unauthorized }); return; }
-      const definition = Object.hasOwn(DEFINITION_ROUTES, businessTarget.route);
+      const command = jsonBusinessCommand(businessPath, request.method);
       const operationId = request.headers[JSON_BUSINESS_HEADERS.operation];
-      if (definition && request.method !== "GET" && (typeof operationId !== "string" || !/^[0-9a-f-]{36}$/.test(operationId))) { sendJson(response, 400, { error: "Invalid operation ID", code: BACKEND_ERROR_CODES.badRequest }); return; }
+      if (command && (typeof operationId !== "string" || !/^[0-9a-f-]{36}$/.test(operationId))) { sendJson(response, 400, { error: "Invalid operation ID", code: BACKEND_ERROR_CODES.badRequest }); return; }
       if (businessTarget.route === "prompts/transfer" && access !== "1") {
         const loopback = ["127.0.0.1", "localhost", "::1", "[::1]"];
         let headerHost = ""; try { headerHost = new URL(`http://${host}`).hostname; } catch { /* fail closed */ }

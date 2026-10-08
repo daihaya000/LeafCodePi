@@ -1,11 +1,10 @@
 import { randomUUID } from "node:crypto";
-import { definitionTarget } from "@shared/definition-contract.mjs";
 import { publicConfigurationMutation } from "@shared/configuration-contract.mjs";
 import { isCrossOriginRequest } from "@/lib/same-origin";
 import { backendBaseUrl, expectedBackendGeneration, isBackendGenerationCompatible, readBackendHealth } from "@/lib/backend-client";
 import { isWebUiRequestAuthorized, webUiAuthRequired } from "@/lib/webui-auth";
 import { JSON_BUSINESS_PATH, JSON_BUSINESS_ROUTES, JSON_BUSINESS_HEADERS, jsonBusinessTarget, jsonBusinessBodyLimit, JSON_BUSINESS_RESPONSE_LIMIT,
-  jsonBusinessTimeout, jsonBusinessMutates, publicJsonBusinessResult } from "@shared/json-business-contract.mjs";
+  jsonBusinessTimeout, jsonBusinessMutates, jsonBusinessCommand, publicJsonBusinessResult } from "@shared/json-business-contract.mjs";
 import { BACKEND_PROTOCOL_HEADER, BACKEND_PROTOCOL_VERSION } from "@shared/backend-protocol.mjs";
 
 const noStore = { "Cache-Control": "no-store, private", "X-Content-Type-Options": "nosniff" };
@@ -48,7 +47,7 @@ export async function relayJsonBusiness(request: Request, route: string): Promis
     const origin = request.headers.get("origin");
     if (origin && origin !== original.origin) return failure(403, "許可されない接続元です", before);
   }
-  const operationId = definitionTarget(route) && request.method !== "GET" ? randomUUID() : undefined;
+  const operationId = jsonBusinessCommand(route, request.method) ? randomUUID() : undefined;
   const token = process.env.LEAFCODE_PI_BACKEND_TOKEN?.trim();
   if (!token) return failure(503, "Backendを利用できません", before);
   const expected = expectedBackendGeneration();

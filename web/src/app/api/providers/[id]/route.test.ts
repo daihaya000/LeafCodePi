@@ -11,7 +11,7 @@ vi.mock("@/lib/pi/harness", () => ({
   setProviderAccountRoutingMode: setMode,
 }));
 
-import { PATCH } from "./route";
+import { PATCH } from "@backend-runtime/json-business/handlers/providers/[id]/route";
 
 function request(body: unknown): NextRequest {
   return new NextRequest("http://127.0.0.1:3010/api/providers/openai-codex", {

@@ -6,6 +6,7 @@ import {
   writeFileSync,
 } from "node:fs";
 import { dirname, join } from "node:path";
+import { watchConfigurationPath } from "@backend-core/configuration-command.mjs";
 import { dataDir } from "@/lib/paths";
 import { hasLastGoodUsage, type CodexBarProvider } from "@/lib/codexbar";
 import type { AccountProviderId } from "@/lib/accounts";
@@ -83,6 +84,7 @@ export function accountRoutingMode(
 }
 
 function atomicWrite(path: string, content: string): void {
+  watchConfigurationPath(path);
   const dir = dirname(path);
   mkdirSync(dir, { recursive: true });
   const temp = join(

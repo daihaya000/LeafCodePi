@@ -2,9 +2,9 @@
 
 ## 進捗・範囲
 
-Phase3全体は未完了。Phase0のBackend/Phase3/JSON分類は118経路・182操作。Git・Diff・コミット文生成13経路・14操作と、定義管理14経路・25操作の合計27経路・39操作の境界を移管した。残る91経路・143操作には既存Backend中継も含まれ、受入条件の確認・残存業務処理の移管が必要。
+Phase3全体は未完了。Phase0のBackend/Phase3/JSON分類は118経路・182操作。Git・Diff・コミット文生成13経路・14操作、定義管理14経路・25操作、Provider/モデル設定7経路・8操作の合計34経路・47操作の境界を移管した。残る84経路・135操作には既存Backend中継も含まれ、受入条件の確認・残存業務処理の移管が必要。
 
-以下は第1区切り（Git・Diff・コミット文生成）の記録。第2区切りの定義管理は末尾に記載する。
+以下は第1区切り（Git・Diff・コミット文生成）の記録。第2区切りの定義管理、第3区切りのProvider/モデル設定は末尾に記載する。
 
 | 経路 | 操作 |
 | --- | --- |
@@ -63,3 +63,19 @@ Phase3全体は未完了。Phase0のBackend/Phase3/JSON分類は118経路・182�
 - Backend/Web typecheck成功。Backend強制ビルド6,820 KiB成功。Web typecheckの初回30秒timeoutとportable Request型の不一致を確認し、Backend transfer-accessの明示参照へ修正して再実行成功。
 - Webなしの実Backend fixtureでMarkdown/Agent保存と読込、危険な名前の拒否、実プロセス再起動後の内容・同一receipt読込・重複受付拒否を検証（最終7.7秒）。稼働中ユーザーの定義・SOUL.md・サービスは変更していない。
 - 全体Web/Backendスイートは第2区切りでは再実行していない。第1区切りの全体回帰集計を今回の全体通過として流用しない。
+
+## 第3区切り: Provider/モデル設定（7経路・8操作）
+
+- `models` GET、`providers` GET、`providers/[id]` PATCH、`providers/[id]/base-url` GET/PUT、`provider-models` GET、`provider-models/[key]` PATCH、`provider-models/order` PATCHをBackendのJSON業務APIへ移管。
+- 対象Nextルートは中継returnのみ。アカウント状態・統合routing・モデル選択/effort/contextWindow/並び順・URL制約・CodexBar表示/直近throughput平均の業務判断はownerへ移動した。モデル/Providerの識別子は入口だけでURIデコードし、catalogの公開外SDKフィールドをネスト内も除去する。
+- 設定/定義と同じqueue/ledger、opaque operationId/ACK照合、保存観測・partial保存・重複拒否・結果照会を利用する。Provider model state/endpoints/routingの共通writerはmkdir/一時ファイル生成前にNext書込みを拒否する。
+- Native Provider API URLはruntime構築時の値であり、保存成功をlive反映済みと誤認させない。`mutation.apply:deferred`を返し、実反映は次回Backend起動。モデル設定/routingは既存の動的読込とcache invalidationを維持し、sessionの置換はnot-required。
+- ProviderのOAuth/API-keyログイン開始・answer/callback/logoutは今回移管していない。Nextのlogin SSEと単一owner sessionの一体移管が必要であり、次の区切りに残す。認証完了・SSE移管を今回の成果として扱わない。
+
+### 第3区切りの検証結果
+
+- Provider/model domain・公開DTO・BFF・定義/設定互換の対象回帰91/91成功。
+- pure contract・Core queue/ledger・transport・AST ownership・Phase2境界・API inventory79/79成功。対象累計34経路・47操作が中継のみであることをASTで検証。
+- Backend/Web typecheck成功。Backend強制ビルド6,837 KiB成功。
+- Webなしの実Backend fixtureでmodel contextWindowとAPI URLを保存、owner GET、実プロセス再起動後の内容と保存receipt照会を検証（8.1秒）。API URLの保存結果は再起動前deferredのまま履歴に保持し、過去receiptを書き換えない。稼働中ユーザーのアカウント・認証・設定・サービスは変更していない。
+- 全体Web/Backendスイートは今回再実行していない。今回の対象回帰と以前の全体baselineを区別する。
