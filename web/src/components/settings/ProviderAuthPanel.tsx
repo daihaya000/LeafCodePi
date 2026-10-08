@@ -438,6 +438,7 @@ export const ProviderAuthPanel = memo(function ProviderAuthPanel({
   const [authStatuses, setAuthStatuses] = useState<
     Record<string, AccountProviderId[]>
   >({});
+  const [authStatusErrors, setAuthStatusErrors] = useState<Record<string, string>>({});
   /** `${providerId}:${accountId}` → 残高取得用 cookie / 管理キーの登録状態。 */
   const [cookieStatuses, setCookieStatuses] = useState<Record<string, boolean>>(
     {},
@@ -585,6 +586,7 @@ export const ProviderAuthPanel = memo(function ProviderAuthPanel({
           try {
             const status = await getJson<{
               providers: AccountProviderId[];
+              error?: string;
               credentialKinds?: Partial<
                 Record<AccountProviderId, AccountCredentialKind>
               >;
@@ -597,10 +599,11 @@ export const ProviderAuthPanel = memo(function ProviderAuthPanel({
               anthropicCookieConfigured?: boolean;
             }>(`/api/accounts/${encodeURIComponent(account.id)}/auth-status`);
             return [account.id, status] as const;
-          } catch {
+          } catch (error) {
             return [
               account.id,
               {
+                error: error instanceof Error ? error.message : String(error),
                 providers: [] as AccountProviderId[],
                 credentialKinds: {} as Partial<
                   Record<AccountProviderId, AccountCredentialKind>
@@ -624,6 +627,11 @@ export const ProviderAuthPanel = memo(function ProviderAuthPanel({
             .filter(([, status]) => status.peer === true)
             .map(([id]) => id),
         ),
+      );
+      setAuthStatusErrors(
+        Object.fromEntries(statuses.flatMap(([id, status]) =>
+          status.error ? [[id, status.error]] : [],
+        )),
       );
       setAuthStatuses(
         Object.fromEntries(
@@ -792,7 +800,7 @@ export const ProviderAuthPanel = memo(function ProviderAuthPanel({
           ...prev,
           busy: false,
           prompt: null,
-          status: "ログイン完了",
+          status: prev.authType === "api_key" ? "APIキー保存完了" : "ログイン完了",
           finished: true,
           input: "",
           warning: "warning" in payload ? (payload.warning ?? null) : null,
@@ -1356,13 +1364,13 @@ export const ProviderAuthPanel = memo(function ProviderAuthPanel({
 
   const loginPanel = login && (
     <section
-      aria-label={`${login.providerName} のログイン`}
+      aria-label={`${login.providerName} の${login.authType === "oauth" ? "ログイン" : "APIキー設定"}`}
       className="mt-3 min-w-0 rounded-2xl border border-border bg-surface-2 p-4"
     >
       <div className="mb-2 flex items-center justify-between gap-2">
         <h3 className="min-w-0 break-all text-sm font-semibold">
           {login.providerName} —{" "}
-          {login.authType === "oauth" ? "サブスクログイン" : "API キー"}
+          {login.authType === "oauth" ? "ログイン" : "APIキー設定"}
           {login.accountId && (
             <span className="ml-1 text-xs font-normal text-muted">
               （アカウント:{" "}
@@ -1574,17 +1582,21 @@ export const ProviderAuthPanel = memo(function ProviderAuthPanel({
                 {providerAccounts.map((account, accountIndex) => {
                   const cookieConfigured =
                     cookieStatuses[cookieKey(providerId, account.id)] === true;
+                  const authStatusError = authStatusErrors[account.id];
+                  const authStatusLoading = authStatuses[account.id] === undefined;
+                  const authStatusUnavailable = authStatusLoading || Boolean(authStatusError);
                   const piAuthenticated =
-                    authStatuses[account.id]?.includes(providerId) === true;
+                    !authStatusUnavailable && authStatuses[account.id]?.includes(providerId) === true;
                   const authenticated =
                     piAuthenticated ||
                     (providerId === "opencode-go" && cookieConfigured);
                   const peerManaged = peerAccountIds.has(account.id);
                   const currentCookieKey = cookieKey(providerId, account.id);
                   const credentialKind = credentialKinds[currentCookieKey];
-                  const visibleAuthTypes = piAuthenticated && credentialKind
-                    ? accountAuthTypes.filter((authType) => authType === credentialKind)
-                    : accountAuthTypes;
+                  const visibleAuthTypes = authStatusUnavailable ? []
+                    : piAuthenticated && credentialKind
+                      ? accountAuthTypes.filter((authType) => authType === credentialKind)
+                      : accountAuthTypes;
                   const cookieEditing = cookieEditingKey === currentCookieKey;
                   const cookieAccountBusy = cookieBusy === currentCookieKey;
                   const baselineStored = creditBaselines[currentCookieKey] ?? null;
@@ -1598,7 +1610,7 @@ export const ProviderAuthPanel = memo(function ProviderAuthPanel({
                     providerId,
                     credentialKinds[currentCookieKey],
                   );
-                  const showCookieUi = cookieUi !== undefined;
+                  const showCookieUi = !authStatusUnavailable && cookieUi !== undefined;
                   const usage = findProviderUsage(
                     codexBarUsage,
                     providerId,
@@ -1704,8 +1716,10 @@ export const ProviderAuthPanel = memo(function ProviderAuthPanel({
                                   {account.note}
                                 </span>
                               )}
-                              <Badge tone={authenticated ? "success" : "neutral"}>
-                                {authenticated ? "認証済" : "未ログイン"}
+                              <Badge tone={authStatusError ? "warning" : authenticated ? "success" : "neutral"}>
+                                {authStatusError ? "認証状態の取得失敗"
+                                  : authStatusLoading ? "認証状態を確認中…"
+                                    : authenticated ? "認証済" : "未ログイン"}
                               </Badge>
                               {account.enabled === false && (
                                 <Badge tone="warning">一時停止中</Badge>
@@ -1831,6 +1845,15 @@ export const ProviderAuthPanel = memo(function ProviderAuthPanel({
                           </>
                         )}
                       </div>
+                      {authStatusError && (
+                        <div className="mt-2 flex flex-wrap items-center gap-2">
+                          <p className="text-xs text-danger" role="alert">{authStatusError}</p>
+                          <Button size="sm" variant="outline" disabled={Boolean(login) || accountBusy}
+                            onClick={() => void refreshAccounts()}>
+                            再取得
+                          </Button>
+                        </div>
+                      )}
                       {usage && <ProviderUsage usage={usage} />}
                       {usage?.credits && <CreditsLine credits={usage.credits} />}
                       {(usage || providerId === "openai-codex" || providerId === "anthropic") && (
@@ -1844,7 +1867,7 @@ export const ProviderAuthPanel = memo(function ProviderAuthPanel({
                           autoConsume={(providerId === "openai-codex" || (providerId === "anthropic" && credentialKinds[cookieKey(providerId, account.id)] !== "api_key")) && !peerManaged ? {
                             enabled: (providerId === "anthropic" ? account.anthropicResetAutoConsume : account.codexResetAutoConsume) !== false,
                             busy: accountBusy,
-                            disabled: Boolean(login) || authStatuses[account.id] === undefined,
+                            disabled: Boolean(login) || authStatusUnavailable,
                             label: account.label,
                             onChange: () => void toggleAccountAutoReset(account, providerId),
                           } : undefined}
@@ -1988,7 +2011,7 @@ export const ProviderAuthPanel = memo(function ProviderAuthPanel({
                               </div>
                             </form>
                           )}
-                          {(providerId === "anthropic" || providerId === "openrouter") && (
+                          {((providerId === "anthropic" && credentialKind === "api_key") || providerId === "openrouter") && (
                             <form
                               className="mt-2 flex flex-col gap-2 border-t border-border pt-2"
                               onSubmit={(event) => {

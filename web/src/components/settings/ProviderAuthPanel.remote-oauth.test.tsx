@@ -90,7 +90,7 @@ describe("remote provider OAuth", () => {
     fireEvent.click(within(card).getByRole("button", { name: "APIキー登録" }));
     await waitFor(() => expect(TestEventSource.instances).toHaveLength(1));
     await emit("prompt", { id: "key", prompt: { type: "secret", message: "Shared API key" } });
-    expect(within(card).getByRole("region", { name: "TypeSafe のログイン" })).toBeTruthy();
+    expect(within(card).getByRole("region", { name: "TypeSafe のAPIキー設定" })).toBeTruthy();
     expect(within(card).getByLabelText("Shared API key")).toBeTruthy();
   });
 

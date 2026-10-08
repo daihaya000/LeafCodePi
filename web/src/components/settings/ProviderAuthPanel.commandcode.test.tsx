@@ -65,6 +65,6 @@ describe("Command Code API-key input", () => {
     ));
     await emit("done", { ok: true });
     expect(within(card).queryByLabelText("Command Code API key")).toBeNull();
-    expect(within(card).getByText("ログイン完了")).toBeTruthy();
+    expect(within(card).getByText("APIキー保存完了")).toBeTruthy();
   });
 });
