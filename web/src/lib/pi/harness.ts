@@ -12066,6 +12066,16 @@ function isLiveEvictable(live: LiveRuntime, nowMs: number, idleMs: number): bool
   for (const identity of identities) {
     if (identity && backgroundWorkForSession(identity) !== 0) return false;
   }
+  // Self-resume owns a timer in the live extension, not an external scheduler.
+  // Reaping it (including memory-pressure eviction) would silently lose its wakeup.
+  try {
+    const manager = live.session.sessionManager;
+    const branch = typeof manager?.getBranch === "function" ? manager.getBranch() : [];
+    if (resumeReservationFromBranch(branch, live.session.sessionId)?.status === "scheduled") return false;
+  } catch {
+    // An unreadable branch cannot prove that the session has no pending wakeup.
+    return false;
+  }
   return true;
 }
 

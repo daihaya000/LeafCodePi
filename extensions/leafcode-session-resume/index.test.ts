@@ -153,6 +153,32 @@ describe("session_resume", () => {
     expect(next.sendMessage).toHaveBeenCalledTimes(1);
   });
 
+  it("retires a stale SDK context without throwing from the timer or reviving it", async () => {
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    const id = randomUUID();
+    const old = harness(id);
+    await schedule(old);
+    Object.defineProperty(old.ctx, "cwd", { get() { throw new Error("This extension ctx is stale after session replacement or reload."); } });
+    await vi.advanceTimersByTimeAsync(1_000);
+    expect(old.sendMessage).not.toHaveBeenCalled();
+    expect(vi.getTimerCount()).toBe(0);
+    const restored = harness(id, old.branch);
+    old.shutdown();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(restored.sendMessage).toHaveBeenCalledTimes(1);
+    expect(old.appendEntry).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps status display failures from losing or crashing a reservation", async () => {
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    const h = harness();
+    vi.mocked(h.ctx.ui.setStatus).mockImplementation(() => { throw new Error("UI unavailable"); });
+    expect((await schedule(h)).isError).toBeUndefined();
+    await vi.advanceTimersByTimeAsync(1_000);
+    expect(h.sendMessage).toHaveBeenCalledTimes(1);
+    expect((await state(h)).reservation?.status).toBe("fired");
+  });
+
   it("drops a reservation when navigating to a branch without it", async () => {
     const h = harness();
     await schedule(h);

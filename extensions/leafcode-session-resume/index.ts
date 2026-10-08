@@ -36,7 +36,16 @@ function runtimeKey(ctx: ExtensionContext): string {
   return JSON.stringify([ctx.cwd, ctx.sessionManager.getSessionId()]);
 }
 function ownsRuntime(runtime: Runtime): boolean {
-  return !runtime.disposed && runtimes.get(runtime.key) === runtime && runtimeKey(runtime.ctx) === runtime.key;
+  if (runtime.disposed || runtimes.get(runtime.key) !== runtime) return false;
+  // AgentSession.dispose() invalidates SDK getters without emitting session_shutdown.
+  // Timer/event entry points must not let that exception terminate the whole host.
+  try {
+    if (runtimeKey(runtime.ctx) === runtime.key) return true;
+  } catch {
+    // Keep the persisted reservation for a fresh session_start, never reuse this ctx.
+  }
+  dispose(runtime);
+  return false;
 }
 function clearTimer(runtime: Runtime): void {
   if (runtime.timer) clearTimeout(runtime.timer);
@@ -52,8 +61,12 @@ function readReservation(ctx: ExtensionContext): ResumeReservation | undefined {
   return resumeReservationFromBranch(ctx.sessionManager.getBranch(), ctx.sessionManager.getSessionId());
 }
 function updateStatus(runtime: Runtime): void {
-  runtime.ctx.ui.setStatus(RESUME_ENTRY_TYPE, runtime.reservation?.status === "scheduled"
-    ? `再開予約: ${runtime.reservation.at}` : undefined);
+  try {
+    runtime.ctx.ui.setStatus(RESUME_ENTRY_TYPE, runtime.reservation?.status === "scheduled"
+      ? `再開予約: ${runtime.reservation.at}` : undefined);
+  } catch {
+    // Cosmetic TUI state is not reservation persistence or delivery authority.
+  }
 }
 function save(runtime: Runtime, reservation: ResumeReservation): void {
   runtime.pi.appendEntry(RESUME_ENTRY_TYPE, reservation);
@@ -114,7 +127,7 @@ function fire(runtime: Runtime): void {
     clearTimer(runtime);
     if (runtime.reservation) runtime.reservation = { ...runtime.reservation, status: "failed", error: String(error) };
     updateStatus(runtime);
-    console.warn("[session-resume] 再開予約の実行に失敗:", error);
+    console.warn("[session-resume] 再開予約の実行に失敗:", error instanceof Error ? error.name : "Error");
   }
 }
 

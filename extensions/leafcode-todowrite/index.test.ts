@@ -466,6 +466,15 @@ describe("todowrite omission gate", () => {
     }
   });
 
+  it.each(["completed", "cancelled"])("keeps self-resume controls available before work and after todos are %s", async (status) => {
+    const run = fixture();
+    for (const action of ["schedule", "status", "cancel"]) expect(run.callTool("session_resume", { action })).toBeUndefined();
+    await run.writeTodos([{ content: "Background result check", status: "in_progress", priority: "high" }]);
+    await run.writeTodos([{ content: "Background result check", status, priority: "high" }]);
+    for (const action of ["schedule", "status", "cancel"]) expect(run.callTool("session_resume", { action })).toBeUndefined();
+    expect(run.callTool("edit")?.block).toBe(true);
+  });
+
   it("immediately blocks side effects and unknown custom tools", () => {
     const run = fixture();
     for (const name of [

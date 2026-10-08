@@ -64,6 +64,7 @@ const EXEMPT_TOOLS = new Set([
   "watchdog_warn",
   "contact_supervisor",
   "subagent_wait",
+  "session_resume",
   "intercom",
   "jev_judge",
 ]);
