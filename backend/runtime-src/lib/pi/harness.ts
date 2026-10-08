@@ -1,4 +1,5 @@
 import { EventEmitter } from "node:events";
+import { assertConfigurationOwner } from "@backend-core/configuration-command.mjs";
 import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { rm } from "node:fs/promises";
 import { homedir } from "node:os";
@@ -7519,6 +7520,7 @@ export async function startProviderLogin(
   authType: AuthTypeDto,
   accountId?: string | null,
 ): Promise<{ sessionId: string }> {
+  assertConfigurationOwner();
   await ensureRuntime();
   if (accountId) {
     const account = getAccount(accountId);
@@ -7596,6 +7598,7 @@ export function answerProviderLogin(
   value: string,
   sessionId?: string | null,
 ): void {
+  assertConfigurationOwner();
   const session = state().loginSession;
   if (!session)
     throw Object.assign(new Error("ログインセッションがありません"), {
@@ -7615,6 +7618,7 @@ export async function completeProviderLoginCallback(
   sessionId: string,
   input: string,
 ): Promise<void> {
+  assertConfigurationOwner();
   const session = state().loginSession;
   if (!session || session.id !== sessionId || session.providerId !== providerId) {
     throw Object.assign(new Error("ログインセッションが一致しません"), { status: 409 });
@@ -7623,6 +7627,7 @@ export async function completeProviderLoginCallback(
 }
 
 export function cancelProviderLogin(sessionId?: string | null): void {
+  assertConfigurationOwner();
   const current = state();
   const session = current.loginSession;
   if (!session) return;
@@ -7670,6 +7675,7 @@ export async function logoutProvider(
   providerId: string,
   accountId?: string | null,
 ): Promise<void> {
+  assertConfigurationOwner();
   await ensureRuntime();
   if (accountId) {
     const account = getAccount(accountId);

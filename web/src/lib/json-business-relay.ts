@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { providerAuthTarget, publicAuthOperation } from "@shared/provider-auth-contract.mjs";
 import { publicConfigurationMutation } from "@shared/configuration-contract.mjs";
 import { isCrossOriginRequest } from "@/lib/same-origin";
 import { backendBaseUrl, expectedBackendGeneration, isBackendGenerationCompatible, readBackendHealth } from "@/lib/backend-client";
@@ -86,8 +87,13 @@ export async function relayJsonBusiness(request: Request, route: string): Promis
     const result = publicJsonBusinessResult(route, value);
     if (!result) return failure(503, "Backendの応答が不正です", unknown);
     if (operationId) {
-      const mutation = publicConfigurationMutation(result.body?.mutation);
-      if (!mutation || mutation.operationId !== operationId) return failure(503, "Backendの操作結果を確認できません", unknown);
+      if (providerAuthTarget(route)) {
+        const operation = publicAuthOperation(result.body?.operation);
+        if (!operation || operation.id !== operationId) return failure(503, "Backendの認証操作結果を確認できません", unknown);
+      } else {
+        const mutation = publicConfigurationMutation(result.body?.mutation);
+        if (!mutation || mutation.operationId !== operationId) return failure(503, "Backendの操作結果を確認できません", unknown);
+      }
     }
     const outputHeaders = new Headers(noStore);
     for (const [key, value] of Object.entries(result.headers)) outputHeaders.set(key, value);

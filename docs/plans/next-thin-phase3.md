@@ -2,9 +2,9 @@
 
 ## 進捗・範囲
 
-Phase3全体は未完了。Phase0のBackend/Phase3/JSON分類は118経路・182操作。Git・Diff・コミット文生成13経路・14操作、定義管理14経路・25操作、Provider/モデル設定7経路・8操作の合計34経路・47操作の境界を移管した。残る84経路・135操作には既存Backend中継も含まれ、受入条件の確認・残存業務処理の移管が必要。
+Phase3全体は未完了。Phase0のBackend/Phase3/JSON分類は118経路・182操作。Git・Diff・コミット文生成13経路・14操作、定義管理14経路・25操作、Provider/モデル設定7経路・8操作、Provider認証JSON4経路・5操作の合計38経路・52操作の境界を移管した。認証に付随するログインSSE 1経路・1操作も同じownerへ移管した（Phase3 JSONの集計には加算しない）。残る80経路・130操作には既存Backend中継も含まれ、受入条件の確認・残存業務処理の移管が必要。
 
-以下は第1区切り（Git・Diff・コミット文生成）の記録。第2区切りの定義管理、第3区切りのProvider/モデル設定は末尾に記載する。
+以下は第1区切り（Git・Diff・コミット文生成）の記録。第2区切りの定義管理、第3区切りのProvider/モデル設定、第4区切りのProvider認証は末尾に記載する。
 
 | 経路 | 操作 |
 | --- | --- |
@@ -79,3 +79,20 @@ Phase3全体は未完了。Phase0のBackend/Phase3/JSON分類は118経路・182�
 - Backend/Web typecheck成功。Backend強制ビルド6,837 KiB成功。
 - Webなしの実Backend fixtureでmodel contextWindowとAPI URLを保存、owner GET、実プロセス再起動後の内容と保存receipt照会を検証（8.1秒）。API URLの保存結果は再起動前deferredのまま履歴に保持し、過去receiptを書き換えない。稼働中ユーザーのアカウント・認証・設定・サービスは変更していない。
 - 全体Web/Backendスイートは今回再実行していない。今回の対象回帰と以前の全体baselineを区別する。
+
+## 第4区切り: Provider認証JSON（4経路・5操作）とログインSSE
+
+- `providers/[id]/login` POST、`login/answer` POST/DELETE、`login/callback` POST、`logout` POSTをBackendへ移管。付随する `login/events` GETも `/internal/provider-login-events/<id>` を通じ同一Backend sessionへ中継する。
+- 対象Nextルートは中継returnのみ。NextはSDK login/session/historyを保持・購読・取消しない。SSE切断/Next再起動はowner subscriberだけを切り離し、実行中ログイン・OAuth loopback listenerを止めない。sessionId/Provider一致、Peer accountのログイン/ログアウト拒否、callback入力上限、OAuth state/期限/重複callback制約はownerで維持する。
+- JSON認証操作は独立したprivate admission ledger（0600・最大128件）にoperationIdとexecutionだけを記録する。入力値・コード・URL・資格情報は記録しない。handler実行前にunknownをcheckpointし、同じIDの再実行はowner再起動後も409で拒否する。受付記録失敗はnot-started、SDK/結果喪失はunknownで、自動再試行/fallbackなし。
+- `operation.execution:complete`はJSON操作の応答完了であり、資格情報の保存・非同期ログイン成功を意味しない。保存成功/失敗はowner SSEのdoneで表す。設定変更用mutation.savedを認証開始/answerに流用しない。Backend自体の再起動では進行中のsessionは復元されず、古いsessionIdのSSEはdone失敗になる。
+- SSEはowner側で公開DTOだけを投影し、秘密入力値・追加SDKフィールド・例外本文を出さない。認証画面で必要なOAuth URL/state・device code・promptは認可されたstreamで維持。done警告は「認証保存済み・モデル同期失敗」を維持するが、生のSDK例外は隠す。
+- event 64 KiB、subscriber queue/socket 1 MiB、socket drain待ち45秒、入口handshake10秒で制限。過大/停滞subscriberだけを切断し、ログインはキャンセルしない。idle streamの切断も購読解除へ伝播する。Nextから直接harness mutation/ProviderLoginSession.runを起動する経路はowner guardで拒否する。
+
+### 第4区切りの検証結果
+
+- owner session・BFF・認証JSON・SSE・OAuth callback/secret prompt・共通SSE writer: 106/106成功。実ProviderLoginSessionを制御Runtimeで実行し、stream切断→再購読→同一promptへのanswer→隔離credential file保存→done、Provider/session取り違え、過大event、Next拒否を検証。
+- admission/重複拒否・実HTTP stream/disconnect・pure contract・AST ownership・既存設定境界/API inventory: 94/94成功。JSON累計38経路・52操作とlogin SSE 1経路の中継だけの構造を検証。
+- Backend/Web typecheck成功。Webのtest nullable session型は修正後に再実行成功。Backend強制ビルド6,857 KiB成功。
+- Webなしの実Backend fixtureで認証入力拒否のACK、実SSE done失敗、実プロセス再起動後のoperation重複拒否を検証（13.2秒）。外部Providerへの実ログイン/OAuth grant・稼働中ユーザーの資格情報変更は実行していない。
+- 全体Web/Backendスイートは今回再実行していない。対象回帰と過去全体baselineを区別する。

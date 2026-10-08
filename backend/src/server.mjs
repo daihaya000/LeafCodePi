@@ -3,6 +3,8 @@ import { createServer } from "node:http";
 import { once } from "node:events";
 import { streamRuntimeEvents } from "./runtime-events.mjs";
 import { readJsonBody, JsonBodyReadError } from "./json-body.mjs";
+import { streamProviderLoginEvents } from "./provider-login-events.mjs";
+import { PROVIDER_AUTH_EVENTS_PATH } from "../../shared/provider-auth-contract.mjs";
 import { readConfigurationBody } from "./configuration-body.mjs";
 import { JSON_BUSINESS_PATH, JSON_BUSINESS_ROUTES, JSON_BUSINESS_HEADERS, jsonBusinessTarget, jsonBusinessBodyLimit, JSON_BUSINESS_RESPONSE_LIMIT, jsonBusinessMutates, jsonBusinessCommand, publicJsonBusinessResult } from "../../shared/json-business-contract.mjs";
 import { CONFIGURATION_PATH, CONFIGURATION_ROUTES, CONFIGURATION_HEADERS, configurationTarget, configurationBodyLimit } from "../../shared/configuration-contract.mjs";
@@ -216,6 +218,7 @@ export function createBackendServer({
   setTaskAgentAction = null,
   configurationRequestAction = null,
   jsonBusinessRequestAction = null,
+  providerLoginEventsAction = null,
 } = {}) {
   if (
     typeof token !== "string" ||
@@ -251,6 +254,7 @@ export function createBackendServer({
     runtimeControlAction,
     configurationRequestAction,
     jsonBusinessRequestAction,
+    providerLoginEventsAction,
     subscribeRuntimeEvents,
     createTask,
     respondToQuestion,
@@ -405,7 +409,8 @@ export function createBackendServer({
     const configurationPath = target.pathname.startsWith(`${CONFIGURATION_PATH}/`)
       ? target.pathname.slice(CONFIGURATION_PATH.length + 1) : null;
     const businessPath = target.pathname.startsWith(`${JSON_BUSINESS_PATH}/`) ? target.pathname.slice(JSON_BUSINESS_PATH.length + 1) : null;
-    const knownPath = businessPath !== null || configurationPath !== null || target.pathname === BACKEND_HEALTH_PATH
+    const authEventsMatch = new RegExp(`^${PROVIDER_AUTH_EVENTS_PATH}/([^/]+)$`).exec(target.pathname);
+    const knownPath = authEventsMatch !== null || businessPath !== null || configurationPath !== null || target.pathname === BACKEND_HEALTH_PATH
       || target.pathname === BACKEND_RUNTIME_CONTROL_PATH
       || target.pathname === BACKEND_RUNTIME_EVENTS_PATH
       || target.pathname === BACKEND_LIVE_SESSIONS_RELOAD_PATH
@@ -428,6 +433,25 @@ export function createBackendServer({
       || actionPath !== undefined;
     if (!knownPath) {
       sendJson(response, 404, { error: "Not found", code: BACKEND_ERROR_CODES.notFound });
+      return;
+    }
+    if (authEventsMatch) {
+      if (request.method !== "GET") { sendJson(response, 405, { error: "Method not allowed", code: BACKEND_ERROR_CODES.methodNotAllowed }); return; }
+      if (!providerLoginEventsAction || !isReady()) { sendJson(response, 503, { error: "Login event owner unavailable", code: BACKEND_ERROR_CODES.runtimeUnavailable }); return; }
+      const origin = request.headers[JSON_BUSINESS_HEADERS.origin], host = request.headers[JSON_BUSINESS_HEADERS.host], access = request.headers[JSON_BUSINESS_HEADERS.authorized];
+      let providerId;
+      try {
+        const url = new URL(origin); providerId = decodeURIComponent(authEventsMatch[1]);
+        if (!["http:", "https:"].includes(url.protocol) || url.origin !== origin || typeof host !== "string" || !["0", "1"].includes(access)) throw new Error();
+      } catch { sendJson(response, 400, { error: "Invalid business context", code: BACKEND_ERROR_CODES.badRequest }); return; }
+      if (process.env.LEAFCODE_PI_WEBUI_AUTH === "required" && access !== "1") { sendJson(response, 403, { error: "WebUI access required", code: BACKEND_ERROR_CODES.unauthorized }); return; }
+      const controller = new AbortController(), disconnect = () => controller.abort();
+      response.once("close", disconnect); request.socket.once("end", disconnect);
+      try {
+        const source = await providerLoginEventsAction({ route: providerId, method: "GET", url: `${origin}/api/providers/${authEventsMatch[1]}/login/events${target.search}`, headers: { host }, authorized: access === "1", signal: controller.signal });
+        if (!controller.signal.aborted) await streamProviderLoginEvents(response, source, controller.signal);
+      } catch { if (!response.headersSent && !response.destroyed) sendJson(response, 503, { error: "Login events unavailable", code: BACKEND_ERROR_CODES.internal }); else response.destroy(); }
+      finally { response.off("close", disconnect); request.socket.off("end", disconnect); controller.abort(); }
       return;
     }
     if (businessPath !== null) {

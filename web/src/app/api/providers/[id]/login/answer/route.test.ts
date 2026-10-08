@@ -18,7 +18,7 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock("@/lib/pi/harness", () => mocks);
 
-import { DELETE, POST } from "./route";
+import { DELETE, POST } from "@backend-runtime/json-business/handlers/providers/[id]/login/answer/route";
 
 function request(body: unknown): NextRequest {
   return new NextRequest("http://localhost/api/providers/anthropic/login/answer", {

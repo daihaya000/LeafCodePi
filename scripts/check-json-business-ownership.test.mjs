@@ -31,8 +31,17 @@ for (const [route, methods] of Object.entries(JSON_BUSINESS_ROUTES)) {
     assert.doesNotMatch(readFileSync(join(root, "backend/runtime-src/json-business/handlers", route, "route.ts"), "utf8"), /from ["']next\//);
   });
 }
+test("Next login SSE is an opaque subscriber relay, not a local SDK/session owner", () => {
+  const path = join(root, "web/src/app/api/providers/[id]/login/events/route.ts"), source = ts.createSourceFile(path, readFileSync(path, "utf8"), ts.ScriptTarget.Latest, true);
+  assert.deepEqual(source.statements.filter(ts.isImportDeclaration).map(n => n.moduleSpecifier.text).sort(), ["@/lib/provider-auth-events-relay", "next/server"].sort());
+  const handler = source.statements.find(n => ts.isFunctionDeclaration(n) && n.name?.text === "GET");
+  assert.equal(handler.body.statements.length, 1); const statement = handler.body.statements[0];
+  assert.ok(ts.isReturnStatement(statement) && ts.isCallExpression(statement.expression));
+  assert.equal(statement.expression.expression.getText(source), "relayProviderLoginEvents");
+  assert.equal(statement.expression.arguments[1].getText(source), "encodeURIComponent((await context.params).id)");
+});
 test("wire contract is pure and projection removes private owner fields/headers", () => {
-  for (const name of ["json-business-contract.mjs", "definition-contract.mjs", "provider-contract.mjs"]) assert.doesNotMatch(readFileSync(join(root, "shared", name), "utf8"), /node:|next\/|process\.|readFile|writeFile|@earendil/);
+  for (const name of ["json-business-contract.mjs", "definition-contract.mjs", "provider-contract.mjs", "provider-auth-contract.mjs"]) assert.doesNotMatch(readFileSync(join(root, "shared", name), "utf8"), /node:|next\/|process\.|readFile|writeFile|@earendil/);
   const publicResult = publicJsonBusinessResult("git/init", { status: 200, body: { ok: true, directory: "repo", token: "private" }, headers: { "set-cookie": "private", etag: "value" } });
   assert.deepEqual(publicResult, { status: 200, body: { ok: true, directory: "repo" }, headers: { etag: "value" } });
   assert.equal(publicJsonBusinessResult("git/init", { status: 200, body: { token: "private" } }), null);

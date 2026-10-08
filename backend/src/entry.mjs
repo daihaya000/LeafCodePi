@@ -278,6 +278,11 @@ try {
         unsubscribeStream();
       };
     },
+    providerLoginEventsAction: async (input) => {
+      const runtime = started.runtime();
+      if (!runtime || typeof runtime.openProviderLoginEvents !== "function") throw new Error("Login event owner unavailable");
+      return runtime.openProviderLoginEvents(input);
+    },
     jsonBusinessRequestAction: async (input) => {
       const runtime = started.runtime();
       if (!runtime || typeof runtime.dispatchJsonBusinessRequest !== "function") throw new Error("business owner unavailable");

@@ -1,4 +1,5 @@
 import { EventEmitter } from "node:events";
+import { assertConfigurationOwner } from "@backend-core/configuration-command.mjs";
 import { randomUUID } from "node:crypto";
 import type { ModelRuntime } from "@earendil-works/pi-coding-agent";
 import type { LoginOptions } from "@earendil-works/pi-ai";
@@ -97,6 +98,7 @@ export class ProviderLoginSession {
   }
 
   async run(runtime: ModelRuntime, options?: LoginOptions): Promise<void> {
+    assertConfigurationOwner();
     this.emit({
       type: "started",
       providerId: this.providerId,

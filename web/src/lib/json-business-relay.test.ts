@@ -15,6 +15,16 @@ beforeEach(() => {
 });
 afterEach(() => { vi.unstubAllGlobals(); vi.unstubAllEnvs(); rmSync(root, { recursive: true, force: true }); });
 describe("JSON business ingress", () => {
+  it("acknowledges auth execution without claiming asynchronous credential save and sends input only to the owner", async () => {
+    fetcher.mockImplementationOnce(async (_url, options) => {
+      const id = new Headers(options.headers).get("x-leafcode-business-operation");
+      return Response.json({ status: 200, headers: {}, body: { sessionId: "session", apiKey: "PRIVATE", operation: { id, execution: "complete" } } });
+    });
+    const result = await relayJsonBusiness(new Request("http://localhost/api/providers/fixture/login", { method: "POST", body: '{"type":"api_key"}' }), "providers/fixture/login");
+    expect(result.status).toBe(200); const body = await result.json(); expect(body).toMatchObject({ sessionId: "session", operation: { execution: "complete" } });
+    expect(body.mutation).toBeUndefined(); expect(body.apiKey).toBeUndefined(); expect(fetcher).toHaveBeenCalledOnce();
+    expect(new TextDecoder().decode(fetcher.mock.calls[0][1].body)).toBe('{"type":"api_key"}'); expect(readdirSync(root)).toEqual([]);
+  });
   it("relays provider identifier/query bytes and preserves a saved endpoint's deferred receipt", async () => {
     fetcher.mockImplementationOnce(async (_url, options) => {
       const id = new Headers(options.headers).get("x-leafcode-business-operation");

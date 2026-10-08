@@ -149,6 +149,11 @@ test("Backend builds and serves its runtime API without Web sources or Web packa
   const illegalAgent = await business("agents/%2E%2E%2Fescape", { enabled: true }, "", { "x-leafcode-business-operation": "dddddddd-eeee-ffff-aaaa-bbbbbbbbbbbb" }, "PATCH");
   assert.equal(illegalAgent.status, 400);
   assert.equal(existsSync(join(fixture, "escape.md")), false);
+  const authOperation = "11111111-2222-3333-4444-555555555555";
+  const refusedLogin = await business("providers/fixture/login", { type: "invalid" }, "", { "x-leafcode-business-operation": authOperation });
+  assert.equal(refusedLogin.status, 400); assert.equal(refusedLogin.body.operation.execution, "complete");
+  const loginEvents = await fetch(`${base}/internal/provider-login-events/fixture?sessionId=missing`, { headers: businessHeaders, signal: AbortSignal.timeout(3000) });
+  assert.equal(loginEvents.status, 200); assert.match(await loginEvents.text(), /event: done[\s\S]*"ok":false/);
   const endpointOperation = "eeeeeeee-ffff-aaaa-bbbb-cccccccccccc";
   const endpointReply = await business("providers/leafcodecloud/base-url", { baseUrl: "http://127.0.0.1:1/v1" }, "", { "x-leafcode-business-operation": endpointOperation }, "PUT");
   assert.equal(endpointReply.status, 200, JSON.stringify(endpointReply));
@@ -196,5 +201,7 @@ test("Backend builds and serves its runtime API without Web sources or Web packa
   const endpointOutcome = await fetch(`${restartedBase}/internal/configuration/settings?operationId=${endpointOperation}`, { headers: configHeaders, signal: AbortSignal.timeout(3000) });
   assert.deepEqual((await endpointOutcome.json()).mutation, endpointReply.body.mutation);
   assert.equal(JSON.parse(readFileSync(join(data, "provider-model-state.json"), "utf8")).contextWindow["fixture::model"], 16384);
+  const authReplay = await fetch(`${restartedBase}/internal/json-business/providers/fixture/login`, { method: "POST", headers: { ...businessHeaders, "x-leafcode-business-operation": authOperation }, body: JSON.stringify({ type: "invalid" }), signal: AbortSignal.timeout(3000) });
+  assert.equal((await authReplay.json()).status, 409);
   assert.equal(existsSync(join(fixture, "web")), false);
 });

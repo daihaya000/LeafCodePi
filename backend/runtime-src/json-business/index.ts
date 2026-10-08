@@ -3,6 +3,8 @@ import { definitionTarget } from "@shared/definition-contract.mjs";
 import { dispatchDefinitionRequest } from "./definitions";
 import { providerTarget } from "@shared/provider-contract.mjs";
 import { dispatchProviderRequest } from "./providers";
+import { providerAuthTarget } from "@shared/provider-auth-contract.mjs";
+import { dispatchProviderAuthRequest } from "./provider-auth";
 import { configurationRequest } from "../configuration/http";
 import { withGitRequestSignal } from "../lib/git";
 import { isCrossOriginRequest } from "../lib/same-origin";
@@ -35,6 +37,7 @@ export async function dispatchJsonBusinessRequest(input: JsonBusinessInput): Pro
   const request = configurationRequest(new Request(input.url, { method: input.method, headers: input.headers,
     signal, ...(input.body?.byteLength ? { body: new Uint8Array(input.body).slice().buffer } : {}) }), input.authorized);
   if (input.method !== "GET" && isCrossOriginRequest(request)) return { status: 403, headers: {}, body: { error: "Cross-origin request refused" } };
+  if (providerAuthTarget(input.route)) return dispatchProviderAuthRequest(input, request, target);
   if (providerTarget(input.route)) return dispatchProviderRequest(input, request, target);
   if (definitionTarget(input.route)) return dispatchDefinitionRequest(input, request, target);
   const response = await withGitRequestSignal(signal, () => handlers[input.route][input.method](request));
