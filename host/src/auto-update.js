@@ -10,7 +10,7 @@ export const AUTO_UPDATE_CHECK_MS = 5 * 60_000;
 export function createUpdateRepository(repoRoot, run = async (args) => {
   try {
     const { stdout } = await execFileAsync("git", args, {
-      cwd: repoRoot, env: { ...process.env, GIT_TERMINAL_PROMPT: "0" },
+      cwd: repoRoot, env: { ...process.env, GIT_TERMINAL_PROMPT: "0", GCM_INTERACTIVE: "never", GIT_OPTIONAL_LOCKS: "0" },
       encoding: "utf8", timeout: 30_000, maxBuffer: 1024 * 1024, windowsHide: true,
     });
     return stdout.trim();
@@ -46,6 +46,10 @@ export function createUpdateRepository(repoRoot, run = async (args) => {
       }
       return null;
     },
+    async verify(candidate) {
+      return await head() === candidate.target
+        && await run(["symbolic-ref", "--quiet", "--short", "HEAD"]) === candidate.branch && await clean();
+    },
     async apply(candidate) {
       if (!await clean() || await head() !== candidate.before
         || await run(["symbolic-ref", "--quiet", "--short", "HEAD"]) !== candidate.branch) return false;
@@ -59,7 +63,7 @@ export function createUpdateRepository(repoRoot, run = async (args) => {
 export async function autoUpdateRuntimeRequest({ baseUrl, token, action, fetchImpl = fetch }) {
   if (!baseUrl || !token) return null;
   try {
-    const response = await fetchImpl(`${baseUrl.replace(/\/+$/, "")}${BACKEND_RUNTIME_CONTROL_PATH}`, {
+    const response = await fetchImpl(`${baseUrl.replace(/\/+$/, "")}${BACKEND_RUNTIME_CONTROL_PATH}${action ? "" : "?autoUpdate=1"}`, {
       method: action ? "POST" : "GET",
       headers: { authorization: `Bearer ${token}`, [BACKEND_PROTOCOL_HEADER]: String(BACKEND_PROTOCOL_VERSION), "content-type": "application/json" },
       ...(action ? { body: JSON.stringify({ action }) } : {}),
@@ -105,16 +109,25 @@ export function createAutoUpdater({ repository, readRuntime, prepareRuntime, rel
         // Renew the short runtime lease after Git; if it expired and work started, defer.
         if ((await prepareRuntime())?.prepared !== true || !idle()) return;
         if (!runtimeIsIdle(await readRuntime()) || !idle()) return;
+        // A user/editor can change the tree while Backend probes await; validate the exact
+        // commit, branch and clean worktree again at the restart boundary.
+        if (!await repository.verify(candidate) || !idle()) return;
         log(`LCP auto-update: ${candidate.before.slice(0, 12)} -> ${candidate.target.slice(0, 12)}; rebuilding and restarting`);
         await restart();
       } catch (err) {
         error(`LCP auto-update deferred: ${err instanceof Error ? err.message : String(err)}`);
       } finally {
-        if (prepared) await releaseRuntime().catch(() => {});
-        prepared = false;
-        if (claimed) release();
-        claimed = false;
-        inFlight = false;
+        try {
+          if (prepared) await releaseRuntime();
+        } catch { /* The expiring Backend lease recovers if release delivery fails. */ }
+        finally {
+          prepared = false;
+          if (claimed) release();
+          claimed = false;
+          inFlight = false;
+          // Long network/Git failures must not turn the five-minute retry into a hot loop.
+          nextCheck = now() + checkMs;
+        }
       }
     },
   };

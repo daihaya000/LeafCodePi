@@ -659,7 +659,7 @@ export function createBackendServer({
         return;
       }
       try {
-        const state = await readRuntimeState();
+        const state = await readRuntimeState({ autoUpdate: target.searchParams.get("autoUpdate") === "1" });
         sendJson(response, 200, { ...state, ...(state.autoUpdate ? {
           autoUpdate: { ...state.autoUpdate, busy: state.autoUpdate.busy !== false || activeRequests > 0 || !isReady() },
         } : {}) });

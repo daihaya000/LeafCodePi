@@ -14,7 +14,11 @@ function fixture(overrides = {}) {
   const candidate = { before: "a".repeat(40), target: "b".repeat(40), branch: "main" };
   const updater = createAutoUpdater({
     now: () => clock, idleMs: 100, checkMs: 100,
-    repository: { check: async () => { calls.push("check"); return candidate; }, apply: async () => { calls.push("apply"); return true; } },
+    repository: {
+      check: async () => { calls.push("check"); return candidate; },
+      apply: async () => { calls.push("apply"); return true; },
+      verify: async () => { calls.push("verify"); return true; },
+    },
     readRuntime: async () => idleState,
     prepareRuntime: async () => { calls.push("prepare"); return { prepared: true }; },
     releaseRuntime: async () => { calls.push("release-runtime"); },
@@ -28,7 +32,7 @@ test("waits for both the idle window and check interval, then renews lease and r
   const f = fixture();
   f.time(99); await f.updater.tick(); assert.deepEqual(f.calls, []);
   f.time(100); await f.updater.tick();
-  assert.deepEqual(f.calls, ["check", "claim", "prepare", "apply", "prepare", "restart", "release-runtime", "release"]);
+  assert.deepEqual(f.calls, ["check", "claim", "prepare", "apply", "prepare", "verify", "restart", "release-runtime", "release"]);
 });
 test("all browser activity resets the shared idle window", async () => {
   const f = fixture(); f.time(90); f.updater.activity(); f.time(100); await f.updater.tick();
@@ -51,6 +55,26 @@ test("new input after apply cancels restart and releases both gates", async () =
 test("new work between fetch and preparation cancels the handoff", async () => {
   const f = fixture({ prepareRuntime: async () => ({ prepared: false }) });
   f.time(100); await f.updater.tick(); assert.deepEqual(f.calls, ["check", "claim", "release-runtime", "release"]);
+});
+test("repository edits during the final runtime probe cancel restart", async () => {
+  let dirty = false;
+  let probes = 0;
+  const f = fixture({
+    repository: {
+      check: async () => f.candidate, apply: async () => true,
+      verify: async () => !dirty,
+    },
+    readRuntime: async () => { if (++probes === 2) dirty = true; return idleState; },
+  });
+  f.time(100); await f.updater.tick();
+  assert.equal(f.calls.includes("restart"), false);
+  assert.equal(f.calls.at(-1), "release");
+});
+test("a slow failed check backs off from completion, not its start", async () => {
+  let checks = 0;
+  const f = fixture({ repository: { check: async () => { checks++; f.time(1000); throw new Error("offline"); } } });
+  f.time(100); await f.updater.tick(); await f.updater.tick();
+  assert.equal(checks, 1);
 });
 test("restart failure releases admission and backs off", async () => {
   const errors = [];
@@ -77,6 +101,12 @@ test("runtime protocol / unavailable responses fail closed, actions use authenti
     return new Response(JSON.stringify({ result: { prepared: true } }), { headers: { [BACKEND_PROTOCOL_HEADER]: "1" } });
   } });
   assert.deepEqual(result, { prepared: true });
+  const snapshot = await autoUpdateRuntimeRequest({ ...options, fetchImpl: async (url, init) => {
+    assert.equal(new URL(url).searchParams.get("autoUpdate"), "1");
+    assert.equal(init.method, "GET");
+    return new Response(JSON.stringify({ autoUpdate: idleState }), { headers: { [BACKEND_PROTOCOL_HEADER]: "1" } });
+  } });
+  assert.deepEqual(snapshot, idleState);
 });
 
 function git(cwd, ...args) { return execFileSync("git", args, { cwd, encoding: "utf8", windowsHide: true, stdio: ["ignore", "pipe", "pipe"] }).trim(); }
@@ -100,6 +130,11 @@ test("real Git: clean fast-forward only, dirty/index/untracked/branch races and 
   git(local, "restore", "--staged", "file"); git(local, "restore", "file");
   git(local, "switch", "-c", "other"); assert.equal(await repo.apply(candidate), false); git(local, "switch", candidate.branch);
   assert.equal(await repo.apply(candidate), true); assert.equal(git(local, "rev-parse", "HEAD"), candidate.target);
+  assert.equal(await repo.verify(candidate), true);
+  writeFileSync(join(local, "late-edit"), "preserve me"); assert.equal(await repo.verify(candidate), false);
+  rmSync(join(local, "late-edit"));
+  git(local, "switch", "other"); assert.equal(await repo.verify(candidate), false);
+  git(local, "switch", candidate.branch); assert.equal(await repo.verify(candidate), true);
   // If user activity cancelled the handoff after merge, the changed local HEAD is still eligible.
   assert.deepEqual(await repo.check(), { before: candidate.target, target: candidate.target, branch: candidate.branch });
   const fresh = createUpdateRepository(local); assert.equal(await fresh.check(), null);

@@ -17,6 +17,19 @@ test("runtime state is authenticated and reads the owner's live loops", async (t
   assert.equal(response.status, 200);
   assert.deepEqual(await response.json(), { taskIds: ["owner-loop"] });
 });
+test("only an explicit auto-update query requests the expensive runtime snapshot", async (t) => {
+  const calls = [];
+  const { url, headers } = await fixture(t, {
+    isReady: () => true,
+    readRuntimeState: (options) => {
+      calls.push(options);
+      return options.autoUpdate ? { autoUpdate: { supported: true, busy: false } } : { taskIds: [] };
+    },
+  });
+  assert.deepEqual(await (await fetch(url, { headers })).json(), { taskIds: [] });
+  assert.deepEqual(await (await fetch(url + "?autoUpdate=1", { headers })).json(), { autoUpdate: { supported: true, busy: false } });
+  assert.deepEqual(calls, [{ autoUpdate: false }, { autoUpdate: true }]);
+});
 test("validated setting changes execute in the runtime owner", async (t) => {
   const calls = [];
   const { url, headers } = await fixture(t, { runtimeControlAction: (body) => { calls.push(body); return "saved"; } });

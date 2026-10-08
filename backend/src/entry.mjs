@@ -11,6 +11,7 @@ import { parseMcpAuthRemoveRequest } from "../../shared/mcp-auth-remove-request.
 import { publicMcpAuthSnapshot } from "../../shared/mcp-auth-snapshot.mjs";
 import { publicMcpReload } from "../../shared/mcp-preset-request.mjs";
 import { createRuntimeHost } from "./runtime-host.mjs";
+import { readRuntimeControlState } from "./runtime-state.mjs";
 import { createResumePrompt } from "./restart-resume-prompt.mjs";
 import { DEFAULT_RUNTIME_BUNDLE, loadBackendRuntime } from "./runtime-loader.mjs";
 import { closeBackend, createBackendServer, listenBackend } from "./server.mjs";
@@ -291,14 +292,7 @@ try {
         default: throw new Error("unknown runtime setting");
       }
     },
-    readRuntimeState: () => {
-      const runtime = started.runtime();
-      if (!runtime) throw new Error("runtime unavailable");
-      // Strict auto-update failures must not change the manual Goal Loop recovery contract.
-      let autoUpdate = null;
-      try { autoUpdate = runtime.readAutoUpdateState?.() ?? null; } catch { /* unknown blocks auto-update */ }
-      return { taskIds: runtime.activeGoalLoopTaskIds(), autoUpdate };
-    },
+    readRuntimeState: (options) => readRuntimeControlState(started.runtime(), options),
     readAttention: () => {
       const runtime = started.runtime();
       return runtime && typeof runtime.listPendingAttention === "function"
