@@ -15,10 +15,11 @@ test("automatic compaction errors need a compaction failure plus a harness-owned
   assert.equal(isHarnessAutoCompactionError(undefined, true), false);
 });
 
-test("task sync happens on turn boundaries and on a recorded compaction failure", () => {
+test("task sync happens on actual run boundaries and on a recorded compaction failure", () => {
   assert.equal(shouldSyncTaskFromSessionEvent({ type: "agent_start" }, false), true);
   assert.equal(shouldSyncTaskFromSessionEvent({ type: "agent_settled" }, false), true);
-  assert.equal(shouldSyncTaskFromSessionEvent({ type: "agent_end" }, false), true);
+  assert.equal(shouldSyncTaskFromSessionEvent({ type: "agent_end" }, false), false);
+  assert.equal(shouldSyncTaskFromSessionEvent({ type: "agent_end", willRetry: false }, false), false);
   assert.equal(shouldSyncTaskFromSessionEvent({ type: "agent_end", willRetry: true }, false), false);
   // A manual compaction failure is not the harness's, so nothing is synced.
   assert.equal(shouldSyncTaskFromSessionEvent({ type: "compaction_end", errorMessage: "x", reason: "manual" }, false), false);

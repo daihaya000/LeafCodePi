@@ -14,12 +14,11 @@ export function isHarnessAutoCompactionError(event, hasAutoCompactionPromise) {
   return isCompactionFailure(event) && hasAutoCompactionPromise === true;
 }
 
-/** Whether task metadata should be re-read for this event, and the task patched. */
+/** Sync metadata at actual run boundaries, not intermediate low-level agent_end. */
 export function shouldSyncTaskFromSessionEvent(event, harnessAutoCompactionError) {
   return (
     event.type === "agent_start" ||
     event.type === "agent_settled" ||
-    (event.type === "agent_end" && !event.willRetry) ||
     (isCompactionFailure(event) && (event.reason !== "manual" || harnessAutoCompactionError === true))
   );
 }

@@ -74,17 +74,27 @@ it.each(["provider-abort", "timeout-abort"])("automatically retries an aborted G
 });
 
 it.each([
-  { promptActive: false, checkpoint: true },
-  { promptActive: true, checkpoint: false },
-])("keeps the run lease until Goal Loop settlement writes finish (promptActive=$promptActive)", async ({ promptActive, checkpoint }) => {
+  { promptActive: false, checkpoint: true, continuation: "none" },
+  { promptActive: true, checkpoint: false, continuation: "none" },
+  { promptActive: false, checkpoint: true, continuation: "goal" },
+  { promptActive: true, checkpoint: false, continuation: "verification" },
+])("keeps the run lease through settlement (promptActive=$promptActive, continuation=$continuation)", async ({ promptActive, checkpoint, continuation }) => {
   const cwd = mkdtempSync(join(tmpdir(), "leafcode-goal-loop-settlement-lease-"));
   vi.stubEnv("LEAFCODE_PI_DATA_DIR", cwd);
   const manager = SessionManager.inMemory(cwd);
   const faux = fauxProvider();
-  faux.setResponses([
+  const responses = [
     fauxAssistantMessage(JSON.stringify({ status: "completed", summary: "done" })),
     fauxAssistantMessage(JSON.stringify({ status: "verified_completed", summary: "verified" })),
-  ]);
+  ];
+  if (continuation !== "none") responses.splice(continuation === "goal" ? 0 : 1, 0,
+    fauxAssistantMessage(JSON.stringify({ status: continuation === "goal" ? "completed" : "verified_completed", summary: "superseded claim" })));
+  faux.setResponses(responses);
+  let boundaryPending = false;
+  let continued = false;
+  let releaseBoundary!: () => void;
+  const boundaryGate = new Promise<void>((resolve) => { releaseBoundary = resolve; });
+  const state = () => JSON.parse(readFileSync(join(cwd, "goals-loop", `${manager.getSessionId()}.json`), "utf8"));
   const modelRuntime = await ModelRuntime.create({ authPath: join(cwd, "auth.json"), modelsPath: null, refreshOnCreate: false });
   modelRuntime.registerNativeProvider(faux.provider);
   const settingsManager = SettingsManager.inMemory({ retry: { enabled: false } });
@@ -100,7 +110,17 @@ it.each([
         });
       });
       // Extensions can still persist checkpoints or request continuation after agent_end.
-      if (checkpoint) api.on("agent_before_settle", () => { api.appendEntry("settle-checkpoint", {}); });
+      api.on("agent_before_settle", async () => {
+        if (checkpoint) api.appendEntry("settle-checkpoint", {});
+        if (continued || continuation === "none" || state().turnKind !== continuation) return;
+        continued = true;
+        boundaryPending = true;
+        await boundaryGate;
+        return {
+          continue: true,
+          entries: [{ type: "custom_message", customType: "lease-check-continue", content: "Recheck the claim", display: false }],
+        };
+      });
     }],
   });
   let session: Awaited<ReturnType<typeof createAgentSession>>["session"] | undefined;
@@ -139,18 +159,29 @@ it.each([
     await vi.waitFor(() => expect(endLeases.length).toBeGreaterThan(0), { timeout: 3_000, interval: 10 });
     expect(lostLeaseWrites).toEqual([]);
     expect(endLeases[0]).toBe(true);
-    const state = () => JSON.parse(readFileSync(join(cwd, "goals-loop", `${manager.getSessionId()}.json`), "utf8"));
+    if (continuation !== "none") {
+      await vi.waitFor(() => expect(boundaryPending).toBe(true), { timeout: 3_000, interval: 10 });
+      expect(ownsLease).toBe(true);
+      expect(state()).toMatchObject({ status: "running", turnCount: 1, turnKind: continuation });
+      expect(session.isStreaming).toBe(true);
+      releaseBoundary();
+    }
     await vi.waitFor(() => expect(state()).toMatchObject({ status: "completed", turnCount: 1 }), { timeout: 3_000, interval: 10 });
     await session.waitForIdle();
     expect(lostLeaseWrites).toEqual([]);
-    expect(endLeases).toEqual([true, true]);
+    expect(endLeases).toEqual(responses.map(() => true));
     expect(snapshots).toContain("verifying_completed");
     expect(snapshots).toContain("completed");
-    expect(faux.state.callCount).toBe(2);
+    expect(state().progress.map((item: { summary: string }) => item.summary)).toEqual(["done", "verified"]);
+    expect(manager.getBranch().filter((entry) => entry.type === "custom_message" && entry.customType === "leafcode-goal-turn")).toHaveLength(1);
+    expect(manager.getBranch().filter((entry) => entry.type === "custom_message" && entry.customType === "leafcode-goal-verification")).toHaveLength(1);
+    expect(faux.state.callCount).toBe(responses.length);
     expect(ownsLease).toBe(false);
     expect(errors).toEqual([]);
   } finally {
+    releaseBoundary();
     ownsLease = true;
+    await session?.abort();
     await session?.extensionRunner.emit({ type: "session_shutdown", reason: "quit" });
     session?.dispose();
     vi.unstubAllEnvs();

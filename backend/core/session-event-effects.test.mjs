@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { runSessionEventEffects } from "./session-event-effects.mjs";
+import { shouldApplySettledStatus, shouldSkipEventForMissingTask, shouldSyncTaskFromSessionEvent } from "./session-event-decisions.mjs";
 
 /** A recording fixture; each hook can be overridden to change its answer. */
 function fixture(overrides = {}) {
@@ -51,6 +52,40 @@ test("an event that does not need the task never reads the store", () => {
   assert.ok(!f.calls.includes("getTask"));
   assert.ok(!f.calls.includes("patchIdentity:task"));
   assert.equal(f.calls.at(-1), "snapshot");
+});
+
+test("intermediate agent_end preserves tracking without store reads, identity writes or lease release", () => {
+  const reads = [];
+  const patches = [];
+  const releases = [];
+  const tracked = [];
+  const published = [];
+  const events = [
+    { type: "agent_start" },
+    { type: "agent_end", willRetry: true },
+    { type: "agent_start" },
+    { type: "agent_end", willRetry: false },
+    { type: "agent_end", willRetry: false },
+    { type: "agent_settled" },
+  ];
+  for (const event of events) {
+    const f = fixture({
+      shouldSyncTaskFromSessionEvent: (owned) => shouldSyncTaskFromSessionEvent(event, owned),
+      shouldSkipEventForMissingTask,
+      shouldApplySettledStatus: () => shouldApplySettledStatus(event, false),
+      getTask: () => { reads.push(event.type); return { id: "task" }; },
+      patchIdentity: () => patches.push(event.type),
+      applySettledStatus: () => releases.push(event.type),
+      trackThroughputEvent: () => tracked.push(event.type),
+      scheduleSnapshot: () => published.push(event.type),
+    });
+    assert.deepEqual(runSessionEventEffects(event, f.deps), { stopped: null });
+  }
+  assert.deepEqual(reads, ["agent_start", "agent_start", "agent_settled"]);
+  assert.deepEqual(patches, reads);
+  assert.deepEqual(releases, ["agent_settled"]);
+  assert.deepEqual(tracked, events.map((event) => event.type));
+  assert.deepEqual(published, tracked);
 });
 
 test("agent_start claims the lease before settling, and a busy lease stops the event", () => {
