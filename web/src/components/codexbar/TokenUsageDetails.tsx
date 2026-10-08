@@ -2,8 +2,13 @@ import type { ProviderTokenUsage } from "@/lib/codexbar/token-usage-types";
 
 const numberFormat = new Intl.NumberFormat("ja-JP", { maximumFractionDigits: 0 });
 const rateFormat = new Intl.NumberFormat("ja-JP", { maximumFractionDigits: 2 });
+const compactFormat = new Intl.NumberFormat("en-US", { notation: "compact", maximumSignificantDigits: 3 });
 function tokens(value: number): string {
   return numberFormat.format(Math.round(value));
+}
+function compactTokens(value: number, fractional = false): string {
+  if (fractional && value < 1) return rateFormat.format(value);
+  return compactFormat.format(fractional ? value : Math.round(value));
 }
 
 const unavailableLabel = {
@@ -31,9 +36,9 @@ export function TokenUsageDetails({ usage, now = Date.now() }: { usage: Provider
       <div className="flex min-w-0 flex-wrap items-baseline gap-x-1">
         <span
           className="whitespace-nowrap"
-          title={`計測開始: ${usage.startedAt ?? "未計測"} / ${usage.responses}完了応答。入力 ${tokens(usage.input)} / 出力 ${tokens(usage.output)} / キャッシュ読取 ${tokens(usage.cacheRead)} / 書込 ${tokens(usage.cacheWrite)} tok。LeafCodePiの完了応答のみ。外部CLI・補助呼出・中断応答は含まない。`}
+          title={`実測 ${tokens(usage.totalTokens)} tok / 計測開始: ${usage.startedAt ?? "未計測"} / ${usage.responses}完了応答。入力 ${tokens(usage.input)} / 出力 ${tokens(usage.output)} / キャッシュ読取 ${tokens(usage.cacheRead)} / 書込 ${tokens(usage.cacheWrite)} tok。LeafCodePiの完了応答のみ。外部CLI・補助呼出・中断応答は含まない。`}
         >
-          実測 <span className="text-text">{tokens(usage.totalTokens)} tok</span>
+          実測 <span className="text-text">{compactTokens(usage.totalTokens)} tok</span>
         </span>
         {unavailable.length > 0 && (
           <span
@@ -48,10 +53,10 @@ export function TokenUsageDetails({ usage, now = Date.now() }: { usage: Provider
         <div
           key={window.id}
           className="flex min-w-0 flex-wrap gap-x-1"
-          title={`使用率差 ${rateFormat.format(window.sampledPercent)}% / 実測 ${tokens(window.sampledTokens)} tok。入力・出力・キャッシュ込み。モデル構成・外部消費・使用率の反映遅延で変動する実績推定であり、保証された残量ではない。古い値・リセット後・計測不足は推定を保留する。`}
+          title={`推定残 ${tokens(window.estimatedRemainingTokens!)} tok / ${rateFormat.format(window.tokensPerPercent!)} tok/1% / 使用率差 ${rateFormat.format(window.sampledPercent)}% / 実測 ${tokens(window.sampledTokens)} tok。入力・出力・キャッシュ込み。モデル構成・外部消費・使用率の反映遅延で変動する実績推定であり、保証された残量ではない。古い値・リセット後・計測不足は推定を保留する。`}
         >
-          <span>{window.title}: <span>推定残 {tokens(window.estimatedRemainingTokens!)} tok</span></span>
-          <span className="whitespace-nowrap">· {rateFormat.format(window.tokensPerPercent!)} tok/1%</span>
+          <span>{window.title}: <span>推定残 {compactTokens(window.estimatedRemainingTokens!)} tok</span></span>
+          <span className="whitespace-nowrap">· {compactTokens(window.tokensPerPercent!, true)} tok/1%</span>
         </div>
       ))}
     </div>

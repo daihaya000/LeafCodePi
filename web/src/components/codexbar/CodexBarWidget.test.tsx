@@ -106,9 +106,9 @@ describe("CodexBarWidget", () => {
       windows: [{ id: "5h", title: "5時間", sampledTokens: 1000, sampledPercent: 2, tokensPerPercent: 500, estimatedRemainingTokens: 44000 }],
     } }] }, loadError: null, refreshing: false, refresh: vi.fn(), now: Date.now() });
     render(<CodexBarWidget />);
-    await waitFor(() => expect(screen.getByText("推定残 44,000 tok")).toBeTruthy());
+    await waitFor(() => expect(screen.getByText("推定残 44K tok")).toBeTruthy());
     fireEvent.click(screen.getByRole("button", { name: /Codex を最小化/ }));
-    await waitFor(() => expect(screen.queryByText("推定残 44,000 tok")).toBeNull());
+    await waitFor(() => expect(screen.queryByText("推定残 44K tok")).toBeNull());
   });
   beforeEach(() => {
     localStorage.clear();
