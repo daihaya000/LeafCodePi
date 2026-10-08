@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { providerAuthTarget, publicAuthOperation } from "@shared/provider-auth-contract.mjs";
 import { publicConfigurationMutation } from "@shared/configuration-contract.mjs";
 import { usageExternalCommand, publicUsageOperation } from "@shared/usage-contract.mjs";
+import { peerFacing, PEER_AUTHORIZATION_HEADER } from "@shared/peer-contract.mjs";
 import { isCrossOriginRequest } from "@/lib/same-origin";
 import { backendBaseUrl, expectedBackendGeneration, isBackendGenerationCompatible, readBackendHealth } from "@/lib/backend-client";
 import { isWebUiRequestAuthorized, webUiAuthRequired } from "@/lib/webui-auth";
@@ -39,7 +40,8 @@ export async function relayJsonBusiness(request: Request, route: string): Promis
   if (!JSON_BUSINESS_ROUTES[target.route].includes(request.method)) return failure(405, "許可されないメソッドです");
   const mutates = jsonBusinessMutates(route, request.method), before = mutates ? "not-started" : undefined, unknown = mutates ? "unknown" : undefined;
   const authorized = isWebUiRequestAuthorized(request), original = new URL(request.url);
-  if (webUiAuthRequired() && !authorized) return failure(401, "認証が必要です", before);
+  const publicPeer = peerFacing(route);
+  if ((!publicPeer && webUiAuthRequired() || route === "peer-auth/import") && !authorized) return failure(401, "認証が必要です", before);
   if (request.method !== "GET" && isCrossOriginRequest({ headers: request.headers, nextUrl: original })) return failure(403, "許可されない接続元です", before);
   if (target.route === "prompts/transfer") {
     const loopback = ["127.0.0.1", "localhost", "::1", "[::1]"];
@@ -61,8 +63,9 @@ export async function relayJsonBusiness(request: Request, route: string): Promis
   if (request.method !== "GET") {
     try {
       const bytes = await boundedBytes(request, jsonBusinessBodyLimit(route));
-      if (bytes === null) return failure(413, "本文が大きすぎます", before);
-      body = bytes;
+      if (bytes === null && !publicPeer) return failure(413, "本文が大きすぎます", before);
+      // Invalid/oversized Peer bodies stay invalid, but authentication must run first at the owner.
+      body = bytes ?? new Uint8Array();
     } catch { return failure(400, "本文を読み込めません", before); }
   }
   if (request.signal.aborted) return failure(400, "リクエストが中断されました", before);
@@ -71,6 +74,10 @@ export async function relayJsonBusiness(request: Request, route: string): Promis
     [JSON_BUSINESS_HEADERS.authorized]: authorized ? "1" : "0", ...(operationId ? { [JSON_BUSINESS_HEADERS.operation]: operationId } : {}) };
   for (const key of ["content-type", "origin", "sec-fetch-site", "x-forwarded-host", "if-none-match"]) {
     const value = request.headers.get(key); if (value) headers[key] = value;
+  }
+  if (publicPeer) {
+    const authorization = request.headers.get("authorization");
+    if (authorization && authorization.length <= 512) headers[PEER_AUTHORIZATION_HEADER] = authorization;
   }
   const controller = new AbortController(), abort = () => controller.abort();
   request.signal.addEventListener("abort", abort, { once: true });

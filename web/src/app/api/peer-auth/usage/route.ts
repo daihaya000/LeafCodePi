@@ -1,15 +1,9 @@
-import { peerAuthService } from "@/lib/peer-auth/runtime";
-import { readBoundedJson, toNextResponse } from "@/lib/peer-auth/http";
+import type { NextRequest } from "next/server";
+import { relayJsonBusiness } from "@/lib/json-business-relay";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-/** Peer-facing CodexBar usage; the bearer grant scopes both the account and returned providers. */
-export async function POST(request: Request) {
-  const body = await readBoundedJson(request);
-  const result = await peerAuthService().usage({
-    authorization: request.headers.get("authorization"),
-    body: body === undefined ? null : body,
-  });
-  return toNextResponse(result);
+export async function POST(req: NextRequest) {
+  return relayJsonBusiness(req, "peer-auth/usage");
 }

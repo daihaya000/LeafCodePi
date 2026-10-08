@@ -31,6 +31,14 @@ function deps(overrides: Record<string, unknown> = {}) {
 const valid = { peerUrl: "http://100.64.0.2:3000/ignored", token: TOKEN, label: "X870" };
 
 describe("importPeerAccount", () => {
+  it("removes created peer-token configs as well as account records when a later import write fails", async () => {
+    const removeConfig = vi.fn(async () => undefined);
+    const d = deps({ writeConfig: vi.fn().mockResolvedValueOnce(undefined).mockRejectedValueOnce(new Error("PRIVATE token write failed")), removeConfig });
+    const result = await importPeerAccount(valid, d as never);
+    expect(result.status).toBe(500); expect(JSON.stringify(result)).not.toContain("PRIVATE");
+    expect(d.deleteAccount).toHaveBeenNthCalledWith(1, "acc-1"); expect(d.deleteAccount).toHaveBeenNthCalledWith(2, "acc-2");
+    expect(removeConfig).toHaveBeenNthCalledWith(1, "acc-1"); expect(removeConfig).toHaveBeenNthCalledWith(2, "acc-2");
+  });
   it("creates one account per sharing-LCP account, with that account's routable providers", async () => {
     const d = deps();
     const result = await importPeerAccount(valid, d as never);

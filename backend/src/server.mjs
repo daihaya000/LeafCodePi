@@ -7,6 +7,7 @@ import { streamProviderLoginEvents } from "./provider-login-events.mjs";
 import { PROVIDER_AUTH_EVENTS_PATH } from "../../shared/provider-auth-contract.mjs";
 import { readConfigurationBody } from "./configuration-body.mjs";
 import { JSON_BUSINESS_PATH, JSON_BUSINESS_ROUTES, JSON_BUSINESS_HEADERS, jsonBusinessTarget, jsonBusinessBodyLimit, JSON_BUSINESS_RESPONSE_LIMIT, jsonBusinessMutates, jsonBusinessCommand, publicJsonBusinessResult } from "../../shared/json-business-contract.mjs";
+import { peerFacing, PEER_AUTHORIZATION_HEADER } from "../../shared/peer-contract.mjs";
 import { CONFIGURATION_PATH, CONFIGURATION_ROUTES, CONFIGURATION_HEADERS, configurationTarget, configurationBodyLimit } from "../../shared/configuration-contract.mjs";
 export { BACKEND_PROMPT_BODY_LIMIT_BYTES } from "./json-body.mjs";
 import { parseMcpPresetRequest } from "../../shared/mcp-preset-request.mjs";
@@ -464,7 +465,7 @@ export function createBackendServer({
         const url = new URL(origin);
         if (!["http:", "https:"].includes(url.protocol) || url.origin !== origin || typeof host !== "string" || !["0", "1"].includes(access)) throw new Error();
       } catch { sendJson(response, 400, { error: "Invalid business context", code: BACKEND_ERROR_CODES.badRequest }); return; }
-      if (process.env.LEAFCODE_PI_WEBUI_AUTH === "required" && access !== "1") { sendJson(response, 403, { error: "WebUI access required", code: BACKEND_ERROR_CODES.unauthorized }); return; }
+      if (((!peerFacing(businessPath) && process.env.LEAFCODE_PI_WEBUI_AUTH === "required") || businessPath === "peer-auth/import") && access !== "1") { sendJson(response, 403, { error: "WebUI access required", code: BACKEND_ERROR_CODES.unauthorized }); return; }
       const command = jsonBusinessCommand(businessPath, request.method);
       const operationId = request.headers[JSON_BUSINESS_HEADERS.operation];
       if (command && (typeof operationId !== "string" || !/^[0-9a-f-]{36}$/.test(operationId))) { sendJson(response, 400, { error: "Invalid operation ID", code: BACKEND_ERROR_CODES.badRequest }); return; }
@@ -475,6 +476,7 @@ export function createBackendServer({
       }
       const headers = { host };
       for (const key of ["content-type", "origin", "sec-fetch-site", "x-forwarded-host", "if-none-match"]) if (typeof request.headers[key] === "string") headers[key] = request.headers[key];
+      if (peerFacing(businessPath) && typeof request.headers[PEER_AUTHORIZATION_HEADER] === "string" && request.headers[PEER_AUTHORIZATION_HEADER].length <= 512) headers.authorization = request.headers[PEER_AUTHORIZATION_HEADER];
       const body = request.method === "GET" ? undefined : await readConfigurationBody(request, jsonBusinessBodyLimit(businessPath));
       const controller = new AbortController();
       const disconnect = () => { if (!response.writableEnded) controller.abort(); };

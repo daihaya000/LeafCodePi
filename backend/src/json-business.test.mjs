@@ -24,6 +24,19 @@ test("business transport enforces auth, protocol, readiness, method, context and
   assert.equal((await request(`${unavailable.base}/git/init`, { method: "POST", headers: unavailable.headers })).status, 503);
   assert.equal(calls, 0);
 });
+test("Peer bearer is forwarded only to Peer-facing routes; WebUI import remains protected and Retry-After survives", async t => {
+  const previous = process.env.LEAFCODE_PI_WEBUI_AUTH; process.env.LEAFCODE_PI_WEBUI_AUTH = "required";
+  t.after(() => { if (previous === undefined) delete process.env.LEAFCODE_PI_WEBUI_AUTH; else process.env.LEAFCODE_PI_WEBUI_AUTH = previous; });
+  let calls = 0;
+  const f = await fixture(t, { jsonBusinessRequestAction: async input => {
+    calls++; assert.equal(input.authorized, false); assert.equal(input.headers.authorization, "Bearer PEER-TOKEN"); assert.equal(input.headers.cookie, undefined);
+    return { status: 429, headers: { "retry-after": "7" }, body: { error: "rate-limited" } };
+  } });
+  const headers = { ...f.headers, "x-leafcode-business-authorized": "0", "x-leafcode-business-peer-authorization": "Bearer PEER-TOKEN", cookie: "PRIVATE-COOKIE" };
+  const result = await request(`${f.base}/peer-auth/list`, { headers }); assert.equal(result.status, 200); assert.equal((await result.json()).headers["retry-after"], "7");
+  assert.equal((await request(`${f.base}/peer-auth/import`, { headers })).status, 403);
+  assert.equal((await request(`${f.base}/accounts`, { headers })).status, 403); assert.equal(calls, 1);
+});
 test("definition transport routes named targets and rejects missing operation acknowledgement context before execution", async t => {
   let calls = 0;
   const f = await fixture(t, { jsonBusinessRequestAction: async input => {

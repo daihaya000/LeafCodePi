@@ -3,6 +3,7 @@ import { PROVIDER_ROUTES, providerTarget, publicProviderBody } from "./provider-
 import { PROVIDER_AUTH_ROUTES, providerAuthTarget, publicProviderAuthBody } from "./provider-auth-contract.mjs";
 import { ACCOUNT_ROUTES, accountTarget, publicAccountBody } from "./account-contract.mjs";
 import { USAGE_ROUTES, usageTarget, publicUsageBody } from "./usage-contract.mjs";
+import { PEER_ROUTES, peerTarget, peerFacing, peerCommand, publicPeerBody } from "./peer-contract.mjs";
 /** Pure wire contract. Owner validation/commands never run in the Web relay. */
 export const JSON_BUSINESS_PATH = "/internal/json-business";
 export const JSON_BUSINESS_HEADERS = Object.freeze({ origin: "x-leafcode-business-origin", host: "x-leafcode-business-host", authorized: "x-leafcode-business-authorized", operation: "x-leafcode-business-operation" });
@@ -11,18 +12,18 @@ export const JSON_BUSINESS_ROUTES = Object.freeze({
   "git/init": ["POST"], "git/log": ["GET"], "git/merge": ["POST"],
   "git/pr": ["GET", "POST"], "git/pull": ["POST"], "git/push": ["POST"],
   "git/repositories": ["GET"], "git/rm": ["POST"], "git/show": ["GET"], "diff/files": ["GET"],
-  ...DEFINITION_ROUTES, ...PROVIDER_ROUTES, ...PROVIDER_AUTH_ROUTES, ...ACCOUNT_ROUTES, ...USAGE_ROUTES,
+  ...DEFINITION_ROUTES, ...PROVIDER_ROUTES, ...PROVIDER_AUTH_ROUTES, ...ACCOUNT_ROUTES, ...USAGE_ROUTES, ...PEER_ROUTES,
 });
 export const JSON_BUSINESS_BODY_LIMIT = 1024 * 1024;
 export function jsonBusinessTarget(path) {
   if (Object.hasOwn(JSON_BUSINESS_ROUTES, path) && !path.includes("[")) return { route: path, params: {} };
-  return definitionTarget(path) ?? providerTarget(path) ?? providerAuthTarget(path) ?? accountTarget(path) ?? usageTarget(path);
+  return definitionTarget(path) ?? providerTarget(path) ?? providerAuthTarget(path) ?? accountTarget(path) ?? usageTarget(path) ?? peerTarget(path);
 }
-export function jsonBusinessBodyLimit(path) { const target = definitionTarget(path); return target ? definitionBodyLimit(target.route) : JSON_BUSINESS_BODY_LIMIT; }
-export function jsonBusinessCommand(path, method) { return method !== "GET" && Boolean(definitionTarget(path) || providerTarget(path) || providerAuthTarget(path) || accountTarget(path) || usageTarget(path)); }
+export function jsonBusinessBodyLimit(path) { if (peerFacing(path)) return 4096; const target = definitionTarget(path); return target ? definitionBodyLimit(target.route) : JSON_BUSINESS_BODY_LIMIT; }
+export function jsonBusinessCommand(path, method) { return method !== "GET" && Boolean(definitionTarget(path) || providerTarget(path) || providerAuthTarget(path) || accountTarget(path) || usageTarget(path) || peerCommand(path, method)); }
 export const JSON_BUSINESS_RESPONSE_LIMIT = 32 * 1024 * 1024;
 export function jsonBusinessTimeout(route) { return route === "git/pr" ? 200_000 : 180_000; }
-export function jsonBusinessMutates(route, method) { return method !== "GET" && route !== "git/commit-message"; }
+export function jsonBusinessMutates(route, method) { return method !== "GET" && route !== "git/commit-message" && !peerFacing(route); }
 const fields = {
   "git/branches": ["current", "branches", "defaultTarget", "upstream", "ahead", "remotes", "hasRemote"],
   "git/commit": ["ok", "summary", "stdout"], "git/commit-message": ["message", "source", "model", "warning"],
@@ -40,12 +41,16 @@ export function publicJsonBusinessResult(route, value) {
   route = target.route;
   if (!record(value) || !Number.isInteger(value.status) || value.status < 200 || value.status > 599) return null;
   const headers = {};
-  for (const name of ["cache-control", "etag", "x-content-type-options"]) {
+  for (const name of ["cache-control", "etag", "x-content-type-options", ...(peerFacing(route) ? ["retry-after"] : [])]) {
     const field = value.headers?.[name];
     if (field !== undefined && (typeof field !== "string" || /[\r\n]/.test(field))) return null;
     if (field !== undefined) headers[name] = field;
   }
   if (value.status === 304) return value.body === null ? { status: 304, headers, body: null } : null;
+  if (Object.hasOwn(PEER_ROUTES, route)) {
+    const body = publicPeerBody(route, value.body, value.status);
+    return body ? { status: value.status, headers, body } : null;
+  }
   if (Object.hasOwn(USAGE_ROUTES, route)) {
     const body = publicUsageBody(route, value.body, value.status);
     return body ? { status: value.status, headers, body } : null;

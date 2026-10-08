@@ -2,6 +2,7 @@ import { randomBytes } from "node:crypto";
 import { mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { parsePeerBearer } from "./peer-auth-wire.mjs";
+import { watchConfigurationPath } from "./configuration-command.mjs";
 
 // B-side peer account config: <agentDir>/accounts/<id>/peer.json (docs/plans/peer-auth-share.md).
 // Its presence marks an account whose credentials come from another LCP. It holds the peer token,
@@ -50,8 +51,9 @@ export function readPeerConfig(accountDir) {
 export function writePeerConfig(accountDir, config, now = () => new Date()) {
   const normalized = parsePeerConfig({ ...config, version: 1, createdAt: config.createdAt ?? now().toISOString() });
   if (!normalized) throw Object.assign(new Error("peer config is invalid"), { status: 400 });
-  mkdirSync(accountDir, { recursive: true });
   const path = peerConfigPath(accountDir);
+  watchConfigurationPath(path);
+  mkdirSync(accountDir, { recursive: true });
   const temp = `${path}.${process.pid}.${randomBytes(4).toString("hex")}.tmp`;
   try {
     writeFileSync(temp, `${JSON.stringify(normalized, null, 2)}\n`, { encoding: "utf8", mode: 0o600 });
@@ -64,5 +66,6 @@ export function writePeerConfig(accountDir, config, now = () => new Date()) {
 }
 
 export function removePeerConfig(accountDir) {
+  watchConfigurationPath(peerConfigPath(accountDir));
   rmSync(peerConfigPath(accountDir), { force: true });
 }

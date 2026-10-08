@@ -2,9 +2,9 @@
 
 ## 進捗・範囲
 
-Phase3全体は未完了。Phase0のBackend/Phase3/JSON分類は118経路・182操作。Git・Diff・コミット文生成13経路・14操作、定義管理14経路・25操作、Provider/モデル設定7経路・8操作、Provider認証JSON4経路・5操作、アカウント管理/資格情報9経路・19操作、利用量/クレジット3経路・5操作の合計50経路・76操作の境界を移管した。認証に付随するログインSSE 1経路・1操作も同じownerへ移管した（Phase3 JSONの集計には加算しない）。残る68経路・106操作には既存Backend中継も含まれ、受入条件の確認・残存業務処理の移管が必要。
+Phase3全体は未完了。Phase0のBackend/Phase3/JSON分類は118経路・182操作。Git・Diff・コミット文生成13経路・14操作、定義管理14経路・25操作、Provider/モデル設定7経路・8操作、Provider認証JSON4経路・5操作、アカウント管理/資格情報9経路・19操作、利用量/クレジット3経路・5操作、Peer認証共有5経路・9操作の合計55経路・85操作の境界を移管した。認証に付随するログインSSE 1経路・1操作も同じownerへ移管した（Phase3 JSONの集計には加算しない）。残る63経路・97操作には既存Backend中継も含まれ、受入条件の確認・残存業務処理の移管が必要。
 
-以下は第1区切り（Git・Diff・コミット文生成）の記録。第2区切りの定義管理、第3区切りのProvider/モデル設定、第4区切りのProvider認証、第5区切りのアカウント管理/資格情報、第6区切りの利用量/クレジットは末尾に記載する。
+以下は第1区切り（Git・Diff・コミット文生成）の記録。第2区切りの定義管理、第3区切りのProvider/モデル設定、第4区切りのProvider認証、第5区切りのアカウント管理/資格情報、第6区切りの利用量/クレジット、第7区切りのPeer認証共有は末尾に記載する。
 
 | 経路 | 操作 |
 | --- | --- |
@@ -129,3 +129,18 @@ Phase3全体は未完了。Phase0のBackend/Phase3/JSON分類は118経路・182�
 - Backend/Web typecheck成功。Backend強制ビルド6,925 KiB成功。
 - Webなしの実Backend fixtureでProvider表示設定保存/版番号読込、scope/未知account拒否、消費入力拒否の実ACK/ledger、実プロセス再起動後の設定/receipt読込・消費重複受付拒否を検証（9.1秒）。実クレジット消費・外部OAuth grant・ユーザー設定/資格情報・稼働サービスの変更は実行していない。
 - 全体Web/Backendスイートは今回再実行していない。今回の対象回帰と過去の全体baselineを区別する。
+
+## 第7区切り: Peer認証共有（5経路・9操作）
+
+- `peer-auth/peers` GET/POST/PATCH/DELETE、`peer-auth/import` GET/POST、`peer-auth/list` GET、`peer-auth/resolve` POST、`peer-auth/usage` POSTをBackendへ移管。対象Nextルートは中継returnだけ。grant/config/token永続化、remote discovery/import、limiter/audit、SDK refreshとcredential leaseをBackendが所有する。4つのowner helperをBackendへ移動し、Web互換exportを維持する。
+- list/resolve/usageはPeer Bearerで認可する。WebUI Bearerとは独立し、内部Backend Bearerを置換せず、専用trusted headerだけでownerへ渡す。ブラウザーCookie/任意Authorizationは渡さない。管理は既存WebUI保護を維持し、importはWebUI認可必須。Originを維持し、Peer POSTを設定変更/operation admissionと誤認しない。
+- Peer-facing本文は4 KiB。Nextは過大本文を有効な要求へ変換せず、ownerで認証後に不正本文を拒否する。401/403/400・scope・named account限定・rate limitとRetry-Afterを維持する。公開DTOは深く投影し、resolveの認可済みaccess/API-key leaseとgrant作成201の一度限りのtokenだけを明示例外とする。refresh/token hash/private path/例外本文は返さない。
+- 管理/import変更は共通configuration queue/ledgerとACK照合・保存観測・同一IDの再実行拒否を利用する。ledgerに入力/tokenを保存しない。grant/store/config/remote probeにNext拒否を追加する。途中import失敗は作成済みAccountとpeer-token configを片付け、失敗した復旧を隠さない。応答喪失で一度限りのgrant tokenを再取得できない場合は、管理一覧でgrantを確認してrevokeしてから新規作成する。自動再送やtokenのledger保存はしない。
+
+### 第7区切りの検証結果
+
+- Peer API/domain/owner/BFFとAccount互換の対象回帰90/90成功。grant作成/有効化/revoke・秘密の非保存、Peer認証優先の本文検証、default/Provider scope拒否、制御RuntimeのOAuth refresh/lease、import/token保存/cleanup・WebUI認可とACK・Next共通拒否を検証した。
+- Peer core/wire/contract・transport・AST ownership・既存設定境界/API inventory158/158成功。JSON累計55経路・85操作が中継だけの構造を検証。
+- Backend/Web typecheck成功。Backend強制ビルド6,963 KiB成功。レビューでPeer-facing POSTの変更扱いが残ることを確認し、read-only/service分類へ修正して再検証した。初回owner回帰でimportが生WebUI tokenを要求する移管漏れを確認し、trusted configuration authorizationへ修正。OAuth制御Runtimeのmock接続も実際のgetRuntimeForへ修正し、全対象を再実行した。
+- Webなしの実Backend fixtureでgrant hash保存/有効化、Peer list/API-key lease、default拒否、実プロセス再起動後の同じlease/重複作成拒否・metadata非漏洩/revokeを検証（最終8.2秒）。外部OAuth grant/本番credential変更・実ユーザーサービス再起動は行っていない。
+- 全体Web/Backendスイートは今回再実行していない。対象回帰と過去の全体baselineを区別する。

@@ -59,7 +59,7 @@ test("Backend builds and serves its runtime API without Web sources or Web packa
       LEAFCODE_PI_BACKEND_PORT: "0", LEAFCODE_PI_BACKEND_TOKEN: token, LEAFCODE_PI_BACKEND_RUNTIME: "1",
       LEAFCODE_PI_BACKEND_GENERATION: "", LEAFCODE_PI_MCP_NATIVE: "", LEAFCODE_PI_PROCESS_ROLE: "backend",
       LEAFCODE_PI_BACKEND_RUNTIME_BUNDLE: join(backend, "runtime", "runtime.bundle.mjs"),
-      LEAFCODE_PI_PUSHOVER_TOKEN: "", LEAFCODE_PI_PUSHOVER_USER: "" },
+      LEAFCODE_PI_PUSHOVER_TOKEN: "", LEAFCODE_PI_PUSHOVER_USER: "", LEAFCODE_PI_WEBUI_AUTH: "required" },
   };
   const launch = () => spawn(process.execPath, [join(backend, "src", "entry.mjs")], launchOptions);
   child = launch();
@@ -191,6 +191,19 @@ test("Backend builds and serves its runtime API without Web sources or Web packa
   const rejectedConsume = await business("codexbar/reset-credits", { creditId: "" }, "", { "x-leafcode-business-operation": usageOperation });
   assert.equal(rejectedConsume.status, 400); assert.equal(rejectedConsume.body.operation.execution, "complete"); assert.equal(rejectedConsume.body.mutation, undefined);
   assert.deepEqual(JSON.parse(readFileSync(join(data, "usage-command.json"), "utf8")).operations, [{ id: usageOperation, execution: "complete" }]);
+  // Real Peer owner: create/revoke tokens and lease only this fixture's named-account API key.
+  writeFileSync(join(agent, "accounts", accountId, "auth.json"), JSON.stringify({ openrouter: { type: "api_key", key: "PEER-FIXTURE-LEASE", refresh: "PRIVATE-NEVER-EXPORT" } }));
+  const peerOperation = "77777777-8888-9999-aaaa-bbbbbbbbbbbb";
+  const peerGrantReply = await business("peer-auth/peers", { label: "Fixture peer", providers: ["openrouter"] }, "", { "x-leafcode-business-operation": peerOperation });
+  assert.equal(peerGrantReply.status, 201); assert.equal(peerGrantReply.body.mutation.saved, true);
+  const peerToken = peerGrantReply.body.token; assert.ok(peerToken); assert.ok(!readFileSync(join(data, "peer-auth.json"), "utf8").includes(peerToken));
+  const peerEnabled = await business("peer-auth/peers", { enabled: true }, "", { "x-leafcode-business-operation": "88888888-9999-aaaa-bbbb-cccccccccccc" }, "PATCH"); assert.equal(peerEnabled.status, 200);
+  const peerHeaders = { ...businessHeaders, "x-leafcode-business-authorized": "0", "x-leafcode-business-peer-authorization": `Bearer ${peerToken}` };
+  const peerRequest = async (origin, route, body) => { const response = await fetch(`${origin}/internal/json-business/${route}`, { headers: peerHeaders, ...(body === undefined ? {} : { method: "POST", body: JSON.stringify(body) }), signal: AbortSignal.timeout(3000) }); assert.equal(response.status, 200); return response.json(); };
+  const peerList = await peerRequest(base, "peer-auth/list"); assert.equal(peerList.status, 200); assert.equal(peerList.body.accounts[0].accountId, accountId); assert.ok(!JSON.stringify(peerList).includes("PEER-FIXTURE-LEASE"));
+  const peerLease = await peerRequest(base, "peer-auth/resolve", { providerId: "openrouter", accountId }); assert.equal(peerLease.status, 200); assert.deepEqual(peerLease.body, { credential: { type: "api_key", key: "PEER-FIXTURE-LEASE" } });
+  assert.equal((await peerRequest(base, "peer-auth/resolve", { providerId: "openrouter" })).status, 403);
+  const unauthImport = await fetch(`${base}/internal/json-business/peer-auth/import`, { headers: peerHeaders, signal: AbortSignal.timeout(3000) }); assert.equal(unauthImport.status, 403);
   // Restart the actual owner process, retaining only its disk state, not a Web fallback or a module cache.
   const exited = new Promise((done) => child.once("exit", done)); child.kill(); await exited;
   stdout = ""; stderr = ""; listening = undefined; child = launch();
@@ -248,5 +261,10 @@ test("Backend builds and serves its runtime API without Web sources or Web packa
   assert.deepEqual((await usageConfigOutcome.json()).mutation, usageConfig.body.mutation);
   const consumeReplay = await fetch(`${restartedBase}/internal/json-business/codexbar/reset-credits`, { method: "POST", headers: { ...businessHeaders, "x-leafcode-business-operation": usageOperation }, body: JSON.stringify({ creditId: "must-not-execute" }), signal: AbortSignal.timeout(3000) });
   assert.equal((await consumeReplay.json()).status, 409);
+  const peerLeaseRestored = await peerRequest(restartedBase, "peer-auth/resolve", { providerId: "openrouter", accountId }); assert.deepEqual(peerLeaseRestored.body, peerLease.body);
+  const peerGrantReplay = await fetch(`${restartedBase}/internal/json-business/peer-auth/peers`, { method: "POST", headers: { ...businessHeaders, "x-leafcode-business-operation": peerOperation }, body: JSON.stringify({ label: "No replay", providers: ["openrouter"] }), signal: AbortSignal.timeout(3000) }); assert.equal((await peerGrantReplay.json()).status, 409);
+  const peerMetadata = await fetch(`${restartedBase}/internal/json-business/peer-auth/peers`, { headers: businessHeaders, signal: AbortSignal.timeout(3000) }); assert.ok(!JSON.stringify(await peerMetadata.json()).includes(peerToken));
+  const peerRevoke = await fetch(`${restartedBase}/internal/json-business/peer-auth/peers?id=${peerGrantReply.body.grant.id}`, { method: "DELETE", headers: { ...businessHeaders, "x-leafcode-business-operation": "99999999-aaaa-bbbb-cccc-dddddddddddd" }, signal: AbortSignal.timeout(3000) }); assert.equal((await peerRevoke.json()).status, 200);
+  assert.equal((await peerRequest(restartedBase, "peer-auth/list")).status, 401);
   assert.equal(existsSync(join(fixture, "web")), false);
 });

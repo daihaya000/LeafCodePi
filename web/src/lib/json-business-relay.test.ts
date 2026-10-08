@@ -6,6 +6,8 @@ import { relayJsonBusiness } from "./json-business-relay";
 import { NextRequest } from "next/server";
 import { POST as saveAccountKey } from "../app/api/accounts/[id]/openrouter-credits/route";
 import { POST as consumeResetCredit } from "../app/api/codexbar/reset-credits/route";
+import { POST as resolvePeer } from "../app/api/peer-auth/resolve/route";
+import { GET as peerImports } from "../app/api/peer-auth/import/route";
 let root: string;
 const fetcher = vi.fn();
 const request = (route = "git/init", body = '{"directory":"repo"}') => new Request(`http://localhost/api/${route}`, { method: "POST", body });
@@ -18,6 +20,20 @@ beforeEach(() => {
 });
 afterEach(() => { vi.unstubAllGlobals(); vi.unstubAllEnvs(); rmSync(root, { recursive: true, force: true }); });
 describe("JSON business ingress", () => {
+  it("actual public Peer route carries only its separate bearer, hides refresh, preserves auth-first invalid body and rate-limit headers", async () => {
+    vi.stubEnv("LEAFCODE_PI_WEBUI_AUTH", "required"); vi.stubEnv("LEAFCODE_PI_WEBUI_TOKEN", "UI-TOKEN");
+    fetcher.mockImplementationOnce(async (_url, options) => {
+      const headers = new Headers(options.headers); expect(headers.get("authorization")).toContain("owner-private-token"); expect(headers.get("x-leafcode-business-peer-authorization")).toBe("Bearer PEER-TOKEN"); expect(headers.get("cookie")).toBeNull(); expect(headers.get("x-leafcode-business-authorized")).toBe("0");
+      return Response.json({ status: 200, headers: {}, body: { credential: { type: "oauth", access: "LEASE", expires: 999999, refresh: "PRIVATE" } } });
+    });
+    const response = await resolvePeer(new NextRequest("http://localhost/api/peer-auth/resolve", { method: "POST", headers: { authorization: "Bearer PEER-TOKEN", cookie: "private-other-cookie=PRIVATE" }, body: '{"providerId":"anthropic"}' }));
+    expect(response.status).toBe(200); expect(await response.json()).toEqual({ credential: { type: "oauth", access: "LEASE", expires: 999999 } });
+    fetcher.mockImplementationOnce(async (_url, options) => { expect(options.body).toBeUndefined(); return Response.json({ status: 401, headers: {}, body: { error: "unauthorized" } }); });
+    expect((await resolvePeer(new NextRequest("http://localhost/api/peer-auth/resolve", { method: "POST", body: "x".repeat(5000) }))).status).toBe(401);
+    fetcher.mockResolvedValueOnce(Response.json({ status: 429, headers: { "retry-after": "7" }, body: { error: "rate-limited" } }));
+    const limited = await resolvePeer(new NextRequest("http://localhost/api/peer-auth/resolve", { method: "POST", body: "{}" })); expect(limited.status).toBe(429); expect(limited.headers.get("retry-after")).toBe("7");
+    vi.stubEnv("LEAFCODE_PI_WEBUI_AUTH", ""); expect((await peerImports(new NextRequest("http://localhost/api/peer-auth/import"))).status).toBe(401); expect(fetcher).toHaveBeenCalledTimes(3); expect(readdirSync(root)).toEqual([]);
+  });
   it("actual Next consume route verifies execution ACK, not a settings-save claim, and never retries an uncertain response", async () => {
     fetcher.mockImplementationOnce(async (_url, options) => {
       const id = new Headers(options.headers).get("x-leafcode-business-operation");
