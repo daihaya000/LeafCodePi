@@ -1,0 +1,4438 @@
+{
+  "version": 1,
+  "scope": "Phase0: final implementation/data owners, not current migration completion",
+  "groups": {
+    "edge": {
+      "owner": "Next",
+      "phase": 0,
+      "scope": "ブラウザ認証・Web識別・入口診断",
+      "input": "token/Cookie・Origin・診断要求",
+      "output": "Cookie・識別ID・health DTO",
+      "effects": "Cookie・ログイン制限",
+      "rule": "Nextに残す。SDK・業務データの直接参照だけ除去。"
+    },
+    "host-control": {
+      "owner": "Host",
+      "phase": 3,
+      "scope": "起動監視・本体更新・ブラウザ設定・翻訳・llama制御",
+      "input": "action・起動設定・翻訳text・更新予約",
+      "output": "制御状態・結果",
+      "effects": "起動停止・更新予約・モデル導入",
+      "rule": "Next→Hostの薄い中継。Web内の制御判断をHostへ移し、Backendの生存に依存させない。"
+    },
+    "settings": {
+      "owner": "Backend",
+      "phase": 2,
+      "scope": "通常/実行/安全/Jev/メモリ/TTS設定",
+      "input": "key/value・設定DTO・移行要求",
+      "output": "snapshot・保存/反映結果",
+      "effects": "永続化・live反映・資格情報移行",
+      "rule": "Backendが保存と反映を所有。Nextは入口ポリシーのみ。"
+    },
+    "definitions": {
+      "owner": "Backend",
+      "phase": 3,
+      "scope": "Agent/Skill/Extension・共通Markdown・プロンプト移行",
+      "input": "name・enabled・content・定義DTO・移行ファイル",
+      "output": "一覧・保存/reload結果",
+      "effects": "ファイル更新・context reload",
+      "rule": "定義の更新とlive反映をBackendへ集約。"
+    },
+    "credentials": {
+      "owner": "Backend",
+      "phase": 3,
+      "scope": "account/provider/MCP/model/CodexBar/peer認証",
+      "input": "ID・認証回答・cookie/鍵・設定・peer bearer",
+      "output": "秘匿化DTO・認証状態・使用量",
+      "effects": "秘密保存・OAuth・grant・外部照会",
+      "rule": "秘密情報・認証セッションはBackend所有。peer独自認証を維持。"
+    },
+    "runtime": {
+      "owner": "Backend",
+      "phase": 3,
+      "scope": "project/task/Bot/Room/routine・履歴・承認・質問",
+      "input": "ID・prompt・model・action・回答・cursor",
+      "output": "状態・履歴・操作結果DTO",
+      "effects": "実行停止・CRUD・定期実行・履歴更新",
+      "rule": "既存中継も対象。Web側の判断・業務読取・開発ローカル経路を撤去。"
+    },
+    "git": {
+      "owner": "Backend",
+      "phase": 3,
+      "scope": "ユーザーGit・diff",
+      "input": "directory・paths・branch・commit・PR条件",
+      "output": "結果・履歴・diff",
+      "effects": "index/履歴/remote更新・CLI",
+      "rule": "パス制限・引数検証をBackendで再適用。副作用あり操作を自動再送しない。"
+    },
+    "generation": {
+      "owner": "Backend",
+      "phase": 3,
+      "scope": "タイトル・次タスク/アクション・進捗・助言・コミット文・検索/preview",
+      "input": "ID・context・条件・URL・query",
+      "output": "生成結果・モデル情報・検索/preview DTO",
+      "effects": "推論・外部接続・metadata更新・cache",
+      "rule": "直接推論・外部照会・キャンセル・cacheもBackend所有。"
+    },
+    "filesystem": {
+      "owner": "Backend",
+      "phase": 3,
+      "scope": "ファイル一覧・アイコン・作業path解決",
+      "input": "ID・path・一覧条件",
+      "output": "許可済み一覧・アイコン・path DTO",
+      "effects": "OS/ファイル読取・アイコン抽出",
+      "rule": "実パス検証をBackendで実施。Explorer起動はHostのloopback制約を維持。"
+    },
+    "stream": {
+      "owner": "Backend",
+      "phase": 4,
+      "scope": "SSE・メディア・画像・外部画像・音声",
+      "input": "ID・cursor・Range・URL・音声要求",
+      "output": "SSE/binary・配信ヘッダー",
+      "effects": "外部接続・ファイル読取・音声生成",
+      "rule": "内容生成・ファイル認可はBackend。Nextはbufferせず中継し切断を伝播。"
+    },
+    "profile": {
+      "owner": "Backend",
+      "phase": 2,
+      "scope": "profile backup/import/restore/reset",
+      "input": "multipart archive・backup ID・action",
+      "output": "archive・一覧・結果",
+      "effects": "一括置換・package復元・maintenance",
+      "rule": "productionで拒否中の変更経路も対象。停止/反映・復旧をBackendで管理。"
+    },
+    "notifications": {
+      "owner": "Backend",
+      "phase": 2,
+      "scope": "通知・Pushover設定/テスト送信",
+      "input": "設定DTO・送信条件",
+      "output": "秘匿化設定・送信結果",
+      "effects": "秘密保存・外部通知",
+      "rule": "認証/ローカル要求制限はNextで維持し許可済みcontextをBackendへ渡す。"
+    },
+    "observation": {
+      "owner": "Backend",
+      "phase": 3,
+      "scope": "システム使用率・既読状態",
+      "input": "取得・既読更新",
+      "output": "usage snapshot・既読DTO",
+      "effects": "OS読取・既読永続化",
+      "rule": "sampling/cacheと永続化はBackend。Hostの起動制御とは区別。"
+    }
+  },
+  "routes": [
+    {
+      "route": "/api/accounts/[id]/anthropic-baseline",
+      "source": "web/src/app/api/accounts/[id]/anthropic-baseline/route.ts",
+      "group": "credentials",
+      "operations": [
+        {
+          "method": "POST",
+          "owner": "Backend",
+          "phase": 3,
+          "decision": "thin-backend-relay",
+          "contract": "json",
+          "note": "秘密情報・認証セッションはBackend所有。peer独自認証を維持。"
+        },
+        {
+          "method": "DELETE",
+          "owner": "Backend",
+          "phase": 3,
+          "decision": "thin-backend-relay",
+          "contract": "json",
+          "note": "秘密情報・認証セッションはBackend所有。peer独自認証を維持。"
+        }
+      ],
+      "observedImports": [
+        "next/server",
+        "@/lib/accounts",
+        "@/lib/codexbar/cache",
+        "@/lib/codexbar/provider-cache",
+        "@/lib/codexbar/providers/anthropic",
+        "@/lib/pi/harness"
+      ]
+    },
+    {
+      "route": "/api/accounts/[id]/anthropic-cookie",
+      "source": "web/src/app/api/accounts/[id]/anthropic-cookie/route.ts",
+      "group": "credentials",
+      "operations": [
+        {
+          "method": "POST",
+          "owner": "Backend",
+          "phase": 3,
+          "decision": "thin-backend-relay",
+          "contract": "json",
+          "note": "秘密情報・認証セッションはBackend所有。peer独自認証を維持。"
+        },
+        {
+          "method": "DELETE",
+          "owner": "Backend",
+          "phase": 3,
+          "decision": "thin-backend-relay",
+          "contract": "json",
+          "note": "秘密情報・認証セッションはBackend所有。peer独自認証を維持。"
+        }
+      ],
+      "observedImports": [
+        "next/server",
+        "@/lib/accounts",
+        "@/lib/codexbar/browser-cookies",
+        "@/lib/codexbar/cache",
+        "@/lib/codexbar/provider-cache",
+        "@/lib/pi/harness"
+      ]
+    },
+    {
+      "route": "/api/accounts/[id]/auth-status",
+      "source": "web/src/app/api/accounts/[id]/auth-status/route.ts",
+      "group": "credentials",
+      "operations": [
+        {
+          "method": "GET",
+          "owner": "Backend",
+          "phase": 3,
+          "decision": "thin-backend-relay",
+          "contract": "json",
+          "note": "秘密情報・認証セッションはBackend所有。peer独自認証を維持。"
+        }
+      ],
+      "observedImports": [
+        "next/server",
+        "@/lib/accounts",
+        "@/lib/codexbar/browser-cookies",
+        "@/lib/peer-auth/account-runtime-options",
+        "@/lib/codexbar/providers/anthropic",
+        "@/lib/codexbar/providers/ollama-cloud",
+        "@/lib/codexbar/providers/openrouter",
+        "@/lib/pi/harness"
+      ]
+    },
+    {
+      "route": "/api/accounts/[id]/ollama-cookie",
+      "source": "web/src/app/api/accounts/[id]/ollama-cookie/route.ts",
+      "group": "credentials",
+      "operations": [
+        {
+          "method": "POST",
+          "owner": "Backend",
+          "phase": 3,
+          "decision": "thin-backend-relay",
+          "contract": "json",
+          "note": "秘密情報・認証セッションはBackend所有。peer独自認証を維持。"
+        },
+        {
+          "method": "DELETE",
+          "owner": "Backend",
+          "phase": 3,
+          "decision": "thin-backend-relay",
+          "contract": "json",
+          "note": "秘密情報・認証セッションはBackend所有。peer独自認証を維持。"
+        }
+      ],
+      "observedImports": [
+        "next/server",
+        "@/lib/accounts",
+        "@/lib/codexbar/cache",
+        "@/lib/codexbar/provider-cache",
+        "@/lib/codexbar/providers/ollama-cloud",
+        "@/lib/pi/harness"
+      ]
+    },
+    {
+      "route": "/api/accounts/[id]/opencode-go-cookie",
+      "source": "web/src/app/api/accounts/[id]/opencode-go-cookie/route.ts",
+      "group": "credentials",
+      "operations": [
+        {
+          "method": "GET",
+          "owner": "Backend",
+          "phase": 3,
+          "decision": "thin-backend-relay",
+          "contract": "json",
+          "note": "秘密情報・認証セッションはBackend所有。peer独自認証を維持。"
+        },
+        {
+          "method": "POST",
+          "owner": "Backend",
+          "phase": 3,
+          "decision": "thin-backend-relay",
+          "contract": "json",
+          "note": "秘密情報・認証セッションはBackend所有。peer独自認証を維持。"
+        },
+        {
+          "method": "DELETE",
+          "owner": "Backend",
+          "phase": 3,
+          "decision": "thin-backend-relay",
+          "contract": "json",
+          "note": "秘密情報・認証セッションはBackend所有。peer独自認証を維持。"
+        }
+      ],
+      "observedImports": [
+        "next/server",
+        "@/lib/accounts",
+        "@/lib/codexbar/browser-cookies",
+        "@/lib/codexbar/providers/opencode-go",
+        "@/lib/codexbar/cache",
+        "@/lib/codexbar/provider-cache",
+        "@/lib/pi/harness"
+      ]
+    },
+    {
+      "route": "/api/accounts/[id]/openrouter-baseline",
+      "source": "web/src/app/api/accounts/[id]/openrouter-baseline/route.ts",
+      "group": "credentials",
+      "operations": [
+        {
+          "method": "POST",
+          "owner": "Backend",
+          "phase": 3,
+          "decision": "thin-backend-relay",
+          "contract": "json",
+          "note": "秘密情報・認証セッションはBackend所有。peer独自認証を維持。"
+        },
+        {
+          "method": "DELETE",
+          "owner": "Backend",
+          "phase": 3,
+          "decision": "thin-backend-relay",
+          "contract": "json",
+          "note": "秘密情報・認証セッションはBackend所有。peer独自認証を維持。"
+        }
+      ],
+      "observedImports": [
+        "next/server",
+        "@/lib/accounts",
+        "@/lib/codexbar/cache",
+        "@/lib/codexbar/provider-cache",
+        "@/lib/codexbar/providers/openrouter",
+        "@/lib/pi/harness"
+      ]
+    },
+    {
+      "route": "/api/accounts/[id]/openrouter-credits",
+      "source": "web/src/app/api/accounts/[id]/openrouter-credits/route.ts",
+      "group": "credentials",
+      "operations": [
+        {
+          "method": "POST",
+          "owner": "Backend",
+          "phase": 3,
+          "decision": "thin-backend-relay",
+          "contract": "json",
+          "note": "秘密情報・認証セッションはBackend所有。peer独自認証を維持。"
+        },
+        {
+          "method": "DELETE",
+          "owner": "Backend",
+          "phase": 3,
+          "decision": "thin-backend-relay",
+          "contract": "json",
+          "note": "秘密情報・認証セッションはBackend所有。peer独自認証を維持。"
+        }
+      ],
+      "observedImports": [
+        "next/server",
+        "@/lib/accounts",
+        "@/lib/codexbar/cache",
+        "@/lib/codexbar/provider-cache",
+        "@/lib/codexbar/providers/openrouter",
+        "@/lib/pi/harness"
+      ]
+    },
+    {
+      "route": "/api/accounts/[id]",
+      "source": "web/src/app/api/accounts/[id]/route.ts",
+      "group": "credentials",
+      "operations": [
+        {
+          "method": "PATCH",
+          "owner": "Backend",
+          "phase": 3,
+          "decision": "thin-backend-relay",
+          "contract": "json",
+          "note": "秘密情報・認証セッションはBackend所有。peer独自認証を維持。"
+        },
+        {
+          "method": "DELETE",
+          "owner": "Backend",
+          "phase": 3,
+          "decision": "thin-backend-relay",
+          "contract": "json",
+          "note": "秘密情報・認証セッションはBackend所有。peer独自認証を維持。"
+        }
+      ],
+      "observedImports": [
+        "next/server",
+        "@backend-core/peer-auth-config.mjs",
+        "@/lib/accounts",
+        "@/lib/codexbar/providers/openrouter",
+        "@/lib/pi/harness"
+      ]
+    },
+    {
+      "route": "/api/accounts",
+      "source": "web/src/app/api/accounts/route.ts",
+      "group": "credentials",
+      "operations": [
+        {
+          "method": "GET",
+          "owner": "Backend",
+          "phase": 3,
+          "decision": "thin-backend-relay",
+          "contract": "json",
+          "note": "秘密情報・認証セッションはBackend所有。peer独自認証を維持。"
+        },
+        {
+          "method": "PATCH",
+          "owner": "Backend",
+          "phase": 3,
+          "decision": "thin-backend-relay",
+          "contract": "json",
+          "note": "秘密情報・認証セッションはBackend所有。peer独自認証を維持。"
+        },
+        {
+          "method": "POST",
+          "owner": "Backend",
+          "phase": 3,
+          "decision": "thin-backend-relay",
+          "contract": "json",
+          "note": "秘密情報・認証セッションはBackend所有。peer独自認証を維持。"
+        }
+      ],
+      "observedImports": [
+        "next/server",
+        "@/lib/accounts",
+        "@/lib/pi/harness"
+      ]
+    },
+    {
+      "route": "/api/agents/[name]",
+      "source": "web/src/app/api/agents/[name]/route.ts",
+      "group": "definitions",
+      "operations": [
+        {
+          "method": "GET",
+          "owner": "Backend",
+          "phase": 3,
+          "decision": "thin-backend-relay",
+          "contract": "json",
+          "note": "定義の更新とlive反映をBackendへ集約。"
+        },
+        {
+          "method": "PATCH",
+          "owner": "Backend",
+          "phase": 3,
+          "decision": "thin-backend-relay",
+          "contract": "json",
+          "note": "定義の更新とlive反映をBackendへ集約。"
+        },
+        {
+          "method": "DELETE",
+          "owner": "Backend",
+          "phase": 3,
+          "decision": "thin-backend-relay",
+          "contract": "json",
+          "note": "定義の更新とlive反映をBackendへ集約。"
+        }
+      ],
+      "observedImports": [
+        "next/server",
+        "@/lib/live-context",
+        "@/lib/agents",
+        "@/lib/thinking-levels",
+        "@/lib/default-agent"
+      ]
+    },
+    {
+      "route": "/api/agents",
+      "source": "web/src/app/api/agents/route.ts",
+      "group": "definitions",
+      "operations": [
+        {
+          "method": "GET",
+          "owner": "Backend",
+          "phase": 3,
+          "decision": "thin-backend-relay",
+          "contract": "json",
+          "note": "定義の更新とlive反映をBackendへ集約。"
+        },
+        {
+          "method": "POST",
+          "owner": "Backend",
+          "phase": 3,
+          "decision": "thin-backend-relay",
+          "contract": "json",
+          "note": "定義の更新とlive反映をBackendへ集約。"
+        }
+      ],
+      "observedImports": [
+        "next/server",
+        "@/lib/agents",
+        "@/lib/live-context",
+        "@/lib/thinking-levels",
+        "@/lib/pi/web-settings",
+        "@/lib/default-agent"
+      ]
+    },
+    {
+      "route": "/api/agents-md",
+      "source": "web/src/app/api/agents-md/route.ts",
+      "group": "definitions",
+      "operations": [
+        {
+          "method": "GET",
+          "owner": "Backend",
+          "phase": 3,
+          "decision": "thin-backend-relay",
+          "contract": "json",
+          "note": "定義の更新とlive反映をBackendへ集約。"
+        },
+        {
+          "method": "PATCH",
+          "owner": "Backend",
+          "phase": 3,
+          "decision": "thin-backend-relay",
+          "contract": "json",
+          "note": "定義の更新とlive反映をBackendへ集約。"
+        }
+      ],
+      "observedImports": [
+        "next/server",
+        "@/lib/agents-md",
+        "@/lib/live-context"
+      ]
+    },
+    {
+      "route": "/api/auth/webui",
+      "source": "web/src/app/api/auth/webui/route.ts",
+      "group": "edge",
+      "operations": [
+        {
+          "method": "POST",
+          "owner": "Next",
+          "phase": 0,
+          "decision": "retain-edge",
+          "contract": "json",
+          "note": "Nextに残す。SDK・業務データの直接参照だけ除去。"
+        }
+      ],
+      "observedImports": [
+        "next/server",
+        "@/lib/webui-auth",
+        "@/lib/webui-login-limit"
+      ]
+    },
+    {
+      "route": "/api/backend/status",
+      "source": "web/src/app/api/backend/status/route.ts",
+      "group": "edge",
+      "operations": [
+        {
+          "method": "GET",
+          "owner": "Next",
+          "phase": 3,
+          "decision": "retain-edge",
+          "contract": "json",
+          "note": "Nextに残す。SDK・業務データの直接参照だけ除去。"
+        }
+      ],
+      "observedImports": [
+        "next/server",
+        "@/lib/backend-client",
+        "@/lib/backend-relay",
+        "@/lib/webui-auth"
+      ]
+    },
+    {
+      "route": "/api/backend/tasks",
+      "source": "web/src/app/api/backend/tasks/route.ts",
+      "group": "runtime",
+      "operations": [
+        {
+          "method": "GET",
+          "owner": "Backend",
+          "phase": 3,
+          "decision": "thin-backend-relay",
+          "contract": "json",
+          "note": "既存中継も対象。Web側の判断・業務読取・開発ローカル経路を撤去。"
+        }
+      ],
+      "observedImports": [
+        "next/server",
+        "@/lib/backend-client",
+        "@/lib/webui-auth"
+      ]
+    },
+    {
+      "route": "/api/bots/[id]/abort",
+      "source": "web/src/app/api/bots/[id]/abort/route.ts",
+      "group": "runtime",
+      "operations": [
+        {
+          "method": "POST",
+          "owner": "Backend",
+          "phase": 3,
+          "decision": "thin-backend-relay",
+          "contract": "json",
+          "note": "既存中継も対象。Web側の判断・業務読取・開発ローカル経路を撤去。"
+        }
+      ],
+      "observedImports": [
+        "next/server",
+        "@/lib/bots",
+        "@/lib/pi/harness",
+        "@/lib/pi/runtime-ownership",
+        "@/lib/backend-forward"
+      ]
+    },
+    {
+      "route": "/api/bots/[id]/code-requests",
+      "source": "web/src/app/api/bots/[id]/code-requests/route.ts",
+      "group": "runtime",
+      "operations": [
+        {
+          "method": "GET",
+          "owner": "Backend",
+          "phase": 3,
+          "decision": "thin-backend-relay",
+          "contract": "json",
+          "note": "既存中継も対象。Web側の判断・業務読取・開発ローカル経路を撤去。"
+        },
+        {
+          "method": "POST",
+          "owner": "Backend",
+          "phase": 3,
+          "decision": "thin-backend-relay",
+          "contract": "json",
+          "note": "既存中継も対象。Web側の判断・業務読取・開発ローカル経路を撤去。"
+        }
+      ],
+      "observedImports": [
+        "next/server",
+        "@/lib/bots",
+        "@/lib/pi/bot-code-relay",
+        "@/lib/pi/harness",
+        "@/lib/pi/runtime-ownership",
+        "@/lib/backend-forward",
+        "@/lib/etag-json"
+      ]
+    },
+    {
+      "route": "/api/bots/[id]/code-session",
+      "source": "web/src/app/api/bots/[id]/code-session/route.ts",
+      "group": "runtime",
+      "operations": [
+        {
+          "method": "GET",
+          "owner": "Backend",
+          "phase": 3,
+          "decision": "thin-backend-relay",
+          "contract": "json",
+          "note": "既存中継も対象。Web側の判断・業務読取・開発ローカル経路を撤去。"
+        },
+        {
+          "method": "POST",
+          "owner": "Backend",
+          "phase": 3,
+          "decision": "thin-backend-relay",
+          "contract": "json",
+          "note": "既存中継も対象。Web側の判断・業務読取・開発ローカル経路を撤去。"
+        },
+        {
+          "method": "PATCH",
+          "owner": "Backend",
+          "phase": 3,
+          "decision": "thin-backend-relay",
+          "contract": "json",
+          "note": "既存中継も対象。Web側の判断・業務読取・開発ローカル経路を撤去。"
+        }
+      ],
+      "observedImports": [
+        "next/server",
+        "@/lib/bots",
+        "@/lib/prompt-images",
+        "@/lib/store",
+        "@/lib/pi/harness",
+        "@/lib/pi/runtime-ownership",
+        "@/lib/backend-forward",
+        "@/lib/thinking-levels",
+        "@/lib/task-runtime-lease",
+        "@/lib/pi/bot-code-relay",
+        "@/lib/pi/goal-loop-state",
+        "@/lib/goal-loop-settings",
+        "@/lib/etag-json"
+      ]
+    },
+    {
+      "route": "/api/bots/[id]/events",
+      "source": "web/src/app/api/bots/[id]/events/route.ts",
+      "group": "stream",
+      "operations": [
+        {
+          "method": "GET",
+          "owner": "Backend",
+          "phase": 4,
+          "decision": "thin-backend-relay",
+          "contract": "sse",
+          "note": "内容生成・ファイル認可はBackend。Nextはbufferせず中継し切断を伝播。"
+        }
+      ],
+      "observedImports": [
+        "next/server",
+        "@/lib/bots",
+        "@/lib/bot-intercom",
+        "@/lib/pi/harness",
+        "@/lib/pi/get-task-detail-bounded",
+        "@/lib/sse-writer",
+        "@/lib/sse-response",
+        "@/lib/pi/history-page-size",
+        "@/lib/pi/runtime-ownership",
+        "@/lib/pi/backend-event-stream",
+        "@/lib/sse-ready-buffer",
+        "@/lib/task-history",
+        "@/lib/bot-sse-snapshot"
+      ]
+    },
+    {
+      "route": "/api/bots/[id]/intercom",
+      "source": "web/src/app/api/bots/[id]/intercom/route.ts",
+      "group": "runtime",
+      "operations": [
+        {
+          "method": "GET",
+          "owner": "Backend",
+          "phase": 3,
+          "decision": "thin-backend-relay",
+          "contract": "json",
+          "note": "既存中継も対象。Web側の判断・業務読取・開発ローカル経路を撤去。"
+        },
+        {
+          "method": "PATCH",
+          "owner": "Backend",
+          "phase": 3,
+          "decision": "thin-backend-relay",
+          "contract": "json",
+          "note": "既存中継も対象。Web側の判断・業務読取・開発ローカル経路を撤去。"
+        }
+      ],
+      "observedImports": [
+        "next/server",
+        "@/lib/bots",
+        "@/lib/bot-intercom"
+      ]
+    },
+    {
+      "route": "/api/bots/[id]/prompt",
+      "source": "web/src/app/api/bots/[id]/prompt/route.ts",
+      "group": "runtime",
+      "operations": [
+        {
+          "method": "POST",
+          "owner": "Backend",
+          "phase": 3,
+          "decision": "thin-backend-relay",
+          "contract": "json",
+          "note": "既存中継も対象。Web側の判断・業務読取・開発ローカル経路を撤去。"
+        }
+      ],
+      "observedImports": [
+        "next/server",
+        "@/lib/bots",
+        "@/lib/prompt-images",
+        "@/lib/pi/harness",
+        "@/lib/pi/goal-loop-state",
+        "@/lib/pi/runtime-ownership",
+        "@/lib/backend-forward",
+        "@/lib/backend-task-dirty-hub",
+        "@/lib/goal-loop-settings"
+      ]
+    },
+    {
+      "route": "/api/bots/[id]/revert",
+      "source": "web/src/app/api/bots/[id]/revert/route.ts",
+      "group": "runtime",
+      "operations": [
+        {
+          "method": "POST",
+          "owner": "Backend",
+          "phase": 3,
+          "decision": "thin-backend-relay",
+          "contract": "json",
+          "note": "既存中継も対象。Web側の判断・業務読取・開発ローカル経路を撤去。"
+        }
+      ],
+      "observedImports": [
+        "next/server",
+        "@/lib/bots",
+        "@/lib/pi/harness",
+        "@/lib/pi/bot-code-relay",
+        "@/lib/backend-forward",
+        "@/lib/pi/runtime-ownership"
+      ]
+    },
+    {
+      "route": "/api/bots/[id]",
+      "source": "web/src/app/api/bots/[id]/route.ts",
+      "group": "runtime",
+      "operations": [
+        {
+          "method": "GET",
+          "owner": "Backend",
+          "phase": 3,
+          "decision": "thin-backend-relay",
+          "contract": "json",
+          "note": "既存中継も対象。Web側の判断・業務読取・開発ローカル経路を撤去。"
+        },
+        {
+          "method": "PATCH",
+          "owner": "Backend",
+          "phase": 3,
+          "decision": "thin-backend-relay",
+          "contract": "json",
+          "note": "既存中継も対象。Web側の判断・業務読取・開発ローカル経路を撤去。"
+        },
+        {
+          "method": "DELETE",
+          "owner": "Backend",
+          "phase": 3,
+          "decision": "thin-backend-relay",
+          "contract": "json",
+          "note": "既存中継も対象。Web側の判断・業務読取・開発ローカル経路を撤去。"
+        }
+      ],
+      "observedImports": [
+        "next/server",
+        "@/lib/bots",
+        "@/lib/pi/harness",
+        "@/lib/bot-admin",
+        "@/lib/webui-auth",
+        "@/lib/pi/runtime-ownership",
+        "@/lib/backend-forward"
+      ]
+    },
+    {
+      "route": "/api/bots/[id]/routines/[routineId]",
+      "source": "web/src/app/api/bots/[id]/routines/[routineId]/route.ts",
+      "group": "runtime",
+      "operations": [
+        {
+          "method": "GET",
+          "owner": "Backend",
+          "phase": 3,
+          "decision": "thin-backend-relay",
+          "contract": "json",
+          "note": "既存中継も対象。Web側の判断・業務読取・開発ローカル経路を撤去。"
+        },
+        {
+          "method": "PATCH",
+          "owner": "Backend",
+          "phase": 3,
+          "decision": "thin-backend-relay",
+          "contract": "json",
+          "note": "既存中継も対象。Web側の判断・業務読取・開発ローカル経路を撤去。"
+        },
+        {
+          "method": "DELETE",
+          "owner": "Backend",
+          "phase": 3,
+          "decision": "thin-backend-relay",
+          "contract": "json",
+          "note": "既存中継も対象。Web側の判断・業務読取・開発ローカル経路を撤去。"
+        }
+      ],
+      "observedImports": [
+        "next/server",
+        "@/lib/routines",
+        "@/lib/bots"
+      ]
+    },
+    {
+      "route": "/api/bots/[id]/routines/[routineId]/run",
+      "source": "web/src/app/api/bots/[id]/routines/[routineId]/run/route.ts",
+      "group": "runtime",
+      "operations": [
+        {
+          "method": "POST",
+          "owner": "Backend",
+          "phase": 3,
+          "decision": "thin-backend-relay",
+          "contract": "json",
+          "note": "既存中継も対象。Web側の判断・業務読取・開発ローカル経路を撤去。"
+        }
+      ],
+      "observedImports": [
+        "next/server",
+        "@/lib/routines",
+        "@/lib/backend-forward",
+        "@/lib/pi/runtime-ownership"
+      ]
+    },
+    {
+      "route": "/api/bots/[id]/routines",
+      "source": "web/src/app/api/bots/[id]/routines/route.ts",
+      "group": "runtime",
+      "operations": [
+        {
+          "method": "GET",
+          "owner": "Backend",
+          "phase": 3,
+          "decision": "thin-backend-relay",
+          "contract": "json",
+          "note": "既存中継も対象。Web側の判断・業務読取・開発ローカル経路を撤去。"
+        },
+        {
+          "method": "POST",
+          "owner": "Backend",
+          "phase": 3,
+          "decision": "thin-backend-relay",
+          "contract": "json",
+          "note": "既存中継も対象。Web側の判断・業務読取・開発ローカル経路を撤去。"
+        }
+      ],
+      "observedImports": [
+        "next/server",
+        "@/lib/routines",
+        "@/lib/bots"
+      ]
+    },
+    {
+      "route": "/api/bots/events",
+      "source": "web/src/app/api/bots/events/route.ts",
+      "group": "stream",
+      "operations": [
+        {
+          "method": "GET",
+          "owner": "Backend",
+          "phase": 4,
+          "decision": "thin-backend-relay",
+          "contract": "sse",
+          "note": "内容生成・ファイル認可はBackend。Nextはbufferせず中継し切断を伝播。"
+        }
+      ],
+      "observedImports": [
+        "next/server",
+        "@/lib/pi/runtime-ownership",
+        "@/lib/backend-runtime-events",
+        "@/lib/pi/harness",
+        "@/lib/routines",
+        "@/lib/sse-writer",
+        "@/lib/sse-response",
+        "@/lib/types"
+      ]
+    },
+    {
+      "route": "/api/bots/rooms/[id]/code",
+      "source": "web/src/app/api/bots/rooms/[id]/code/route.ts",
+      "group": "runtime",
+      "operations": [
+        {
+          "method": "POST",
+          "owner": "Backend",
+          "phase": 3,
+          "decision": "thin-backend-relay",
+          "contract": "json",
+          "note": "既存中継も対象。Web側の判断・業務読取・開発ローカル経路を撤去。"
+        }
+      ],
+      "observedImports": [
+        "next/server",
+        "@/lib/rooms",
+        "@/lib/pi/harness",
+        "@/lib/pi/bot-code-relay",
+        "@/lib/pi/runtime-ownership",
+        "@/lib/backend-forward"
+      ]
+    },
+    {
+      "route": "/api/bots/rooms/[id]/events",
+      "source": "web/src/app/api/bots/rooms/[id]/events/route.ts",
+      "group": "stream",
+      "operations": [
+        {
+          "method": "GET",
+          "owner": "Backend",
+          "phase": 4,
+          "decision": "thin-backend-relay",
+          "contract": "sse",
+          "note": "内容生成・ファイル認可はBackend。Nextはbufferせず中継し切断を伝播。"
+        }
+      ],
+      "observedImports": [
+        "next/server",
+        "@/lib/rooms",
+        "@/lib/pi/harness",
+        "@/lib/sse-writer",
+        "@/lib/sse-response",
+        "@/lib/pi/runtime-ownership",
+        "@/lib/backend-forward",
+        "@/lib/backend-task-dirty-hub",
+        "@/lib/room-events",
+        "@/lib/types"
+      ]
+    },
+    {
+      "route": "/api/bots/rooms/[id]/files/[file]",
+      "source": "web/src/app/api/bots/rooms/[id]/files/[file]/route.ts",
+      "group": "stream",
+      "operations": [
+        {
+          "method": "GET",
+          "owner": "Backend",
+          "phase": 4,
+          "decision": "thin-backend-relay",
+          "contract": "binary",
+          "note": "内容生成・ファイル認可はBackend。Nextはbufferせず中継し切断を伝播。"
+        }
+      ],
+      "observedImports": [
+        "next/server",
+        "@/lib/rooms"
+      ]
+    },
+    {
+      "route": "/api/bots/rooms/[id]/images/[file]",
+      "source": "web/src/app/api/bots/rooms/[id]/images/[file]/route.ts",
+      "group": "stream",
+      "operations": [
+        {
+          "method": "GET",
+          "owner": "Backend",
+          "phase": 4,
+          "decision": "thin-backend-relay",
+          "contract": "binary",
+          "note": "内容生成・ファイル認可はBackend。Nextはbufferせず中継し切断を伝播。"
+        }
+      ],
+      "observedImports": [
+        "next/server",
+        "@/lib/rooms"
+      ]
+    },
+    {
+      "route": "/api/bots/rooms/[id]/prompt",
+      "source": "web/src/app/api/bots/rooms/[id]/prompt/route.ts",
+      "group": "runtime",
+      "operations": [
+        {
+          "method": "POST",
+          "owner": "Backend",
+          "phase": 3,
+          "decision": "thin-backend-relay",
+          "contract": "json",
+          "note": "既存中継も対象。Web側の判断・業務読取・開発ローカル経路を撤去。"
+        }
+      ],
+      "observedImports": [
+        "next/server",
+        "@/lib/room-prompt",
+        "@/lib/backend-forward",
+        "@/lib/pi/runtime-ownership"
+      ]
+    },
+    {
+      "route": "/api/bots/rooms/[id]/revert",
+      "source": "web/src/app/api/bots/rooms/[id]/revert/route.ts",
+      "group": "runtime",
+      "operations": [
+        {
+          "method": "POST",
+          "owner": "Backend",
+          "phase": 3,
+          "decision": "thin-backend-relay",
+          "contract": "json",
+          "note": "既存中継も対象。Web側の判断・業務読取・開発ローカル経路を撤去。"
+        }
+      ],
+      "observedImports": [
+        "next/server",
+        "@/lib/rooms",
+        "@/lib/pi/harness",
+        "@/lib/room-revert",
+        "@/lib/backend-forward",
+        "@/lib/pi/runtime-ownership",
+        "@/lib/types"
+      ]
+    },
+    {
+      "route": "/api/bots/rooms/[id]",
+      "source": "web/src/app/api/bots/rooms/[id]/route.ts",
+      "group": "runtime",
+      "operations": [
+        {
+          "method": "GET",
+          "owner": "Backend",
+          "phase": 3,
+          "decision": "thin-backend-relay",
+          "contract": "json",
+          "note": "既存中継も対象。Web側の判断・業務読取・開発ローカル経路を撤去。"
+        },
+        {
+          "method": "PATCH",
+          "owner": "Backend",
+          "phase": 3,
+          "decision": "thin-backend-relay",
+          "contract": "json",
+          "note": "既存中継も対象。Web側の判断・業務読取・開発ローカル経路を撤去。"
+        },
+        {
+          "method": "DELETE",
+          "owner": "Backend",
+          "phase": 3,
+          "decision": "thin-backend-relay",
+          "contract": "json",
+          "note": "既存中継も対象。Web側の判断・業務読取・開発ローカル経路を撤去。"
+        }
+      ],
+      "observedImports": [
+        "next/server",
+        "@/lib/rooms",
+        "@/lib/room-admin",
+        "@/lib/backend-forward",
+        "@/lib/pi/runtime-ownership",
+        "@/lib/webui-auth"
+      ]
+    },
+    {
+      "route": "/api/bots/rooms",
+      "source": "web/src/app/api/bots/rooms/route.ts",
+      "group": "runtime",
+      "operations": [
+        {
+          "method": "GET",
+          "owner": "Backend",
+          "phase": 3,
+          "decision": "thin-backend-relay",
+          "contract": "json",
+          "note": "既存中継も対象。Web側の判断・業務読取・開発ローカル経路を撤去。"
+        },
+        {
+          "method": "POST",
+          "owner": "Backend",
+          "phase": 3,
+          "decision": "thin-backend-relay",
+          "contract": "json",
+          "note": "既存中継も対象。Web側の判断・業務読取・開発ローカル経路を撤去。"
+        }
+      ],
+      "observedImports": [
+        "next/server",
+        "@/lib/rooms"
+      ]
+    },
+    {
+      "route": "/api/bots",
+      "source": "web/src/app/api/bots/route.ts",
+      "group": "runtime",
+      "operations": [
+        {
+          "method": "GET",
+          "owner": "Backend",
+          "phase": 3,
+          "decision": "thin-backend-relay",
+          "contract": "json",
+          "note": "既存中継も対象。Web側の判断・業務読取・開発ローカル経路を撤去。"
+        },
+        {
+          "method": "POST",
+          "owner": "Backend",
+          "phase": 3,
+          "decision": "thin-backend-relay",
+          "contract": "json",
+          "note": "既存中継も対象。Web側の判断・業務読取・開発ローカル経路を撤去。"
+        }
+      ],
+      "observedImports": [
+        "next/server",
+        "@/lib/etag-json",
+        "@/lib/bots",
+        "@/lib/backend-relay",
+        "@/lib/store",
+        "@/lib/bot-marketplace",
+        "@/lib/pi/web-settings",
+        "@/lib/bot-settings",
+        "@backend-core/bot-session-counts.mjs"
+      ]
+    },
+    {
+      "route": "/api/bots/sidebar",
+      "source": "web/src/app/api/bots/sidebar/route.ts",
+      "group": "runtime",
+      "operations": [
+        {
+          "method": "GET",
+          "owner": "Backend",
+          "phase": 3,
+          "decision": "thin-backend-relay",
+          "contract": "json",
+          "note": "既存中継も対象。Web側の判断・業務読取・開発ローカル経路を撤去。"
+        }
+      ],
+      "observedImports": [
+        "next/server",
+        "@/lib/etag-json",
+        "@/lib/bots",
+        "@/lib/rooms",
+        "@/lib/store",
+        "@/lib/direct-session",
+        "@/lib/pi/bot-code-relay"
+      ]
+    },
+    {
+      "route": "/api/bots-md",
+      "source": "web/src/app/api/bots-md/route.ts",
+      "group": "definitions",
+      "operations": [
+        {
+          "method": "GET",
+          "owner": "Backend",
+          "phase": 3,
+          "decision": "thin-backend-relay",
+          "contract": "json",
+          "note": "定義の更新とlive反映をBackendへ集約。"
+        },
+        {
+          "method": "PATCH",
+          "owner": "Backend",
+          "phase": 3,
+          "decision": "thin-backend-relay",
+          "contract": "json",
+          "note": "定義の更新とlive反映をBackendへ集約。"
+        }
+      ],
+      "observedImports": [
+        "next/server",
+        "@/lib/agents-md",
+        "@/lib/live-context"
+      ]
+    },
+    {
+      "route": "/api/browse/dirs",
+      "source": "web/src/app/api/browse/dirs/route.ts",
+      "group": "filesystem",
+      "operations": [
+        {
+          "method": "GET",
+          "owner": "Backend",
+          "phase": 3,
+          "decision": "thin-backend-relay",
+          "contract": "json",
+          "note": "実パス検証をBackendで実施。Explorer起動はHostのloopback制約を維持。"
+        },
+        {
+          "method": "POST",
+          "owner": "Host",
+          "phase": 3,
+          "decision": "thin-host-relay",
+          "contract": "json",
+          "note": "Windows folder dialogはHost。loopback制約と選択結果のBackend再検証を必須とし遠隔操作を拡大しない。"
+        }
+      ],
+      "observedImports": [
+        "next/server",
+        "node:child_process",
+        "node:fs",
+        "node:fs/promises",
+        "node:os",
+        "node:path",
+        "node:util",
+        "@/lib/browse-paths",
+        "@/lib/browse-drives",
+        "@/lib/browse-quick-access",
+        "@/lib/paths",
+        "@/lib/windows-quick-access",
+        "@/lib/xdg-user-dirs"
+      ]
+    },
+    {
+      "route": "/api/browse/icon",
+      "source": "web/src/app/api/browse/icon/route.ts",
+      "group": "filesystem",
+      "operations": [
+        {
+          "method": "GET",
+          "owner": "Backend",
+          "phase": 3,
+          "decision": "thin-backend-relay",
+          "contract": "json",
+          "note": "実パス検証をBackendで実施。Explorer起動はHostのloopback制約を維持。"
+        },
+        {
+          "method": "POST",
+          "owner": "Backend",
+          "phase": 3,
+          "decision": "thin-backend-relay",
+          "contract": "json",
+          "note": "実パス検証をBackendで実施。Explorer起動はHostのloopback制約を維持。"
+        }
+      ],
+      "observedImports": [
+        "next/server",
+        "node:child_process",
+        "node:fs/promises",
+        "node:os",
+        "node:path",
+        "node:util",
+        "@/lib/browse-paths",
+        "@/lib/icon-file",
+        "@/lib/paths"
+      ]
+    },
+    {
+      "route": "/api/build-info",
+      "source": "web/src/app/api/build-info/route.ts",
+      "group": "host-control",
+      "operations": [
+        {
+          "method": "POST",
+          "owner": "Host",
+          "phase": 3,
+          "decision": "thin-host-relay",
+          "contract": "json",
+          "note": "Next→Hostの薄い中継。Web内の制御判断をHostへ移し、Backendの生存に依存させない。"
+        },
+        {
+          "method": "GET",
+          "owner": "Host",
+          "phase": 3,
+          "decision": "thin-host-relay",
+          "contract": "json",
+          "note": "Next→Hostの薄い中継。Web内の制御判断をHostへ移し、Backendの生存に依存させない。"
+        }
+      ],
+      "observedImports": [
+        "node:path",
+        "next/server",
+        "@/lib/git"
+      ]
+    },
+    {
+      "route": "/api/cache-warming",
+      "source": "web/src/app/api/cache-warming/route.ts",
+      "group": "settings",
+      "operations": [
+        {
+          "method": "GET",
+          "owner": "Backend",
+          "phase": 2,
+          "decision": "thin-backend-relay",
+          "contract": "json",
+          "note": "Backendが保存と反映を所有。Nextは入口ポリシーのみ。"
+        },
+        {
+          "method": "PATCH",
+          "owner": "Backend",
+          "phase": 2,
+          "decision": "thin-backend-relay",
+          "contract": "json",
+          "note": "Backendが保存と反映を所有。Nextは入口ポリシーのみ。"
+        }
+      ],
+      "observedImports": [
+        "next/server",
+        "@/lib/runtime-settings",
+        "@/lib/compaction-settings"
+      ]
+    },
+    {
+      "route": "/api/codexbar/providers",
+      "source": "web/src/app/api/codexbar/providers/route.ts",
+      "group": "credentials",
+      "operations": [
+        {
+          "method": "GET",
+          "owner": "Backend",
+          "phase": 3,
+          "decision": "thin-backend-relay",
+          "contract": "json",
+          "note": "秘密情報・認証セッションはBackend所有。peer独自認証を維持。"
+        },
+        {
+          "method": "PUT",
+          "owner": "Backend",
+          "phase": 3,
+          "decision": "thin-backend-relay",
+          "contract": "json",
+          "note": "秘密情報・認証セッションはBackend所有。peer独自認証を維持。"
+        }
+      ],
+      "observedImports": [
+        "node:crypto",
+        "node:fs",
+        "node:path",
+        "@/lib/codexbar/cache",
+        "@/lib/codexbar/provider-cache",
+        "@/lib/codexbar/codexbar-config",
+        "@/lib/codexbar/provider-catalog"
+      ]
+    },
+    {
+      "route": "/api/codexbar/reset-credits",
+      "source": "web/src/app/api/codexbar/reset-credits/route.ts",
+      "group": "credentials",
+      "operations": [
+        {
+          "method": "GET",
+          "owner": "Backend",
+          "phase": 3,
+          "decision": "thin-backend-relay",
+          "contract": "json",
+          "note": "秘密情報・認証セッションはBackend所有。peer独自認証を維持。"
+        },
+        {
+          "method": "POST",
+          "owner": "Backend",
+          "phase": 3,
+          "decision": "thin-backend-relay",
+          "contract": "json",
+          "note": "秘密情報・認証セッションはBackend所有。peer独自認証を維持。"
+        }
+      ],
+      "observedImports": [
+        "next/server",
+        "@/lib/accounts",
+        "@/lib/codexbar/browser-cookies",
+        "@/lib/codexbar/cache",
+        "@/lib/codexbar/provider-cache",
+        "@/lib/codexbar/types",
+        "@/lib/codexbar/providers/openai-codex",
+        "@/lib/codexbar/providers/openai-codex-reset",
+        "@/lib/codexbar/providers/anthropic-reset"
+      ]
+    },
+    {
+      "route": "/api/codexbar/usage",
+      "source": "web/src/app/api/codexbar/usage/route.ts",
+      "group": "credentials",
+      "operations": [
+        {
+          "method": "GET",
+          "owner": "Backend",
+          "phase": 3,
+          "decision": "thin-backend-relay",
+          "contract": "json",
+          "note": "秘密情報・認証セッションはBackend所有。peer独自認証を維持。"
+        }
+      ],
+      "observedImports": [
+        "next/server",
+        "@/lib/codexbar",
+        "@/lib/codexbar/token-usage",
+        "@/lib/codexbar/orchestrator"
+      ]
+    },
+    {
+      "route": "/api/compaction-settings",
+      "source": "web/src/app/api/compaction-settings/route.ts",
+      "group": "settings",
+      "operations": [
+        {
+          "method": "GET",
+          "owner": "Backend",
+          "phase": 2,
+          "decision": "thin-backend-relay",
+          "contract": "json",
+          "note": "Backendが保存と反映を所有。Nextは入口ポリシーのみ。"
+        },
+        {
+          "method": "PATCH",
+          "owner": "Backend",
+          "phase": 2,
+          "decision": "thin-backend-relay",
+          "contract": "json",
+          "note": "Backendが保存と反映を所有。Nextは入口ポリシーのみ。"
+        }
+      ],
+      "observedImports": [
+        "next/server",
+        "@/lib/runtime-settings"
+      ]
+    },
+    {
+      "route": "/api/design-md",
+      "source": "web/src/app/api/design-md/route.ts",
+      "group": "definitions",
+      "operations": [
+        {
+          "method": "GET",
+          "owner": "Backend",
+          "phase": 3,
+          "decision": "thin-backend-relay",
+          "contract": "json",
+          "note": "定義の更新とlive反映をBackendへ集約。"
+        },
+        {
+          "method": "PATCH",
+          "owner": "Backend",
+          "phase": 3,
+          "decision": "thin-backend-relay",
+          "contract": "json",
+          "note": "定義の更新とlive反映をBackendへ集約。"
+        }
+      ],
+      "observedImports": [
+        "next/server",
+        "@/lib/agents-md"
+      ]
+    },
+    {
+      "route": "/api/diff/files",
+      "source": "web/src/app/api/diff/files/route.ts",
+      "group": "git",
+      "operations": [
+        {
+          "method": "GET",
+          "owner": "Backend",
+          "phase": 3,
+          "decision": "thin-backend-relay",
+          "contract": "json",
+          "note": "パス制限・引数検証をBackendで再適用。副作用あり操作を自動再送しない。"
+        }
+      ],
+      "observedImports": [
+        "node:fs",
+        "node:path",
+        "next/server",
+        "@/lib/diffparse",
+        "@/lib/git",
+        "@/lib/types"
+      ]
+    },
+    {
+      "route": "/api/extensions/[name]",
+      "source": "web/src/app/api/extensions/[name]/route.ts",
+      "group": "definitions",
+      "operations": [
+        {
+          "method": "PATCH",
+          "owner": "Backend",
+          "phase": 3,
+          "decision": "thin-backend-relay",
+          "contract": "json",
+          "note": "定義の更新とlive反映をBackendへ集約。"
+        }
+      ],
+      "observedImports": [
+        "next/server",
+        "@/lib/live-context",
+        "@/lib/extensions"
+      ]
+    },
+    {
+      "route": "/api/extensions",
+      "source": "web/src/app/api/extensions/route.ts",
+      "group": "definitions",
+      "operations": [
+        {
+          "method": "GET",
+          "owner": "Backend",
+          "phase": 3,
+          "decision": "thin-backend-relay",
+          "contract": "json",
+          "note": "定義の更新とlive反映をBackendへ集約。"
+        }
+      ],
+      "observedImports": [
+        "next/server",
+        "@/lib/extensions"
+      ]
+    },
+    {
+      "route": "/api/git/branches",
+      "source": "web/src/app/api/git/branches/route.ts",
+      "group": "git",
+      "operations": [
+        {
+          "method": "GET",
+          "owner": "Backend",
+          "phase": 3,
+          "decision": "thin-backend-relay",
+          "contract": "json",
+          "note": "パス制限・引数検証をBackendで再適用。副作用あり操作を自動再送しない。"
+        }
+      ],
+      "observedImports": [
+        "next/server",
+        "@/lib/git"
+      ]
+    },
+    {
+      "route": "/api/git/commit",
+      "source": "web/src/app/api/git/commit/route.ts",
+      "group": "git",
+      "operations": [
+        {
+          "method": "POST",
+          "owner": "Backend",
+          "phase": 3,
+          "decision": "thin-backend-relay",
+          "contract": "json",
+          "note": "パス制限・引数検証をBackendで再適用。副作用あり操作を自動再送しない。"
+        }
+      ],
+      "observedImports": [
+        "node:fs",
+        "node:path",
+        "next/server",
+        "@/lib/git",
+        "@/lib/git-commit-author",
+        "@/lib/machine-name",
+        "@/lib/pi/web-settings"
+      ]
+    },
+    {
+      "route": "/api/git/commit-message",
+      "source": "web/src/app/api/git/commit-message/route.ts",
+      "group": "generation",
+      "operations": [
+        {
+          "method": "POST",
+          "owner": "Backend",
+          "phase": 3,
+          "decision": "thin-backend-relay",
+          "contract": "json",
+          "note": "直接推論・外部照会・キャンセル・cacheもBackend所有。"
+        }
+      ],
+      "observedImports": [
+        "next/server",
+        "@/lib/git",
+        "@/lib/commit-message",
+        "@/lib/pi/web-settings",
+        "@/lib/generation-model-key",
+        "@/lib/direct-generation"
+      ]
+    },
+    {
+      "route": "/api/git/init",
+      "source": "web/src/app/api/git/init/route.ts",
+      "group": "git",
+      "operations": [
+        {
+          "method": "POST",
+          "owner": "Backend",
+          "phase": 3,
+          "decision": "thin-backend-relay",
+          "contract": "json",
+          "note": "パス制限・引数検証をBackendで再適用。副作用あり操作を自動再送しない。"
+        }
+      ],
+      "observedImports": [
+        "next/server",
+        "@/lib/git"
+      ]
+    },
+    {
+      "route": "/api/git/log",
+      "source": "web/src/app/api/git/log/route.ts",
+      "group": "git",
+      "operations": [
+        {
+          "method": "GET",
+          "owner": "Backend",
+          "phase": 3,
+          "decision": "thin-backend-relay",
+          "contract": "json",
+          "note": "パス制限・引数検証をBackendで再適用。副作用あり操作を自動再送しない。"
+        }
+      ],
+      "observedImports": [
+        "next/server",
+        "@/lib/git",
+        "@/lib/types",
+        "@/lib/etag-json"
+      ]
+    },
+    {
+      "route": "/api/git/merge",
+      "source": "web/src/app/api/git/merge/route.ts",
+      "group": "git",
+      "operations": [
+        {
+          "method": "POST",
+          "owner": "Backend",
+          "phase": 3,
+          "decision": "thin-backend-relay",
+          "contract": "json",
+          "note": "パス制限・引数検証をBackendで再適用。副作用あり操作を自動再送しない。"
+        }
+      ],
+      "observedImports": [
+        "next/server",
+        "@/lib/git"
+      ]
+    },
+    {
+      "route": "/api/git/pr",
+      "source": "web/src/app/api/git/pr/route.ts",
+      "group": "git",
+      "operations": [
+        {
+          "method": "GET",
+          "owner": "Backend",
+          "phase": 3,
+          "decision": "thin-backend-relay",
+          "contract": "json",
+          "note": "パス制限・引数検証をBackendで再適用。副作用あり操作を自動再送しない。"
+        },
+        {
+          "method": "POST",
+          "owner": "Backend",
+          "phase": 3,
+          "decision": "thin-backend-relay",
+          "contract": "json",
+          "note": "パス制限・引数検証をBackendで再適用。副作用あり操作を自動再送しない。"
+        }
+      ],
+      "observedImports": [
+        "node:child_process",
+        "next/server",
+        "@/lib/git"
+      ]
+    },
+    {
+      "route": "/api/git/pull",
+      "source": "web/src/app/api/git/pull/route.ts",
+      "group": "git",
+      "operations": [
+        {
+          "method": "POST",
+          "owner": "Backend",
+          "phase": 3,
+          "decision": "thin-backend-relay",
+          "contract": "json",
+          "note": "パス制限・引数検証をBackendで再適用。副作用あり操作を自動再送しない。"
+        }
+      ],
+      "observedImports": [
+        "next/server",
+        "@/lib/git"
+      ]
+    },
+    {
+      "route": "/api/git/push",
+      "source": "web/src/app/api/git/push/route.ts",
+      "group": "git",
+      "operations": [
+        {
+          "method": "POST",
+          "owner": "Backend",
+          "phase": 3,
+          "decision": "thin-backend-relay",
+          "contract": "json",
+          "note": "パス制限・引数検証をBackendで再適用。副作用あり操作を自動再送しない。"
+        }
+      ],
+      "observedImports": [
+        "next/server",
+        "@/lib/git"
+      ]
+    },
+    {
+      "route": "/api/git/repositories",
+      "source": "web/src/app/api/git/repositories/route.ts",
+      "group": "git",
+      "operations": [
+        {
+          "method": "GET",
+          "owner": "Backend",
+          "phase": 3,
+          "decision": "thin-backend-relay",
+          "contract": "json",
+          "note": "パス制限・引数検証をBackendで再適用。副作用あり操作を自動再送しない。"
+        }
+      ],
+      "observedImports": [
+        "node:fs/promises",
+        "node:path",
+        "next/server",
+        "@/lib/git"
+      ]
+    },
+    {
+      "route": "/api/git/rm",
+      "source": "web/src/app/api/git/rm/route.ts",
+      "group": "git",
+      "operations": [
+        {
+          "method": "POST",
+          "owner": "Backend",
+          "phase": 3,
+          "decision": "thin-backend-relay",
+          "contract": "json",
+          "note": "パス制限・引数検証をBackendで再適用。副作用あり操作を自動再送しない。"
+        }
+      ],
+      "observedImports": [
+        "node:fs",
+        "node:path",
+        "next/server",
+        "@/lib/git"
+      ]
+    },
+    {
+      "route": "/api/git/show",
+      "source": "web/src/app/api/git/show/route.ts",
+      "group": "git",
+      "operations": [
+        {
+          "method": "GET",
+          "owner": "Backend",
+          "phase": 3,
+          "decision": "thin-backend-relay",
+          "contract": "json",
+          "note": "パス制限・引数検証をBackendで再適用。副作用あり操作を自動再送しない。"
+        }
+      ],
+      "observedImports": [
+        "next/server",
+        "@/lib/git",
+        "@/lib/types"
+      ]
+    },
+    {
+      "route": "/api/goal-loop/active",
+      "source": "web/src/app/api/goal-loop/active/route.ts",
+      "group": "runtime",
+      "operations": [
+        {
+          "method": "GET",
+          "owner": "Backend",
+          "phase": 3,
+          "decision": "thin-backend-relay",
+          "contract": "json",
+          "note": "既存中継も対象。Web側の判断・業務読取・開発ローカル経路を撤去。"
+        }
+      ],
+      "observedImports": [
+        "next/server",
+        "@/lib/pi/harness",
+        "@/lib/pi/runtime-ownership",
+        "@/lib/backend-client"
+      ]
+    },
+    {
+      "route": "/api/health",
+      "source": "web/src/app/api/health/route.ts",
+      "group": "edge",
+      "operations": [
+        {
+          "method": "GET",
+          "owner": "Next",
+          "phase": 3,
+          "decision": "retain-edge",
+          "contract": "json",
+          "note": "Nextに残す。SDK・業務データの直接参照だけ除去。"
+        }
+      ],
+      "observedImports": [
+        "next/server",
+        "@/lib/pi/harness",
+        "@/lib/webui-auth"
+      ]
+    },
+    {
+      "route": "/api/host/activity",
+      "source": "web/src/app/api/host/activity/route.ts",
+      "group": "host-control",
+      "operations": [
+        {
+          "method": "POST",
+          "owner": "Host",
+          "phase": 3,
+          "decision": "thin-host-relay",
+          "contract": "json",
+          "note": "Next→Hostの薄い中継。Web内の制御判断をHostへ移し、Backendの生存に依存させない。"
+        }
+      ],
+      "observedImports": [
+        "@/lib/host-control"
+      ]
+    },
+    {
+      "route": "/api/host/browser-config",
+      "source": "web/src/app/api/host/browser-config/route.ts",
+      "group": "host-control",
+      "operations": [
+        {
+          "method": "GET",
+          "owner": "Host",
+          "phase": 3,
+          "decision": "thin-host-relay",
+          "contract": "json",
+          "note": "Next→Hostの薄い中継。Web内の制御判断をHostへ移し、Backendの生存に依存させない。"
+        },
+        {
+          "method": "POST",
+          "owner": "Host",
+          "phase": 3,
+          "decision": "thin-host-relay",
+          "contract": "json",
+          "note": "Next→Hostの薄い中継。Web内の制御判断をHostへ移し、Backendの生存に依存させない。"
+        }
+      ],
+      "observedImports": [
+        "next/server",
+        "@/lib/host-control"
+      ]
+    },
+    {
+      "route": "/api/host/restart",
+      "source": "web/src/app/api/host/restart/route.ts",
+      "group": "host-control",
+      "operations": [
+        {
+          "method": "POST",
+          "owner": "Host",
+          "phase": 3,
+          "decision": "thin-host-relay",
+          "contract": "json",
+          "note": "Next→Hostの薄い中継。Web内の制御判断をHostへ移し、Backendの生存に依存させない。"
+        }
+      ],
+      "observedImports": [
+        "next/server",
+        "@/lib/host-control",
+        "@/lib/host-launch-hints"
+      ]
+    },
+    {
+      "route": "/api/host/webui-auth",
+      "source": "web/src/app/api/host/webui-auth/route.ts",
+      "group": "host-control",
+      "operations": [
+        {
+          "method": "GET",
+          "owner": "Host",
+          "phase": 3,
+          "decision": "thin-host-relay",
+          "contract": "json",
+          "note": "Next→Hostの薄い中継。Web内の制御判断をHostへ移し、Backendの生存に依存させない。"
+        },
+        {
+          "method": "POST",
+          "owner": "Host",
+          "phase": 3,
+          "decision": "thin-host-relay",
+          "contract": "json",
+          "note": "Next→Hostの薄い中継。Web内の制御判断をHostへ移し、Backendの生存に依存させない。"
+        }
+      ],
+      "observedImports": [
+        "next/server",
+        "@/lib/host-control",
+        "@/lib/webui-auth"
+      ]
+    },
+    {
+      "route": "/api/host-probe",
+      "source": "web/src/app/api/host-probe/route.ts",
+      "group": "edge",
+      "operations": [
+        {
+          "method": "GET",
+          "owner": "Next",
+          "phase": 0,
+          "decision": "retain-edge",
+          "contract": "json",
+          "note": "Nextに残す。SDK・業務データの直接参照だけ除去。"
+        },
+        {
+          "method": "OPTIONS",
+          "owner": "Next",
+          "phase": 0,
+          "decision": "retain-edge",
+          "contract": "empty",
+          "note": "Nextに残す。SDK・業務データの直接参照だけ除去。"
+        }
+      ],
+      "observedImports": [
+        "node:crypto",
+        "next/server",
+        "@/lib/localhost-redirect"
+      ]
+    },
+    {
+      "route": "/api/jev-model/legacy-credentials",
+      "source": "web/src/app/api/jev-model/legacy-credentials/route.ts",
+      "group": "settings",
+      "operations": [
+        {
+          "method": "GET",
+          "owner": "Backend",
+          "phase": 2,
+          "decision": "thin-backend-relay",
+          "contract": "json",
+          "note": "Backendが保存と反映を所有。Nextは入口ポリシーのみ。"
+        },
+        {
+          "method": "DELETE",
+          "owner": "Backend",
+          "phase": 2,
+          "decision": "thin-backend-relay",
+          "contract": "json",
+          "note": "Backendが保存と反映を所有。Nextは入口ポリシーのみ。"
+        }
+      ],
+      "observedImports": [
+        "next/server",
+        "@/lib/same-origin",
+        "@/lib/pi/jev-model-config"
+      ]
+    },
+    {
+      "route": "/api/jev-model",
+      "source": "web/src/app/api/jev-model/route.ts",
+      "group": "settings",
+      "operations": [
+        {
+          "method": "GET",
+          "owner": "Backend",
+          "phase": 2,
+          "decision": "thin-backend-relay",
+          "contract": "json",
+          "note": "Backendが保存と反映を所有。Nextは入口ポリシーのみ。"
+        },
+        {
+          "method": "PUT",
+          "owner": "Backend",
+          "phase": 2,
+          "decision": "thin-backend-relay",
+          "contract": "json",
+          "note": "Backendが保存と反映を所有。Nextは入口ポリシーのみ。"
+        }
+      ],
+      "observedImports": [
+        "next/server",
+        "@/lib/same-origin",
+        "@/lib/jev-model-settings",
+        "@/lib/pi/jev-model-config",
+        "@/lib/pi/jev-latency",
+        "@/lib/pi/harness",
+        "@/lib/jev-model-catalog"
+      ]
+    },
+    {
+      "route": "/api/link-preview/image",
+      "source": "web/src/app/api/link-preview/image/route.ts",
+      "group": "stream",
+      "operations": [
+        {
+          "method": "GET",
+          "owner": "Backend",
+          "phase": 4,
+          "decision": "thin-backend-relay",
+          "contract": "binary",
+          "note": "内容生成・ファイル認可はBackend。Nextはbufferせず中継し切断を伝播。"
+        }
+      ],
+      "observedImports": [
+        "next/server",
+        "@/lib/link-preview"
+      ]
+    },
+    {
+      "route": "/api/link-preview",
+      "source": "web/src/app/api/link-preview/route.ts",
+      "group": "generation",
+      "operations": [
+        {
+          "method": "POST",
+          "owner": "Backend",
+          "phase": 3,
+          "decision": "thin-backend-relay",
+          "contract": "json",
+          "note": "直接推論・外部照会・キャンセル・cacheもBackend所有。"
+        }
+      ],
+      "observedImports": [
+        "next/server",
+        "@/lib/link-preview",
+        "@/lib/link-preview-shared"
+      ]
+    },
+    {
+      "route": "/api/llama-server/[action]",
+      "source": "web/src/app/api/llama-server/[action]/route.ts",
+      "group": "host-control",
+      "operations": [
+        {
+          "method": "GET",
+          "owner": "Host",
+          "phase": 3,
+          "decision": "thin-host-relay",
+          "contract": "json",
+          "note": "Next→Hostの薄い中継。Web内の制御判断をHostへ移し、Backendの生存に依存させない。"
+        },
+        {
+          "method": "POST",
+          "owner": "Host",
+          "phase": 3,
+          "decision": "thin-host-relay",
+          "contract": "json",
+          "note": "Next→Hostの薄い中継。Web内の制御判断をHostへ移し、Backendの生存に依存させない。"
+        }
+      ],
+      "observedImports": [
+        "next/server",
+        "@/lib/host-control",
+        "@/lib/host-launch-hints",
+        "@/lib/pi/harness",
+        "@/lib/llama-server-settings"
+      ]
+    },
+    {
+      "route": "/api/llama-server/ensure-loaded",
+      "source": "web/src/app/api/llama-server/ensure-loaded/route.ts",
+      "group": "host-control",
+      "operations": [
+        {
+          "method": "POST",
+          "owner": "Host",
+          "phase": 3,
+          "decision": "thin-host-relay",
+          "contract": "json",
+          "note": "Next→Hostの薄い中継。Web内の制御判断をHostへ移し、Backendの生存に依存させない。"
+        }
+      ],
+      "observedImports": [
+        "next/server",
+        "node:path",
+        "@/lib/llama-server-load",
+        "@/lib/host-control",
+        "@/lib/llama-server-settings"
+      ]
+    },
+    {
+      "route": "/api/llama-server/models",
+      "source": "web/src/app/api/llama-server/models/route.ts",
+      "group": "host-control",
+      "operations": [
+        {
+          "method": "GET",
+          "owner": "Host",
+          "phase": 3,
+          "decision": "thin-host-relay",
+          "contract": "json",
+          "note": "Next→Hostの薄い中継。Web内の制御判断をHostへ移し、Backendの生存に依存させない。"
+        }
+      ],
+      "observedImports": [
+        "next/server",
+        "node:fs",
+        "node:os",
+        "node:path",
+        "@/lib/host-control",
+        "@/lib/llama-server-settings"
+      ]
+    },
+    {
+      "route": "/api/mcp/[name]/auth",
+      "source": "web/src/app/api/mcp/[name]/auth/route.ts",
+      "group": "credentials",
+      "operations": [
+        {
+          "method": "GET",
+          "owner": "Backend",
+          "phase": 3,
+          "decision": "thin-backend-relay",
+          "contract": "json",
+          "note": "秘密情報・認証セッションはBackend所有。peer独自認証を維持。"
+        },
+        {
+          "method": "POST",
+          "owner": "Backend",
+          "phase": 3,
+          "decision": "thin-backend-relay",
+          "contract": "json",
+          "note": "秘密情報・認証セッションはBackend所有。peer独自認証を維持。"
+        },
+        {
+          "method": "DELETE",
+          "owner": "Backend",
+          "phase": 3,
+          "decision": "thin-backend-relay",
+          "contract": "json",
+          "note": "秘密情報・認証セッションはBackend所有。peer独自認証を維持。"
+        }
+      ],
+      "observedImports": [
+        "next/server",
+        "@shared/mcp-auth-snapshot.mjs",
+        "@/lib/backend-client",
+        "@shared/mcp-headers-save-request.mjs",
+        "@/lib/mcp-headers-admin",
+        "@shared/mcp-auth-remove-request.mjs",
+        "@/lib/mcp-auth-remove-admin",
+        "@shared/mcp-oauth-start-request.mjs",
+        "@/lib/mcp-oauth-start-admin",
+        "@shared/mcp-oauth-complete-request.mjs",
+        "@/lib/mcp-oauth-complete-admin",
+        "@shared/mcp-bearer-save-request.mjs",
+        "@/lib/mcp-bearer-admin",
+        "@/lib/mcp-auth-status",
+        "@/lib/pi/runtime-ownership",
+        "@/lib/mcp"
+      ]
+    },
+    {
+      "route": "/api/mcp/[name]",
+      "source": "web/src/app/api/mcp/[name]/route.ts",
+      "group": "credentials",
+      "operations": [
+        {
+          "method": "PATCH",
+          "owner": "Backend",
+          "phase": 3,
+          "decision": "thin-backend-relay",
+          "contract": "json",
+          "note": "秘密情報・認証セッションはBackend所有。peer独自認証を維持。"
+        }
+      ],
+      "observedImports": [
+        "next/server",
+        "@/lib/live-context",
+        "@/lib/mcp",
+        "@/lib/backend-client",
+        "@/lib/pi/runtime-ownership"
+      ]
+    },
+    {
+      "route": "/api/mcp",
+      "source": "web/src/app/api/mcp/route.ts",
+      "group": "credentials",
+      "operations": [
+        {
+          "method": "GET",
+          "owner": "Backend",
+          "phase": 3,
+          "decision": "thin-backend-relay",
+          "contract": "json",
+          "note": "秘密情報・認証セッションはBackend所有。peer独自認証を維持。"
+        },
+        {
+          "method": "POST",
+          "owner": "Backend",
+          "phase": 3,
+          "decision": "thin-backend-relay",
+          "contract": "json",
+          "note": "秘密情報・認証セッションはBackend所有。peer独自認証を維持。"
+        }
+      ],
+      "observedImports": [
+        "next/server",
+        "@shared/mcp-preset-request.mjs",
+        "@/lib/mcp",
+        "@shared/mcp-server-list.mjs",
+        "@/lib/mcp-list-admin",
+        "@/lib/mcp-preset-admin",
+        "@/lib/backend-client",
+        "@/lib/pi/runtime-ownership"
+      ]
+    },
+    {
+      "route": "/api/memory-search",
+      "source": "web/src/app/api/memory-search/route.ts",
+      "group": "generation",
+      "operations": [
+        {
+          "method": "POST",
+          "owner": "Backend",
+          "phase": 3,
+          "decision": "thin-backend-relay",
+          "contract": "json",
+          "note": "直接推論・外部照会・キャンセル・cacheもBackend所有。"
+        }
+      ],
+      "observedImports": [
+        "next/server",
+        "@/lib/agents-md",
+        "@/lib/memory-search"
+      ]
+    },
+    {
+      "route": "/api/memory-settings",
+      "source": "web/src/app/api/memory-settings/route.ts",
+      "group": "settings",
+      "operations": [
+        {
+          "method": "GET",
+          "owner": "Backend",
+          "phase": 2,
+          "decision": "thin-backend-relay",
+          "contract": "json",
+          "note": "Backendが保存と反映を所有。Nextは入口ポリシーのみ。"
+        },
+        {
+          "method": "PUT",
+          "owner": "Backend",
+          "phase": 2,
+          "decision": "thin-backend-relay",
+          "contract": "json",
+          "note": "Backendが保存と反映を所有。Nextは入口ポリシーのみ。"
+        }
+      ],
+      "observedImports": [
+        "next/server",
+        "@/lib/agents-md",
+        "@/lib/leafcode-memory-settings"
+      ]
+    },
+    {
+      "route": "/api/models",
+      "source": "web/src/app/api/models/route.ts",
+      "group": "credentials",
+      "operations": [
+        {
+          "method": "GET",
+          "owner": "Backend",
+          "phase": 3,
+          "decision": "thin-backend-relay",
+          "contract": "json",
+          "note": "秘密情報・認証セッションはBackend所有。peer独自認証を維持。"
+        }
+      ],
+      "observedImports": [
+        "next/server",
+        "@/lib/accounts",
+        "@/lib/pi/harness",
+        "@/lib/codexbar/cache",
+        "./map",
+        "@/lib/model-throughput-stats"
+      ]
+    },
+    {
+      "route": "/api/notifications",
+      "source": "web/src/app/api/notifications/route.ts",
+      "group": "notifications",
+      "operations": [
+        {
+          "method": "GET",
+          "owner": "Backend",
+          "phase": 2,
+          "decision": "thin-backend-relay",
+          "contract": "json",
+          "note": "認証/ローカル要求制限はNextで維持し許可済みcontextをBackendへ渡す。"
+        },
+        {
+          "method": "PUT",
+          "owner": "Backend",
+          "phase": 2,
+          "decision": "thin-backend-relay",
+          "contract": "json",
+          "note": "認証/ローカル要求制限はNextで維持し許可済みcontextをBackendへ渡す。"
+        }
+      ],
+      "observedImports": [
+        "next/server",
+        "@/lib/pushover-config",
+        "@/lib/pi/transfer-access"
+      ]
+    },
+    {
+      "route": "/api/peer-auth/import",
+      "source": "web/src/app/api/peer-auth/import/route.ts",
+      "group": "credentials",
+      "operations": [
+        {
+          "method": "GET",
+          "owner": "Backend",
+          "phase": 3,
+          "decision": "thin-backend-relay",
+          "contract": "json",
+          "note": "秘密情報・認証セッションはBackend所有。peer独自認証を維持。"
+        },
+        {
+          "method": "POST",
+          "owner": "Backend",
+          "phase": 3,
+          "decision": "thin-backend-relay",
+          "contract": "json",
+          "note": "秘密情報・認証セッションはBackend所有。peer独自認証を維持。"
+        }
+      ],
+      "observedImports": [
+        "next/server",
+        "@/lib/webui-auth",
+        "@/lib/peer-auth/import"
+      ]
+    },
+    {
+      "route": "/api/peer-auth/list",
+      "source": "web/src/app/api/peer-auth/list/route.ts",
+      "group": "credentials",
+      "operations": [
+        {
+          "method": "GET",
+          "owner": "Backend",
+          "phase": 3,
+          "decision": "thin-backend-relay",
+          "contract": "json",
+          "note": "秘密情報・認証セッションはBackend所有。peer独自認証を維持。"
+        }
+      ],
+      "observedImports": [
+        "@/lib/peer-auth/runtime",
+        "@/lib/peer-auth/http"
+      ]
+    },
+    {
+      "route": "/api/peer-auth/peers",
+      "source": "web/src/app/api/peer-auth/peers/route.ts",
+      "group": "credentials",
+      "operations": [
+        {
+          "method": "GET",
+          "owner": "Backend",
+          "phase": 3,
+          "decision": "thin-backend-relay",
+          "contract": "json",
+          "note": "秘密情報・認証セッションはBackend所有。peer独自認証を維持。"
+        },
+        {
+          "method": "POST",
+          "owner": "Backend",
+          "phase": 3,
+          "decision": "thin-backend-relay",
+          "contract": "json",
+          "note": "秘密情報・認証セッションはBackend所有。peer独自認証を維持。"
+        },
+        {
+          "method": "PATCH",
+          "owner": "Backend",
+          "phase": 3,
+          "decision": "thin-backend-relay",
+          "contract": "json",
+          "note": "秘密情報・認証セッションはBackend所有。peer独自認証を維持。"
+        },
+        {
+          "method": "DELETE",
+          "owner": "Backend",
+          "phase": 3,
+          "decision": "thin-backend-relay",
+          "contract": "json",
+          "note": "秘密情報・認証セッションはBackend所有。peer独自認証を維持。"
+        }
+      ],
+      "observedImports": [
+        "next/server",
+        "@backend-core/peer-auth-grants.mjs",
+        "@/lib/peer-auth/admin",
+        "@/lib/webui-auth-shared"
+      ]
+    },
+    {
+      "route": "/api/peer-auth/resolve",
+      "source": "web/src/app/api/peer-auth/resolve/route.ts",
+      "group": "credentials",
+      "operations": [
+        {
+          "method": "POST",
+          "owner": "Backend",
+          "phase": 3,
+          "decision": "thin-backend-relay",
+          "contract": "json",
+          "note": "秘密情報・認証セッションはBackend所有。peer独自認証を維持。"
+        }
+      ],
+      "observedImports": [
+        "@/lib/peer-auth/runtime",
+        "@/lib/peer-auth/http"
+      ]
+    },
+    {
+      "route": "/api/peer-auth/usage",
+      "source": "web/src/app/api/peer-auth/usage/route.ts",
+      "group": "credentials",
+      "operations": [
+        {
+          "method": "POST",
+          "owner": "Backend",
+          "phase": 3,
+          "decision": "thin-backend-relay",
+          "contract": "json",
+          "note": "秘密情報・認証セッションはBackend所有。peer独自認証を維持。"
+        }
+      ],
+      "observedImports": [
+        "@/lib/peer-auth/runtime",
+        "@/lib/peer-auth/http"
+      ]
+    },
+    {
+      "route": "/api/pi/latest-version",
+      "source": "web/src/app/api/pi/latest-version/route.ts",
+      "group": "host-control",
+      "operations": [
+        {
+          "method": "GET",
+          "owner": "Host",
+          "phase": 3,
+          "decision": "thin-host-relay",
+          "contract": "json",
+          "note": "Next→Hostの薄い中継。Web内の制御判断をHostへ移し、Backendの生存に依存させない。"
+        }
+      ],
+      "observedImports": [
+        "next/server"
+      ]
+    },
+    {
+      "route": "/api/pi/update",
+      "source": "web/src/app/api/pi/update/route.ts",
+      "group": "host-control",
+      "operations": [
+        {
+          "method": "GET",
+          "owner": "Host",
+          "phase": 3,
+          "decision": "thin-host-relay",
+          "contract": "json",
+          "note": "Next→Hostの薄い中継。Web内の制御判断をHostへ移し、Backendの生存に依存させない。"
+        },
+        {
+          "method": "POST",
+          "owner": "Host",
+          "phase": 3,
+          "decision": "thin-host-relay",
+          "contract": "json",
+          "note": "Next→Hostの薄い中継。Web内の制御判断をHostへ移し、Backendの生存に依存させない。"
+        }
+      ],
+      "observedImports": [
+        "next/server",
+        "@/lib/host-control",
+        "@/lib/host-launch-hints"
+      ]
+    },
+    {
+      "route": "/api/profile",
+      "source": "web/src/app/api/profile/route.ts",
+      "group": "profile",
+      "operations": [
+        {
+          "method": "GET",
+          "owner": "Backend",
+          "phase": 4,
+          "decision": "thin-backend-relay",
+          "contract": "mixed",
+          "note": "backups queryはJSON、通常はgzip。Backendが生成・読取しNextは配信のみ。"
+        },
+        {
+          "method": "POST",
+          "owner": "Backend",
+          "phase": 2,
+          "decision": "thin-backend-relay",
+          "contract": "json",
+          "note": "productionで拒否中の変更経路も対象。停止/反映・復旧をBackendで管理。"
+        },
+        {
+          "method": "PATCH",
+          "owner": "Backend",
+          "phase": 2,
+          "decision": "thin-backend-relay",
+          "contract": "json",
+          "note": "productionで拒否中の変更経路も対象。停止/反映・復旧をBackendで管理。"
+        },
+        {
+          "method": "PUT",
+          "owner": "Backend",
+          "phase": 2,
+          "decision": "thin-backend-relay",
+          "contract": "json",
+          "note": "productionで拒否中の変更経路も対象。停止/反映・復旧をBackendで管理。"
+        },
+        {
+          "method": "DELETE",
+          "owner": "Backend",
+          "phase": 2,
+          "decision": "thin-backend-relay",
+          "contract": "json",
+          "note": "productionで拒否中の変更経路も対象。停止/反映・復旧をBackendで管理。"
+        }
+      ],
+      "observedImports": [
+        "next/server",
+        "@/lib/profile",
+        "@/lib/profile-limits",
+        "@/lib/pi/runtime-ownership"
+      ]
+    },
+    {
+      "route": "/api/projects/[id]/explorer",
+      "source": "web/src/app/api/projects/[id]/explorer/route.ts",
+      "group": "filesystem",
+      "operations": [
+        {
+          "method": "GET",
+          "owner": "Backend",
+          "phase": 3,
+          "decision": "thin-backend-relay",
+          "contract": "json",
+          "note": "BackendがID→許可済みpathを解決。Nextは安全なHost controlUrl付加のみ。起動はHost loopback経路。"
+        },
+        {
+          "method": "POST",
+          "owner": "Next",
+          "phase": 0,
+          "decision": "retain-edge",
+          "contract": "json",
+          "note": "現行403拒否を維持。ブラウザ→loopback Host直接起動をWeb中継で迂回しない。"
+        }
+      ],
+      "observedImports": [
+        "next/server",
+        "@/lib/host-control",
+        "@/lib/pi/harness"
+      ]
+    },
+    {
+      "route": "/api/projects/[id]/files",
+      "source": "web/src/app/api/projects/[id]/files/route.ts",
+      "group": "filesystem",
+      "operations": [
+        {
+          "method": "GET",
+          "owner": "Backend",
+          "phase": 3,
+          "decision": "thin-backend-relay",
+          "contract": "json",
+          "note": "実パス検証をBackendで実施。Explorer起動はHostのloopback制約を維持。"
+        }
+      ],
+      "observedImports": [
+        "next/server",
+        "@/lib/project-files"
+      ]
+    },
+    {
+      "route": "/api/projects/[id]/icon",
+      "source": "web/src/app/api/projects/[id]/icon/route.ts",
+      "group": "stream",
+      "operations": [
+        {
+          "method": "GET",
+          "owner": "Backend",
+          "phase": 4,
+          "decision": "thin-backend-relay",
+          "contract": "binary",
+          "note": "project iconのbytes生成はBackend。v hash一致時のprivate immutable cache、不一致時のno-cache、mime/nosniffを維持。"
+        }
+      ],
+      "observedImports": [
+        "next/server",
+        "@/lib/store",
+        "@/lib/project-icon-url"
+      ]
+    },
+    {
+      "route": "/api/projects/[id]/next-task",
+      "source": "web/src/app/api/projects/[id]/next-task/route.ts",
+      "group": "generation",
+      "operations": [
+        {
+          "method": "POST",
+          "owner": "Backend",
+          "phase": 3,
+          "decision": "thin-backend-relay",
+          "contract": "json",
+          "note": "直接推論・外部照会・キャンセル・cacheもBackend所有。"
+        }
+      ],
+      "observedImports": [
+        "node:fs",
+        "next/server",
+        "@/lib/store",
+        "@/lib/pi/web-settings",
+        "@/lib/generation-model-key",
+        "@/lib/direct-generation",
+        "@/lib/git",
+        "@/lib/paths",
+        "@/lib/direct-generation-text"
+      ]
+    },
+    {
+      "route": "/api/projects",
+      "source": "web/src/app/api/projects/route.ts",
+      "group": "runtime",
+      "operations": [
+        {
+          "method": "GET",
+          "owner": "Backend",
+          "phase": 3,
+          "decision": "thin-backend-relay",
+          "contract": "json",
+          "note": "既存中継も対象。Web側の判断・業務読取・開発ローカル経路を撤去。"
+        },
+        {
+          "method": "POST",
+          "owner": "Backend",
+          "phase": 3,
+          "decision": "thin-backend-relay",
+          "contract": "json",
+          "note": "既存中継も対象。Web側の判断・業務読取・開発ローカル経路を撤去。"
+        },
+        {
+          "method": "PATCH",
+          "owner": "Backend",
+          "phase": 3,
+          "decision": "thin-backend-relay",
+          "contract": "json",
+          "note": "既存中継も対象。Web側の判断・業務読取・開発ローカル経路を撤去。"
+        },
+        {
+          "method": "DELETE",
+          "owner": "Backend",
+          "phase": 3,
+          "decision": "thin-backend-relay",
+          "contract": "json",
+          "note": "既存中継も対象。Web側の判断・業務読取・開発ローカル経路を撤去。"
+        }
+      ],
+      "observedImports": [
+        "next/server",
+        "@/lib/etag-json",
+        "@/lib/project-icon-url",
+        "@/lib/pi/harness",
+        "@/lib/types",
+        "@/lib/backend-forward",
+        "@/lib/pi/runtime-ownership"
+      ]
+    },
+    {
+      "route": "/api/prompts/transfer",
+      "source": "web/src/app/api/prompts/transfer/route.ts",
+      "group": "definitions",
+      "operations": [
+        {
+          "method": "POST",
+          "owner": "Backend",
+          "phase": 3,
+          "decision": "thin-backend-relay",
+          "contract": "json",
+          "note": "定義の更新とlive反映をBackendへ集約。"
+        }
+      ],
+      "observedImports": [
+        "next/server",
+        "@/lib/pi/prompt-transfer",
+        "@/lib/pi/transfer-access",
+        "@/lib/live-context",
+        "@/lib/pi/transfer-recovery",
+        "@/lib/prompt-transfer-format"
+      ]
+    },
+    {
+      "route": "/api/provider-models/[key]",
+      "source": "web/src/app/api/provider-models/[key]/route.ts",
+      "group": "credentials",
+      "operations": [
+        {
+          "method": "PATCH",
+          "owner": "Backend",
+          "phase": 3,
+          "decision": "thin-backend-relay",
+          "contract": "json",
+          "note": "秘密情報・認証セッションはBackend所有。peer独自認証を維持。"
+        }
+      ],
+      "observedImports": [
+        "next/server",
+        "@/lib/pi/harness",
+        "@/lib/provider-model-state",
+        "@/lib/thinking-levels"
+      ]
+    },
+    {
+      "route": "/api/provider-models/order",
+      "source": "web/src/app/api/provider-models/order/route.ts",
+      "group": "credentials",
+      "operations": [
+        {
+          "method": "PATCH",
+          "owner": "Backend",
+          "phase": 3,
+          "decision": "thin-backend-relay",
+          "contract": "json",
+          "note": "秘密情報・認証セッションはBackend所有。peer独自認証を維持。"
+        }
+      ],
+      "observedImports": [
+        "next/server",
+        "@/lib/pi/harness"
+      ]
+    },
+    {
+      "route": "/api/provider-models",
+      "source": "web/src/app/api/provider-models/route.ts",
+      "group": "credentials",
+      "operations": [
+        {
+          "method": "GET",
+          "owner": "Backend",
+          "phase": 3,
+          "decision": "thin-backend-relay",
+          "contract": "json",
+          "note": "秘密情報・認証セッションはBackend所有。peer独自認証を維持。"
+        }
+      ],
+      "observedImports": [
+        "next/server",
+        "@/lib/pi/harness"
+      ]
+    },
+    {
+      "route": "/api/providers/[id]/base-url",
+      "source": "web/src/app/api/providers/[id]/base-url/route.ts",
+      "group": "credentials",
+      "operations": [
+        {
+          "method": "GET",
+          "owner": "Backend",
+          "phase": 3,
+          "decision": "thin-backend-relay",
+          "contract": "json",
+          "note": "秘密情報・認証セッションはBackend所有。peer独自認証を維持。"
+        },
+        {
+          "method": "PUT",
+          "owner": "Backend",
+          "phase": 3,
+          "decision": "thin-backend-relay",
+          "contract": "json",
+          "note": "秘密情報・認証セッションはBackend所有。peer独自認証を維持。"
+        }
+      ],
+      "observedImports": [
+        "next/server",
+        "@/lib/pi/harness",
+        "@/lib/provider-endpoints"
+      ]
+    },
+    {
+      "route": "/api/providers/[id]/login/answer",
+      "source": "web/src/app/api/providers/[id]/login/answer/route.ts",
+      "group": "credentials",
+      "operations": [
+        {
+          "method": "POST",
+          "owner": "Backend",
+          "phase": 3,
+          "decision": "thin-backend-relay",
+          "contract": "json",
+          "note": "秘密情報・認証セッションはBackend所有。peer独自認証を維持。"
+        },
+        {
+          "method": "DELETE",
+          "owner": "Backend",
+          "phase": 3,
+          "decision": "thin-backend-relay",
+          "contract": "json",
+          "note": "秘密情報・認証セッションはBackend所有。peer独自認証を維持。"
+        }
+      ],
+      "observedImports": [
+        "next/server",
+        "@/lib/pi/harness"
+      ]
+    },
+    {
+      "route": "/api/providers/[id]/login/callback",
+      "source": "web/src/app/api/providers/[id]/login/callback/route.ts",
+      "group": "credentials",
+      "operations": [
+        {
+          "method": "POST",
+          "owner": "Backend",
+          "phase": 3,
+          "decision": "thin-backend-relay",
+          "contract": "json",
+          "note": "秘密情報・認証セッションはBackend所有。peer独自認証を維持。"
+        }
+      ],
+      "observedImports": [
+        "next/server",
+        "@/lib/pi/harness"
+      ]
+    },
+    {
+      "route": "/api/providers/[id]/login/events",
+      "source": "web/src/app/api/providers/[id]/login/events/route.ts",
+      "group": "credentials",
+      "operations": [
+        {
+          "method": "GET",
+          "owner": "Backend",
+          "phase": 4,
+          "decision": "thin-backend-relay",
+          "contract": "sse",
+          "note": "OAuth状態・イベント生成はBackend。WebUI Cookie認証とは別でありNextにprovider sessionを残さない。"
+        }
+      ],
+      "observedImports": [
+        "next/server",
+        "@/lib/pi/harness",
+        "@/lib/sse-writer"
+      ]
+    },
+    {
+      "route": "/api/providers/[id]/login",
+      "source": "web/src/app/api/providers/[id]/login/route.ts",
+      "group": "credentials",
+      "operations": [
+        {
+          "method": "POST",
+          "owner": "Backend",
+          "phase": 3,
+          "decision": "thin-backend-relay",
+          "contract": "json",
+          "note": "秘密情報・認証セッションはBackend所有。peer独自認証を維持。"
+        }
+      ],
+      "observedImports": [
+        "next/server",
+        "@/lib/pi/harness",
+        "@/lib/accounts",
+        "@/lib/peer-auth/account-runtime-options",
+        "@/lib/pi/auth-login"
+      ]
+    },
+    {
+      "route": "/api/providers/[id]/logout",
+      "source": "web/src/app/api/providers/[id]/logout/route.ts",
+      "group": "credentials",
+      "operations": [
+        {
+          "method": "POST",
+          "owner": "Backend",
+          "phase": 3,
+          "decision": "thin-backend-relay",
+          "contract": "json",
+          "note": "秘密情報・認証セッションはBackend所有。peer独自認証を維持。"
+        }
+      ],
+      "observedImports": [
+        "next/server",
+        "@/lib/pi/harness",
+        "@/lib/accounts",
+        "@/lib/peer-auth/account-runtime-options"
+      ]
+    },
+    {
+      "route": "/api/providers/[id]",
+      "source": "web/src/app/api/providers/[id]/route.ts",
+      "group": "credentials",
+      "operations": [
+        {
+          "method": "PATCH",
+          "owner": "Backend",
+          "phase": 3,
+          "decision": "thin-backend-relay",
+          "contract": "json",
+          "note": "秘密情報・認証セッションはBackend所有。peer独自認証を維持。"
+        }
+      ],
+      "observedImports": [
+        "next/server",
+        "@/lib/pi/harness",
+        "@/lib/provider-routing"
+      ]
+    },
+    {
+      "route": "/api/providers",
+      "source": "web/src/app/api/providers/route.ts",
+      "group": "credentials",
+      "operations": [
+        {
+          "method": "GET",
+          "owner": "Backend",
+          "phase": 3,
+          "decision": "thin-backend-relay",
+          "contract": "json",
+          "note": "秘密情報・認証セッションはBackend所有。peer独自認証を維持。"
+        }
+      ],
+      "observedImports": [
+        "next/server",
+        "@/lib/pi/harness"
+      ]
+    },
+    {
+      "route": "/api/pushover",
+      "source": "web/src/app/api/pushover/route.ts",
+      "group": "notifications",
+      "operations": [
+        {
+          "method": "GET",
+          "owner": "Backend",
+          "phase": 2,
+          "decision": "thin-backend-relay",
+          "contract": "json",
+          "note": "認証/ローカル要求制限はNextで維持し許可済みcontextをBackendへ渡す。"
+        },
+        {
+          "method": "PUT",
+          "owner": "Backend",
+          "phase": 2,
+          "decision": "thin-backend-relay",
+          "contract": "json",
+          "note": "認証/ローカル要求制限はNextで維持し許可済みcontextをBackendへ渡す。"
+        },
+        {
+          "method": "POST",
+          "owner": "Backend",
+          "phase": 2,
+          "decision": "thin-backend-relay",
+          "contract": "json",
+          "note": "認証/ローカル要求制限はNextで維持し許可済みcontextをBackendへ渡す。"
+        }
+      ],
+      "observedImports": [
+        "next/server",
+        "@/lib/pushover-config",
+        "@/lib/pushover",
+        "@/lib/pi/transfer-access"
+      ]
+    },
+    {
+      "route": "/api/settings/[key]",
+      "source": "web/src/app/api/settings/[key]/route.ts",
+      "group": "settings",
+      "operations": [
+        {
+          "method": "GET",
+          "owner": "Backend",
+          "phase": 2,
+          "decision": "thin-backend-relay",
+          "contract": "json",
+          "note": "Backendが保存と反映を所有。Nextは入口ポリシーのみ。"
+        },
+        {
+          "method": "PUT",
+          "owner": "Backend",
+          "phase": 2,
+          "decision": "thin-backend-relay",
+          "contract": "json",
+          "note": "Backendが保存と反映を所有。Nextは入口ポリシーのみ。"
+        }
+      ],
+      "observedImports": [
+        "next/server",
+        "@/lib/pi/web-settings",
+        "@/lib/pi/setting-validation",
+        "@/lib/compaction-settings",
+        "@/lib/auto-model",
+        "@/lib/auto-agent",
+        "@/lib/git-commit-author",
+        "@/lib/machine-name",
+        "@/lib/pi/code-permission-settings"
+      ]
+    },
+    {
+      "route": "/api/settings/hang-timeout",
+      "source": "web/src/app/api/settings/hang-timeout/route.ts",
+      "group": "settings",
+      "operations": [
+        {
+          "method": "GET",
+          "owner": "Backend",
+          "phase": 2,
+          "decision": "thin-backend-relay",
+          "contract": "json",
+          "note": "Backendが保存と反映を所有。Nextは入口ポリシーのみ。"
+        },
+        {
+          "method": "PATCH",
+          "owner": "Backend",
+          "phase": 2,
+          "decision": "thin-backend-relay",
+          "contract": "json",
+          "note": "Backendが保存と反映を所有。Nextは入口ポリシーのみ。"
+        }
+      ],
+      "observedImports": [
+        "next/server",
+        "@/lib/pi/hang-settings",
+        "@/lib/hang-timeout"
+      ]
+    },
+    {
+      "route": "/api/settings/intercom",
+      "source": "web/src/app/api/settings/intercom/route.ts",
+      "group": "settings",
+      "operations": [
+        {
+          "method": "GET",
+          "owner": "Backend",
+          "phase": 2,
+          "decision": "thin-backend-relay",
+          "contract": "json",
+          "note": "Backendが保存と反映を所有。Nextは入口ポリシーのみ。"
+        },
+        {
+          "method": "PATCH",
+          "owner": "Backend",
+          "phase": 2,
+          "decision": "thin-backend-relay",
+          "contract": "json",
+          "note": "Backendが保存と反映を所有。Nextは入口ポリシーのみ。"
+        }
+      ],
+      "observedImports": [
+        "next/server",
+        "@/lib/intercom-config",
+        "@/lib/intercom-trigger"
+      ]
+    },
+    {
+      "route": "/api/settings/llama-server-config",
+      "source": "web/src/app/api/settings/llama-server-config/route.ts",
+      "group": "settings",
+      "operations": [
+        {
+          "method": "GET",
+          "owner": "Backend",
+          "phase": 2,
+          "decision": "thin-backend-relay",
+          "contract": "json",
+          "note": "Backendが保存と反映を所有。Nextは入口ポリシーのみ。"
+        },
+        {
+          "method": "PUT",
+          "owner": "Backend",
+          "phase": 2,
+          "decision": "thin-backend-relay",
+          "contract": "json",
+          "note": "Backendが保存と反映を所有。Nextは入口ポリシーのみ。"
+        }
+      ],
+      "observedImports": [
+        "next/server",
+        "@/lib/host-control",
+        "@/lib/llama-server-settings"
+      ]
+    },
+    {
+      "route": "/api/settings",
+      "source": "web/src/app/api/settings/route.ts",
+      "group": "settings",
+      "operations": [
+        {
+          "method": "GET",
+          "owner": "Backend",
+          "phase": 2,
+          "decision": "thin-backend-relay",
+          "contract": "json",
+          "note": "Backendが保存と反映を所有。Nextは入口ポリシーのみ。"
+        }
+      ],
+      "observedImports": [
+        "next/server",
+        "@/lib/pi/settings-snapshot"
+      ]
+    },
+    {
+      "route": "/api/settings/system-safety",
+      "source": "web/src/app/api/settings/system-safety/route.ts",
+      "group": "settings",
+      "operations": [
+        {
+          "method": "GET",
+          "owner": "Backend",
+          "phase": 2,
+          "decision": "thin-backend-relay",
+          "contract": "json",
+          "note": "Backendが保存と反映を所有。Nextは入口ポリシーのみ。"
+        },
+        {
+          "method": "PATCH",
+          "owner": "Backend",
+          "phase": 2,
+          "decision": "thin-backend-relay",
+          "contract": "json",
+          "note": "Backendが保存と反映を所有。Nextは入口ポリシーのみ。"
+        }
+      ],
+      "observedImports": [
+        "next/server",
+        "@/lib/permission-gate-config",
+        "@/lib/system-safety"
+      ]
+    },
+    {
+      "route": "/api/settings/transfer",
+      "source": "web/src/app/api/settings/transfer/route.ts",
+      "group": "settings",
+      "operations": [
+        {
+          "method": "DELETE",
+          "owner": "Backend",
+          "phase": 2,
+          "decision": "thin-backend-relay",
+          "contract": "json",
+          "note": "Backendが保存と反映を所有。Nextは入口ポリシーのみ。"
+        },
+        {
+          "method": "GET",
+          "owner": "Backend",
+          "phase": 2,
+          "decision": "thin-backend-relay",
+          "contract": "json",
+          "note": "Backendが保存と反映を所有。Nextは入口ポリシーのみ。"
+        },
+        {
+          "method": "POST",
+          "owner": "Backend",
+          "phase": 2,
+          "decision": "thin-backend-relay",
+          "contract": "json",
+          "note": "Backendが保存と反映を所有。Nextは入口ポリシーのみ。"
+        }
+      ],
+      "observedImports": [
+        "next/server",
+        "@/lib/pi/settings-transfer",
+        "@/lib/pi/transfer-recovery",
+        "@/lib/pi/web-settings",
+        "@/lib/codexbar/cache",
+        "@/lib/paths",
+        "node:path",
+        "@/lib/pi/transfer-access"
+      ]
+    },
+    {
+      "route": "/api/settings/tts",
+      "source": "web/src/app/api/settings/tts/route.ts",
+      "group": "settings",
+      "operations": [
+        {
+          "method": "GET",
+          "owner": "Backend",
+          "phase": 2,
+          "decision": "thin-backend-relay",
+          "contract": "json",
+          "note": "Backendが保存と反映を所有。Nextは入口ポリシーのみ。"
+        },
+        {
+          "method": "PATCH",
+          "owner": "Backend",
+          "phase": 2,
+          "decision": "thin-backend-relay",
+          "contract": "json",
+          "note": "Backendが保存と反映を所有。Nextは入口ポリシーのみ。"
+        }
+      ],
+      "observedImports": [
+        "next/server",
+        "@/lib/webui-auth",
+        "@/lib/tts-config"
+      ]
+    },
+    {
+      "route": "/api/settings/tts/voices",
+      "source": "web/src/app/api/settings/tts/voices/route.ts",
+      "group": "settings",
+      "operations": [
+        {
+          "method": "GET",
+          "owner": "Backend",
+          "phase": 3,
+          "decision": "thin-backend-relay",
+          "contract": "json",
+          "note": "外部voice catalog照会・URL制限はBackend。設定保存と別のJSON照会。"
+        }
+      ],
+      "observedImports": [
+        "next/server",
+        "@/lib/webui-auth",
+        "@/lib/tts-config",
+        "@/lib/tts-backends"
+      ]
+    },
+    {
+      "route": "/api/skills/[name]",
+      "source": "web/src/app/api/skills/[name]/route.ts",
+      "group": "definitions",
+      "operations": [
+        {
+          "method": "PATCH",
+          "owner": "Backend",
+          "phase": 3,
+          "decision": "thin-backend-relay",
+          "contract": "json",
+          "note": "定義の更新とlive反映をBackendへ集約。"
+        }
+      ],
+      "observedImports": [
+        "next/server",
+        "@/lib/live-context",
+        "@/lib/skills"
+      ]
+    },
+    {
+      "route": "/api/skills",
+      "source": "web/src/app/api/skills/route.ts",
+      "group": "definitions",
+      "operations": [
+        {
+          "method": "GET",
+          "owner": "Backend",
+          "phase": 3,
+          "decision": "thin-backend-relay",
+          "contract": "json",
+          "note": "定義の更新とlive反映をBackendへ集約。"
+        },
+        {
+          "method": "POST",
+          "owner": "Backend",
+          "phase": 3,
+          "decision": "thin-backend-relay",
+          "contract": "json",
+          "note": "定義の更新とlive反映をBackendへ集約。"
+        }
+      ],
+      "observedImports": [
+        "next/server",
+        "@/lib/live-context",
+        "@/lib/skills"
+      ]
+    },
+    {
+      "route": "/api/soul-md",
+      "source": "web/src/app/api/soul-md/route.ts",
+      "group": "definitions",
+      "operations": [
+        {
+          "method": "GET",
+          "owner": "Backend",
+          "phase": 3,
+          "decision": "thin-backend-relay",
+          "contract": "json",
+          "note": "定義の更新とlive反映をBackendへ集約。"
+        },
+        {
+          "method": "PATCH",
+          "owner": "Backend",
+          "phase": 3,
+          "decision": "thin-backend-relay",
+          "contract": "json",
+          "note": "定義の更新とlive反映をBackendへ集約。"
+        }
+      ],
+      "observedImports": [
+        "next/server",
+        "@/lib/agents-md",
+        "@/lib/live-context"
+      ]
+    },
+    {
+      "route": "/api/sysmon/usage",
+      "source": "web/src/app/api/sysmon/usage/route.ts",
+      "group": "observation",
+      "operations": [
+        {
+          "method": "GET",
+          "owner": "Backend",
+          "phase": 3,
+          "decision": "thin-backend-relay",
+          "contract": "json",
+          "note": "sampling/cacheと永続化はBackend。Hostの起動制御とは区別。"
+        }
+      ],
+      "observedImports": [
+        "next/server",
+        "@/lib/sysmon",
+        "@/lib/sysmon-usage"
+      ]
+    },
+    {
+      "route": "/api/tasks/[id]/abort",
+      "source": "web/src/app/api/tasks/[id]/abort/route.ts",
+      "group": "runtime",
+      "operations": [
+        {
+          "method": "POST",
+          "owner": "Backend",
+          "phase": 3,
+          "decision": "thin-backend-relay",
+          "contract": "json",
+          "note": "既存中継も対象。Web側の判断・業務読取・開発ローカル経路を撤去。"
+        }
+      ],
+      "observedImports": [
+        "next/server",
+        "@/lib/pi/bot-code-relay",
+        "@/lib/pi/harness",
+        "@/lib/pi/runtime-ownership",
+        "@/lib/backend-forward"
+      ]
+    },
+    {
+      "route": "/api/tasks/[id]/agent",
+      "source": "web/src/app/api/tasks/[id]/agent/route.ts",
+      "group": "runtime",
+      "operations": [
+        {
+          "method": "POST",
+          "owner": "Backend",
+          "phase": 3,
+          "decision": "thin-backend-relay",
+          "contract": "json",
+          "note": "既存中継も対象。Web側の判断・業務読取・開発ローカル経路を撤去。"
+        }
+      ],
+      "observedImports": [
+        "next/server",
+        "@/lib/pi/harness",
+        "@/lib/backend-forward",
+        "@/lib/pi/runtime-ownership"
+      ]
+    },
+    {
+      "route": "/api/tasks/[id]/bookmarks",
+      "source": "web/src/app/api/tasks/[id]/bookmarks/route.ts",
+      "group": "runtime",
+      "operations": [
+        {
+          "method": "GET",
+          "owner": "Backend",
+          "phase": 3,
+          "decision": "thin-backend-relay",
+          "contract": "json",
+          "note": "既存中継も対象。Web側の判断・業務読取・開発ローカル経路を撤去。"
+        },
+        {
+          "method": "PUT",
+          "owner": "Backend",
+          "phase": 3,
+          "decision": "thin-backend-relay",
+          "contract": "json",
+          "note": "既存中継も対象。Web側の判断・業務読取・開発ローカル経路を撤去。"
+        },
+        {
+          "method": "DELETE",
+          "owner": "Backend",
+          "phase": 3,
+          "decision": "thin-backend-relay",
+          "contract": "json",
+          "note": "既存中継も対象。Web側の判断・業務読取・開発ローカル経路を撤去。"
+        }
+      ],
+      "observedImports": [
+        "next/server",
+        "@/lib/same-origin",
+        "@/lib/store",
+        "@/lib/task-bookmarks",
+        "@/lib/task-transcript"
+      ]
+    },
+    {
+      "route": "/api/tasks/[id]/compact/abort",
+      "source": "web/src/app/api/tasks/[id]/compact/abort/route.ts",
+      "group": "runtime",
+      "operations": [
+        {
+          "method": "POST",
+          "owner": "Backend",
+          "phase": 3,
+          "decision": "thin-backend-relay",
+          "contract": "json",
+          "note": "既存中継も対象。Web側の判断・業務読取・開発ローカル経路を撤去。"
+        }
+      ],
+      "observedImports": [
+        "next/server",
+        "@/lib/pi/harness",
+        "@/lib/backend-forward",
+        "@/lib/pi/runtime-ownership"
+      ]
+    },
+    {
+      "route": "/api/tasks/[id]/compact",
+      "source": "web/src/app/api/tasks/[id]/compact/route.ts",
+      "group": "runtime",
+      "operations": [
+        {
+          "method": "POST",
+          "owner": "Backend",
+          "phase": 3,
+          "decision": "thin-backend-relay",
+          "contract": "json",
+          "note": "既存中継も対象。Web側の判断・業務読取・開発ローカル経路を撤去。"
+        }
+      ],
+      "observedImports": [
+        "next/server",
+        "@/lib/pi/harness",
+        "@/lib/prompt-images",
+        "@/lib/backend-forward",
+        "@/lib/pi/runtime-ownership"
+      ]
+    },
+    {
+      "route": "/api/tasks/[id]/events",
+      "source": "web/src/app/api/tasks/[id]/events/route.ts",
+      "group": "stream",
+      "operations": [
+        {
+          "method": "GET",
+          "owner": "Backend",
+          "phase": 4,
+          "decision": "thin-backend-relay",
+          "contract": "sse",
+          "note": "内容生成・ファイル認可はBackend。Nextはbufferせず中継し切断を伝播。"
+        }
+      ],
+      "observedImports": [
+        "next/server",
+        "@/lib/pi/harness",
+        "@/lib/pi/get-task-detail-bounded",
+        "@/lib/store",
+        "@/lib/sse-writer",
+        "@/lib/sse-response",
+        "@/lib/sse-ready-buffer",
+        "@/lib/task-history",
+        "@/lib/pi/history-page-size",
+        "@/lib/pi/runtime-ownership",
+        "@/lib/pi/backend-event-stream"
+      ]
+    },
+    {
+      "route": "/api/tasks/[id]/explorer",
+      "source": "web/src/app/api/tasks/[id]/explorer/route.ts",
+      "group": "filesystem",
+      "operations": [
+        {
+          "method": "GET",
+          "owner": "Backend",
+          "phase": 3,
+          "decision": "thin-backend-relay",
+          "contract": "json",
+          "note": "BackendがID→許可済みpathを解決。Nextは安全なHost controlUrl付加のみ。起動はHost loopback経路。"
+        }
+      ],
+      "observedImports": [
+        "next/server",
+        "@/lib/host-control",
+        "@/lib/store"
+      ]
+    },
+    {
+      "route": "/api/tasks/[id]/files",
+      "source": "web/src/app/api/tasks/[id]/files/route.ts",
+      "group": "filesystem",
+      "operations": [
+        {
+          "method": "GET",
+          "owner": "Backend",
+          "phase": 3,
+          "decision": "thin-backend-relay",
+          "contract": "json",
+          "note": "実パス検証をBackendで実施。Explorer起動はHostのloopback制約を維持。"
+        }
+      ],
+      "observedImports": [
+        "next/server",
+        "@/lib/project-files"
+      ]
+    },
+    {
+      "route": "/api/tasks/[id]/fork",
+      "source": "web/src/app/api/tasks/[id]/fork/route.ts",
+      "group": "runtime",
+      "operations": [
+        {
+          "method": "POST",
+          "owner": "Backend",
+          "phase": 3,
+          "decision": "thin-backend-relay",
+          "contract": "json",
+          "note": "既存中継も対象。Web側の判断・業務読取・開発ローカル経路を撤去。"
+        }
+      ],
+      "observedImports": [
+        "next/server",
+        "@/lib/pi/task-fork",
+        "@/lib/pi/harness",
+        "@/lib/backend-forward",
+        "@/lib/pi/runtime-ownership"
+      ]
+    },
+    {
+      "route": "/api/tasks/[id]/goal-loop",
+      "source": "web/src/app/api/tasks/[id]/goal-loop/route.ts",
+      "group": "runtime",
+      "operations": [
+        {
+          "method": "GET",
+          "owner": "Backend",
+          "phase": 3,
+          "decision": "thin-backend-relay",
+          "contract": "json",
+          "note": "既存中継も対象。Web側の判断・業務読取・開発ローカル経路を撤去。"
+        },
+        {
+          "method": "POST",
+          "owner": "Backend",
+          "phase": 3,
+          "decision": "thin-backend-relay",
+          "contract": "json",
+          "note": "既存中継も対象。Web側の判断・業務読取・開発ローカル経路を撤去。"
+        },
+        {
+          "method": "PATCH",
+          "owner": "Backend",
+          "phase": 3,
+          "decision": "thin-backend-relay",
+          "contract": "json",
+          "note": "既存中継も対象。Web側の判断・業務読取・開発ローカル経路を撤去。"
+        }
+      ],
+      "observedImports": [
+        "next/server",
+        "@/lib/pi/goal-loop-start",
+        "@/lib/pi/goal-loop-state",
+        "@/lib/pi/goal-loop-command",
+        "@/lib/pi/bot-code-relay",
+        "@/lib/pi/runtime-ownership",
+        "@/lib/backend-forward",
+        "@/lib/pi/harness",
+        "@/lib/goal-loop-settings"
+      ]
+    },
+    {
+      "route": "/api/tasks/[id]/goal-loop-auto-model",
+      "source": "web/src/app/api/tasks/[id]/goal-loop-auto-model/route.ts",
+      "group": "runtime",
+      "operations": [
+        {
+          "method": "PUT",
+          "owner": "Backend",
+          "phase": 3,
+          "decision": "thin-backend-relay",
+          "contract": "json",
+          "note": "既存中継も対象。Web側の判断・業務読取・開発ローカル経路を撤去。"
+        }
+      ],
+      "observedImports": [
+        "next/server",
+        "@/lib/store",
+        "@/lib/pi/goal-loop-auto-model",
+        "@/lib/pi/goal-loop-state"
+      ]
+    },
+    {
+      "route": "/api/tasks/[id]/image",
+      "source": "web/src/app/api/tasks/[id]/image/route.ts",
+      "group": "stream",
+      "operations": [
+        {
+          "method": "GET",
+          "owner": "Backend",
+          "phase": 4,
+          "decision": "thin-backend-relay",
+          "contract": "binary",
+          "note": "内容生成・ファイル認可はBackend。Nextはbufferせず中継し切断を伝播。"
+        }
+      ],
+      "observedImports": [
+        "next/server",
+        "@/lib/local-image"
+      ]
+    },
+    {
+      "route": "/api/tasks/[id]/media",
+      "source": "web/src/app/api/tasks/[id]/media/route.ts",
+      "group": "stream",
+      "operations": [
+        {
+          "method": "GET",
+          "owner": "Backend",
+          "phase": 4,
+          "decision": "thin-backend-relay",
+          "contract": "binary",
+          "note": "内容生成・ファイル認可はBackend。Nextはbufferせず中継し切断を伝播。"
+        },
+        {
+          "method": "HEAD",
+          "owner": "Backend",
+          "phase": 4,
+          "decision": "thin-backend-relay",
+          "contract": "empty",
+          "note": "内容生成・ファイル認可はBackend。Nextはbufferせず中継し切断を伝播。"
+        }
+      ],
+      "observedImports": [
+        "node:stream",
+        "next/server",
+        "@/lib/local-media"
+      ]
+    },
+    {
+      "route": "/api/tasks/[id]/message-image",
+      "source": "web/src/app/api/tasks/[id]/message-image/route.ts",
+      "group": "stream",
+      "operations": [
+        {
+          "method": "GET",
+          "owner": "Backend",
+          "phase": 4,
+          "decision": "thin-backend-relay",
+          "contract": "binary",
+          "note": "内容生成・ファイル認可はBackend。Nextはbufferせず中継し切断を伝播。"
+        }
+      ],
+      "observedImports": [
+        "next/server",
+        "@/lib/pi/harness",
+        "@/lib/task-history",
+        "@/lib/task-history",
+        "@/lib/pi/runtime-ownership",
+        "@/lib/backend-forward",
+        "@/lib/types"
+      ]
+    },
+    {
+      "route": "/api/tasks/[id]/messages",
+      "source": "web/src/app/api/tasks/[id]/messages/route.ts",
+      "group": "runtime",
+      "operations": [
+        {
+          "method": "GET",
+          "owner": "Backend",
+          "phase": 3,
+          "decision": "thin-backend-relay",
+          "contract": "json",
+          "note": "既存中継も対象。Web側の判断・業務読取・開発ローカル経路を撤去。"
+        }
+      ],
+      "observedImports": [
+        "next/server",
+        "@/lib/pi/harness",
+        "@/lib/task-history",
+        "@/lib/pi/history-page-size",
+        "@/lib/pi/runtime-ownership",
+        "@/lib/backend-forward"
+      ]
+    },
+    {
+      "route": "/api/tasks/[id]/model",
+      "source": "web/src/app/api/tasks/[id]/model/route.ts",
+      "group": "runtime",
+      "operations": [
+        {
+          "method": "POST",
+          "owner": "Backend",
+          "phase": 3,
+          "decision": "thin-backend-relay",
+          "contract": "json",
+          "note": "既存中継も対象。Web側の判断・業務読取・開発ローカル経路を撤去。"
+        }
+      ],
+      "observedImports": [
+        "next/server",
+        "@/lib/pi/harness",
+        "@/lib/backend-forward",
+        "@/lib/pi/runtime-ownership",
+        "@/lib/pi/goal-loop-auto-model"
+      ]
+    },
+    {
+      "route": "/api/tasks/[id]/next-action",
+      "source": "web/src/app/api/tasks/[id]/next-action/route.ts",
+      "group": "generation",
+      "operations": [
+        {
+          "method": "POST",
+          "owner": "Backend",
+          "phase": 3,
+          "decision": "thin-backend-relay",
+          "contract": "json",
+          "note": "直接推論・外部照会・キャンセル・cacheもBackend所有。"
+        }
+      ],
+      "observedImports": [
+        "next/server",
+        "@/lib/store",
+        "@/lib/pi/web-settings",
+        "@/lib/generation-model-key",
+        "@/lib/direct-generation",
+        "@/lib/direct-session",
+        "@/lib/direct-generation-text"
+      ]
+    },
+    {
+      "route": "/api/tasks/[id]/permission/advice",
+      "source": "web/src/app/api/tasks/[id]/permission/advice/route.ts",
+      "group": "generation",
+      "operations": [
+        {
+          "method": "POST",
+          "owner": "Backend",
+          "phase": 3,
+          "decision": "thin-backend-relay",
+          "contract": "json",
+          "note": "直接推論・外部照会・キャンセル・cacheもBackend所有。"
+        }
+      ],
+      "observedImports": [
+        "next/server",
+        "@/lib/store",
+        "@/lib/pi/web-settings",
+        "@/lib/generation-model-key",
+        "@/lib/direct-generation",
+        "@/lib/pi/harness"
+      ]
+    },
+    {
+      "route": "/api/tasks/[id]/permission",
+      "source": "web/src/app/api/tasks/[id]/permission/route.ts",
+      "group": "runtime",
+      "operations": [
+        {
+          "method": "POST",
+          "owner": "Backend",
+          "phase": 3,
+          "decision": "thin-backend-relay",
+          "contract": "json",
+          "note": "既存中継も対象。Web側の判断・業務読取・開発ローカル経路を撤去。"
+        }
+      ],
+      "observedImports": [
+        "next/server",
+        "@/lib/pi/harness",
+        "@/lib/pi/runtime-ownership",
+        "@/lib/backend-forward"
+      ]
+    },
+    {
+      "route": "/api/tasks/[id]/progress",
+      "source": "web/src/app/api/tasks/[id]/progress/route.ts",
+      "group": "generation",
+      "operations": [
+        {
+          "method": "POST",
+          "owner": "Backend",
+          "phase": 3,
+          "decision": "thin-backend-relay",
+          "contract": "json",
+          "note": "直接推論・外部照会・キャンセル・cacheもBackend所有。"
+        }
+      ],
+      "observedImports": [
+        "next/server",
+        "@/lib/pi/web-settings",
+        "@/lib/generation-model-key",
+        "@/lib/direct-generation",
+        "@/lib/goal-loop-settings",
+        "@/lib/host-control",
+        "@/lib/llama-server-settings",
+        "@/lib/pi/harness",
+        "@/lib/pi/llama-provider",
+        "@/lib/task-progress"
+      ]
+    },
+    {
+      "route": "/api/tasks/[id]/promote",
+      "source": "web/src/app/api/tasks/[id]/promote/route.ts",
+      "group": "runtime",
+      "operations": [
+        {
+          "method": "POST",
+          "owner": "Backend",
+          "phase": 3,
+          "decision": "thin-backend-relay",
+          "contract": "json",
+          "note": "既存中継も対象。Web側の判断・業務読取・開発ローカル経路を撤去。"
+        }
+      ],
+      "observedImports": [
+        "next/server",
+        "@/lib/pi/harness",
+        "@/lib/backend-forward",
+        "@/lib/pi/runtime-ownership"
+      ]
+    },
+    {
+      "route": "/api/tasks/[id]/prompt",
+      "source": "web/src/app/api/tasks/[id]/prompt/route.ts",
+      "group": "runtime",
+      "operations": [
+        {
+          "method": "POST",
+          "owner": "Backend",
+          "phase": 3,
+          "decision": "thin-backend-relay",
+          "contract": "json",
+          "note": "既存中継も対象。Web側の判断・業務読取・開発ローカル経路を撤去。"
+        }
+      ],
+      "observedImports": [
+        "next/server",
+        "@/lib/prompt-images",
+        "@/lib/auto-model",
+        "@/lib/pi/harness",
+        "@/lib/pi/task-prompt",
+        "@/lib/pi/runtime-ownership",
+        "@/lib/backend-forward",
+        "@/lib/backend-task-dirty-hub"
+      ]
+    },
+    {
+      "route": "/api/tasks/[id]/question",
+      "source": "web/src/app/api/tasks/[id]/question/route.ts",
+      "group": "runtime",
+      "operations": [
+        {
+          "method": "POST",
+          "owner": "Backend",
+          "phase": 3,
+          "decision": "thin-backend-relay",
+          "contract": "json",
+          "note": "既存中継も対象。Web側の判断・業務読取・開発ローカル経路を撤去。"
+        }
+      ],
+      "observedImports": [
+        "next/server",
+        "@/lib/pi/harness",
+        "@/lib/pi/question-prompt",
+        "@/lib/pi/runtime-ownership",
+        "@/lib/backend-forward"
+      ]
+    },
+    {
+      "route": "/api/tasks/[id]/revert",
+      "source": "web/src/app/api/tasks/[id]/revert/route.ts",
+      "group": "runtime",
+      "operations": [
+        {
+          "method": "POST",
+          "owner": "Backend",
+          "phase": 3,
+          "decision": "thin-backend-relay",
+          "contract": "json",
+          "note": "既存中継も対象。Web側の判断・業務読取・開発ローカル経路を撤去。"
+        }
+      ],
+      "observedImports": [
+        "next/server",
+        "@/lib/pi/harness",
+        "@/lib/backend-forward",
+        "@/lib/pi/runtime-ownership"
+      ]
+    },
+    {
+      "route": "/api/tasks/[id]",
+      "source": "web/src/app/api/tasks/[id]/route.ts",
+      "group": "runtime",
+      "operations": [
+        {
+          "method": "GET",
+          "owner": "Backend",
+          "phase": 3,
+          "decision": "thin-backend-relay",
+          "contract": "json",
+          "note": "既存中継も対象。Web側の判断・業務読取・開発ローカル経路を撤去。"
+        },
+        {
+          "method": "PATCH",
+          "owner": "Backend",
+          "phase": 3,
+          "decision": "thin-backend-relay",
+          "contract": "json",
+          "note": "既存中継も対象。Web側の判断・業務読取・開発ローカル経路を撤去。"
+        },
+        {
+          "method": "DELETE",
+          "owner": "Backend",
+          "phase": 3,
+          "decision": "thin-backend-relay",
+          "contract": "json",
+          "note": "既存中継も対象。Web側の判断・業務読取・開発ローカル経路を撤去。"
+        }
+      ],
+      "observedImports": [
+        "next/server",
+        "@/lib/pi/harness",
+        "@/lib/pi/get-task-detail-bounded",
+        "@/lib/pi/history-page-size",
+        "@/lib/pi/runtime-ownership",
+        "@/lib/backend-forward",
+        "@/lib/task-history",
+        "@/lib/etag-json"
+      ]
+    },
+    {
+      "route": "/api/tasks/[id]/search",
+      "source": "web/src/app/api/tasks/[id]/search/route.ts",
+      "group": "runtime",
+      "operations": [
+        {
+          "method": "GET",
+          "owner": "Backend",
+          "phase": 3,
+          "decision": "thin-backend-relay",
+          "contract": "json",
+          "note": "既存中継も対象。Web側の判断・業務読取・開発ローカル経路を撤去。"
+        }
+      ],
+      "observedImports": [
+        "next/server",
+        "@/lib/pi/harness",
+        "@/lib/hang-retry",
+        "@/lib/task-transcript",
+        "@shared/text-search.mjs",
+        "@shared/task-search.mjs"
+      ]
+    },
+    {
+      "route": "/api/tasks/[id]/subagents",
+      "source": "web/src/app/api/tasks/[id]/subagents/route.ts",
+      "group": "runtime",
+      "operations": [
+        {
+          "method": "GET",
+          "owner": "Backend",
+          "phase": 3,
+          "decision": "thin-backend-relay",
+          "contract": "json",
+          "note": "既存中継も対象。Web側の判断・業務読取・開発ローカル経路を撤去。"
+        }
+      ],
+      "observedImports": [
+        "next/server",
+        "@/lib/pi/subagent-runs",
+        "@/lib/store"
+      ]
+    },
+    {
+      "route": "/api/tasks/[id]/supervisor",
+      "source": "web/src/app/api/tasks/[id]/supervisor/route.ts",
+      "group": "runtime",
+      "operations": [
+        {
+          "method": "POST",
+          "owner": "Backend",
+          "phase": 3,
+          "decision": "thin-backend-relay",
+          "contract": "json",
+          "note": "既存中継も対象。Web側の判断・業務読取・開発ローカル経路を撤去。"
+        }
+      ],
+      "observedImports": [
+        "next/server",
+        "@/lib/pi/harness",
+        "@/lib/backend-forward",
+        "@/lib/pi/runtime-ownership"
+      ]
+    },
+    {
+      "route": "/api/tasks/[id]/thinking",
+      "source": "web/src/app/api/tasks/[id]/thinking/route.ts",
+      "group": "runtime",
+      "operations": [
+        {
+          "method": "POST",
+          "owner": "Backend",
+          "phase": 3,
+          "decision": "thin-backend-relay",
+          "contract": "json",
+          "note": "既存中継も対象。Web側の判断・業務読取・開発ローカル経路を撤去。"
+        }
+      ],
+      "observedImports": [
+        "next/server",
+        "@/lib/pi/harness",
+        "@/lib/backend-forward",
+        "@/lib/pi/runtime-ownership"
+      ]
+    },
+    {
+      "route": "/api/tasks/[id]/title",
+      "source": "web/src/app/api/tasks/[id]/title/route.ts",
+      "group": "generation",
+      "operations": [
+        {
+          "method": "POST",
+          "owner": "Backend",
+          "phase": 3,
+          "decision": "thin-backend-relay",
+          "contract": "json",
+          "note": "直接推論・外部照会・キャンセル・cacheもBackend所有。"
+        },
+        {
+          "method": "PATCH",
+          "owner": "Backend",
+          "phase": 3,
+          "decision": "thin-backend-relay",
+          "contract": "json",
+          "note": "直接推論・外部照会・キャンセル・cacheもBackend所有。"
+        }
+      ],
+      "observedImports": [
+        "next/server",
+        "@/lib/direct-generation",
+        "@/lib/direct-title",
+        "@/lib/store",
+        "@/lib/direct-generation-text"
+      ]
+    },
+    {
+      "route": "/api/tasks/[id]/unrevert",
+      "source": "web/src/app/api/tasks/[id]/unrevert/route.ts",
+      "group": "runtime",
+      "operations": [
+        {
+          "method": "POST",
+          "owner": "Backend",
+          "phase": 3,
+          "decision": "thin-backend-relay",
+          "contract": "json",
+          "note": "既存中継も対象。Web側の判断・業務読取・開発ローカル経路を撤去。"
+        }
+      ],
+      "observedImports": [
+        "next/server",
+        "@/lib/pi/harness",
+        "@/lib/backend-forward",
+        "@/lib/pi/runtime-ownership"
+      ]
+    },
+    {
+      "route": "/api/tasks",
+      "source": "web/src/app/api/tasks/route.ts",
+      "group": "runtime",
+      "operations": [
+        {
+          "method": "GET",
+          "owner": "Backend",
+          "phase": 3,
+          "decision": "thin-backend-relay",
+          "contract": "json",
+          "note": "既存中継も対象。Web側の判断・業務読取・開発ローカル経路を撤去。"
+        },
+        {
+          "method": "DELETE",
+          "owner": "Backend",
+          "phase": 3,
+          "decision": "thin-backend-relay",
+          "contract": "json",
+          "note": "既存中継も対象。Web側の判断・業務読取・開発ローカル経路を撤去。"
+        },
+        {
+          "method": "POST",
+          "owner": "Backend",
+          "phase": 3,
+          "decision": "thin-backend-relay",
+          "contract": "json",
+          "note": "既存中継も対象。Web側の判断・業務読取・開発ローカル経路を撤去。"
+        }
+      ],
+      "observedImports": [
+        "next/server",
+        "@/lib/etag-json",
+        "@/lib/sidebar-task-view",
+        "@/lib/backend-relay",
+        "@/lib/backend-forward",
+        "@/lib/backend-client",
+        "@/lib/pi/runtime-ownership",
+        "@/lib/store",
+        "@/lib/task-runtime-lease",
+        "@/lib/pi/harness",
+        "@/lib/auto-model",
+        "@/lib/direct-generation",
+        "@/lib/prompt-images",
+        "@/lib/thinking-levels",
+        "@/lib/auto-agent",
+        "@/lib/default-agent",
+        "@/lib/goal-loop-settings",
+        "@/lib/types"
+      ]
+    },
+    {
+      "route": "/api/tools-md",
+      "source": "web/src/app/api/tools-md/route.ts",
+      "group": "definitions",
+      "operations": [
+        {
+          "method": "GET",
+          "owner": "Backend",
+          "phase": 3,
+          "decision": "thin-backend-relay",
+          "contract": "json",
+          "note": "定義の更新とlive反映をBackendへ集約。"
+        },
+        {
+          "method": "PATCH",
+          "owner": "Backend",
+          "phase": 3,
+          "decision": "thin-backend-relay",
+          "contract": "json",
+          "note": "定義の更新とlive反映をBackendへ集約。"
+        }
+      ],
+      "observedImports": [
+        "next/server",
+        "@/lib/agents-md"
+      ]
+    },
+    {
+      "route": "/api/translation/install",
+      "source": "web/src/app/api/translation/install/route.ts",
+      "group": "host-control",
+      "operations": [
+        {
+          "method": "POST",
+          "owner": "Host",
+          "phase": 3,
+          "decision": "thin-host-relay",
+          "contract": "json",
+          "note": "Next→Hostの薄い中継。Web内の制御判断をHostへ移し、Backendの生存に依存させない。"
+        }
+      ],
+      "observedImports": [
+        "@/lib/host-control",
+        "@/lib/host-launch-hints",
+        "next/server"
+      ]
+    },
+    {
+      "route": "/api/translation/override",
+      "source": "web/src/app/api/translation/override/route.ts",
+      "group": "host-control",
+      "operations": [
+        {
+          "method": "POST",
+          "owner": "Host",
+          "phase": 3,
+          "decision": "thin-host-relay",
+          "contract": "json",
+          "note": "Next→Hostの薄い中継。Web内の制御判断をHostへ移し、Backendの生存に依存させない。"
+        }
+      ],
+      "observedImports": [
+        "@/lib/host-control",
+        "next/server"
+      ]
+    },
+    {
+      "route": "/api/translation/reasoning",
+      "source": "web/src/app/api/translation/reasoning/route.ts",
+      "group": "host-control",
+      "operations": [
+        {
+          "method": "POST",
+          "owner": "Host",
+          "phase": 3,
+          "decision": "thin-host-relay",
+          "contract": "json",
+          "note": "Next→Hostの薄い中継。Web内の制御判断をHostへ移し、Backendの生存に依存させない。"
+        }
+      ],
+      "observedImports": [
+        "@/lib/host-control",
+        "next/server"
+      ]
+    },
+    {
+      "route": "/api/translation/status",
+      "source": "web/src/app/api/translation/status/route.ts",
+      "group": "host-control",
+      "operations": [
+        {
+          "method": "GET",
+          "owner": "Host",
+          "phase": 3,
+          "decision": "thin-host-relay",
+          "contract": "json",
+          "note": "Next→Hostの薄い中継。Web内の制御判断をHostへ移し、Backendの生存に依存させない。"
+        }
+      ],
+      "observedImports": [
+        "@/lib/host-control",
+        "next/server"
+      ]
+    },
+    {
+      "route": "/api/tts/synthesize",
+      "source": "web/src/app/api/tts/synthesize/route.ts",
+      "group": "stream",
+      "operations": [
+        {
+          "method": "POST",
+          "owner": "Backend",
+          "phase": 4,
+          "decision": "thin-backend-relay",
+          "contract": "binary",
+          "note": "内容生成・ファイル認可はBackend。Nextはbufferせず中継し切断を伝播。"
+        }
+      ],
+      "observedImports": [
+        "next/server",
+        "@/lib/bots",
+        "@/lib/webui-auth",
+        "@/lib/tts-config",
+        "@/lib/tts-synthesize"
+      ]
+    },
+    {
+      "route": "/api/typesafe-baseline",
+      "source": "web/src/app/api/typesafe-baseline/route.ts",
+      "group": "credentials",
+      "operations": [
+        {
+          "method": "GET",
+          "owner": "Backend",
+          "phase": 3,
+          "decision": "thin-backend-relay",
+          "contract": "json",
+          "note": "秘密情報・認証セッションはBackend所有。peer独自認証を維持。"
+        },
+        {
+          "method": "POST",
+          "owner": "Backend",
+          "phase": 3,
+          "decision": "thin-backend-relay",
+          "contract": "json",
+          "note": "秘密情報・認証セッションはBackend所有。peer独自認証を維持。"
+        },
+        {
+          "method": "DELETE",
+          "owner": "Backend",
+          "phase": 3,
+          "decision": "thin-backend-relay",
+          "contract": "json",
+          "note": "秘密情報・認証セッションはBackend所有。peer独自認証を維持。"
+        }
+      ],
+      "observedImports": [
+        "next/server",
+        "@/lib/codexbar/cache",
+        "@/lib/codexbar/provider-cache",
+        "@/lib/codexbar/providers/typesafe",
+        "@/lib/pi/harness"
+      ]
+    },
+    {
+      "route": "/api/typesafe-cookie",
+      "source": "web/src/app/api/typesafe-cookie/route.ts",
+      "group": "credentials",
+      "operations": [
+        {
+          "method": "GET",
+          "owner": "Backend",
+          "phase": 3,
+          "decision": "thin-backend-relay",
+          "contract": "json",
+          "note": "秘密情報・認証セッションはBackend所有。peer独自認証を維持。"
+        },
+        {
+          "method": "POST",
+          "owner": "Backend",
+          "phase": 3,
+          "decision": "thin-backend-relay",
+          "contract": "json",
+          "note": "秘密情報・認証セッションはBackend所有。peer独自認証を維持。"
+        },
+        {
+          "method": "DELETE",
+          "owner": "Backend",
+          "phase": 3,
+          "decision": "thin-backend-relay",
+          "contract": "json",
+          "note": "秘密情報・認証セッションはBackend所有。peer独自認証を維持。"
+        }
+      ],
+      "observedImports": [
+        "next/server",
+        "@/lib/codexbar/browser-cookies",
+        "@/lib/codexbar/cache",
+        "@/lib/codexbar/provider-cache",
+        "@/lib/pi/harness"
+      ]
+    },
+    {
+      "route": "/api/unread",
+      "source": "web/src/app/api/unread/route.ts",
+      "group": "observation",
+      "operations": [
+        {
+          "method": "GET",
+          "owner": "Backend",
+          "phase": 3,
+          "decision": "thin-backend-relay",
+          "contract": "json",
+          "note": "sampling/cacheと永続化はBackend。Hostの起動制御とは区別。"
+        },
+        {
+          "method": "PUT",
+          "owner": "Backend",
+          "phase": 3,
+          "decision": "thin-backend-relay",
+          "contract": "json",
+          "note": "sampling/cacheと永続化はBackend。Hostの起動制御とは区別。"
+        }
+      ],
+      "observedImports": [
+        "next/server",
+        "@/lib/unread-state"
+      ]
+    },
+    {
+      "route": "/api/user-md",
+      "source": "web/src/app/api/user-md/route.ts",
+      "group": "definitions",
+      "operations": [
+        {
+          "method": "GET",
+          "owner": "Backend",
+          "phase": 3,
+          "decision": "thin-backend-relay",
+          "contract": "json",
+          "note": "定義の更新とlive反映をBackendへ集約。"
+        },
+        {
+          "method": "PATCH",
+          "owner": "Backend",
+          "phase": 3,
+          "decision": "thin-backend-relay",
+          "contract": "json",
+          "note": "定義の更新とlive反映をBackendへ集約。"
+        }
+      ],
+      "observedImports": [
+        "next/server",
+        "@/lib/agents-md",
+        "@/lib/live-context"
+      ]
+    },
+    {
+      "route": "/api/workflow-md",
+      "source": "web/src/app/api/workflow-md/route.ts",
+      "group": "definitions",
+      "operations": [
+        {
+          "method": "GET",
+          "owner": "Backend",
+          "phase": 3,
+          "decision": "thin-backend-relay",
+          "contract": "json",
+          "note": "定義の更新とlive反映をBackendへ集約。"
+        },
+        {
+          "method": "PATCH",
+          "owner": "Backend",
+          "phase": 3,
+          "decision": "thin-backend-relay",
+          "contract": "json",
+          "note": "定義の更新とlive反映をBackendへ集約。"
+        }
+      ],
+      "observedImports": [
+        "next/server",
+        "@/lib/agents-md"
+      ]
+    }
+  ]
+}
