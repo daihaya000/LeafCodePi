@@ -28,6 +28,30 @@ export type TypeSafeAnswer = {
   legend?: Record<string, string>;
 };
 
+/** Optional per-call restriction; never enables models or changes saved settings. */
+export type JevModelSelector = {
+  provider?: string;
+  model?: string;
+  accountId?: string;
+};
+
+function validateSelector(selector: JevModelSelector): void {
+  for (const [key, value] of Object.entries(selector)) {
+    if (value !== undefined && (typeof value !== "string" || !value || value.length > 256 || /[\s\u0000-\u001f\u007f]/u.test(value))) {
+      throw new Error(`Jev: ${key} must be a non-empty ID without whitespace (max 256 characters)`);
+    }
+  }
+  if (selector.accountId !== undefined && selector.provider === undefined) {
+    throw new Error("Jev: accountId requires provider");
+  }
+}
+
+function matchesSelector(ref: { providerId: string; modelId: string; accountId?: string }, selector: JevModelSelector): boolean {
+  return (selector.provider === undefined || ref.providerId === selector.provider) &&
+    (selector.model === undefined || ref.modelId === selector.model) &&
+    (selector.accountId === undefined || ref.accountId === selector.accountId);
+}
+
 export type TypeSafeResponse = {
   model: string;
   answers: Record<string, TypeSafeAnswer | undefined>;
@@ -76,15 +100,19 @@ export async function evaluateTypeSafe(
     apiKey?: string;
     fetchImpl?: typeof fetch;
     signal?: AbortSignal;
+    selector?: JevModelSelector;
   } = {},
 ): Promise<TypeSafeResponse> {
+  const selector = options.selector ?? {};
+  validateSelector(selector);
+  const explicitlySelected = Object.values(selector).some((value) => value !== undefined);
   const settings = readJevModelSettings();
   const registered = settings.enabledModels ?? (settings.provider === "registered" ? settings.registeredModel ? [settings.registeredModel] : [] : undefined);
   // A catalog read never rewrites saved selections or enables an unselected replacement.
   const models = registered ? await (await import("./harness")).listJevModels() : [];
   const detectedKeys = enabledJevModelKeys(settings, models.filter((model) => model.providerEnabled !== false));
   const selected = registered?.filter((ref) => detectedKeys.has(jevModelKey(ref)));
-  const state = selected ? readProviderModelState() : null;
+  const state = selected || explicitlySelected ? readProviderModelState() : null;
   const routing = selected ? readProviderRouting() : null;
   const integrated = new Set(selected?.filter((ref) => ref.accountId && routing && accountRoutingMode(ref.providerId, routing) === "integrated").map((ref) => ref.providerId));
   const integratedRank = new Map<string, number>();
@@ -113,7 +141,15 @@ export async function evaluateTypeSafe(
     if (a.ref.providerId !== b.ref.providerId || a.ref.accountId !== b.ref.accountId) return a.index - b.index;
     return modelRank(a.ref) - modelRank(b.ref) || a.index - b.index;
   });
-  const candidates = refs?.map(({ ref }) => ref) ?? [undefined];
+  const candidates = refs
+    ? refs.map(({ ref }) => ref).filter((ref) => matchesSelector(ref, selector))
+    : !paused({ providerId: settings.provider }) && matchesSelector({
+      providerId: settings.provider,
+      modelId: settings.provider === "typesafe" ? settings.typesafeModel : settings.compatibleModel,
+    }, selector) ? [undefined] : [];
+  if (explicitlySelected && candidates.length === 0) {
+    throw new Error("Jev: no enabled, available model matches provider/model/accountId; enable it in Jev model settings first");
+  }
   for (const [index, ref] of candidates.entries()) {
     if (index > 0 && options.signal?.aborted) throw options.signal.reason ?? new Error("Jev判定が中断されました");
     try {

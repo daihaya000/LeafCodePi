@@ -29,6 +29,13 @@ When `jev_judge` is already available and the user explicitly asks to use it, ca
 immediately. Do not fetch documentation, browse the web, or add a preamble; read the
 live docs only when implementing or changing a TypeSafe integration.
 
+For a requested provider or model, pass its exact ID in `provider` and/or `model`.
+Optionally use `accountId` with `provider` to pin the credential account. These
+arguments restrict the call to enabled, detected Jev models, never enable a new
+model or change saved settings, and never fall back outside the selection. Omit
+them to keep configured routing. An unavailable selection is an error; do not
+silently replace a model explicitly requested by the user.
+
 ## Read the live docs
 
 **The live TypeSafe docs are the source of truth for implementation tasks.**

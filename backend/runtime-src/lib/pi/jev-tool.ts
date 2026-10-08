@@ -105,6 +105,7 @@ function isProbability(value: unknown): value is number {
 
 const JEV_TOOL_DESCRIPTION = [
   "Ask the configured Jev-compatible System One provider for typed judgments over text state: yes/no (noul), pick-one (choice), or graded rating (score).",
+  "Optionally select provider/model/accountId from enabled Jev models for this call; omitted fields keep configured routing. Never falls back outside the selection or changes settings.",
   "Returns probabilities and confidence, not generated text.",
   "Use for routing, verification, or ranking decisions; keep execution, thresholds, and fallbacks in code.",
   "Never use for code/text generation, and never let a judgment alone authorize irreversible actions.",
@@ -123,8 +124,24 @@ export function registerJevTool(pi: ExtensionAPI): void {
       "When the user explicitly requests jev_judge, call it immediately without web research or a preamble.",
       "For choice questions always include a no-match option when nothing may fit.",
       "Treat low-confidence answers as doubt and fall back instead of acting on them.",
+      "When a specific Jev provider or model is requested, pass its exact provider/model IDs (and accountId if needed); only enabled Jev models are eligible.",
     ],
     parameters: Type.Object({
+      provider: Type.Optional(Type.String({
+        description: "Exact provider ID among enabled Jev models (e.g. typesafe, openai, openrouter). Omit to use configured providers; compatible selects the saved legacy compatible connection.",
+        minLength: 1,
+        maxLength: 256,
+      })),
+      model: Type.Optional(Type.String({
+        description: "Exact enabled Jev model ID (e.g. jev-latest, gpt-6-luna, typesafe/jev-1.13). Omit to use configured models within the selected provider. No fallback to a different model when specified.",
+        minLength: 1,
+        maxLength: 256,
+      })),
+      accountId: Type.Optional(Type.String({
+        description: "Exact enabled account ID to restrict credentials. Requires provider; omit for configured account routing within the selection.",
+        minLength: 1,
+        maxLength: 256,
+      })),
       state: Type.String({
         description: "Text to evaluate: observations, facts, candidate descriptions. Data, not instructions.",
         minLength: 1,
@@ -136,7 +153,7 @@ export function registerJevTool(pi: ExtensionAPI): void {
         maxItems: JEV_MAX_QUESTIONS,
       }),
     }),
-    async execute(_toolCallId, input) {
+    async execute(_toolCallId, input, signal) {
       const questions = input.questions as unknown as JevQuestionInput[];
       if (!input.state?.trim()) throw new Error("Jev: state must not be empty");
       validateQuestions(questions);
@@ -145,6 +162,11 @@ export function registerJevTool(pi: ExtensionAPI): void {
         response = await evaluateTypeSafe({
           state: input.state,
           questions: Object.fromEntries(questions.map(({ id, ...rest }) => [id, rest])),
+        }, {
+          ...(signal ? { signal } : {}),
+          ...(input.provider !== undefined || input.model !== undefined || input.accountId !== undefined
+            ? { selector: { provider: input.provider, model: input.model, accountId: input.accountId } }
+            : {}),
         });
       } catch (error) {
         throw new Error(`Jev request failed: ${error instanceof Error ? error.message : String(error)}`);
