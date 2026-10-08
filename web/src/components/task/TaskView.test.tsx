@@ -306,6 +306,15 @@ it("displays the project icon at the start of the status row", async () => {
   expect(mocks.iconFor).toHaveBeenCalledWith(task.id, 24, expect.objectContaining({ projectId: "project-1" }));
 });
 
+it("allows the running status badge to shrink within the header", async () => {
+  saveTaskSessionCache({ task: { ...task, status: "working" }, messages: [], isStreaming: true, isCompacting: false });
+  render(<TaskView taskId={task.id} mdUp />);
+  const status = screen.getByLabelText("タスクの状態");
+  const badge = within(status).getByText("実行中").parentElement!.parentElement!;
+  expect(badge.className).toContain("min-w-0");
+  expect(badge.className).not.toContain("shrink-0");
+});
+
 it.each([undefined, "bot-1"])("passes Bot identity only to Bot-sent prompts (botId: %s)", async (botId) => {
   const bot = { id: "bot-1", name: "Code Bot" };
   mocks.botFor.mockImplementation((id) => id === bot.id ? bot : undefined);
