@@ -16,6 +16,7 @@ import {
 import { cx, timeAgo } from "@/components/ui";
 import { useCodexUsage } from "@/components/codexbar/use-codex-usage";
 import { TokenUsageDetails } from "@/components/codexbar/TokenUsageDetails";
+import { aggregateTokenUsage } from "@/lib/codexbar/aggregate-token-usage";
 import {
   useCodexProviders,
   type ConfigProvider,
@@ -659,6 +660,7 @@ function ProviderGroupRow({
   onRedeemReset: (provider: CodexBarProvider) => void;
 }) {
   const p = group.provider;
+  const tokenUsage = collapsed ? null : aggregateTokenUsage(group);
   const tone = usageTone(p);
   const label = providerLabel(group.id);
   const planBadge = group.accountRows.length === 0
@@ -725,6 +727,9 @@ function ProviderGroupRow({
             );
           })}
         </ul>
+      )}
+      {tokenUsage && (
+        <TokenUsageDetails usage={tokenUsage.usage} now={now} combined={tokenUsage} />
       )}
     </li>
   );

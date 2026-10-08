@@ -33,6 +33,18 @@ describe("TokenUsageDetails", () => {
     expect(screen.getByTitle(/実測 760,449 tok/)).toBeTruthy();
     expect(screen.getByTitle(/推定残 23,827,402 tok \/ 253,483 tok\/1%/)).toBeTruthy();
   });
+  it("shows partial combined actuals and expires combined remaining estimates without inventing a rate", () => {
+    const data = { ...usage, windows: [{ ...usage.windows[0], tokensPerPercent: null, status: "ready" as const, validUntil: "2026-10-07T10:15:00Z" }] };
+    const combined = { measuredAccounts: 1, totalAccounts: 2 };
+    const { rerender } = render(<TokenUsageDetails usage={data} combined={combined} now={Date.parse("2026-10-07T10:14:00Z")} />);
+    expect(screen.getByText("実測合計（一部）")).toBeTruthy();
+    expect(screen.getByText("推定残 44K tok")).toBeTruthy();
+    expect(screen.queryByText(/tok\/1%/)).toBeNull();
+    expect(screen.getByTitle(/対象 1\/2行の実測合計/)).toBeTruthy();
+    rerender(<TokenUsageDetails usage={data} combined={combined} now={Date.parse("2026-10-07T10:15:00Z")} />);
+    expect(screen.queryByText(/推定残/)).toBeNull();
+    expect(screen.getByText("· 推定なし")).toBeTruthy();
+  });
   it("does not round a positive sub-token rate down to zero", () => {
     render(<TokenUsageDetails usage={{ ...usage, windows: [{ ...usage.windows[0], sampledTokens: 1, sampledPercent: 100, tokensPerPercent: 0.01, estimatedRemainingTokens: 0 }] }} />);
     expect(screen.getByText("· 0.01 tok/1%")).toBeTruthy();

@@ -20,11 +20,15 @@ const unavailableLabel = {
   invalid: "使用率・日時を取得できない",
 };
 
-export function TokenUsageDetails({ usage, now = Date.now() }: { usage: ProviderTokenUsage; now?: number }) {
+export function TokenUsageDetails({ usage, now = Date.now(), combined }: {
+  usage: ProviderTokenUsage;
+  now?: number;
+  combined?: { measuredAccounts: number; totalAccounts: number };
+}) {
   const windows = usage.windows.map((window) => {
     const stale = !!window.validUntil && Date.parse(window.validUntil) <= now;
     const available = !stale && (window.status === undefined || window.status === "ready") &&
-      window.tokensPerPercent !== null && window.estimatedRemainingTokens !== null;
+      (combined !== undefined || window.tokensPerPercent !== null) && window.estimatedRemainingTokens !== null;
     const status = stale ? "stale" : window.status ?? "calibrating";
     return { window, available, status };
   });
@@ -36,9 +40,9 @@ export function TokenUsageDetails({ usage, now = Date.now() }: { usage: Provider
       <div className="flex min-w-0 flex-wrap items-baseline gap-x-1">
         <span
           className="whitespace-nowrap"
-          title={`実測 ${tokens(usage.totalTokens)} tok / 計測開始: ${usage.startedAt ?? "未計測"} / ${usage.responses}完了応答。入力 ${tokens(usage.input)} / 出力 ${tokens(usage.output)} / キャッシュ読取 ${tokens(usage.cacheRead)} / 書込 ${tokens(usage.cacheWrite)} tok。LeafCodePiの完了応答のみ。外部CLI・補助呼出・中断応答は含まない。`}
+          title={`${combined ? `対象 ${combined.measuredAccounts}/${combined.totalAccounts}行の実測合計 / ` : ""}実測 ${tokens(usage.totalTokens)} tok / 計測開始: ${usage.startedAt ?? "未計測"} / ${usage.responses}完了応答。入力 ${tokens(usage.input)} / 出力 ${tokens(usage.output)} / キャッシュ読取 ${tokens(usage.cacheRead)} / 書込 ${tokens(usage.cacheWrite)} tok。LeafCodePiの完了応答のみ。外部CLI・補助呼出・中断応答は含まない。`}
         >
-          実測 <span className="text-text">{compactTokens(usage.totalTokens)} tok</span>
+          {combined ? "実測合計" : "実測"}{combined && combined.measuredAccounts < combined.totalAccounts ? "（一部）" : ""} <span className="text-text">{compactTokens(usage.totalTokens)} tok</span>
         </span>
         {unavailable.length > 0 && (
           <span
@@ -53,10 +57,12 @@ export function TokenUsageDetails({ usage, now = Date.now() }: { usage: Provider
         <div
           key={window.id}
           className="flex min-w-0 flex-wrap gap-x-1"
-          title={`推定残 ${tokens(window.estimatedRemainingTokens!)} tok / ${rateFormat.format(window.tokensPerPercent!)} tok/1% / 使用率差 ${rateFormat.format(window.sampledPercent)}% / 実測 ${tokens(window.sampledTokens)} tok。入力・出力・キャッシュ込み。モデル構成・外部消費・使用率の反映遅延で変動する実績推定であり、保証された残量ではない。古い値・リセット後・計測不足は推定を保留する。`}
+          title={combined
+            ? `推定残合計 ${tokens(window.estimatedRemainingTokens!)} tok。各アカウントの推定残の合計。平均使用率からの再校正・tok/1%の合算は行わない。保証された残量ではない。`
+            : `推定残 ${tokens(window.estimatedRemainingTokens!)} tok / ${rateFormat.format(window.tokensPerPercent!)} tok/1% / 使用率差 ${rateFormat.format(window.sampledPercent)}% / 実測 ${tokens(window.sampledTokens)} tok。入力・出力・キャッシュ込み。モデル構成・外部消費・使用率の反映遅延で変動する実績推定であり、保証された残量ではない。古い値・リセット後・計測不足は推定を保留する。`}
         >
           <span>{window.title}: <span>推定残 {compactTokens(window.estimatedRemainingTokens!)} tok</span></span>
-          <span className="whitespace-nowrap">· {compactTokens(window.tokensPerPercent!, true)} tok/1%</span>
+          {!combined && <span className="whitespace-nowrap">· {compactTokens(window.tokensPerPercent!, true)} tok/1%</span>}
         </div>
       ))}
     </div>

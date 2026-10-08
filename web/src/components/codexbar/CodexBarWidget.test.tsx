@@ -110,6 +110,26 @@ describe("CodexBarWidget", () => {
     fireEvent.click(screen.getByRole("button", { name: /Codex を最小化/ }));
     await waitFor(() => expect(screen.queryByText("推定残 44K tok")).toBeNull());
   });
+  it("shows combined tokens even when every account child is collapsed", async () => {
+    setServerSettings({ collapsed: false, providerCollapsed: { "acc-a::openai-codex": true, "acc-b::openai-codex": true } });
+    const tokenUsage = { input: 700, output: 300, cacheRead: 0, cacheWrite: 0, totalTokens: 1000, responses: 1, startedAt: null,
+      windows: [{ id: "5h", title: "5時間", sampledTokens: 1000, sampledPercent: 2, tokensPerPercent: 500, estimatedRemainingTokens: 40000 }] };
+    useCodexUsage.mockReturnValue({ usage: { ...accountUsage, providers: accountUsage.providers.map((provider, index) => ({ ...provider,
+      tokenUsage: index === 0 ? tokenUsage : { ...tokenUsage, totalTokens: 2000, windows: [{ ...tokenUsage.windows[0], estimatedRemainingTokens: 20000 }] },
+    })) }, loadError: null, refreshing: false, refresh: vi.fn(), now: Date.now() });
+    render(<CodexBarWidget />);
+    expect(await screen.findByText("3K tok")).toBeTruthy();
+    expect(screen.getByText("推定残 60K tok")).toBeTruthy();
+    expect(screen.queryByText(/tok\/1%/)).toBeNull();
+    expect(screen.queryByText("1K tok")).toBeNull();
+    expect(screen.getByRole("button", { name: "仕事用 を展開" })).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "仕事用 を展開" }));
+    expect(await screen.findByText("1K tok")).toBeTruthy();
+    expect(screen.getByText("· 500 tok/1%")).toBeTruthy();
+    expect(screen.getByText("3K tok")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Codex を最小化" }));
+    await waitFor(() => expect(screen.queryByText("3K tok")).toBeNull());
+  });
   beforeEach(() => {
     localStorage.clear();
     resetWidgetSettingsCache();
