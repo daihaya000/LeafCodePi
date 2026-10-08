@@ -2,9 +2,9 @@
 
 ## 進捗・範囲
 
-Phase3全体は未完了。Phase0のBackend/Phase3/JSON分類は118経路・182操作。Git・Diff・コミット文生成13経路・14操作、定義管理14経路・25操作、Provider/モデル設定7経路・8操作、Provider認証JSON4経路・5操作、アカウント管理/資格情報9経路・19操作、利用量/クレジット3経路・5操作、Peer認証共有5経路・9操作、Workspaceファイル/次タスク提案3経路・3操作、Project lifecycle1経路・4操作、Task collection1経路・3操作の合計60経路・95操作の境界を移管した。認証に付随するログインSSE 1経路・1操作も同じownerへ移管した（Phase3 JSONの集計には加算しない）。残る58経路・87操作には既存Backend中継も含まれ、受入条件の確認・残存業務処理の移管が必要。
+Phase3全体は未完了。Phase0のBackend/Phase3/JSON分類は118経路・182操作。Git・Diff・コミット文生成13経路・14操作、定義管理14経路・25操作、Provider/モデル設定7経路・8操作、Provider認証JSON4経路・5操作、アカウント管理/資格情報9経路・19操作、利用量/クレジット3経路・5操作、Peer認証共有5経路・9操作、Workspaceファイル/次タスク提案3経路・3操作、Project lifecycle1経路・4操作、Task collection1経路・3操作、個別Task lifecycle2経路・4操作の合計62経路・99操作の境界を移管した。認証に付随するログインSSE 1経路・1操作も同じownerへ移管した（Phase3 JSONの集計には加算しない）。残る56経路・83操作には既存Backend中継も含まれ、受入条件の確認・残存業務処理の移管が必要。
 
-以下は第1区切り（Git・Diff・コミット文生成）の記録。第2区切りの定義管理、第3区切りのProvider/モデル設定、第4区切りのProvider認証、第5区切りのアカウント管理/資格情報、第6区切りの利用量/クレジット、第7区切りのPeer認証共有、第8区切りのWorkspaceファイル/次タスク提案、第9区切りのProject lifecycle、第10区切りのTask collectionは末尾に記載する。
+以下は第1区切り（Git・Diff・コミット文生成）の記録。第2区切りの定義管理、第3区切りのProvider/モデル設定、第4区切りのProvider認証、第5区切りのアカウント管理/資格情報、第6区切りの利用量/クレジット、第7区切りのPeer認証共有、第8区切りのWorkspaceファイル/次タスク提案、第9区切りのProject lifecycle、第10区切りのTask collection、第11区切りの個別Task lifecycleは末尾に記載する。
 
 | 経路 | 操作 |
 | --- | --- |
@@ -183,7 +183,7 @@ Phase3全体は未完了。Phase0のBackend/Phase3/JSON分類は118経路・182�
 - private `task-collection-command.json`（0600・最大128件）のowner queueがAuto選択/生成・session作成・一括teardownより前にunknownをcheckpointし、同じIDの再実行を再起動後も拒否する。入力/プロンプト/添付/資格情報は台帳に保存しない。受理後のwriteはclient disconnectで取り消さず、喪失/5xxはunknown、自動再送/Next fallbackなし。operation completeはJSON受付処理の終了であり、モデル生成成功・Taskの最終状態・一括削除の原子性ではない。GET時の既存自動archive方針は維持し、Nextで実行しない。
 - 専用guarded entryとhandler/dispatcher入口はAuto/Agent選択、maintenance、session作成、bulk停止・削除より前にNextを拒否。既存Backend runtime entryのcreateTaskも専用入口へ接続。SDK本体は他セッション所有差分のため編集せず、他の未移管Task操作を一律拒否しない。
 - Task metadata/Todo/Goal summary/responseModel、注意一覧、Auto decision/escalationを純粋DTOで深く投影。SDK・credential・初回添付・要求本文など未知フィールドを除去し、nullable legacy fieldsを維持する。一括削除は選択project/noProjectのarchived Codeだけを対象にし、Bot/active/別projectを保持する。
-- 個別Taskのdetail/PATCH/DELETE/abort、message履歴・fork/promote等は未移管。この区切りはTask collection全体の閉包であり、Task全API完了とは扱わない。
+- 第10区切り時点で個別Taskのdetail/PATCH/DELETE/abort、message履歴・fork/promote等は未移管。この区切りはTask collection全体の閉包であり、Task全API完了とは扱わない。detail/PATCH/DELETE/abortは第11区切りで移管。
 
 ### 第10区切りの検証結果
 
@@ -192,3 +192,20 @@ Phase3全体は未完了。Phase0のBackend/Phase3/JSON分類は118経路・182�
 - Backend/Web typecheck、Backend強制ビルド7,016 KiB成功。途中のtest fixture型エラーと古いlocal-by-design期待値を修正して再実行。
 - Webなし実Backend fixtureで実metadata/attention/pane、存在しないprojectへの作成拒否、archived-only bulk削除、実再起動後の保存状態と作成/削除operationの重複拒否を検証（8.2秒）。実有料生成/外部Agent選択・ユーザーTask/workspace/設定/資格情報変更・稼働サービス再起動なし。
 - 全体スイートは今回再実行していない。対象回帰を全体成功と扱わない。
+
+## 第11区切り: 個別Task lifecycle（2経路・4操作）
+
+- `tasks/[id]` GET/PATCH/DELETE、`tasks/[id]/abort` POSTをBackendへ移管。Nextはparamsのtransport encodeとrelay returnだけ。旧localRuntimeBlocked/forward/local fallbackとBot所有者のローカル判断を除去する。
+- 詳細取得/履歴page-size/ページング/omit/ETag、archive/restore/hard-delete、cold Goal Loop・Bot supervised Codeのabortをownerが実行する。Bot IDはownerのstore/outboxから解決し、callerの指定を使用しない。archive済みTaskとarchive済みprojectへのrestore制約、session/背景処理停止・Bot link整合を既存SDKのまま維持する。
+- 単一decode後に安全なTask IDと既存`bot:<id>`を検証し、slash/二重encode/path escapeを拒否する。変更bodyは4 KiB。collectionの`task-collection-command.json`とowner queueを共有し、hydrate/store更新/停止/削除より前に入口でNextを拒否、変更はunknown checkpoint後に実行する。accepted操作はclient disconnectで取消し・自動再送しない。completeは停止・削除・model生成の原子性/成功を保証しない。
+- getTaskDetailBounded/history-page-sizeをBackendへ移動しWebは互換exportだけ。30秒live budget→10秒offline budget→最終503の既存契約を維持する。レビューで旧Backend入口のread-only契約を確認し、新GETにも明示してcold GETによるsession生成を防止した。登録済liveは現在のowner snapshot、cold/他lease/archivedはtranscriptを読む。omitはhydrate optionに加えて最終messages空配列を保証する。
+- 純粋TaskDetail DTOでmessages/parts/tool state/nested calls/Goal/Todo/context/permission/question/diagnosticsを深く投影し、SDK・credential・診断headers/stack等の未知フィールドを除去する。認可済みの会話text/thinking・添付・Goal本文/初回画像・tool input/outputはユーザーコンテンツとして維持する例外であり、tool inputのJSON再帰は64段上限。任意SDK objectの一般公開ではない。
+- 既存Backend runtime entryのdetail/archive/destroy/cold abort/Bot stopもguarded入口へ接続。他セッションのharness.ts差分には触れない。message履歴/search/bookmark・prompt・fork/promote・Goal制御等は残る。
+
+### 第11区切りの検証結果
+
+- owner/実BFF・bounded timeout・cold read-only・restore/abort/archive/hard-delete・SDK session/背景作業停止・runtime ownership回帰88/88成功。実205-message transcriptでfull/page/omit、nullable DTO、ETag/304、directory/履歴file保持、archive済project拒否・不正ID・Next入口拒否を確認。Bot supervision/cold Goalの停止は制御SDK回帰を併用する。
+- pure DTO/履歴/共有admission・TaskDetail source rules・transport・AST/API ownership102/102成功。累計62経路・99操作でNext transport-onlyを確認。途中の旧route guard件数と薄いhandlerのAST期待値を更新して再実行。
+- Backend/Web typecheck、Backend強制ビルド7,026 KiB成功。
+- Webなし実Backend fixtureで実205-message履歴full/page/omit、restore→cold read-only→abort→archive、実再起動後の履歴/状態とrestore重複拒否、hard delete後のtranscript file保持を検証（7.5秒）。実有料生成・ユーザーsession/Goal/Bot/資格情報変更・稼働サービス再起動なし。
+- 全体スイートは今回再実行していない。個別Taskライフサイクル完了とPhase3全体完了を区別する。

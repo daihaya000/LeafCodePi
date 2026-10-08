@@ -12,6 +12,8 @@ import { GET as workspaceFiles } from "../app/api/projects/[id]/files/route";
 import { PATCH as patchProject, GET as listProjects } from "../app/api/projects/route";
 import { POST as createCollectionTask, GET as collectionTasks, DELETE as clearArchivedTasks } from "../app/api/tasks/route";
 import { TASK_COLLECTION_BODY_LIMIT } from "@shared/task-collection-contract.mjs";
+import { GET as taskDetail, PATCH as restoreIndividualTask, DELETE as teardownIndividualTask } from "../app/api/tasks/[id]/route";
+import { POST as abortIndividualTask } from "../app/api/tasks/[id]/abort/route";
 import { POST as nextTask } from "../app/api/projects/[id]/next-task/route";
 let root: string;
 const fetcher = vi.fn();
@@ -25,6 +27,21 @@ beforeEach(() => {
 });
 afterEach(() => { vi.unstubAllGlobals(); vi.unstubAllEnvs(); rmSync(root, { recursive: true, force: true }); });
 describe("JSON business ingress", () => {
+  it("individual task detail relays modes, projects rich DTOs and retains 304 without local reads", async () => {
+    fetcher.mockResolvedValueOnce(Response.json({ status: 200, body: { task: { id: "bot:fixture", status: "idle", isStreaming: false, messages: [], permissionRequest: { id: "p", command: "inspect", token: "PRIVATE" }, session: { token: "PRIVATE" } } } }));
+    const context = { params: Promise.resolve({ id: "bot:fixture" }) };
+    const response = await taskDetail(new NextRequest("http://localhost/api/tasks/bot%3Afixture?messages=omit"), context);
+    expect(response.status).toBe(200); expect(JSON.stringify(await response.json())).not.toContain("PRIVATE"); expect(fetcher.mock.calls[0][0]).toContain("/tasks/bot%3Afixture?messages=omit"); expect(new Headers(fetcher.mock.calls[0][1].headers).has("x-leafcode-business-operation")).toBe(false);
+    fetcher.mockResolvedValueOnce(Response.json({ status: 304, headers: { etag: "e" }, body: null })); expect((await taskDetail(new NextRequest("http://localhost/api/tasks/bot%3Afixture?messages=page"), context)).status).toBe(304); expect(readdirSync(root)).toEqual([]);
+  });
+  it("restore/archive/hard-delete/abort require matching operation ACKs and do not select Bot ownership in Next", async () => {
+    const context = { params: Promise.resolve({ id: "t" }) };
+    fetcher.mockImplementation(async (_url, options) => Response.json({ status: 200, body: { ok: true, operation: { id: new Headers(options.headers).get("x-leafcode-business-operation"), execution: "complete" } } }));
+    expect((await restoreIndividualTask(new NextRequest("http://localhost/api/tasks/t", { method: "PATCH", body: '{"archived":false}' }), context)).status).toBe(200);
+    expect((await teardownIndividualTask(new NextRequest("http://localhost/api/tasks/t?hard=1", { method: "DELETE" }), context)).status).toBe(200);
+    expect((await abortIndividualTask(new NextRequest("http://localhost/api/tasks/t/abort", { method: "POST", body: '{"botId":"untrusted"}' }), context)).status).toBe(200); expect(fetcher.mock.calls[2][0]).toContain("/tasks/t/abort"); expect(readdirSync(root)).toEqual([]);
+    fetcher.mockResolvedValueOnce(Response.json({ status: 200, body: { ok: true } })); const lost = await teardownIndividualTask(new NextRequest("http://localhost/api/tasks/t", { method: "DELETE" }), context); expect((await lost.json()).execution).toBe("unknown"); expect(fetcher).toHaveBeenCalledTimes(4);
+  });
   it("actual task route forwards opaque Auto/Agent/Goal/attachment inputs only to Backend and verifies the command ACK", async () => {
     const input = JSON.stringify({ projectId: null, prompt: "create", auto: true, agent: "auto", goalLoop: { enabled: true, maxTurns: 2 }, files: [] });
     fetcher.mockImplementationOnce(async (_url, options) => {

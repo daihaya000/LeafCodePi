@@ -46,11 +46,13 @@ test("Backend builds and serves its runtime API without Web sources or Web packa
 
   const data = join(fixture, "data"), agent = join(fixture, "agent");
   mkdirSync(data); mkdirSync(agent);
+  const individualSessionFile = join(fixture, "individual-session.jsonl");
+  writeFileSync(individualSessionFile, [JSON.stringify({ type: "session", version: 3, id: "isolated-session", cwd: fixture, timestamp: new Date().toISOString() }), ...Array.from({ length: 205 }, (_, i) => JSON.stringify({ type: "message", id: `ui${i}`, parentId: i ? `ui${i-1}` : null, timestamp: new Date().toISOString(), message: { role: "user", content: [{ type: "text", text: `isolated line ${i}` }], timestamp: i } }))].join("\n") + "\n", "utf8");
   writeFileSync(join(data, "store.json"), JSON.stringify({ version: 1, projects: [{ id: "fixture-project", name: "Fixture", rootPath: join(fixture, "workspaces"), archived: false, createdAt: "2026-01-01T00:00:00.000Z", updatedAt: "2026-01-01T00:00:00.000Z" }], tasks: [{
     id: "independent-task", projectId: null, projectName: "test", title: "Backend-owned task", directory: fixture,
     isolation: "current_folder", status: "idle", sessionId: null, sessionFile: null,
     createdAt: "2026-01-01T00:00:00.000Z", updatedAt: new Date().toISOString(),
-  }, { id: "task-collection-archived", projectId: null, projectName: "test", title: "Isolated bulk target", directory: fixture, isolation: "current_folder", status: "archived", sessionId: null, sessionFile: null, createdAt: "2026-01-01T00:00:00.000Z", updatedAt: new Date().toISOString() }] }));
+  }, { id: "task-collection-archived", projectId: null, projectName: "test", title: "Isolated bulk target", directory: fixture, isolation: "current_folder", status: "archived", sessionId: null, sessionFile: null, createdAt: "2026-01-01T00:00:00.000Z", updatedAt: new Date().toISOString() }, { id: "individual-task", projectId: "fixture-project", projectName: "Fixture", title: "Isolated archived transcript", directory: fixture, isolation: "current_folder", status: "archived", sessionId: null, sessionFile: individualSessionFile, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() }] }));
   const token = randomBytes(32).toString("hex");
   const launchOptions = {
     cwd: fixture, stdio: ["ignore", "pipe", "pipe"],
@@ -230,6 +232,15 @@ test("Backend builds and serves its runtime API without Web sources or Web packa
   const taskBulkId = "bdbdbdbd-bbbb-cccc-dddd-eeeeeeeeeeee";
   const taskBulk = await fetch(`${base}/internal/json-business/tasks?noProject=1`, { method: "DELETE", headers: { ...businessHeaders, "x-leafcode-business-operation": taskBulkId }, signal: AbortSignal.timeout(5000) }); const taskRemoved = await taskBulk.json(); assert.equal(taskRemoved.body.removed, 1); assert.equal(taskRemoved.body.operation.execution, "complete");
   assert.ok(!readFileSync(join(data, "task-collection-command.json"), "utf8").includes("no paid generation"));
+  const individualFull = await business("tasks/individual-task", undefined); assert.equal(individualFull.status, 200); assert.equal(individualFull.body.task.messages.length, 205); assert.equal(individualFull.body.task.isStreaming, false);
+  const individualPage = await business("tasks/individual-task", undefined, "?messages=page"); assert.equal(individualPage.body.task.messages.length, 100); assert.equal(individualPage.body.task.messageHistory.hasMore, true);
+  const individualOmit = await business("tasks/individual-task", undefined, "?messages=omit"); assert.deepEqual(individualOmit.body.task.messages, []);
+  const individualRestoreId = "cececece-bbbb-cccc-dddd-eeeeeeeeeeee";
+  const individualRestore = await business("tasks/individual-task", { archived: false }, "", { "x-leafcode-business-operation": individualRestoreId }, "PATCH"); assert.equal(individualRestore.status, 200); assert.equal(individualRestore.body.task.status, "idle");
+  const individualColdRead = await business("tasks/individual-task", undefined, "?messages=omit"); assert.equal(individualColdRead.status, 200); assert.equal(individualColdRead.body.task.status, "idle"); assert.deepEqual(individualColdRead.body.task.messages, []);
+  const individualStop = await business("tasks/individual-task/abort", {}, "", { "x-leafcode-business-operation": "dfdfdfdf-bbbb-cccc-dddd-eeeeeeeeeeee" }); assert.equal(individualStop.status, 200);
+  const individualArchive = await fetch(`${base}/internal/json-business/tasks/individual-task`, { method: "DELETE", headers: { ...businessHeaders, "x-leafcode-business-operation": "eaeaeaea-bbbb-cccc-dddd-eeeeeeeeeeee" }, signal: AbortSignal.timeout(5000) }); assert.equal((await individualArchive.json()).body.task.status, "archived");
+  assert.equal((await business("tasks/%252F", undefined)).status, 400);
   // Restart the actual owner process, retaining only its disk state, not a Web fallback or a module cache.
   const exited = new Promise((done) => child.once("exit", done)); child.kill(); await exited;
   stdout = ""; stderr = ""; listening = undefined; child = launch();
@@ -287,6 +298,9 @@ test("Backend builds and serves its runtime API without Web sources or Web packa
   assert.deepEqual((await usageConfigOutcome.json()).mutation, usageConfig.body.mutation);
   const consumeReplay = await fetch(`${restartedBase}/internal/json-business/codexbar/reset-credits`, { method: "POST", headers: { ...businessHeaders, "x-leafcode-business-operation": usageOperation }, body: JSON.stringify({ creditId: "must-not-execute" }), signal: AbortSignal.timeout(3000) });
   assert.equal((await consumeReplay.json()).status, 409);
+  const individualReload = await fetch(`${restartedBase}/internal/json-business/tasks/individual-task?messages=page`, { headers: businessHeaders, signal: AbortSignal.timeout(3000) }); const individualReloaded = await individualReload.json(); assert.equal(individualReloaded.body.task.status, "archived"); assert.equal(individualReloaded.body.task.messages.length, 100);
+  const individualReplay = await fetch(`${restartedBase}/internal/json-business/tasks/individual-task`, { method: "PATCH", headers: { ...businessHeaders, "x-leafcode-business-operation": individualRestoreId }, body: JSON.stringify({ archived: false }), signal: AbortSignal.timeout(3000) }); assert.equal((await individualReplay.json()).status, 409);
+  const individualDelete = await fetch(`${restartedBase}/internal/json-business/tasks/individual-task?hard=1`, { method: "DELETE", headers: { ...businessHeaders, "x-leafcode-business-operation": "fbfbfbfb-bbbb-cccc-dddd-eeeeeeeeeeee" }, signal: AbortSignal.timeout(3000) }); assert.equal((await individualDelete.json()).body.ok, true); assert.ok(readFileSync(individualSessionFile, "utf8").includes("isolated line 204"));
   const taskReplay = await fetch(`${restartedBase}/internal/json-business/tasks?noProject=1`, { method: "DELETE", headers: { ...businessHeaders, "x-leafcode-business-operation": taskBulkId }, signal: AbortSignal.timeout(3000) }); assert.equal((await taskReplay.json()).status, 409);
   const taskReload = await fetch(`${restartedBase}/internal/json-business/tasks?titles=1&archived=1&kind=all`, { headers: businessHeaders, signal: AbortSignal.timeout(3000) }); const taskReloaded = (await taskReload.json()).body.tasks; assert.ok(!taskReloaded.some(task => task.id === "task-collection-archived")); assert.ok(taskReloaded.some(task => task.id === "independent-task"));
   const taskCreateReplay = await fetch(`${restartedBase}/internal/json-business/tasks`, { method: "POST", headers: { ...businessHeaders, "x-leafcode-business-operation": taskCreateId }, body: JSON.stringify({ projectId: "missing-fixture-project", prompt: "no paid generation" }), signal: AbortSignal.timeout(3000) }); assert.equal((await taskCreateReplay.json()).status, 409);

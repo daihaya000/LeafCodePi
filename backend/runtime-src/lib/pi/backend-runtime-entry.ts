@@ -13,14 +13,12 @@ export { dispatchJsonBusinessRequest } from "../../json-business/index";
 export { openProviderLoginEvents } from "../../json-business/provider-auth-events";
 
 export { createTask } from "../task-collection";
+export { getTaskDetail, archiveTask, destroyTask, abortTaskIncludingColdGoalLoop, stopBotCodeTask } from "../task-lifecycle";
 export {
   promptTask,
-  getTaskDetail,
   getTaskDetailReadOnly,
   abortTask,
   // Abort must reproduce both the Goal Loop (cold) path and the Bot-owned outbox path.
-  abortTaskIncludingColdGoalLoop,
-  stopBotCodeTask,
   listPendingAttention,
   pendingPermissionForTask,
   pendingQuestionForTask,
@@ -50,13 +48,11 @@ export {
   // Rewinding a transcript rewrites the session and clears the owner's pending attention.
   revertTask,
   unrevertTask,
-  archiveTask,
   reloadLiveSessionsContext,
   refreshLiveSessionsForAgentDefinition,
   promoteTask,
   handoffTaskToBot,
   releaseTaskFromBot,
-  destroyTask,
   // Compaction summarizes inside the session, so only the owner may run or stop it.
   compactTask,
   abortTaskCompaction,
