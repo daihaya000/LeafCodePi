@@ -42,7 +42,7 @@ describe("Command Code API-key input", () => {
     render(<ProviderAuthPanel providers={[provider]} onChanged={() => {}} />);
     const card = (await screen.findByText("GOAT")).closest("li")!;
     expect(within(card).getByRole("button", { name: "ログイン" })).toBeTruthy();
-    fireEvent.click(within(card).getByRole("button", { name: /^API キー$/ }));
+    fireEvent.click(within(card).getByRole("button", { name: "APIキー登録" }));
     await waitFor(() => expect(TestEventSource.instances).toHaveLength(1));
     expect(fetchMock).toHaveBeenCalledWith(
       expect.stringContaining("/api/providers/commandcode/login?accountId=goat-account"),

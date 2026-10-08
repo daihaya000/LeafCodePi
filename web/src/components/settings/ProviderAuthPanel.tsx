@@ -174,14 +174,13 @@ function resetCreditsQuery(provider: CodexBarProvider): Record<string, string> {
   };
 }
 
-/** ログイン方式が 1 つだけのプロバイダーは従来どおりのラベルにする。 */
-function accountLoginLabel(
+/** 認証方式と、その方式の登録状態に合わせた操作ラベル。 */
+function providerLoginLabel(
   authType: "api_key" | "oauth",
-  methodCount: number,
   authenticated: boolean,
 ): string {
-  if (methodCount > 1) {
-    return authType === "oauth" ? "ログイン" : "API キー";
+  if (authType === "api_key") {
+    return authenticated ? "APIキー変更" : "APIキー登録";
   }
   return authenticated ? "再ログイン" : "ログイン";
 }
@@ -1738,10 +1737,12 @@ export const ProviderAuthPanel = memo(function ProviderAuthPanel({
                                         )
                                       }
                                     >
-                                      {accountLoginLabel(
+                                      {providerLoginLabel(
                                         authType,
-                                        accountAuthTypes.length,
-                                        authenticated,
+                                        piAuthenticated && (
+                                          credentialKinds[currentCookieKey] === authType ||
+                                          (!credentialKinds[currentCookieKey] && accountAuthTypes.length === 1)
+                                        ),
                                       )}
                                     </Button>
                                   ))}
@@ -2341,7 +2342,7 @@ function ProviderRow({
         <div className="flex flex-wrap gap-1">
           {!accountManaged && onOAuth && (
             <Button size="sm" disabled={disabled} onClick={onOAuth}>
-              ログイン
+              {providerLoginLabel("oauth", provider.authenticated && provider.subscription === true)}
             </Button>
           )}
           {!accountManaged && onApiKey && (
@@ -2351,7 +2352,7 @@ function ProviderRow({
               disabled={disabled}
               onClick={onApiKey}
             >
-              API キー
+              {providerLoginLabel("api_key", provider.authenticated && !provider.subscription)}
             </Button>
           )}
           {!accountManaged && onLogout && provider.authenticated && (

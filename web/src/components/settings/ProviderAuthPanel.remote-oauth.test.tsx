@@ -77,7 +77,7 @@ describe("remote provider OAuth", () => {
   it("keeps API-key prompts inside the selected account", async () => {
     render(<ProviderAuthPanel providers={[{ ...providers[0], oauthAvailable: false, methods: ["api_key"] }]} onChanged={() => {}} />);
     const card = (await screen.findByText(otherAccount.label)).closest("li")!;
-    fireEvent.click(within(card).getByRole("button", { name: "再ログイン" }));
+    fireEvent.click(within(card).getByRole("button", { name: "APIキー変更" }));
     await waitFor(() => expect(TestEventSource.instances).toHaveLength(1));
     await emit("prompt", { id: "key", prompt: { type: "secret", message: "API key" } });
     expect(within(card).getByLabelText("API key").getAttribute("type")).toBe("password");
@@ -87,7 +87,7 @@ describe("remote provider OAuth", () => {
   it("keeps shared-provider login inside its provider card", async () => {
     render(<ProviderAuthPanel providers={[{ id: "typesafe", name: "TypeSafe", authenticated: false, highlighted: true, methods: ["api_key"] }]} onChanged={() => {}} />);
     const card = screen.getByText("TypeSafe", { selector: "span" }).closest("li")!;
-    fireEvent.click(within(card).getByRole("button", { name: "API キー" }));
+    fireEvent.click(within(card).getByRole("button", { name: "APIキー登録" }));
     await waitFor(() => expect(TestEventSource.instances).toHaveLength(1));
     await emit("prompt", { id: "key", prompt: { type: "secret", message: "Shared API key" } });
     expect(within(card).getByRole("region", { name: "TypeSafe のログイン" })).toBeTruthy();
