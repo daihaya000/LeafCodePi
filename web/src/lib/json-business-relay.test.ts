@@ -14,6 +14,10 @@ import { POST as createCollectionTask, GET as collectionTasks, DELETE as clearAr
 import { TASK_COLLECTION_BODY_LIMIT } from "@shared/task-collection-contract.mjs";
 import { GET as taskDetail, PATCH as restoreIndividualTask, DELETE as teardownIndividualTask } from "../app/api/tasks/[id]/route";
 import { POST as abortIndividualTask } from "../app/api/tasks/[id]/abort/route";
+import { GET as historyPage } from "../app/api/tasks/[id]/messages/route";
+import { GET as historySearch } from "../app/api/tasks/[id]/search/route";
+import { GET as bookmarks, PUT as addBookmark, DELETE as removeBookmark } from "../app/api/tasks/[id]/bookmarks/route";
+import { TASK_HISTORY_BODY_LIMIT } from "@shared/task-history-contract.mjs";
 import { POST as nextTask } from "../app/api/projects/[id]/next-task/route";
 let root: string;
 const fetcher = vi.fn();
@@ -27,6 +31,23 @@ beforeEach(() => {
 });
 afterEach(() => { vi.unstubAllGlobals(); vi.unstubAllEnvs(); rmSync(root, { recursive: true, force: true }); });
 describe("JSON business ingress", () => {
+  it("actual history/search/bookmark routes relay query/encoded IDs and strip nested private data without local work",async()=>{
+    const context={params:Promise.resolve({id:"bot:fixture"})};
+    fetcher.mockResolvedValueOnce(Response.json({status:200,body:{messages:[{id:"u",role:"user",createdAt:1,parts:[{id:"p",type:"text",text:"authored",token:"PRIVATE"}],session:"PRIVATE"}],messageHistory:{hasMore:false,nextCursor:null},token:"PRIVATE"}}));
+    const page=await historyPage(new NextRequest("http://localhost/api/tasks/bot%3Afixture/messages?before=u1"),context);expect(page.status).toBe(200);expect(JSON.stringify(await page.json())).not.toContain("PRIVATE");expect(fetcher.mock.calls[0][0]).toContain("/tasks/bot%3Afixture/messages?before=u1");
+    fetcher.mockResolvedValueOnce(Response.json({status:200,body:{terms:["x"],total:1,truncated:false,hits:[{messageId:"u",role:"user",createdAt:1,snippet:"x",highlights:[[0,1]],count:1,token:"PRIVATE"}]}}));
+    expect((await historySearch(new NextRequest("http://localhost/api/tasks/bot%3Afixture/search?q=x&limit=2"),context)).status).toBe(200);expect(fetcher.mock.calls[1][0]).toContain("?q=x&limit=2");
+    fetcher.mockResolvedValueOnce(Response.json({status:200,body:{bookmarks:[],missing:[]}}));expect((await bookmarks(new NextRequest("http://localhost/api/tasks/bot%3Afixture/bookmarks?verify=1"),context)).status).toBe(200);expect(readdirSync(root)).toEqual([]);
+  });
+  it("bookmark writes require matching ACKs, auth/Origin and bounded transport, without retry/fallback",async()=>{
+    const context={params:Promise.resolve({id:"t"})};
+    fetcher.mockImplementationOnce(async(_url,options)=>Response.json({status:200,body:{bookmarks:[],operation:{id:new Headers(options.headers).get("x-leafcode-business-operation"),execution:"complete"}}}));
+    expect((await addBookmark(new NextRequest("http://localhost/api/tasks/t/bookmarks",{method:"PUT",body:'{"messageId":"u","role":"user"}'}),context)).status).toBe(200);
+    fetcher.mockResolvedValueOnce(Response.json({status:200,body:{bookmarks:[]}}));const lost=await removeBookmark(new NextRequest("http://localhost/api/tasks/t/bookmarks?messageId=u",{method:"DELETE"}),context);expect((await lost.json()).execution).toBe("unknown");expect(fetcher).toHaveBeenCalledTimes(2);
+    expect((await addBookmark(new NextRequest("http://localhost/api/tasks/t/bookmarks",{method:"PUT",body:"x".repeat(TASK_HISTORY_BODY_LIMIT+1)}),context)).status).toBe(413);
+    expect((await addBookmark(new NextRequest("http://localhost/api/tasks/t/bookmarks",{method:"PUT",body:"{}",headers:{origin:"https://evil.test"}}),context)).status).toBe(403);
+    vi.stubEnv("LEAFCODE_PI_WEBUI_AUTH","required");expect((await bookmarks(new NextRequest("http://localhost/api/tasks/t/bookmarks"),context)).status).toBe(401);expect(fetcher).toHaveBeenCalledTimes(2);expect(readdirSync(root)).toEqual([]);
+  });
   it("individual task detail relays modes, projects rich DTOs and retains 304 without local reads", async () => {
     fetcher.mockResolvedValueOnce(Response.json({ status: 200, body: { task: { id: "bot:fixture", status: "idle", isStreaming: false, messages: [], permissionRequest: { id: "p", command: "inspect", token: "PRIVATE" }, session: { token: "PRIVATE" } } } }));
     const context = { params: Promise.resolve({ id: "bot:fixture" }) };

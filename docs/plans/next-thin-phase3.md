@@ -2,9 +2,9 @@
 
 ## 進捗・範囲
 
-Phase3全体は未完了。Phase0のBackend/Phase3/JSON分類は118経路・182操作。Git・Diff・コミット文生成13経路・14操作、定義管理14経路・25操作、Provider/モデル設定7経路・8操作、Provider認証JSON4経路・5操作、アカウント管理/資格情報9経路・19操作、利用量/クレジット3経路・5操作、Peer認証共有5経路・9操作、Workspaceファイル/次タスク提案3経路・3操作、Project lifecycle1経路・4操作、Task collection1経路・3操作、個別Task lifecycle2経路・4操作の合計62経路・99操作の境界を移管した。認証に付随するログインSSE 1経路・1操作も同じownerへ移管した（Phase3 JSONの集計には加算しない）。残る56経路・83操作には既存Backend中継も含まれ、受入条件の確認・残存業務処理の移管が必要。
+Phase3全体は未完了。Phase0のBackend/Phase3/JSON分類は118経路・182操作。Git・Diff・コミット文生成13経路・14操作、定義管理14経路・25操作、Provider/モデル設定7経路・8操作、Provider認証JSON4経路・5操作、アカウント管理/資格情報9経路・19操作、利用量/クレジット3経路・5操作、Peer認証共有5経路・9操作、Workspaceファイル/次タスク提案3経路・3操作、Project lifecycle1経路・4操作、Task collection1経路・3操作、個別Task lifecycle2経路・4操作、Task履歴/検索/bookmark3経路・5操作の合計65経路・104操作の境界を移管した。認証に付随するログインSSE 1経路・1操作も同じownerへ移管した（Phase3 JSONの集計には加算しない）。残る53経路・78操作には既存Backend中継も含まれ、受入条件の確認・残存業務処理の移管が必要。
 
-以下は第1区切り（Git・Diff・コミット文生成）の記録。第2区切りの定義管理、第3区切りのProvider/モデル設定、第4区切りのProvider認証、第5区切りのアカウント管理/資格情報、第6区切りの利用量/クレジット、第7区切りのPeer認証共有、第8区切りのWorkspaceファイル/次タスク提案、第9区切りのProject lifecycle、第10区切りのTask collection、第11区切りの個別Task lifecycleは末尾に記載する。
+以下は第1区切り（Git・Diff・コミット文生成）の記録。第2区切りの定義管理、第3区切りのProvider/モデル設定、第4区切りのProvider認証、第5区切りのアカウント管理/資格情報、第6区切りの利用量/クレジット、第7区切りのPeer認証共有、第8区切りのWorkspaceファイル/次タスク提案、第9区切りのProject lifecycle、第10区切りのTask collection、第11区切りの個別Task lifecycle、第12区切りのTask履歴/検索/bookmarkは末尾に記載する。
 
 | 経路 | 操作 |
 | --- | --- |
@@ -209,3 +209,18 @@ Phase3全体は未完了。Phase0のBackend/Phase3/JSON分類は118経路・182�
 - Backend/Web typecheck、Backend強制ビルド7,026 KiB成功。
 - Webなし実Backend fixtureで実205-message履歴full/page/omit、restore→cold read-only→abort→archive、実再起動後の履歴/状態とrestore重複拒否、hard delete後のtranscript file保持を検証（7.5秒）。実有料生成・ユーザーsession/Goal/Bot/資格情報変更・稼働サービス再起動なし。
 - 全体スイートは今回再実行していない。個別Taskライフサイクル完了とPhase3全体完了を区別する。
+
+## 第12区切り: Task履歴・検索・bookmark（3経路・5操作）
+
+- `tasks/[id]/messages` GET、`search` GET、`bookmarks` GET/PUT/DELETEをBackendへ移管。NextはIDのtransport encodeとrelay returnだけ。履歴の設定page size・cursor検証、古いpageのbase64画像省略、全文検索・hidden retry除外・stable ID・snippet/highlight・最新hit上限、bookmarkの検証/保存/重複排除/並び順/削除/pruneをownerが実行する。
+- `task-transcript`/`task-bookmarks`の正本をBackendへ移動し、Webは互換exportのみ。履歴/search/verifyは共通bounded read-only readerで登録済liveのowner snapshotまたはcold/foreign/archived transcriptを読む。cold sessionを生成せず、30秒primary/10秒offline/503の既存detail予算を維持する。searchは最大2件・3秒の既存read再利用、失敗は保持しない。verifyのmissingはbest effortで、読取失敗時には返さない。
+- bookmark変更はcollection/lifecycleと同じprivate Task admission ledger/queueを使用し、受理前のunknown checkpoint、再起動後の同一ID拒否、ACK確認、送信後unknown、無自動再送/Next fallback、accepted操作のdisconnect非取消を維持する。operation completeはJSON処理の終了であり、メッセージの存在・Taskとの原子的更新を保証しない。既存4,000文字制限を維持する16,000-byte transport上限。認証/Origin/世代/readinessは共通入口、ownerもtrusted authorized contextとbyte上限を確認する。
+- handler/reader入口とbookmark共通writerをguardし、Nextはcached transcriptにも到達できず、file lock/backup/保存前に拒否する。Bookmark ID alphabetなど既存制約は変更しない。SDK本体の他セッション差分には触れない。
+- sharedの純粋契約でpage/messages/partsと検索hit/highlight、bookmark/missing/operationを深く投影。会話やpreviewなど認可済みユーザーコンテンツを維持し、SDK・credential・unknown fields/headersを除去する。画像省略は純粋shared helperをBackendと既存UIで共有する。
+
+### 第12区切りの検証結果
+
+- Task history/search/bookmark owner・実BFF・reader cache・旧UI履歴回帰60/60成功。実205-message transcriptのcursor/古い画像省略/全文検索/UTF-16 highlight、bookmarkのmissing・重複・削除、認証/Origin/不正body/byte上限/ID/Next writer拒否を検証。個別Task/collection/共有型/runtime ownership/bounded readerの関連回帰25/25成功。
+- pure DTO/履歴/検索/bookmark store/共有Task admission・Backend transport・AST境界100/100成功。累計65経路・104操作がNext transport-only。途中の認可済context/byte上限のownerチェック不足、テストの無効operation IDを修正・再検証した。既存の有限timestamp互換性を投影でも維持する。
+- Backend/Web typecheck、Backend強制ビルド7,050 KiB成功。Webなし実Backend fixtureで実205-message履歴2page/不明cursor/full search、bookmark追加/verify、実再起動後の保存・重複拒否・削除を検証（7.3秒）。
+- 全体スイートは今回再実行していない。実有料生成・稼働ユーザーsession/サービス変更なし。Phase3全体は未完了で、prompt・model/thinking/Agent・Goal制御・fork/promote/revert等の53経路・78操作が残る。

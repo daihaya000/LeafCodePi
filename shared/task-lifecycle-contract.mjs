@@ -51,6 +51,7 @@ function permission(v) { return fields(v,{...shape(["id","sessionId","command","
 function question(v) {
   const out=fields(v,shape(["id","sessionId"])); out.questions=array(v.questions,q=>{ const result=fields(q,shape(["question","header"],[],["multiple","custom"])); result.options=array(q.options,o=>fields(o,shape(["label","description"]))); return result; }); return out;
 }
+export function publicUiMessages(v) { try { return array(v,message); } catch { return null; } }
 export function publicTaskDetail(v) {
   try {
     const out=publicTaskSummary(v); if(!out||!boolean(v.isStreaming))return null;

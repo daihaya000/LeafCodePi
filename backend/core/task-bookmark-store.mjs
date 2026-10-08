@@ -2,6 +2,7 @@ import { copyFileSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSyn
 import { dirname } from "node:path";
 import { randomUUID } from "node:crypto";
 import { isStableMessageId } from "../../shared/task-search.mjs";
+import { assertConfigurationOwner } from "./configuration-command.mjs";
 import { withFileLock } from "./file-lock.mjs";
 
 export const MAX_BOOKMARKS_PER_TASK = 500;
@@ -109,6 +110,7 @@ export class TaskBookmarkStore {
 
   /** Run `update(data)` under the file lock; it returns `{ result, changed }`. */
   #mutate(update) {
+    assertConfigurationOwner();
     const file = this.filePath();
     return withFileLock(file, () => {
       const { data, corrupt } = this.#read();
