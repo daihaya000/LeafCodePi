@@ -87,6 +87,7 @@ async function readJsonBody(req, maxBytes = 16_384) {
  *   onRestartHostBlocked?: () => Promise<string | null> | string | null,
  *   onRestartHost?: () => Promise<unknown> | unknown,
  *   onRestartHostEstimate?: () => Promise<{ estimateMs: number, estimateSamples: number }> | { estimateMs: number, estimateSamples: number },
+ *   onUserActivity?: () => void,
  *   onBrowserConfigRead?: () => { autoOpenBrowser: boolean },
  *   onBrowserConfigWrite?: (patch: { autoOpenBrowser: boolean }) => { autoOpenBrowser: boolean },
  *   onWebUiAuthRead?: () => object,
@@ -195,6 +196,13 @@ export function createLlamaControlServer(handlers) {
         }
         res.writeHead(405, headers);
         res.end(JSON.stringify({ ok: false, error: "method not allowed" }));
+        return;
+      }
+
+      if (method === "POST" && pathname === "/host/activity") {
+        handlers.onUserActivity?.();
+        res.writeHead(204, { "cache-control": "no-store" });
+        res.end();
         return;
       }
 

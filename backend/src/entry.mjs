@@ -280,6 +280,8 @@ try {
       const runtime = started.runtime();
       if (!runtime) throw new Error("runtime unavailable");
       switch (action) {
+        case "prepare-auto-update": return runtime.prepareAutoUpdate();
+        case "release-auto-update": runtime.releaseAutoUpdate(); return { released: true };
         case "read-compaction": return runtime.getCompactionSettings();
         case "set-compaction": return runtime.setCompactionEnabled(value);
         case "read-cache-warming": return runtime.getCacheWarmingMode();
@@ -292,7 +294,10 @@ try {
     readRuntimeState: () => {
       const runtime = started.runtime();
       if (!runtime) throw new Error("runtime unavailable");
-      return { taskIds: runtime.activeGoalLoopTaskIds() };
+      // Strict auto-update failures must not change the manual Goal Loop recovery contract.
+      let autoUpdate = null;
+      try { autoUpdate = runtime.readAutoUpdateState?.() ?? null; } catch { /* unknown blocks auto-update */ }
+      return { taskIds: runtime.activeGoalLoopTaskIds(), autoUpdate };
     },
     readAttention: () => {
       const runtime = started.runtime();

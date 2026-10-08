@@ -11,6 +11,8 @@
  * Backend and the WebUI as its client, so production never needs to be told.
  */
 
+import { assertAutoUpdateAvailable } from "./auto-update-maintenance";
+
 const runtimeGlobals = globalThis as typeof globalThis & { __leafcodeRuntimeOwnerUnavailable?: boolean };
 
 /** Values that mean this process is the Backend runtime host (the Backend's own marker). */
@@ -55,5 +57,6 @@ export function isRuntimeNotOwnedError(value: unknown): value is RuntimeNotOwned
 
 /** Throws when this process must not start a session. Called before any side effect. */
 export function assertLocalRuntimeAllowed(env: Record<string, string | undefined> = process.env): void {
+  assertAutoUpdateAvailable();
   if (localRuntimeBlocked(env)) throw new RuntimeNotOwnedError();
 }

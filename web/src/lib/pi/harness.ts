@@ -4,7 +4,7 @@ import { rm } from "node:fs/promises";
 import { homedir } from "node:os";
 import { basename, dirname, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { captureSessionBackgroundWorkStop, captureSessionShutdownResourceStop } from "@extensions/leafcode-subagents/src/api/background-work.ts";
+import { captureSessionBackgroundWorkStop, captureSessionShutdownResourceStop, listBackgroundWorkProviders } from "@extensions/leafcode-subagents/src/api/background-work.ts";
 import { runBackendMcpNativeSessionShutdownActions } from "@backend-core/mcp-native-session.mjs";
 import { assertSessionLoadAllowed, isRuntimeMemoryPressure, openSessionManagerSafely, readRuntimeMemory } from "@backend-core/session-memory-guard.mjs";
 import {
@@ -20,7 +20,8 @@ import { assertLocalRuntimeAllowed, localRuntimeBlocked } from "@/lib/pi/runtime
 import { readDiskTodoProgress } from "@/lib/pi/disk-todo-progress";
 import { fetchRemoteCodeProgress, fetchRemoteTodoProgressMany, needsRemoteTodoProgress } from "@/lib/pi/remote-todo-progress";
 import { createTaskStreamWake } from "./task-stream-wake";
-import { beginTaskPreparation, hasTaskPreparation, invalidateTaskPreparations, isTaskTreeEditing, withTaskSessionMutation, withTaskTreeEdit } from "./task-operation-guard";
+import { assertAutoUpdateAvailable, setAutoUpdateMaintenance } from "./auto-update-maintenance";
+import { beginTaskPreparation, hasActiveTaskOperations, hasTaskPreparation, invalidateTaskPreparations, isTaskTreeEditing, withTaskSessionMutation, withTaskTreeEdit } from "./task-operation-guard";
 import { buildGoalLoopResumeCommand, dispatchGoalLoopCommand, isGoalLoopCommandApplied } from "@/lib/pi/goal-loop-command";
 import { notifyPushoverCompletion, shouldNotifyPushoverCompletion } from "@/lib/pushover";
 import { BOT_DEFAULT_TOOL_NAMES, BOT_TOOL_NAMES, botPromptSources, botRuntimeContext, botSoulRevision, botTaskId, getBot, listBots, patchBot } from "@/lib/bots";
@@ -5631,6 +5632,7 @@ async function ensureLive(
     onTiming?: TaskDetailTimingReporter;
   } & AutoFallbackHints,
 ): Promise<LiveRuntime> {
+  assertAutoUpdateAvailable();
   // Gate order (attachable → promotion → attachable → retirement) lives in backend core.
   const gates = await runEnsureLiveGates({
     isAttachable: () => {
@@ -8634,6 +8636,32 @@ export function activeGoalLoopTaskIds(): string[] {
   return [...taskIds];
 }
 
+/** Strict auto-update snapshot; idle attached conversations are not running sessions. */
+export function readAutoUpdateState(): { supported: true; busy: boolean } {
+  const current = state();
+  const busy = hasActiveTaskOperations() || ensureLiveInflight.size > 0 || promoteInflight.size > 0
+    || liveShutdownInflight.size > 0 || activeGoalLoopTaskIds().length > 0
+    || listTasks(false, "all").some((task) => task.status === "working" || hasActiveTaskLease(task.id))
+    || [...current.live.values()].some((live) => isLiveBusyForReplace(live)
+      || live.manualCompactionInProgress || live.autoCompactionPromise || live.pendingProviderFallback
+      || live.pendingTransportRecovery || providerFallbackInflight.has(live.taskId)
+      || pendingPermissionForTask(live.taskId) || pendingQuestionForTask(live.taskId))
+    || listBackgroundWorkProviders().some((provider) => {
+      const work = provider.listActiveWork();
+      if (!Array.isArray(work)) throw new Error("Background work state unavailable");
+      return work.length > 0;
+    });
+  return { supported: true, busy: Boolean(busy) };
+}
+
+/** Synchronous snapshot + admission gate; no prompt can enter between these two operations. */
+export function prepareAutoUpdate(): { prepared: boolean } {
+  if (readAutoUpdateState().busy) return { prepared: false };
+  setAutoUpdateMaintenance(true);
+  return { prepared: true };
+}
+export function releaseAutoUpdate(): void { setAutoUpdateMaintenance(false); }
+
 export async function goalLoopState(
   taskId: string,
   options?: { offline?: boolean },
@@ -10104,6 +10132,7 @@ function queuePrompt(
     skipHangRearm?: boolean;
   },
 ): Promise<void> {
+  assertAutoUpdateAvailable();
   const hadActivePrompt = live.promptActive || live.session.isStreaming || live.session.isCompacting;
   if (!meta?.isTransportRecovery) live.transportRecoveryAttempted = false;
   const pendingSettingsAtQueue = copyPendingLiveSettings(live.pendingSettings);

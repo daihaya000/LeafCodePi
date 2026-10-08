@@ -1,3 +1,5 @@
+import { assertAutoUpdateAvailable } from "./auto-update-maintenance";
+
 type OperationState = { generation: number; preparing: number; editing: boolean; cancellations: Set<() => void> };
 const key = Symbol.for("leafcode.task-operation-guard.v1");
 function states(): Map<string, OperationState> {
@@ -18,6 +20,7 @@ function busy(): never {
 }
 /** A preparation starts before selection/ensureLive, not only when the SDK prompt is queued. */
 export function beginTaskPreparation(id: string) {
+  assertAutoUpdateAvailable();
   const state = stateFor(id);
   if (state.editing) busy();
   state.preparing++;
@@ -52,6 +55,9 @@ export function invalidateTaskPreparations(id: string): void {
     for (const cancel of state.cancellations ?? []) cancel();
   }
 }
+export function hasActiveTaskOperations(): boolean {
+  return [...states().values()].some((state) => state.preparing > 0 || state.editing);
+}
 export function hasTaskPreparation(id: string): boolean {
   return Boolean(states().get(id)?.preparing);
 }
@@ -65,6 +71,7 @@ export async function withTaskSessionMutation<T>(id: string, mutate: () => Promi
 }
 /** Reject overlap instead of queueing an edit against a potentially different transcript. */
 export async function withTaskTreeEdit<T>(id: string, edit: () => Promise<T>): Promise<T> {
+  assertAutoUpdateAvailable();
   const state = stateFor(id);
   if (state.editing || state.preparing) busy();
   state.editing = true;

@@ -288,6 +288,9 @@ export function createBackendServer({
   const instanceId = randomUUID();
   const startedAt = new Date().toISOString();
 
+  let autoUpdateUntil = 0;
+  let activeRequests = 0;
+  const trackedRequests = new WeakSet();
   // Async so the runtime-backed reads can await; every await is inside a try/catch.
   const handleRequest = async (request, response) => {
     const authorization = request.headers.authorization;
@@ -308,6 +311,14 @@ export function createBackendServer({
     }
     // Match the request target, not the untrusted Host header. No CORS is enabled.
     const target = new URL(request.url ?? "/", "http://backend.internal");
+    if (![BACKEND_RUNTIME_CONTROL_PATH, BACKEND_HEALTH_PATH, BACKEND_RUNTIME_EVENTS_PATH].includes(target.pathname)) {
+      if (Date.now() < autoUpdateUntil) {
+        sendJson(response, 503, { error: "LCP auto-update in progress", code: BACKEND_ERROR_CODES.runtimeUnavailable });
+        return;
+      }
+      activeRequests++;
+      trackedRequests.add(request);
+    }
     const taskSuffix = target.pathname.startsWith(`${BACKEND_TASKS_PATH}/`)
       ? target.pathname.slice(BACKEND_TASKS_PATH.length + 1)
       : null;
@@ -613,7 +624,7 @@ export function createBackendServer({
       }
       const body = await readJsonBody(request, 4096);
       const value = body.value;
-      const actions = new Set(["read-compaction", "set-compaction", "read-cache-warming", "set-cache-warming", "refresh-compaction", "code-permissions"]);
+      const actions = new Set(["read-compaction", "set-compaction", "read-cache-warming", "set-cache-warming", "refresh-compaction", "code-permissions", "prepare-auto-update", "release-auto-update"]);
       if (!body.ok || !value || typeof value !== "object" || Array.isArray(value) || !actions.has(value.action)
         || Object.keys(value).some((key) => key !== "action" && key !== "value")
         || (value.action === "set-compaction" && typeof value.value !== "boolean")
@@ -621,7 +632,24 @@ export function createBackendServer({
         sendJson(response, 400, { error: "Invalid runtime setting", code: BACKEND_ERROR_CODES.badRequest });
         return;
       }
-      try { sendJson(response, 200, { result: await runtimeControlAction(value) }); }
+      try {
+        if (value.action === "prepare-auto-update" && (activeRequests > 0 || !isReady())) {
+          sendJson(response, 200, { result: { prepared: false } });
+          return;
+        }
+        if (!["prepare-auto-update", "release-auto-update"].includes(value.action)) {
+          if (Date.now() < autoUpdateUntil) {
+            sendJson(response, 503, { error: "LCP auto-update in progress", code: BACKEND_ERROR_CODES.runtimeUnavailable });
+            return;
+          }
+          activeRequests++;
+          trackedRequests.add(request);
+        }
+        const result = await runtimeControlAction(value);
+        if (value.action === "prepare-auto-update" && result?.prepared === true) autoUpdateUntil = Date.now() + 5 * 60_000;
+        if (value.action === "release-auto-update") autoUpdateUntil = 0;
+        sendJson(response, 200, { result });
+      }
       catch { sendJson(response, 503, { error: "Backend setting update failed", code: BACKEND_ERROR_CODES.runtimeUnavailable }); }
       return;
     }
@@ -630,7 +658,12 @@ export function createBackendServer({
         sendJson(response, 503, { error: "Backend runtime unavailable", code: BACKEND_ERROR_CODES.runtimeUnavailable });
         return;
       }
-      try { sendJson(response, 200, await readRuntimeState()); }
+      try {
+        const state = await readRuntimeState();
+        sendJson(response, 200, { ...state, ...(state.autoUpdate ? {
+          autoUpdate: { ...state.autoUpdate, busy: state.autoUpdate.busy !== false || activeRequests > 0 || !isReady() },
+        } : {}) });
+      }
       catch { sendJson(response, 503, { error: "Backend runtime state unavailable", code: BACKEND_ERROR_CODES.runtimeUnavailable }); }
       return;
     }
@@ -1268,7 +1301,9 @@ export function createBackendServer({
   // A throw outside the per-route try/catch (for example a malformed percent-encoding in the path)
   // would otherwise be an unhandled rejection: the request hangs and Node can terminate the process.
   return createServer({ requestTimeout: 30_000, headersTimeout: 10_000 }, (request, response) => {
-    handleRequest(request, response).catch((error) => {
+    handleRequest(request, response).finally(() => {
+      if (trackedRequests.delete(request)) activeRequests--;
+    }).catch((error) => {
       try {
         if (response.destroyed || response.headersSent || response.writableEnded) {
           response.destroy();
