@@ -7,6 +7,8 @@
  * task detail reads, abort handling and the attention services. Anything the Web UI needs only for
  * rendering stays out, so the bundle does not grow a UI dependency.
  */
+export { dispatchConfigurationRequest } from "../../configuration/index";
+
 export {
   createTask,
   promptTask,

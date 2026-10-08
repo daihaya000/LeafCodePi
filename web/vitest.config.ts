@@ -24,6 +24,8 @@ export default defineConfig({
       const prefix = webSource.replaceAll("\\", "/") + "/";
       if (!normalized.startsWith(prefix) || /\.test\.[jt]sx?$/.test(normalized)) return null;
       const suffix = normalized.slice(prefix.length);
+      // This Web transport remains remote; the Backend has a distinct local adapter.
+      if (suffix === "lib/runtime-settings" || suffix === "lib/runtime-settings.ts") return null;
       const target = join(runtimeSource, suffix.endsWith(".ts") ? suffix : `${suffix}.ts`);
       return existsSync(target) ? target : null;
     },

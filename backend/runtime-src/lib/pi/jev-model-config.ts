@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { assertConfigurationOwner, markConfigurationExternalWrite } from "@backend-core/configuration-command.mjs";
 import { ModelRuntime } from "@earendil-works/pi-coding-agent";
 import {
   DEFAULT_JEV_MODEL_SETTINGS,
@@ -73,12 +74,15 @@ export async function listLegacyJevCredentials(): Promise<Array<{ providerId: st
 }
 
 export async function deleteLegacyJevCredential(providerId: string): Promise<void> {
+  assertConfigurationOwner();
   if (!LEGACY_JEV_CREDENTIAL_ID.test(providerId)) throw new Error("旧Jev互換キーの指定が不正です");
   const runtime = await ModelRuntime.create({ refreshOnCreate: false });
   if (!(await runtime.listCredentials()).some((credential) => credential.providerId === providerId)) {
     throw new Error("旧Jev互換キーが見つかりません");
   }
+  markConfigurationExternalWrite("started");
   await runtime.logout(providerId);
+  markConfigurationExternalWrite("saved");
 }
 
 export async function getJevModelSettingsDto(): Promise<JevModelSettingsDto> {
@@ -97,15 +101,18 @@ export async function getJevModelSettingsDto(): Promise<JevModelSettingsDto> {
 
 /** Undefined keeps a key; null removes it; a string replaces it. Never echo it. */
 export async function saveJevModelSettings(settings: JevModelSettings, apiKey?: string | null): Promise<void> {
+  assertConfigurationOwner();
   if (apiKey !== undefined) {
     if (settings.provider === "registered") throw new Error("既存プロバイダーの認証はプロバイダー接続から変更してください");
     const runtime = await credentialRuntime(settings);
     const providerId = jevCredentialProviderId(settings);
+    markConfigurationExternalWrite("started");
     if (apiKey === null) await runtime.logout(providerId);
     else await runtime.login(providerId, "api_key", {
       prompt: async () => apiKey,
       notify: () => {},
     });
+    markConfigurationExternalWrite("saved");
   }
   setSetting(JEV_MODEL_SETTING_KEY, JSON.stringify(settings));
 }

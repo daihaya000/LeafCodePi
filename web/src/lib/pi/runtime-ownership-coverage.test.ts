@@ -185,13 +185,9 @@ describe("runtime ownership coverage per handler", () => {
     expect(staleByDesign, "a handler that now guards itself must leave the by-design list").toEqual([]);
   });
 
-  it("profile replacement/reset/package restore handlers cannot bypass ownership coverage", () => {
-    expect(ownerHandlers().filter(({ id }) => id.startsWith("profile/route.ts "))).toEqual([
-      { id: "profile/route.ts POST", guarded: true },
-      { id: "profile/route.ts PATCH", guarded: true },
-      { id: "profile/route.ts PUT", guarded: true },
-      { id: "profile/route.ts DELETE", guarded: true },
-    ]);
+  it("profile ingress has no local replacement/reset/package restore calls", () => {
+    // All four mutations are relays; scripts/check-configuration-ownership.test.mjs verifies each export.
+    expect(ownerHandlers().filter(({ id }) => id.startsWith("profile/route.ts "))).toEqual([]);
   });
 
   it("no handler is left as unfinished work", () => {

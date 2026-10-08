@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { spawn, spawnSync } from "node:child_process";
 import { randomBytes } from "node:crypto";
-import { cpSync, existsSync, mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -52,7 +52,7 @@ test("Backend builds and serves its runtime API without Web sources or Web packa
     createdAt: "2026-01-01T00:00:00.000Z", updatedAt: "2026-01-01T00:00:00.000Z",
   }] }));
   const token = randomBytes(32).toString("hex");
-  child = spawn(process.execPath, [join(backend, "src", "entry.mjs")], {
+  const launchOptions = {
     cwd: fixture, stdio: ["ignore", "pipe", "pipe"],
     env: { ...process.env, NODE_ENV: "test", PI_CODING_AGENT_DIR: agent,
       LEAFCODE_PI_DATA_DIR: data, LEAFCODE_PI_DEFAULT_DIR: join(fixture, "workspaces"),
@@ -60,7 +60,9 @@ test("Backend builds and serves its runtime API without Web sources or Web packa
       LEAFCODE_PI_BACKEND_GENERATION: "", LEAFCODE_PI_MCP_NATIVE: "",
       LEAFCODE_PI_BACKEND_RUNTIME_BUNDLE: join(backend, "runtime", "runtime.bundle.mjs"),
       LEAFCODE_PI_PUSHOVER_TOKEN: "", LEAFCODE_PI_PUSHOVER_USER: "" },
-  });
+  };
+  const launch = () => spawn(process.execPath, [join(backend, "src", "entry.mjs")], launchOptions);
+  child = launch();
   let stdout = "", stderr = "";
   child.stdout.setEncoding("utf8").on("data", (chunk) => { stdout += chunk; });
   child.stderr.setEncoding("utf8").on("data", (chunk) => { stderr += chunk; });
@@ -92,4 +94,42 @@ test("Backend builds and serves its runtime API without Web sources or Web packa
   const result = await response.json();
   assert.equal(result.tasks.find((task) => task.id === "independent-task")?.title, "Backend-owned task");
   assert.equal((await fetch(`${base}/internal/tasks`, { signal: AbortSignal.timeout(2_000) })).status, 401);
+
+  const configHeaders = { ...headers, "content-type": "application/json", "x-leafcode-configuration-origin": "http://localhost",
+    "x-leafcode-configuration-host": "localhost", "x-leafcode-configuration-authorized": "1",
+    "x-leafcode-configuration-operation": "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee" };
+  const saved = await fetch(`${base}/internal/configuration/settings/history-page-size`, {
+    method: "PUT", headers: configHeaders, body: JSON.stringify({ value: "100" }), signal: AbortSignal.timeout(3_000),
+  });
+  const committed = await saved.json();
+  assert.equal(saved.status, 200, JSON.stringify(committed));
+  assert.equal(committed.mutation.saved, true); assert.equal(committed.mutation.saveStatus, "complete");
+  assert.ok(committed.mutation.revision);
+  const savedPath = join(data, "web-settings.json");
+  assert.equal(JSON.parse(readFileSync(savedPath, "utf8"))["history-page-size"], "100");
+
+  // Restart the actual owner process, retaining only its disk state, not a Web fallback or a module cache.
+  const exited = new Promise((done) => child.once("exit", done)); child.kill(); await exited;
+  stdout = ""; stderr = ""; listening = undefined; child = launch();
+  child.stdout.setEncoding("utf8").on("data", (chunk) => { stdout += chunk; });
+  child.stderr.setEncoding("utf8").on("data", (chunk) => { stderr += chunk; });
+  const restartDeadline = Date.now() + 8_000;
+  while (!listening && Date.now() < restartDeadline && child.exitCode === null) {
+    for (const line of stdout.split(/\\r?\\n/)) {
+      try { const record = JSON.parse(line); if (record.type === "backend_listening") listening = record; } catch { /* partial line */ }
+    }
+    if (!listening) await delay(25);
+  }
+  assert.ok(listening, stderr);
+  const restartedBase = `http://127.0.0.1:${listening.port}`;
+  let restored;
+  while (Date.now() < restartDeadline) {
+    const reply = await fetch(`${restartedBase}/internal/configuration/settings/history-page-size`, { headers: configHeaders, signal: AbortSignal.timeout(3_000) });
+    if (reply.status === 200) { restored = await reply.json(); break; }
+    await delay(50);
+  }
+  assert.equal(restored?.value, "100", stderr);
+  const outcome = await fetch(`${restartedBase}/internal/configuration/settings?operationId=${committed.mutation.operationId}`, { headers: configHeaders, signal: AbortSignal.timeout(3_000) });
+  assert.equal(outcome.status, 200); assert.deepEqual((await outcome.json()).mutation, committed.mutation);
+  assert.equal(existsSync(join(fixture, "web")), false);
 });

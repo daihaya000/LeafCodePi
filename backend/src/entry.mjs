@@ -68,6 +68,7 @@ export function isRuntimeRequested(env = process.env) {
 }
 
 let releaseRuntimeOwner;
+process.env.LEAFCODE_PI_PROCESS_ROLE = "backend";
 try {
   const rawPort = process.env.LEAFCODE_PI_BACKEND_PORT;
   if (rawPort !== undefined && !/^\d{1,5}$/.test(rawPort)) {
@@ -276,6 +277,17 @@ try {
         unsubscribeDirty();
         unsubscribeStream();
       };
+    },
+    configurationRequestAction: async (input) => {
+      const runtime = started.runtime();
+      if (!runtime || typeof runtime.dispatchConfigurationRequest !== "function") throw new Error("configuration owner unavailable");
+      const profileChange = input.route === "profile" && (["POST", "PUT", "DELETE"].includes(input.method)
+        || (input.method === "PATCH" && JSON.parse(Buffer.from(input.body ?? []).toString("utf8") || "{}").action === "restore-packages"));
+      return runtime.dispatchConfigurationRequest(input, profileChange ? async (write) => {
+        if (runtime.prepareAutoUpdate().prepared !== true) return Response.json({ error: "実行中のセッションがあるため設定を置換できません" }, { status: 409 });
+        try { return nativeMcp && input.method !== "PATCH" ? await nativeMcp.runConfigWrite(write) : await write(); }
+        finally { runtime.releaseAutoUpdate(); }
+      } : undefined);
     },
     runtimeControlAction: async ({ action, value }) => {
       const runtime = started.runtime();

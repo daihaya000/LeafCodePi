@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { watchConfigurationPath } from "@backend-core/configuration-command.mjs";
 import {
   mkdirSync,
   readFileSync,
@@ -78,6 +79,7 @@ export function readSettingsFile(): WebSettingsFile {
  */
 export function writeSettingsFile(settings: WebSettingsFile): void {
   const file = settingsPath();
+  watchConfigurationPath(file);
   const dir = dirname(file);
   mkdirSync(dir, { recursive: true });
   const tmp = join(dir, `.web-settings.json.${process.pid}.${Date.now()}.tmp`);
@@ -110,6 +112,7 @@ function ownerIsAlive(lock: string): boolean {
 /** 複数Nodeプロセス間でもread-modify-writeを直列化する。 */
 export function updateSettingsFile<T>(update: (settings: WebSettingsFile) => T): T {
   const file = settingsPath();
+  watchConfigurationPath(file);
   const lock = `${file}.lock`;
   const owner = `${process.pid}:${randomUUID()}`;
   mkdirSync(dirname(file), { recursive: true });

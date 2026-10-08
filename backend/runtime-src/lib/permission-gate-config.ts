@@ -2,6 +2,7 @@ import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { PermissionMode } from "@/lib/permission-gate";
 import { dataDir } from "@/lib/paths";
+import { watchConfigurationPath } from "@backend-core/configuration-command.mjs";
 import {
   DEFAULT_SYSTEM_SAFETY_LEVEL,
   parseSystemSafetyLevel,
@@ -88,6 +89,7 @@ export function writePermissionGateConfig(
   sessionId?: string | null,
 ): void {
   const file = permissionGateConfigPath();
+  watchConfigurationPath(file);
   mkdirSync(dataDir(), { recursive: true });
   const current = readStoredConfig();
   const next: StoredConfig = sessionId
@@ -122,6 +124,7 @@ export function readSystemSafetyEnabled(): boolean {
 /** Persist system-safety level without changing permission modes. */
 export function writeSystemSafetyLevel(level: SystemSafetyLevel): SystemSafetyLevel {
   const file = permissionGateConfigPath();
+  watchConfigurationPath(file);
   mkdirSync(dataDir(), { recursive: true });
   const current = readStoredConfig();
   const next: StoredConfig = {

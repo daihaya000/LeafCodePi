@@ -3,6 +3,8 @@ import { createServer } from "node:http";
 import { once } from "node:events";
 import { streamRuntimeEvents } from "./runtime-events.mjs";
 import { readJsonBody, JsonBodyReadError } from "./json-body.mjs";
+import { readConfigurationBody } from "./configuration-body.mjs";
+import { CONFIGURATION_PATH, CONFIGURATION_ROUTES, CONFIGURATION_HEADERS, configurationTarget, configurationBodyLimit } from "../../shared/configuration-contract.mjs";
 export { BACKEND_PROMPT_BODY_LIMIT_BYTES } from "./json-body.mjs";
 import { parseMcpPresetRequest } from "../../shared/mcp-preset-request.mjs";
 import { publicMcpAuthSnapshot } from "../../shared/mcp-auth-snapshot.mjs";
@@ -211,6 +213,7 @@ export function createBackendServer({
   setTaskModelAction = null,
   setTaskThinkingLevelAction = null,
   setTaskAgentAction = null,
+  configurationRequestAction = null,
 } = {}) {
   if (
     typeof token !== "string" ||
@@ -244,6 +247,7 @@ export function createBackendServer({
     respondToPermission,
     readRuntimeState,
     runtimeControlAction,
+    configurationRequestAction,
     subscribeRuntimeEvents,
     createTask,
     respondToQuestion,
@@ -395,7 +399,9 @@ export function createBackendServer({
     const projectActionPath = projectSuffix?.endsWith(BACKEND_PROJECT_TEARDOWN_SUFFIX)
       ? decodeURIComponent(projectSuffix.slice(0, -BACKEND_PROJECT_TEARDOWN_SUFFIX.length))
       : undefined;
-    const knownPath = target.pathname === BACKEND_HEALTH_PATH
+    const configurationPath = target.pathname.startsWith(`${CONFIGURATION_PATH}/`)
+      ? target.pathname.slice(CONFIGURATION_PATH.length + 1) : null;
+    const knownPath = configurationPath !== null || target.pathname === BACKEND_HEALTH_PATH
       || target.pathname === BACKEND_RUNTIME_CONTROL_PATH
       || target.pathname === BACKEND_RUNTIME_EVENTS_PATH
       || target.pathname === BACKEND_LIVE_SESSIONS_RELOAD_PATH
@@ -418,6 +424,56 @@ export function createBackendServer({
       || actionPath !== undefined;
     if (!knownPath) {
       sendJson(response, 404, { error: "Not found", code: BACKEND_ERROR_CODES.notFound });
+      return;
+    }
+    if (configurationPath !== null) {
+      const selection = configurationTarget(configurationPath);
+      if (!selection) { sendJson(response, 404, { error: "Unknown configuration route", code: BACKEND_ERROR_CODES.notFound }); return; }
+      if (!CONFIGURATION_ROUTES[selection.route].includes(request.method)) {
+        sendJson(response, 405, { error: "Method not allowed", code: BACKEND_ERROR_CODES.methodNotAllowed }); return;
+      }
+      if (!configurationRequestAction || !isReady()) {
+        sendJson(response, 503, { error: "Backend runtime unavailable", code: BACKEND_ERROR_CODES.runtimeUnavailable }); return;
+      }
+      const origin = request.headers[CONFIGURATION_HEADERS.origin];
+      const host = request.headers[CONFIGURATION_HEADERS.host];
+      const access = request.headers[CONFIGURATION_HEADERS.authorized];
+      const operationId = request.headers[CONFIGURATION_HEADERS.operation];
+      let original;
+      try {
+        original = new URL(origin);
+        if (!["http:", "https:"].includes(original.protocol) || original.origin !== origin || typeof host !== "string"
+          || !["0", "1"].includes(access) || (request.method !== "GET" && (typeof operationId !== "string" || !/^[0-9a-f-]{36}$/.test(operationId)))) throw new Error();
+      } catch { sendJson(response, 400, { error: "Invalid configuration context", code: BACKEND_ERROR_CODES.badRequest }); return; }
+      if (process.env.LEAFCODE_PI_WEBUI_AUTH === "required" && access !== "1") {
+        sendJson(response, 403, { error: "WebUI access required", code: BACKEND_ERROR_CODES.unauthorized }); return;
+      }
+      if (["notifications", "pushover", "settings/transfer", "profile"].includes(selection.route) && access !== "1") {
+        const loopback = ["127.0.0.1", "localhost", "::1", "[::1]"];
+        let headerHost = "";
+        try { headerHost = new URL(`http://${host}`).hostname; } catch { /* fail closed */ }
+        if (!loopback.includes(process.env.LEAFCODE_PI_BIND_HOST ?? "") || !loopback.includes(original.hostname) || !loopback.includes(headerHost)) {
+          sendJson(response, 403, { error: "Configuration access required", code: BACKEND_ERROR_CODES.unauthorized }); return;
+        }
+      }
+      const body = request.method === "GET" ? undefined : await readConfigurationBody(request, configurationBodyLimit(selection.route, request.method));
+      const headers = { host };
+      for (const key of ["content-type", "origin", "sec-fetch-site", "x-forwarded-host"]) if (typeof request.headers[key] === "string") headers[key] = request.headers[key];
+      const profileMaintenance = selection.route === "profile";
+      if (profileMaintenance && activeRequests > 1) {
+        sendJson(response, 409, { error: "Other Backend requests are active", code: BACKEND_ERROR_CODES.badRequest }); return;
+      }
+      const previousMaintenance = autoUpdateUntil;
+      if (profileMaintenance) autoUpdateUntil = Date.now() + 5 * 60_000;
+      try {
+        const result = await configurationRequestAction({ route: configurationPath, method: request.method,
+          url: `${original.origin}/api/${configurationPath}${target.search}`, headers, authorized: access === "1", operationId, body });
+        if (!(result instanceof Response)) throw new Error("Invalid configuration result");
+        const publicHeaders = {};
+        for (const key of ["cache-control", "x-content-type-options"]) if (result.headers.has(key)) publicHeaders[key] = result.headers.get(key);
+        sendJson(response, result.status, await result.json(), publicHeaders);
+      } catch { sendJson(response, 503, { error: "Configuration owner unavailable", code: BACKEND_ERROR_CODES.runtimeUnavailable }); }
+      finally { if (profileMaintenance) autoUpdateUntil = previousMaintenance; }
       return;
     }
     if (target.pathname.startsWith(`${BACKEND_MCP_SERVERS_PATH}/`) && target.pathname.endsWith(BACKEND_MCP_AUTH_SUFFIX)) {

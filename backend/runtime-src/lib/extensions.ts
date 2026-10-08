@@ -28,6 +28,7 @@ import {
 import { basename, dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { resolvePiAgentDir } from "@/lib/agents-md";
 import { dataDir } from "@/lib/paths";
+import { watchConfigurationPath } from "@backend-core/configuration-command.mjs";
 import { basenameKey, isWebUiRequiredExtension } from "@backend-core/bot-runtime-context.mjs";
 import { INTEGRATED_PROVIDER_EXTENSIONS } from "@backend-core/replaced-packages.mjs";
 
@@ -125,6 +126,7 @@ const TEST_FILE_PATTERN = /\.(?:test|spec)\.(?:ts|js|mjs|cjs)$/i;
 
 /** Readers (incl. the agent-side extensions) must never see a partial file. */
 export function atomicWrite(filePath: string, content: string): void {
+  watchConfigurationPath(filePath);
   mkdirSync(dirname(filePath), { recursive: true });
   const tmp = join(dirname(filePath), `.${Date.now()}.${process.pid}.tmp`);
   try {

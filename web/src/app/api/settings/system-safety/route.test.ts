@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { NextRequest } from "next/server";
 import { afterEach, beforeEach, describe, it } from "vitest";
-import { GET, PATCH } from "./route";
+import { GET, PATCH } from "@backend-runtime/configuration/handlers/settings/system-safety/route";
 
 function request(body?: unknown): NextRequest {
   return new NextRequest("http://127.0.0.1:3010/api/settings/system-safety", {
