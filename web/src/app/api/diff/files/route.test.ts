@@ -15,7 +15,7 @@ vi.mock("@/lib/git", () => ({
       : null,
 }));
 
-import { GET } from "./route";
+import { GET } from "@backend-runtime/json-business/handlers/diff/files/route";
 
 const tempDirs: string[] = [];
 

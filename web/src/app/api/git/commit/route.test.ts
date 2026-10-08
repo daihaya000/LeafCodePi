@@ -16,7 +16,7 @@ vi.mock("@/lib/git", () => mocks);
 vi.mock("@/lib/machine-name", () => ({ getMachineName: mocks.getMachineName }));
 vi.mock("@/lib/pi/web-settings", () => ({ getSetting: mocks.getSetting }));
 
-import { POST } from "./route";
+import { POST } from "@backend-runtime/json-business/handlers/git/commit/route";
 
 function request(body: unknown): NextRequest {
   return new NextRequest("http://localhost/api/git/commit", {

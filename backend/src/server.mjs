@@ -4,6 +4,7 @@ import { once } from "node:events";
 import { streamRuntimeEvents } from "./runtime-events.mjs";
 import { readJsonBody, JsonBodyReadError } from "./json-body.mjs";
 import { readConfigurationBody } from "./configuration-body.mjs";
+import { JSON_BUSINESS_PATH, JSON_BUSINESS_ROUTES, JSON_BUSINESS_HEADERS, JSON_BUSINESS_BODY_LIMIT, JSON_BUSINESS_RESPONSE_LIMIT, jsonBusinessMutates, publicJsonBusinessResult } from "../../shared/json-business-contract.mjs";
 import { CONFIGURATION_PATH, CONFIGURATION_ROUTES, CONFIGURATION_HEADERS, configurationTarget, configurationBodyLimit } from "../../shared/configuration-contract.mjs";
 export { BACKEND_PROMPT_BODY_LIMIT_BYTES } from "./json-body.mjs";
 import { parseMcpPresetRequest } from "../../shared/mcp-preset-request.mjs";
@@ -214,6 +215,7 @@ export function createBackendServer({
   setTaskThinkingLevelAction = null,
   setTaskAgentAction = null,
   configurationRequestAction = null,
+  jsonBusinessRequestAction = null,
 } = {}) {
   if (
     typeof token !== "string" ||
@@ -248,6 +250,7 @@ export function createBackendServer({
     readRuntimeState,
     runtimeControlAction,
     configurationRequestAction,
+    jsonBusinessRequestAction,
     subscribeRuntimeEvents,
     createTask,
     respondToQuestion,
@@ -401,7 +404,8 @@ export function createBackendServer({
       : undefined;
     const configurationPath = target.pathname.startsWith(`${CONFIGURATION_PATH}/`)
       ? target.pathname.slice(CONFIGURATION_PATH.length + 1) : null;
-    const knownPath = configurationPath !== null || target.pathname === BACKEND_HEALTH_PATH
+    const businessPath = target.pathname.startsWith(`${JSON_BUSINESS_PATH}/`) ? target.pathname.slice(JSON_BUSINESS_PATH.length + 1) : null;
+    const knownPath = businessPath !== null || configurationPath !== null || target.pathname === BACKEND_HEALTH_PATH
       || target.pathname === BACKEND_RUNTIME_CONTROL_PATH
       || target.pathname === BACKEND_RUNTIME_EVENTS_PATH
       || target.pathname === BACKEND_LIVE_SESSIONS_RELOAD_PATH
@@ -424,6 +428,33 @@ export function createBackendServer({
       || actionPath !== undefined;
     if (!knownPath) {
       sendJson(response, 404, { error: "Not found", code: BACKEND_ERROR_CODES.notFound });
+      return;
+    }
+    if (businessPath !== null) {
+      if (!Object.hasOwn(JSON_BUSINESS_ROUTES, businessPath)) { sendJson(response, 404, { error: "Unknown business route", code: BACKEND_ERROR_CODES.notFound }); return; }
+      if (!JSON_BUSINESS_ROUTES[businessPath].includes(request.method)) { sendJson(response, 405, { error: "Method not allowed", code: BACKEND_ERROR_CODES.methodNotAllowed }); return; }
+      if (!jsonBusinessRequestAction || !isReady()) { sendJson(response, 503, { error: "Business owner unavailable", code: BACKEND_ERROR_CODES.runtimeUnavailable }); return; }
+      const origin = request.headers[JSON_BUSINESS_HEADERS.origin], host = request.headers[JSON_BUSINESS_HEADERS.host], access = request.headers[JSON_BUSINESS_HEADERS.authorized];
+      try {
+        const url = new URL(origin);
+        if (!["http:", "https:"].includes(url.protocol) || url.origin !== origin || typeof host !== "string" || !["0", "1"].includes(access)) throw new Error();
+      } catch { sendJson(response, 400, { error: "Invalid business context", code: BACKEND_ERROR_CODES.badRequest }); return; }
+      if (process.env.LEAFCODE_PI_WEBUI_AUTH === "required" && access !== "1") { sendJson(response, 403, { error: "WebUI access required", code: BACKEND_ERROR_CODES.unauthorized }); return; }
+      const headers = { host };
+      for (const key of ["content-type", "origin", "sec-fetch-site", "x-forwarded-host", "if-none-match"]) if (typeof request.headers[key] === "string") headers[key] = request.headers[key];
+      const body = request.method === "GET" ? undefined : await readConfigurationBody(request, JSON_BUSINESS_BODY_LIMIT);
+      const controller = new AbortController();
+      const disconnect = () => { if (!response.writableEnded) controller.abort(); };
+      response.once("close", disconnect);
+      if (response.destroyed) { response.off("close", disconnect); return; }
+      try {
+        const result = publicJsonBusinessResult(businessPath, await jsonBusinessRequestAction({ route: businessPath, method: request.method,
+          url: `${origin}/api/${businessPath}${target.search}`, headers, authorized: access === "1", body,
+          signal: jsonBusinessMutates(businessPath, request.method) ? undefined : controller.signal }));
+        if (!result || Buffer.byteLength(JSON.stringify(result), "utf8") > JSON_BUSINESS_RESPONSE_LIMIT) throw new Error("Invalid business result");
+        sendJson(response, 200, result);
+      } catch { if (!response.destroyed) sendJson(response, 503, { error: "Business request failed", code: BACKEND_ERROR_CODES.internal }); }
+      finally { response.off("close", disconnect); }
       return;
     }
     if (configurationPath !== null) {

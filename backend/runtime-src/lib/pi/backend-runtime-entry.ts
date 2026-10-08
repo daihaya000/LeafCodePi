@@ -8,6 +8,7 @@
  * rendering stays out, so the bundle does not grow a UI dependency.
  */
 export { dispatchConfigurationRequest } from "../../configuration/index";
+export { dispatchJsonBusinessRequest } from "../../json-business/index";
 
 export {
   createTask,

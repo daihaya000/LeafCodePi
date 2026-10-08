@@ -9,7 +9,7 @@ vi.mock("@/lib/git", () => ({
   runGit: mocks.runGit,
 }));
 
-import { GET } from "./route";
+import { GET } from "@backend-runtime/json-business/handlers/git/branches/route";
 
 import { NextRequest } from "next/server";
 

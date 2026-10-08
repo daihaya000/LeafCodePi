@@ -1,0 +1,147 @@
+import { lstatSync } from "node:fs";
+import { resolve } from "node:path";
+import {  ConfigurationRequest as NextRequest, ConfigurationResponse as NextResponse  } from "../../../../configuration/http";
+import { commitPathError, gitDirectoryError, runGit } from "@/lib/git";
+import {
+  DEFAULT_GIT_COMMIT_AGENT_NAME,
+  GIT_COMMIT_AUTHOR_SETTING_KEY,
+  parseGitCommitAuthorSettings,
+  resolveGitCommitAuthor,
+} from "@/lib/git-commit-author";
+import { getMachineName } from "@/lib/machine-name";
+import { getSetting } from "@/lib/pi/web-settings";
+
+export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
+
+const SAFE_MSG = /^[\s\S]{1,2000}$/;
+const SAFE_AGENT = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/;
+
+export async function POST(req: NextRequest) {
+  const body = (await req.json().catch(() => null)) as {
+    directory?: unknown;
+    message?: unknown;
+    paths?: unknown;
+    all?: unknown;
+    agent?: unknown;
+  } | null;
+
+  const agent = body?.agent;
+  if (agent !== undefined && typeof agent !== "string") {
+    return NextResponse.json({ error: "invalid agent" }, { status: 400 });
+  }
+  const paths = body?.paths;
+  if (
+    paths !== undefined &&
+    (!Array.isArray(paths) || paths.some((path) => typeof path !== "string"))
+  ) {
+    return NextResponse.json({ error: "paths must be an array of strings" }, { status: 400 });
+  }
+  const validPaths = Array.isArray(paths) ? paths as string[] : undefined;
+  const all = body?.all;
+  if (all !== undefined && typeof all !== "boolean") {
+    return NextResponse.json({ error: "all must be a boolean" }, { status: 400 });
+  }
+  const message = body?.message;
+  const directory = body?.directory;
+  if (typeof directory !== "string" || !directory || typeof message !== "string" || !message.trim()) {
+    return NextResponse.json(
+      { error: "directory and message are required" },
+      { status: 400 },
+    );
+  }
+  const directoryError = gitDirectoryError(directory);
+  if (directoryError) {
+    return NextResponse.json(
+      { error: directoryError },
+      { status: directoryError === "directory is not allowed" ? 403 : 400 },
+    );
+  }
+  if (!SAFE_MSG.test(message)) {
+    return NextResponse.json({ error: "invalid commit message" }, { status: 400 });
+  }
+
+  // Stage — require an explicit all:true or a non-empty paths list.
+  if (all === true) {
+    const add = await runGit(directory, ["add", "-A", "--", "."]);
+    if (add.code !== 0) {
+      return NextResponse.json(
+        { error: add.stderr.trim() || "git add failed" },
+        { status: 500 },
+      );
+    }
+  } else if (validPaths?.length) {
+    for (const p of validPaths) {
+      const err = commitPathError(p);
+      if (err) return NextResponse.json({ error: err }, { status: 400 });
+    }
+    // A staged rename has already removed its old path from the index.
+    // Stage existing paths (including new files). Missing paths are deletions
+    // (or rename sources) — update the index with `add -u` so commit --paths
+    // can record them (plain `git commit -- path` only uses the index).
+    const stagePaths = validPaths.filter((p) => lstatSync(resolve(directory, p), { throwIfNoEntry: false }));
+    const missingPaths = validPaths.filter((p) => !stagePaths.includes(p));
+    if (stagePaths.length > 0) {
+      const add = await runGit(directory, ["--literal-pathspecs", "add", "--", ...stagePaths]);
+      if (add.code !== 0) {
+        return NextResponse.json(
+          { error: add.stderr.trim() || "git add failed" },
+          { status: 500 },
+        );
+      }
+    }
+    if (missingPaths.length > 0) {
+      const update = await runGit(directory, ["--literal-pathspecs", "add", "-u", "--", ...missingPaths]);
+      if (update.code !== 0) {
+        const stderr = update.stderr.trim();
+        // Rename sources are already staged by `git mv`; pathspec then misses.
+        if (!/did not match any files/i.test(stderr)) {
+          return NextResponse.json(
+            { error: stderr || "git add -u failed" },
+            { status: 500 },
+          );
+        }
+      }
+    }
+  } else {
+    return NextResponse.json(
+      { error: "paths or all:true is required" },
+      { status: 400 },
+    );
+  }
+
+  const commitArgs = ["--literal-pathspecs", "commit", "-m", message.trim()];
+  if (!all && validPaths?.length) {
+    commitArgs.push("--", ...validPaths);
+  }
+
+  const agentName = (typeof agent === "string" ? agent.trim() : "") || DEFAULT_GIT_COMMIT_AGENT_NAME;
+  let gitEnv: Record<string, string> | undefined;
+  if (SAFE_AGENT.test(agentName)) {
+    const settings = parseGitCommitAuthorSettings(getSetting(GIT_COMMIT_AUTHOR_SETTING_KEY));
+    const author = resolveGitCommitAuthor(agentName, settings, getMachineName());
+    gitEnv = {
+      GIT_AUTHOR_NAME: author.name,
+      GIT_AUTHOR_EMAIL: author.email,
+      GIT_COMMITTER_NAME: author.name,
+      GIT_COMMITTER_EMAIL: author.email,
+    };
+  }
+
+  const commit = await runGit(directory, commitArgs, undefined, gitEnv);
+  if (commit.code !== 0) {
+    return NextResponse.json(
+      {
+        error: commit.stderr.trim() || commit.stdout.trim() || "git commit failed",
+        stdout: commit.stdout,
+      },
+      { status: 500 },
+    );
+  }
+
+  const log = await runGit(directory, ["log", "-1", "--oneline"]);
+  return NextResponse.json({
+    ok: true,
+    summary: log.stdout.trim() || commit.stdout.trim(),
+  });
+}

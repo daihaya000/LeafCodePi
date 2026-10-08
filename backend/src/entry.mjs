@@ -278,6 +278,11 @@ try {
         unsubscribeStream();
       };
     },
+    jsonBusinessRequestAction: async (input) => {
+      const runtime = started.runtime();
+      if (!runtime || typeof runtime.dispatchJsonBusinessRequest !== "function") throw new Error("business owner unavailable");
+      return runtime.dispatchJsonBusinessRequest(input);
+    },
     configurationRequestAction: async (input) => {
       const runtime = started.runtime();
       if (!runtime || typeof runtime.dispatchConfigurationRequest !== "function") throw new Error("configuration owner unavailable");

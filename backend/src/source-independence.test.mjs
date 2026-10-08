@@ -11,7 +11,7 @@ import test from "node:test";
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..");
 
 /** Real build and process startup from a fixture that has no web directory at all. */
-test("Backend builds and serves its runtime API without Web sources or Web packages", { timeout: 25_000 }, async (t) => {
+test("Backend builds and serves its runtime API without Web sources or Web packages", { timeout: 30_000 }, async (t) => {
   const fixture = mkdtempSync(join(tmpdir(), "leafcode-backend-independent-"));
   let child;
   t.after(async () => {
@@ -108,6 +108,35 @@ test("Backend builds and serves its runtime API without Web sources or Web packa
   const savedPath = join(data, "web-settings.json");
   assert.equal(JSON.parse(readFileSync(savedPath, "utf8"))["history-page-size"], "100");
 
+  // Real Git business owner: fixture-only commands/files, no Next sources or fallback.
+  const workspace = join(fixture, "workspaces"); mkdirSync(workspace);
+  const businessHeaders = { ...headers, "content-type": "application/json", "x-leafcode-business-origin": "http://localhost",
+    "x-leafcode-business-host": "localhost", "x-leafcode-business-authorized": "1" };
+  const business = async (route, body, query = "", extraHeaders = {}) => {
+    const reply = await fetch(`${base}/internal/json-business/${route}${query}`, { headers: { ...businessHeaders, ...extraHeaders },
+      ...(body === undefined ? {} : { method: "POST", body: JSON.stringify(body) }), signal: AbortSignal.timeout(5000) });
+    assert.equal(reply.status, 200); return reply.json();
+  };
+  assert.equal((await business("git/init", { directory: workspace })).body.ok, true);
+  writeFileSync(join(workspace, "README.md"), "Owner-only fixture\n");
+  const committedGit = await business("git/commit", { directory: workspace, paths: ["README.md"], message: "独立API検証" });
+  assert.equal(committedGit.status, 200, JSON.stringify(committedGit)); assert.equal(committedGit.body.ok, true);
+  const query = `?directory=${encodeURIComponent(workspace)}`;
+  const history = await business("git/log", undefined, query);
+  assert.equal(history.body.commits.length, 1); assert.match(history.body.commits[0].subject, /独立API検証/);
+  const conditional = await business("git/log", undefined, query, { "if-none-match": history.headers.etag });
+  assert.equal(conditional.status, 304); assert.equal(conditional.body, null);
+  const branches = await business("git/branches", undefined, query); assert.equal(branches.status, 200);
+  const shown = await business("git/show", undefined, `${query}&commit=${history.body.commits[0].hash}`);
+  assert.equal(shown.body.files[0].path, "README.md");
+  writeFileSync(join(workspace, "README.md"), "Owner-only fixture\nchanged\n");
+  const diff = await business("diff/files", undefined, query);
+  assert.equal(diff.body.git, true); assert.ok(diff.body.files.some(file => file.path === "README.md"));
+  const suggestion = await business("git/commit-message", { directory: workspace, files: [{ path: "README.md", additions: 1, deletions: 0 }] });
+  assert.equal(suggestion.body.source, "fallback"); assert.ok(suggestion.body.message);
+  const unsafe = await business("git/merge", { directory: workspace, branch: "--help" }); assert.equal(unsafe.status, 400);
+  const outside = await business("git/branches", undefined, "?directory=" + encodeURIComponent(process.platform === "win32" ? "C:\\Windows" : "/etc"));
+  assert.equal(outside.status, 403);
   // Restart the actual owner process, retaining only its disk state, not a Web fallback or a module cache.
   const exited = new Promise((done) => child.once("exit", done)); child.kill(); await exited;
   stdout = ""; stderr = ""; listening = undefined; child = launch();
@@ -131,5 +160,8 @@ test("Backend builds and serves its runtime API without Web sources or Web packa
   assert.equal(restored?.value, "100", stderr);
   const outcome = await fetch(`${restartedBase}/internal/configuration/settings?operationId=${committed.mutation.operationId}`, { headers: configHeaders, signal: AbortSignal.timeout(3_000) });
   assert.equal(outcome.status, 200); assert.deepEqual((await outcome.json()).mutation, committed.mutation);
+  const gitAfterRestart = await fetch(`${restartedBase}/internal/json-business/git/log${query}`, { headers: businessHeaders, signal: AbortSignal.timeout(5000) });
+  assert.equal(gitAfterRestart.status, 200);
+  assert.equal((await gitAfterRestart.json()).body.commits[0].hash, history.body.commits[0].hash);
   assert.equal(existsSync(join(fixture, "web")), false);
 });
