@@ -2,7 +2,7 @@ import { NextRequest } from "next/server";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { TransferRecoveryError } from "@/lib/pi/transfer-recovery";
 import { MAX_PROMPT_BACKUP_BYTES, PROMPT_FILE_NAMES } from "@/lib/prompt-transfer-format";
-import { POST } from "./route";
+import { POST } from "@backend-runtime/json-business/handlers/prompts/transfer/route";
 
 const { importPromptBackup, reloadLiveSessionsContext } = vi.hoisted(() => ({
   importPromptBackup: vi.fn(),
@@ -22,16 +22,15 @@ beforeEach(() => {
 });
 afterEach(() => { vi.unstubAllEnvs(); });
 
-it("reports an applied import as success when journal cleanup fails, and reloads sessions", async () => {
+it("reports an applied import as success when journal cleanup fails without exposing a private recovery path", async () => {
   importPromptBackup.mockRejectedValueOnce(new TransferRecoveryError("C:/recovery.json", "インポートは完了しましたが、保全ファイルを削除できませんでした", true));
   const response = await POST(request());
   expect(response.status).toBe(200);
   expect(await response.json()).toMatchObject({
     imported: ["USER.md"],
-    reload: { reloaded: 1 },
-    warning: expect.stringContaining("保全ファイル: C:/recovery.json"),
+    warning: "保存は完了しましたが復旧記録の後処理に失敗しました",
   });
-  expect(reloadLiveSessionsContext).toHaveBeenCalledOnce();
+  expect(reloadLiveSessionsContext).not.toHaveBeenCalled();
 });
 
 it("accepts the request envelope around a valid near-limit backup", async () => {

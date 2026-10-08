@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { MAX_AGENTS_MD_BYTES } from "@/lib/agents-md";
-import { GET, PATCH } from "./route";
+import { GET, PATCH } from "@backend-runtime/json-business/handlers/workflow-md/route";
 
 let dir: string;
 beforeEach(() => {

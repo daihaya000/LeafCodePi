@@ -57,7 +57,7 @@ test("Backend builds and serves its runtime API without Web sources or Web packa
     env: { ...process.env, NODE_ENV: "test", PI_CODING_AGENT_DIR: agent,
       LEAFCODE_PI_DATA_DIR: data, LEAFCODE_PI_DEFAULT_DIR: join(fixture, "workspaces"),
       LEAFCODE_PI_BACKEND_PORT: "0", LEAFCODE_PI_BACKEND_TOKEN: token, LEAFCODE_PI_BACKEND_RUNTIME: "1",
-      LEAFCODE_PI_BACKEND_GENERATION: "", LEAFCODE_PI_MCP_NATIVE: "",
+      LEAFCODE_PI_BACKEND_GENERATION: "", LEAFCODE_PI_MCP_NATIVE: "", LEAFCODE_PI_PROCESS_ROLE: "backend",
       LEAFCODE_PI_BACKEND_RUNTIME_BUNDLE: join(backend, "runtime", "runtime.bundle.mjs"),
       LEAFCODE_PI_PUSHOVER_TOKEN: "", LEAFCODE_PI_PUSHOVER_USER: "" },
   };
@@ -112,9 +112,9 @@ test("Backend builds and serves its runtime API without Web sources or Web packa
   const workspace = join(fixture, "workspaces"); mkdirSync(workspace);
   const businessHeaders = { ...headers, "content-type": "application/json", "x-leafcode-business-origin": "http://localhost",
     "x-leafcode-business-host": "localhost", "x-leafcode-business-authorized": "1" };
-  const business = async (route, body, query = "", extraHeaders = {}) => {
+  const business = async (route, body, query = "", extraHeaders = {}, method = "POST") => {
     const reply = await fetch(`${base}/internal/json-business/${route}${query}`, { headers: { ...businessHeaders, ...extraHeaders },
-      ...(body === undefined ? {} : { method: "POST", body: JSON.stringify(body) }), signal: AbortSignal.timeout(5000) });
+      ...(body === undefined ? {} : { method, body: JSON.stringify(body) }), signal: AbortSignal.timeout(5000) });
     assert.equal(reply.status, 200); return reply.json();
   };
   assert.equal((await business("git/init", { directory: workspace })).body.ok, true);
@@ -137,6 +137,18 @@ test("Backend builds and serves its runtime API without Web sources or Web packa
   const unsafe = await business("git/merge", { directory: workspace, branch: "--help" }); assert.equal(unsafe.status, 400);
   const outside = await business("git/branches", undefined, "?directory=" + encodeURIComponent(process.platform === "win32" ? "C:\\Windows" : "/etc"));
   assert.equal(outside.status, 403);
+  // Definition writes/reload/receipts happen in this same Web-free owner.
+  const definitionOperation = "bbbbbbbb-cccc-dddd-eeee-ffffffffffff";
+  const definitionReply = await business("agents-md", { content: "Isolated owner 日本語" }, "", { "x-leafcode-business-operation": definitionOperation }, "PATCH");
+  assert.equal(definitionReply.status, 200, JSON.stringify(definitionReply));
+  assert.equal(definitionReply.body.mutation.saved, true); assert.equal(definitionReply.body.mutation.apply, "applied");
+  assert.equal(readFileSync(join(agent, "AGENTS.md"), "utf8"), "Isolated owner 日本語");
+  const createdAgent = await business("agents", { name: "isolated", systemPrompt: "Fixture persona" }, "", { "x-leafcode-business-operation": "cccccccc-dddd-eeee-ffff-aaaaaaaaaaaa" });
+  assert.equal(createdAgent.status, 201, JSON.stringify(createdAgent)); assert.equal(createdAgent.body.mutation.saved, true);
+  const agentDraft = await business("agents/isolated", undefined); assert.equal(agentDraft.body.draft.systemPrompt, "Fixture persona");
+  const illegalAgent = await business("agents/%2E%2E%2Fescape", { enabled: true }, "", { "x-leafcode-business-operation": "dddddddd-eeee-ffff-aaaa-bbbbbbbbbbbb" }, "PATCH");
+  assert.equal(illegalAgent.status, 400);
+  assert.equal(existsSync(join(fixture, "escape.md")), false);
   // Restart the actual owner process, retaining only its disk state, not a Web fallback or a module cache.
   const exited = new Promise((done) => child.once("exit", done)); child.kill(); await exited;
   stdout = ""; stderr = ""; listening = undefined; child = launch();
@@ -163,5 +175,13 @@ test("Backend builds and serves its runtime API without Web sources or Web packa
   const gitAfterRestart = await fetch(`${restartedBase}/internal/json-business/git/log${query}`, { headers: businessHeaders, signal: AbortSignal.timeout(5000) });
   assert.equal(gitAfterRestart.status, 200);
   assert.equal((await gitAfterRestart.json()).body.commits[0].hash, history.body.commits[0].hash);
+  const definitionRestored = await fetch(`${restartedBase}/internal/json-business/agents-md`, { headers: businessHeaders, signal: AbortSignal.timeout(5000) });
+  assert.equal((await definitionRestored.json()).body.content, "Isolated owner 日本語");
+  const definitionOutcome = await fetch(`${restartedBase}/internal/configuration/settings?operationId=${definitionOperation}`, { headers: configHeaders, signal: AbortSignal.timeout(3000) });
+  assert.deepEqual((await definitionOutcome.json()).mutation, definitionReply.body.mutation);
+  const definitionReplay = await fetch(`${restartedBase}/internal/json-business/agents-md`, { method: "PATCH", headers: { ...businessHeaders, "x-leafcode-business-operation": definitionOperation },
+    body: JSON.stringify({ content: "No replay" }), signal: AbortSignal.timeout(5000) });
+  assert.equal((await definitionReplay.json()).status, 409);
+  assert.equal(readFileSync(join(agent, "AGENTS.md"), "utf8"), "Isolated owner 日本語");
   assert.equal(existsSync(join(fixture, "web")), false);
 });

@@ -21,7 +21,7 @@ vi.mock("@/lib/pi/harness", () => ({
   refreshLiveSessionsForAgentDefinition: mocks.refreshLiveSessionsForAgentDefinition,
 }));
 
-import { DELETE, PATCH } from "./route";
+import { DELETE, PATCH } from "@backend-runtime/json-business/handlers/agents/[name]/route";
 
 function request(body: unknown): NextRequest {
   return new NextRequest("http://localhost/api/agents/custom", {
@@ -72,8 +72,8 @@ describe("PATCH /api/agents/:name tool permissions", () => {
 
     expect(response.status).toBe(200);
     expect(mocks.setAgentTools).toHaveBeenCalledWith("custom", []);
-    expect(mocks.reloadLiveSessionsContext).toHaveBeenCalledOnce();
-    expect(mocks.refreshLiveSessionsForAgentDefinition).toHaveBeenCalledWith("custom");
+    expect(mocks.reloadLiveSessionsContext).not.toHaveBeenCalled();
+    expect(mocks.refreshLiveSessionsForAgentDefinition).not.toHaveBeenCalled();
   });
 
   it("restores inheritance with null, not an empty allowlist", async () => {
@@ -134,7 +134,7 @@ describe("PATCH /api/agents/:name tool permissions", () => {
 
     expect(response).not.toBeNull();
     expect((response as Response).status).toBe(200);
-    expect(mocks.reloadLiveSessionsContext).toHaveBeenCalledOnce();
+    expect(mocks.reloadLiveSessionsContext).not.toHaveBeenCalled();
   });
 
   it("applies model, effort, and tools when sent together", async () => {
@@ -158,12 +158,12 @@ describe("DELETE /api/agents/:name", () => {
     mocks.reloadLiveSessionsContext.mockResolvedValue({ reloaded: true });
   });
 
-  it("reloads live sessions after deleting a user agent", async () => {
+  it("returns deletion without applying live changes before the owner command checkpoint", async () => {
     const response = await DELETE(new NextRequest("http://localhost/api/agents/custom", { method: "DELETE" }), context());
     await flushImmediate();
 
     expect(response.status).toBe(200);
     expect(mocks.deleteAgent).toHaveBeenCalledWith("custom");
-    expect(mocks.reloadLiveSessionsContext).toHaveBeenCalledOnce();
+    expect(mocks.reloadLiveSessionsContext).not.toHaveBeenCalled();
   });
 });

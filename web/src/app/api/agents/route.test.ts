@@ -13,7 +13,7 @@ vi.mock("@/lib/agents", () => mocks);
 vi.mock("@/lib/pi/harness", () => ({ reloadLiveSessionsContext: mocks.reloadLiveSessionsContext }));
 vi.mock("@/lib/pi/web-settings", () => ({ getSetting: mocks.getSetting }));
 
-import { GET, POST } from "./route";
+import { GET, POST } from "@backend-runtime/json-business/handlers/agents/route";
 
 function request(body: unknown): NextRequest {
   return new NextRequest("http://localhost/api/agents", {
@@ -153,6 +153,6 @@ describe("POST /api/agents", () => {
     expect(mocks.createAgent).toHaveBeenCalledWith(
       expect.objectContaining({ name: "blocked", tools: [] }),
     );
-    expect(mocks.reloadLiveSessionsContext).toHaveBeenCalledOnce();
+    expect(mocks.reloadLiveSessionsContext).not.toHaveBeenCalled();
   });
 });

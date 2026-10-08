@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { NextRequest } from "next/server";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
-import { POST } from "./route";
+import { POST } from "@backend-runtime/json-business/handlers/prompts/transfer/route";
 
 vi.mock("@/lib/pi/harness", () => ({ reloadLiveSessionsContext: vi.fn(async () => ({ reloaded: 0, failed: 0, errors: [] })) }));
 

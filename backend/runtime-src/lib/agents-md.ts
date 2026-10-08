@@ -8,6 +8,7 @@ import {
   writeFileSync,
 } from "node:fs";
 import { homedir } from "node:os";
+import { watchConfigurationPath } from "@backend-core/configuration-command.mjs";
 import { basename, dirname, join, resolve } from "node:path";
 
 export const MAX_AGENTS_MD_BYTES = 2 * 1024 * 1024;
@@ -126,6 +127,7 @@ export function writeAgentsMdFile(filePath: string, content: string): AgentsMdDt
   assertUtf8Size(filePath, content);
   const target = resolve(filePath);
   const parent = dirname(target);
+  watchConfigurationPath(target);
   mkdirSync(parent, { recursive: true });
   if (existsSync(target) && lstatSync(target).isSymbolicLink()) {
     throw Object.assign(new Error(`${basename(target)}はシンボリックリンクのため編集できません`), {

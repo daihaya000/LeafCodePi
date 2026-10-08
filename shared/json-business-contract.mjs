@@ -1,13 +1,20 @@
+import { DEFINITION_ROUTES, definitionTarget, definitionBodyLimit, publicDefinitionBody } from "./definition-contract.mjs";
 /** Pure wire contract. Owner validation/commands never run in the Web relay. */
 export const JSON_BUSINESS_PATH = "/internal/json-business";
-export const JSON_BUSINESS_HEADERS = Object.freeze({ origin: "x-leafcode-business-origin", host: "x-leafcode-business-host", authorized: "x-leafcode-business-authorized" });
+export const JSON_BUSINESS_HEADERS = Object.freeze({ origin: "x-leafcode-business-origin", host: "x-leafcode-business-host", authorized: "x-leafcode-business-authorized", operation: "x-leafcode-business-operation" });
 export const JSON_BUSINESS_ROUTES = Object.freeze({
   "git/branches": ["GET"], "git/commit": ["POST"], "git/commit-message": ["POST"],
   "git/init": ["POST"], "git/log": ["GET"], "git/merge": ["POST"],
   "git/pr": ["GET", "POST"], "git/pull": ["POST"], "git/push": ["POST"],
   "git/repositories": ["GET"], "git/rm": ["POST"], "git/show": ["GET"], "diff/files": ["GET"],
+  ...DEFINITION_ROUTES,
 });
 export const JSON_BUSINESS_BODY_LIMIT = 1024 * 1024;
+export function jsonBusinessTarget(path) {
+  if (Object.hasOwn(JSON_BUSINESS_ROUTES, path) && !path.includes("[")) return { route: path, params: {} };
+  return definitionTarget(path);
+}
+export function jsonBusinessBodyLimit(path) { const target = definitionTarget(path); return target ? definitionBodyLimit(target.route) : JSON_BUSINESS_BODY_LIMIT; }
 export const JSON_BUSINESS_RESPONSE_LIMIT = 32 * 1024 * 1024;
 export function jsonBusinessTimeout(route) { return route === "git/pr" ? 200_000 : 180_000; }
 export function jsonBusinessMutates(route, method) { return method !== "GET" && route !== "git/commit-message"; }
@@ -23,7 +30,10 @@ const fields = {
 const record = (value) => value && typeof value === "object" && !Array.isArray(value);
 /** Schema checks at the public boundary; never forward arbitrary owner headers or top-level fields. */
 export function publicJsonBusinessResult(route, value) {
-  if (!Object.hasOwn(fields, route) || !record(value) || !Number.isInteger(value.status) || value.status < 200 || value.status > 599) return null;
+  const target = jsonBusinessTarget(route);
+  if (!target) return null;
+  route = target.route;
+  if (!record(value) || !Number.isInteger(value.status) || value.status < 200 || value.status > 599) return null;
   const headers = {};
   for (const name of ["cache-control", "etag", "x-content-type-options"]) {
     const field = value.headers?.[name];
@@ -31,6 +41,10 @@ export function publicJsonBusinessResult(route, value) {
     if (field !== undefined) headers[name] = field;
   }
   if (value.status === 304) return value.body === null ? { status: 304, headers, body: null } : null;
+  if (Object.hasOwn(DEFINITION_ROUTES, route)) {
+    const body = publicDefinitionBody(route, value.body, value.status);
+    return body ? { status: value.status, headers, body } : null;
+  }
   if (!record(value.body)) return null;
   const input = value.body;
   if (input.error !== undefined && typeof input.error !== "string") return null;

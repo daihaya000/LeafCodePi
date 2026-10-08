@@ -24,6 +24,7 @@ import { loadSkillsFromDir, type Skill } from "@earendil-works/pi-coding-agent";
 import { resolvePiAgentDir } from "@/lib/agents-md";
 import { dataDir } from "@/lib/paths";
 import { withDirectoryLock } from "@backend-core/directory-lock.mjs";
+import { assertConfigurationOwner, watchConfigurationPath } from "@backend-core/configuration-command.mjs";
 import type { BotSkillsConfig } from "@/lib/types";
 import { bundledExtensionEntries } from "@/lib/extensions";
 import { filterSkillsByState as coreFilterSkillsByState, filterSkillsForBot as coreFilterSkillsForBot } from "@backend-core/skill-filters.mjs";
@@ -124,6 +125,7 @@ function disabledNames(value: unknown): Record<string, true> {
 }
 
 function atomicWrite(filePath: string, content: string): void {
+  watchConfigurationPath(filePath);
   mkdirSync(dirname(filePath), { recursive: true });
   const tmp = join(dirname(filePath), `.${Date.now()}.${process.pid}.tmp`);
   try {
@@ -274,6 +276,7 @@ export function setSkillsEnabled(
   agentDir = resolvePiAgentDir(),
   options?: ListSkillsOptions,
 ): SkillListResult {
+  assertConfigurationOwner();
   const trimmedNames = [...new Set(names.map((name) => name.trim()))];
   if (trimmedNames.length === 0 || trimmedNames.some((name) => !name || name.includes("/") || name.includes("\\") || name.includes(".."))) {
     throw new SkillsError("invalid-name", "名前が不正です");

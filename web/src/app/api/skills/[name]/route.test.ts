@@ -12,7 +12,7 @@ const skills = vi.hoisted(() => ({
 vi.mock("@/lib/pi/harness", () => harness);
 vi.mock("@/lib/skills", () => skills);
 
-import { PATCH } from "./route";
+import { PATCH } from "@backend-runtime/json-business/handlers/skills/[name]/route";
 
 function request(body: unknown): NextRequest {
   return new NextRequest("http://127.0.0.1:3010/api/skills/review", {
@@ -58,7 +58,7 @@ describe("/api/skills/:name", () => {
 
     expect(response).not.toBeNull();
     await new Promise<void>((resolve) => setImmediate(resolve));
-    expect(harness.reloadLiveSessionsContext).toHaveBeenCalledOnce();
+    expect(harness.reloadLiveSessionsContext).not.toHaveBeenCalled();
     expect(skills.setSkillEnabled).toHaveBeenCalledWith("review", false, undefined, { scope: "bot" });
     expect(await (response as Response).json()).toMatchObject({
       ok: true,

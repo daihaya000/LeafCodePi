@@ -78,7 +78,7 @@ export function createConfigurationCommands({ ledgerPath, apply = async () => un
       const ledger = readLedger(ledgerPath());
       return operationId ? ledger.operations.find((row) => row.operationId === operationId) ?? null : { revision: ledger.revision };
     },
-    run({ operationId = randomUUID(), route, method, handler }) {
+    run({ operationId = randomUUID(), route, method, handler, apply: applyOperation }) {
       const execute = async () => {
         const previous = readLedger(ledgerPath()).operations.find((row) => row.operationId === operationId);
         if (previous) return Response.json({ error: "設定操作は既に受付済みです。再実行せず結果を確認してください", mutation: previous }, { status: 409 });
@@ -103,7 +103,7 @@ export function createConfigurationCommands({ ledgerPath, apply = async () => un
           }
           if (response.ok && saved && mutation.revision) {
             try {
-              const result = await apply({ route, method, body: await response.clone().json() });
+              const result = await (applyOperation ?? apply)({ route, method, body: await response.clone().json() });
               mutation.apply = ["not-required", "deferred"].includes(result) ? result : "applied";
             } catch {
               mutation.apply = "failed";

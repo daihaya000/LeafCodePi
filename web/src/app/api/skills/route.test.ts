@@ -13,7 +13,7 @@ const skills = vi.hoisted(() => ({
 vi.mock("@/lib/pi/harness", () => harness);
 vi.mock("@/lib/skills", () => skills);
 
-import { POST } from "./route";
+import { POST } from "@backend-runtime/json-business/handlers/skills/route";
 
 function request(body: unknown): NextRequest {
   return new NextRequest("http://127.0.0.1:3010/api/skills", {
@@ -58,7 +58,7 @@ describe("POST /api/skills", () => {
       scope: "bot",
     });
     await new Promise<void>((resolve) => setImmediate(resolve));
-    expect(harness.reloadLiveSessionsContext).toHaveBeenCalledOnce();
+    expect(harness.reloadLiveSessionsContext).not.toHaveBeenCalled();
   });
 
   it("rejects an empty skill group", async () => {

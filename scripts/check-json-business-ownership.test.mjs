@@ -17,13 +17,19 @@ for (const [route, methods] of Object.entries(JSON_BUSINESS_ROUTES)) {
       const statement = handler.body.statements[0];
       assert.ok(ts.isReturnStatement(statement) && ts.isCallExpression(statement.expression));
       assert.equal(statement.expression.expression.getText(source), "relayJsonBusiness");
-      assert.equal(statement.expression.arguments[1].text, route);
+      if (route.includes("[name]")) {
+        const argument = statement.expression.arguments[1];
+        assert.ok(ts.isTemplateExpression(argument));
+        assert.equal(argument.head.text, route.split("/")[0] + "/");
+        assert.equal(argument.templateSpans.length, 1);
+        assert.equal(argument.templateSpans[0].expression.getText(source), "encodeURIComponent((await context.params).name)");
+      } else assert.equal(statement.expression.arguments[1].text, route);
     }
     assert.doesNotMatch(readFileSync(join(root, "backend/runtime-src/json-business/handlers", route, "route.ts"), "utf8"), /from ["']next\//);
   });
 }
 test("wire contract is pure and projection removes private owner fields/headers", () => {
-  assert.doesNotMatch(readFileSync(join(root, "shared/json-business-contract.mjs"), "utf8"), /node:|next\/|process\.|readFile|writeFile|@earendil/);
+  for (const name of ["json-business-contract.mjs", "definition-contract.mjs"]) assert.doesNotMatch(readFileSync(join(root, "shared", name), "utf8"), /node:|next\/|process\.|readFile|writeFile|@earendil/);
   const publicResult = publicJsonBusinessResult("git/init", { status: 200, body: { ok: true, directory: "repo", token: "private" }, headers: { "set-cookie": "private", etag: "value" } });
   assert.deepEqual(publicResult, { status: 200, body: { ok: true, directory: "repo" }, headers: { etag: "value" } });
   assert.equal(publicJsonBusinessResult("git/init", { status: 200, body: { token: "private" } }), null);

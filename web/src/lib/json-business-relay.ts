@@ -1,7 +1,10 @@
+import { randomUUID } from "node:crypto";
+import { definitionTarget } from "@shared/definition-contract.mjs";
+import { publicConfigurationMutation } from "@shared/configuration-contract.mjs";
 import { isCrossOriginRequest } from "@/lib/same-origin";
 import { backendBaseUrl, expectedBackendGeneration, isBackendGenerationCompatible, readBackendHealth } from "@/lib/backend-client";
 import { isWebUiRequestAuthorized, webUiAuthRequired } from "@/lib/webui-auth";
-import { JSON_BUSINESS_PATH, JSON_BUSINESS_ROUTES, JSON_BUSINESS_HEADERS, JSON_BUSINESS_BODY_LIMIT, JSON_BUSINESS_RESPONSE_LIMIT,
+import { JSON_BUSINESS_PATH, JSON_BUSINESS_ROUTES, JSON_BUSINESS_HEADERS, jsonBusinessTarget, jsonBusinessBodyLimit, JSON_BUSINESS_RESPONSE_LIMIT,
   jsonBusinessTimeout, jsonBusinessMutates, publicJsonBusinessResult } from "@shared/json-business-contract.mjs";
 import { BACKEND_PROTOCOL_HEADER, BACKEND_PROTOCOL_VERSION } from "@shared/backend-protocol.mjs";
 
@@ -30,12 +33,22 @@ async function boundedBytes(input: Pick<Request, "body" | "headers">, limit: num
 }
 /** Ingress/transport only: no parsing of business inputs, local execution, fallback or replay. */
 export async function relayJsonBusiness(request: Request, route: string): Promise<Response> {
-  if (!Object.hasOwn(JSON_BUSINESS_ROUTES, route)) return failure(404, "経路が不正です");
-  if (!JSON_BUSINESS_ROUTES[route].includes(request.method)) return failure(405, "許可されないメソッドです");
+  const target = jsonBusinessTarget(route);
+  if (!target) return failure(404, "経路が不正です");
+  if (!JSON_BUSINESS_ROUTES[target.route].includes(request.method)) return failure(405, "許可されないメソッドです");
   const mutates = jsonBusinessMutates(route, request.method), before = mutates ? "not-started" : undefined, unknown = mutates ? "unknown" : undefined;
   const authorized = isWebUiRequestAuthorized(request), original = new URL(request.url);
   if (webUiAuthRequired() && !authorized) return failure(401, "認証が必要です", before);
   if (request.method !== "GET" && isCrossOriginRequest({ headers: request.headers, nextUrl: original })) return failure(403, "許可されない接続元です", before);
+  if (target.route === "prompts/transfer") {
+    const loopback = ["127.0.0.1", "localhost", "::1", "[::1]"];
+    let headerHost = ""; try { headerHost = new URL(`http://${request.headers.get("host") ?? original.host}`).hostname; } catch { /* fail closed */ }
+    const local = loopback.includes(process.env.LEAFCODE_PI_BIND_HOST ?? "") && loopback.includes(original.hostname) && loopback.includes(headerHost);
+    if (!authorized && !local) return failure(403, "WebUIアクセスゲートが必要です", before);
+    const origin = request.headers.get("origin");
+    if (origin && origin !== original.origin) return failure(403, "許可されない接続元です", before);
+  }
+  const operationId = definitionTarget(route) && request.method !== "GET" ? randomUUID() : undefined;
   const token = process.env.LEAFCODE_PI_BACKEND_TOKEN?.trim();
   if (!token) return failure(503, "Backendを利用できません", before);
   const expected = expectedBackendGeneration();
@@ -46,7 +59,7 @@ export async function relayJsonBusiness(request: Request, route: string): Promis
   let body: Uint8Array | undefined;
   if (request.method !== "GET") {
     try {
-      const bytes = await boundedBytes(request, JSON_BUSINESS_BODY_LIMIT);
+      const bytes = await boundedBytes(request, jsonBusinessBodyLimit(route));
       if (bytes === null) return failure(413, "本文が大きすぎます", before);
       body = bytes;
     } catch { return failure(400, "本文を読み込めません", before); }
@@ -54,7 +67,7 @@ export async function relayJsonBusiness(request: Request, route: string): Promis
   if (request.signal.aborted) return failure(400, "リクエストが中断されました", before);
   const headers: Record<string, string> = { authorization: `Bearer ${token}`, [BACKEND_PROTOCOL_HEADER]: String(BACKEND_PROTOCOL_VERSION),
     [JSON_BUSINESS_HEADERS.origin]: original.origin, [JSON_BUSINESS_HEADERS.host]: request.headers.get("host") ?? original.host,
-    [JSON_BUSINESS_HEADERS.authorized]: authorized ? "1" : "0" };
+    [JSON_BUSINESS_HEADERS.authorized]: authorized ? "1" : "0", ...(operationId ? { [JSON_BUSINESS_HEADERS.operation]: operationId } : {}) };
   for (const key of ["content-type", "origin", "sec-fetch-site", "x-forwarded-host", "if-none-match"]) {
     const value = request.headers.get(key); if (value) headers[key] = value;
   }
@@ -73,6 +86,10 @@ export async function relayJsonBusiness(request: Request, route: string): Promis
     }
     const result = publicJsonBusinessResult(route, value);
     if (!result) return failure(503, "Backendの応答が不正です", unknown);
+    if (operationId) {
+      const mutation = publicConfigurationMutation(result.body?.mutation);
+      if (!mutation || mutation.operationId !== operationId) return failure(503, "Backendの操作結果を確認できません", unknown);
+    }
     const outputHeaders = new Headers(noStore);
     for (const [key, value] of Object.entries(result.headers)) outputHeaders.set(key, value);
     return result.status === 304 ? new Response(null, { status: 304, headers: outputHeaders })

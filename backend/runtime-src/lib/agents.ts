@@ -13,6 +13,7 @@ import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, s
 import { dirname, join } from "node:path";
 import YAML from "yaml";
 import { withDirectoryLock } from "@backend-core/directory-lock.mjs";
+import { assertConfigurationOwner, watchConfigurationPath } from "@backend-core/configuration-command.mjs";
 import { resolvePiAgentDir } from "@/lib/agents-md";
 import { readPiSettings } from "@/lib/extensions";
 import { bundledExtensionsDir, resolvePackageDir } from "@/lib/extensions";
@@ -149,6 +150,7 @@ function mergeAgentOverrides(
 }
 
 function atomicWrite(filePath: string, content: string): void {
+  watchConfigurationPath(filePath);
   mkdirSync(dirname(filePath), { recursive: true });
   const tmp = join(dirname(filePath), `.${Date.now()}.${process.pid}.tmp`);
   try {
@@ -407,6 +409,7 @@ function updateAgentOverride(
   update: (override: AgentOverride) => void,
   agentDir: string,
 ): AgentListResult {
+  assertConfigurationOwner();
   const { name: trimmed } = assertListedAgent(name, agentDir);
   const overridesPath = agentOverridesPath(agentDir);
   withDirectoryLock({
@@ -637,6 +640,7 @@ function assertDefaultToolsInherited(name: string, tools: unknown): void {
 
 /** Create a new user agent. Rejects names that already exist. */
 export function createAgent(draft: AgentDraft, agentDir = resolvePiAgentDir()): AgentListResult {
+  assertConfigurationOwner();
   const name = assertValidName(draft.name);
   assertDefaultToolsInherited(name, draft.tools);
   const existing = listAgents(agentDir);
@@ -660,6 +664,7 @@ export function updateAgent(draft: AgentDraft, agentDir = resolvePiAgentDir()): 
 /** Delete a user agent. */
 export function deleteAgent(name: string, agentDir = resolvePiAgentDir()): AgentListResult {
   const filePath = assertEditable(agentDir, name.trim());
+  watchConfigurationPath(filePath);
   rmSync(filePath, { force: true });
   return listAgents(agentDir);
 }

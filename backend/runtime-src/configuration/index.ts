@@ -1,8 +1,6 @@
-import { join } from "node:path";
 import { basename } from "node:path";
 import { CONFIGURATION_ROUTES, configurationTarget } from "@shared/configuration-contract.mjs";
-import { createConfigurationCommands } from "@backend-core/configuration-command.mjs";
-import { dataDir } from "@/lib/paths";
+import { configurationCommands as commands } from "./commands";
 import { invalidateSettingsFileCache } from "@/lib/pi/web-settings";
 import { invalidateCachedUsage } from "@/lib/codexbar/cache";
 import { configurationRequest } from "./http";
@@ -33,9 +31,7 @@ const handlers = { settings, "settings/[key]": setting, "settings/hang-timeout":
   "cache-warming": warming, "compaction-settings": compaction, "jev-model": jev, "jev-model/legacy-credentials": legacyJev,
   "memory-settings": memory, notifications, pushover, profile } as unknown as Record<string, Record<string, Handler>>;
 
-const commands = createConfigurationCommands({
-  ledgerPath: () => join(dataDir(), "configuration-command.json"),
-  apply: async ({ route, method, body }) => {
+async function applyConfiguration({ route, method, body }: { route: string; method: string; body: Record<string, unknown> }) {
     invalidateSettingsFileCache(); invalidateCachedUsage(); invalidateHealthCache();
     const target = configurationTarget(route)!;
     if (target.route === "settings/[key]") {
@@ -55,8 +51,7 @@ const commands = createConfigurationCommands({
     const result = await reloadLiveSessionsContext();
     if (result.failed > 0) throw new Error("Live settings reload failed");
     return result.deferred > 0 ? "deferred" : "applied";
-  },
-});
+}
 
 export type ConfigurationInput = {
   route: string; method: string; url: string; headers: Record<string, string>;
@@ -90,5 +85,5 @@ export async function dispatchConfigurationRequest(input: ConfigurationInput, ru
   };
   if (input.method === "GET") return handler();
   return commands.run({ operationId: input.operationId, route: input.route, method: input.method,
-    handler: runOwnedWrite ? () => runOwnedWrite(handler) : handler });
+    handler: runOwnedWrite ? () => runOwnedWrite(handler) : handler, apply: applyConfiguration });
 }

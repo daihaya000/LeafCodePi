@@ -24,6 +24,17 @@ test("business transport enforces auth, protocol, readiness, method, context and
   assert.equal((await request(`${unavailable.base}/git/init`, { method: "POST", headers: unavailable.headers })).status, 503);
   assert.equal(calls, 0);
 });
+test("definition transport routes named targets and rejects missing operation acknowledgement context before execution", async t => {
+  let calls = 0;
+  const f = await fixture(t, { jsonBusinessRequestAction: async input => {
+    calls++; assert.equal(input.route, "skills/review%2Ffixture"); assert.match(input.operationId, /^[a-f0-9-]{36}$/);
+    return { status: 400, headers: {}, body: { error: "invalid name" } };
+  } });
+  const target = `${f.base}/skills/review%2Ffixture`;
+  assert.equal((await request(target, { method: "PATCH", headers: f.headers, body: "{}" })).status, 400); assert.equal(calls, 0);
+  const result = await request(target, { method: "PATCH", headers: { ...f.headers, "x-leafcode-business-operation": "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee" }, body: "{}" });
+  assert.equal(result.status, 200); assert.equal((await result.json()).status, 400); assert.equal(calls, 1);
+});
 test("owner receives only trusted ingress context and bytes; public DTO preserves error and 304", async t => {
   const f = await fixture(t, { jsonBusinessRequestAction: async input => {
     assert.equal(input.headers.authorization, undefined); assert.equal(input.headers.cookie, undefined);

@@ -15,6 +15,29 @@ beforeEach(() => {
 });
 afterEach(() => { vi.unstubAllGlobals(); vi.unstubAllEnvs(); rmSync(root, { recursive: true, force: true }); });
 describe("JSON business ingress", () => {
+  it("preserves definition save/apply failure and checks the opaque operation acknowledgement", async () => {
+    fetcher.mockImplementation(async (_url, options) => {
+      const id = new Headers(options.headers).get("x-leafcode-business-operation");
+      return Response.json({ status: 503, headers: {}, body: { error: "apply failed", content: "Saved", path: "AGENTS.md", exists: true,
+        mutation: { operationId: id, saved: true, saveStatus: "complete", revision: "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee", apply: "failed", recovery: "none", token: "PRIVATE" } } });
+    });
+    const result = await relayJsonBusiness(new Request("http://localhost/api/agents-md", { method: "PATCH", body: '{"content":"Saved"}' }), "agents-md");
+    expect(result.status).toBe(503); const body = await result.json();
+    expect(body.mutation).toMatchObject({ saved: true, apply: "failed" }); expect(body.mutation.token).toBeUndefined();
+    expect(fetcher).toHaveBeenCalledOnce(); expect(readdirSync(root)).toEqual([]);
+    fetcher.mockResolvedValueOnce(Response.json({ status: 200, body: { content: "Saved", path: "AGENTS.md", exists: true } }));
+    const lost = await relayJsonBusiness(new Request("http://localhost/api/agents-md", { method: "PATCH", body: "{}" }), "agents-md");
+    expect(lost.status).toBe(503); expect((await lost.json()).execution).toBe("unknown");
+  });
+  it("relays dynamic identifiers without decoding business names and gates prompt transfers", async () => {
+    fetcher.mockResolvedValueOnce(Response.json({ status: 200, body: { draft: { name: "nested/name", systemPrompt: "Prompt", secret: "PRIVATE" }, filePath: "agent.md" }, headers: {} }));
+    const draft = await relayJsonBusiness(new Request("http://localhost/api/agents/nested%2Fname"), "agents/nested%2Fname");
+    expect(draft.status).toBe(200); expect((await draft.json()).draft.secret).toBeUndefined();
+    expect(fetcher.mock.calls[0][0]).toContain("/agents/nested%2Fname");
+    vi.stubEnv("LEAFCODE_PI_BIND_HOST", "0.0.0.0");
+    expect((await relayJsonBusiness(request("prompts/transfer"), "prompts/transfer")).status).toBe(403);
+    expect(fetcher).toHaveBeenCalledOnce();
+  });
   it("relays bytes verbatim without local business validation, persistence or private fields", async () => {
     const response = await relayJsonBusiness(request("git/init", "not valid JSON"), "git/init");
     expect(response.status).toBe(200); expect(await response.json()).toEqual({ ok: true, directory: "repo" });

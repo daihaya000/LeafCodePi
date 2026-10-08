@@ -17,6 +17,17 @@ function fixture(t, apply) {
   const save = () => { watchConfigurationPath(file); writeFileSync(file, "after"); return Response.json({ value: "public" }); };
   return { root, file, ledger, commands, run, save };
 }
+test("definition-specific application shares the settings queue and does not replace the default application", async t => {
+  const order = []; let release;
+  const gate = new Promise(resolve => { release = resolve; });
+  const f = fixture(t, async () => { order.push("settings-applied"); });
+  const first = f.commands.run({ route: "agents-md", method: "PATCH", handler: f.save, apply: async () => { order.push("definition-apply"); await gate; return "deferred"; } });
+  await new Promise(resolve => setImmediate(resolve));
+  const second = f.run(() => { order.push("settings-save"); return f.save(); });
+  assert.deepEqual(order, ["definition-apply"]); release();
+  assert.equal((await (await first).json()).mutation.apply, "deferred"); await second;
+  assert.deepEqual(order, ["definition-apply", "settings-save", "settings-applied"]);
+});
 test("save checkpoints revision before apply and survives a new owner instance", async (t) => {
   let ledger, seen;
   const f = fixture(t, async () => { seen = JSON.parse(readFileSync(ledger, "utf8")).operations.at(-1); });
