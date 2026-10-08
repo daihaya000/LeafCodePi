@@ -129,6 +129,25 @@ it("renders bot Markdown with GFM", () => {
   expect(container.querySelector("ul li")?.textContent).toBe("item");
 });
 
+it("renders news source links as cards in Bot messages without requiring a blank line", () => {
+  const request = vi.fn().mockResolvedValue(new Response("offline", { status: 503 }));
+  vi.stubGlobal("fetch", request);
+  const { container } = render(<BotMessageMarkdown text={"- **Flyle、AIオペレーター提供を発表**\n  電話・チャット・メール対応を担うAIを発表。\n  出典: [Flyle / PR TIMES](https://example.com/bot-news-source)"} />);
+  const card = container.querySelector<HTMLAnchorElement>("a[data-link-card]");
+  expect(card?.getAttribute("href")).toBe("https://example.com/bot-news-source");
+  expect(card?.textContent).toContain("Flyle / PR TIMES");
+  expect(container.textContent).toContain("電話・チャット・メール対応を担うAIを発表。");
+  expect(container.textContent).toContain("出典:");
+});
+
+it("renders all nine source links in a news digest with hard breaks and mention renderers", () => {
+  vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response("offline", { status: 503 })));
+  const text = Array.from({ length: 9 }, (_, index) => `- **News ${index}**  \n  Summary.  \n  出典: [Source ${index}](https://example.com/bot-digest-${index})`).join("\n\n");
+  const { container } = render(<BotMessageMarkdown text={text} mentions={[]} />);
+  expect(container.querySelectorAll("a[data-link-card]")).toHaveLength(9);
+  expect(container.querySelector("a[data-link-card][href='https://example.com/bot-digest-8']")).toBeTruthy();
+});
+
 it("renders local Markdown images in bot replies through the task image endpoint", () => {
   const { getByRole } = render(<BotMessageMarkdown text="![render](renders/final.png)" imageTaskId="bot:bot-1" />);
   expect(getByRole("img", { name: "render" }).getAttribute("src")).toBe(
