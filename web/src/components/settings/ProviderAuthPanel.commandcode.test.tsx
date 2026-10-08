@@ -41,7 +41,7 @@ describe("Command Code API-key input", () => {
   it("offers an account-scoped masked key form alongside browser login", async () => {
     render(<ProviderAuthPanel providers={[provider]} onChanged={() => {}} />);
     const card = (await screen.findByText("GOAT")).closest("li")!;
-    expect(within(card).getByRole("button", { name: "サブスクでログイン" })).toBeTruthy();
+    expect(within(card).getByRole("button", { name: "ログイン" })).toBeTruthy();
     fireEvent.click(within(card).getByRole("button", { name: /^API キー$/ }));
     await waitFor(() => expect(TestEventSource.instances).toHaveLength(1));
     expect(fetchMock).toHaveBeenCalledWith(

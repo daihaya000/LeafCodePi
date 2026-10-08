@@ -181,7 +181,7 @@ function accountLoginLabel(
   authenticated: boolean,
 ): string {
   if (methodCount > 1) {
-    return authType === "oauth" ? "サブスクでログイン" : "API キー";
+    return authType === "oauth" ? "ログイン" : "API キー";
   }
   return authenticated ? "再ログイン" : "ログイン";
 }

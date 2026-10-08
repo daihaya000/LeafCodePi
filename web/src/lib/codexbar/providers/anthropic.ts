@@ -863,8 +863,8 @@ function missingCredentialsMessage(
       : "Anthropic Console の cookie が見つかりません。platform.claude.com にログインしたブラウザの cookie を登録してください。";
   }
   return strictAccount
-    ? "このアカウントの Claude 認証情報がありません。サブスクでログインするか API キーを登録してください。"
-    : "Claude の認証情報が見つかりません。WebUI の「サブスクでログイン」・API キー、または `claude` CLI でサインインしてください。";
+    ? "このアカウントの Claude 認証情報がありません。ログインするか API キーを登録してください。"
+    : "Claude の認証情報が見つかりません。WebUI の「ログイン」・API キー、または `claude` CLI でサインインしてください。";
 }
 
 function consoleCreditsUrl(orgId: string): string {

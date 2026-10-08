@@ -73,7 +73,7 @@ Claude も**アカウントごとに既定ON**で、設定 → モデル → Cla
 
 ## サブスクリプション認証
 
-設定 → モデル → 「サブスクでログイン」からブラウザ OAuth できます。
+設定 → モデル → 「ログイン」からブラウザ OAuth できます。
 
 | プロバイダー | 対象サブスク | Pi 上の ID |
 | --- | --- | --- |
@@ -82,7 +82,7 @@ Claude も**アカウントごとに既定ON**で、設定 → モデル → Cla
 | Cursor | Cursor サブスク | `cursor`（`@rahularya01/pi-cursor`） |
 | Ollama Cloud | API キー | `ollama-cloud` |
 
-Cursor は非公式拡張です。本機の Cursor IDE / CLI のトークンを使うか、設定画面から「サブスクでログイン」します。Node.js **22.19+** を推奨します。
+Cursor は非公式拡張です。本機の Cursor IDE / CLI のトークンを使うか、設定画面から「ログイン」します。Node.js **22.19+** を推奨します。
 
 トークンは Windows では `%USERPROFILE%\.pi\agent\auth.json`、Linux/macOS では `~/.pi/agent/auth.json` に保存されます。コールバックは本機の `127.0.0.1:53692`（Anthropic）と `localhost:1455`（OpenAI Codex）を使います。通常の API キー（`ANTHROPIC_API_KEY` など）も併用できます。
 

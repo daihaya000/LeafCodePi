@@ -234,7 +234,7 @@ describe("ProviderAuthPanel provider-scoped accounts", () => {
   });
 
   it.each([
-    { authType: "oauth", label: "サブスクでログイン" },
+    { authType: "oauth", label: "ログイン" },
     { authType: "api_key", label: "API キー" },
   ])("starts OpenAI $authType login in the selected account", async ({ authType, label }) => {
     mockAccountsApi([modernAccounts[0]]);
@@ -1177,7 +1177,7 @@ describe("ProviderAuthPanel provider-scoped accounts", () => {
 
     const anthropic = await accountRegion("Anthropic");
     expect(
-      within(anthropic).getByRole("button", { name: "サブスクでログイン" }),
+      within(anthropic).getByRole("button", { name: "ログイン" }),
     ).toBeTruthy();
     fireEvent.click(within(anthropic).getByRole("button", { name: "API キー" }));
 

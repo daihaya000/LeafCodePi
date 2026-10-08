@@ -755,7 +755,7 @@ export function createOpenaiCodexProvider(scope: UsageScope): IUsageProvider {
         throw new ProviderError(
           strictAccount
             ? "このアカウントの Codex 認証情報がありません。先に WebUI でログインしてください。"
-            : "Codex の認証情報が見つかりません。WebUI の「サブスクでログイン」または `codex` CLI でサインインしてください。",
+            : "Codex の認証情報が見つかりません。WebUI の「ログイン」または `codex` CLI でサインインしてください。",
         );
       }
       try {
@@ -917,7 +917,7 @@ export async function withOpenaiCodexWhamAuth<T>(
       new Error(
         leafcodeAccountId
           ? "このアカウントの Codex 認証情報がありません。先に WebUI でログインしてください。"
-          : "Codex の認証情報が見つかりません。WebUI の「サブスクでログイン」または `codex` CLI でサインインしてください。",
+          : "Codex の認証情報が見つかりません。WebUI の「ログイン」または `codex` CLI でサインインしてください。",
       ),
       { status: 401 },
     );
