@@ -61,6 +61,7 @@ export function toolLabel(tool: string, input?: Record<string, unknown>): string
   if (t === "skill_manage") return "スキル管理";
   if (t === "tool_search") return "ツール検索";
   if (t === "intercom") return "内線";
+  if (t === "session_resume") return "再開予約";
   if (t === "web_search") return "Web検索";
   if (t === "source_check") return "出典確認";
   if (t === "fetch_content") return "Web取得";
@@ -97,6 +98,7 @@ export function toolLabel(tool: string, input?: Record<string, unknown>): string
 /** 設定画面のツール一覧で使う、操作を区別しやすい日本語名。 */
 export function toolNameLabel(tool: string): string {
   const t = tool.toLowerCase();
+  if (t === "session_resume") return "再開予約";
   if (t === "read") return "読み取り";
   if (t === "write") return "書き込み";
   if (t === "bash") return "シェル実行";

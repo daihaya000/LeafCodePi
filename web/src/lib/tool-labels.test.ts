@@ -23,6 +23,7 @@ describe("toolLabel", () => {
     expect(toolLabel("skill_manage")).toBe("スキル管理");
     expect(toolLabel("tool_search")).toBe("ツール検索");
     expect(toolLabel("intercom")).toBe("内線");
+    expect(toolLabel("session_resume")).toBe("再開予約");
     expect(toolLabel("web_search")).toBe("Web検索");
     expect(toolLabel("source_check")).toBe("出典確認");
     expect(toolLabel("fetch_content")).toBe("Web取得");
@@ -39,6 +40,7 @@ describe("toolLabel", () => {
   });
 
   it("uses distinct Japanese names for the settings tool list", () => {
+    expect(toolNameLabel("session_resume")).toBe("再開予約");
     expect(toolNameLabel("read")).toBe("読み取り");
     expect(toolNameLabel("write")).toBe("書き込み");
     expect(toolNameLabel("edit")).toBe("編集");

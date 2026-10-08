@@ -5,6 +5,7 @@ import { homedir } from "node:os";
 import { basename, dirname, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { captureSessionBackgroundWorkStop, captureSessionShutdownResourceStop } from "@extensions/leafcode-subagents/src/api/background-work.ts";
+import { resumeReservationFromBranch } from "@shared/session-resume";
 import { runBackendMcpNativeSessionShutdownActions } from "@backend-core/mcp-native-session.mjs";
 import { assertSessionLoadAllowed, isRuntimeMemoryPressure, openSessionManagerSafely, readRuntimeMemory } from "@backend-core/session-memory-guard.mjs";
 import {
@@ -458,6 +459,7 @@ import type {
   AttentionItemDto,
   TaskDetail,
   TaskSummary,
+  SessionResumeDto,
   TodoDto,
   TodoProgressDto,
   ThinkingLevel,
@@ -1610,6 +1612,7 @@ function sessionSnapshotFields(
   compactionSuggested: boolean;
   goalLoop: GoalLoopDto | null;
   todos: TodoDto[];
+  sessionResume: SessionResumeDto | null;
   /** Cheap transcript identity for idle remote polls that omit message bodies. */
   messageRevision: string;
   /** Running tool label; kept when messages are omitted for cutover peeks. */
@@ -1658,6 +1661,10 @@ function sessionSnapshotFields(
   const todosStartedAt = reporter ? performance.now() : 0;
   const todos = todosFromPiMessages(session.messages);
   reportTaskDetailPhase(reporter, "todos", todosStartedAt);
+  const resume = resumeReservationFromBranch(session.sessionManager.getBranch(), session.sessionId);
+  const sessionResume = resume?.status === "scheduled"
+    ? { id: resume.id, at: resume.at, message: resume.message }
+    : null;
 
   // The Goal Loop exemption lives in backend core; the Settings reads stay here.
   const compactionSuggested = shouldSuggestCompaction({
@@ -1684,6 +1691,7 @@ function sessionSnapshotFields(
     compactionSuggested,
     goalLoop,
     todos,
+    sessionResume,
     messageRevision: `${storedMessages.length}:${lastId}:${session.isStreaming ? 1 : 0}:${session.isCompacting ? 1 : 0}`,
     ...(activity ? { activity } : {}),
   };
@@ -8031,6 +8039,7 @@ export function getTaskSummaries(
 type OfflineSessionSnapshot = {
   messages: UiMessage[];
   todos: TodoDto[];
+  sessionResume: SessionResumeDto | null;
   /**
    * File identity the projection was built from (`offline:` + dev/ino/size/mtime/ctime). Idle remote
    * polls compare it like a live `messageRevision`, so an unchanged transcript is not re-paged.
@@ -8065,7 +8074,8 @@ function offlineSnapshotCachedBytes(): number {
 function offlineSnapshotBytes(fileSize: bigint, snapshot: OfflineSessionSnapshot): number {
   if (fileSize <= BigInt(OFFLINE_SNAPSHOT_FILE_ESTIMATE_BYTES)) return Number(fileSize);
   try {
-    return JSON.stringify(snapshot.messages).length + JSON.stringify(snapshot.todos).length;
+    return JSON.stringify(snapshot.messages).length + JSON.stringify(snapshot.todos).length +
+      JSON.stringify(snapshot.sessionResume).length;
   } catch {
     return Number.POSITIVE_INFINITY;
   }
@@ -8097,6 +8107,13 @@ export function resetOfflineSessionSnapshotsForTests(): void {
 function offlineSessionFileVersion(file: string) {
   const stat = statSync(file, { bigint: true });
   return { size: stat.size, version: `${stat.dev}:${stat.ino}:${stat.size}:${stat.mtimeNs}:${stat.ctimeNs}` };
+}
+
+function offlineSessionResume(sessionManager: { getBranch(): readonly unknown[]; getSessionId(): string }): SessionResumeDto | null {
+  const reservation = resumeReservationFromBranch(sessionManager.getBranch(), sessionManager.getSessionId());
+  return reservation?.status === "scheduled"
+    ? { id: reservation.id, at: reservation.at, message: reservation.message }
+    : null;
 }
 
 function readOfflineSessionSnapshot(sessionFile: string): OfflineSessionSnapshot {
@@ -8146,11 +8163,16 @@ function readOfflineSessionSnapshot(sessionFile: string): OfflineSessionSnapshot
   } as AgentSession, throughput);
   // A concurrent append/rewrite must not label an older projection with a newer file version.
   if (offlineSessionFileVersion(sessionFile).version !== before.version) {
-    return { messages, todos: todosFromPiMessages(raw) };
+    return {
+      messages,
+      todos: todosFromPiMessages(raw),
+      sessionResume: offlineSessionResume(sessionManager),
+    };
   }
   const snapshot: OfflineSessionSnapshot = {
     messages,
     todos: todosFromPiMessages(raw),
+    sessionResume: offlineSessionResume(sessionManager),
     revision: `offline:${before.version}`,
   };
   rememberOfflineSnapshot(sessionFile, {
@@ -8163,7 +8185,7 @@ function readOfflineSessionSnapshot(sessionFile: string): OfflineSessionSnapshot
 }
 
 async function readArchivedTaskSnapshot(task: TaskSummary): Promise<OfflineSessionSnapshot> {
-  if (!task.sessionFile) return { messages: [], todos: [], revision: "offline:none" };
+  if (!task.sessionFile) return { messages: [], todos: [], sessionResume: null, revision: "offline:none" };
   try {
     await loadPi();
     return readOfflineSessionSnapshot(task.sessionFile);
@@ -8171,7 +8193,7 @@ async function readArchivedTaskSnapshot(task: TaskSummary): Promise<OfflineSessi
     offlineSessionSnapshots.delete(task.sessionFile);
     const code = (error as { code?: string } | null)?.code;
     if (code?.startsWith("SESSION_") || ["ENOSPC", "EIO", "EACCES", "EPERM"].includes(code ?? "")) throw error;
-    return { messages: [], todos: [] };
+    return { messages: [], todos: [], sessionResume: null };
   }
 }
 
@@ -8437,6 +8459,7 @@ async function offlineDetailParts(
 ): Promise<{
   messages: UiMessage[];
   todos: TodoDto[];
+  sessionResume: SessionResumeDto | null;
   isCompacting: false;
   compactionSuggested: false;
   hangRetryCount: number;
@@ -8450,6 +8473,7 @@ async function offlineDetailParts(
   return {
     messages: offline.messages,
     todos: offline.todos,
+    sessionResume: offline.sessionResume,
     // Lets idle `messages=omit` polls of a transcript keep their cached page (see backend-event-stream).
     ...(offline.revision ? { messageRevision: offline.revision } : {}),
     // The bookkeeping fields of a transcript read live in backend core.
@@ -8528,6 +8552,7 @@ export async function getTaskDetail(
       permissionRequest: pendingPermissionForTask(id),
       questionRequest: pendingQuestionForTask(id),
       goalLoop: detailIncludesGoalLoop(detailSource) ? readGoalLoopState(task.directory, task.sessionId) : null,
+      sessionResume: null,
     };
     reportTaskDetailPhase(options.onTiming, "total", totalStartedAt);
     return detail;
@@ -11693,6 +11718,7 @@ function emitTreeEditSnapshot(
     compactionSuggested: detail.compactionSuggested,
     goalLoop: detail.goalLoop,
     todos: detail.todos,
+    sessionResume: detail.sessionResume ?? null,
     messageRevision: detail.messageRevision,
     ...(detail.activity ? { activity: detail.activity } : {}),
     revertLeafId: detail.revertLeafId,

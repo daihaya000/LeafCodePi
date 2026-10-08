@@ -39,6 +39,7 @@ const REMOTE_TASK_POLL_MAX_MS = 10_000;
 const REUSABLE_TASK_SNAPSHOT_FIELDS = [
   "goalLoop",
   "todos",
+  "sessionResume",
   "permissionRequest",
   "questionRequest",
   "contextUsage",
@@ -59,7 +60,7 @@ function omitTaskMessagePayload(payload: Record<string, unknown>): Record<string
 /** Non-transcript fields used to detect meaningful foreign-owner state changes. */
 function remotePollStateSignature(
   taskSummary: Record<string, unknown>,
-  detail: { isStreaming?: boolean; isCompacting?: boolean; contextUsage?: unknown; hangRetryCount?: number },
+  detail: { isStreaming?: boolean; isCompacting?: boolean; contextUsage?: unknown; hangRetryCount?: number; sessionResume?: unknown },
 ): string {
   return [
     String(taskSummary.updatedAt ?? ""),
@@ -69,6 +70,7 @@ function remotePollStateSignature(
     String(detail.isCompacting ?? ""),
     JSON.stringify(detail.contextUsage ?? null),
     String(detail.hangRetryCount ?? 0),
+    JSON.stringify(detail.sessionResume ?? null),
   ].join(":");
 }
 
@@ -78,7 +80,7 @@ function remotePollStateSignature(
  */
 function remotePollSignature(
   taskSummary: Record<string, unknown>,
-  detail: { isStreaming?: boolean; isCompacting?: boolean; contextUsage?: unknown; hangRetryCount?: number },
+  detail: { isStreaming?: boolean; isCompacting?: boolean; contextUsage?: unknown; hangRetryCount?: number; sessionResume?: unknown },
   messageCount: number,
   lastMessageId: string,
 ): string {
@@ -315,6 +317,7 @@ export async function GET(
           "compactionSuggested",
           "goalLoop",
           "todos",
+          "sessionResume",
           "permissionRequest",
           "questionRequest",
           "manualAbortedAssistantId",
@@ -338,6 +341,7 @@ export async function GET(
           compactionSuggested: detail.compactionSuggested,
           goalLoop: detail.goalLoop,
           todos: detail.todos,
+          sessionResume: detail.sessionResume ?? null,
           // Prefer live pending at send time (same as bootstrap). Detail may be
           // stale if the user answered while getTaskDetail was in flight.
           permissionRequest: pendingPermissionForTask(id),
@@ -428,6 +432,7 @@ export async function GET(
                 "compactionSuggested",
                 "goalLoop",
                 "todos",
+                "sessionResume",
                 "permissionRequest",
                 "questionRequest",
                 "manualAbortedAssistantId",
@@ -521,6 +526,7 @@ export async function GET(
                   compactionSuggested: detail.compactionSuggested,
                   goalLoop: detail.goalLoop,
                   todos: detail.todos,
+                  sessionResume: detail.sessionResume ?? null,
                   manualAbortedAssistantId: detail.manualAbortedAssistantId ?? null,
                   hangRetryCount: detail.hangRetryCount ?? 0,
                   revertLeafId: detail.revertLeafId ?? null,

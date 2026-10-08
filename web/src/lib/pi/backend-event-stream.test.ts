@@ -89,11 +89,12 @@ describe("Backend task stream polling", () => {
     const firstContext = { tokens: 10, contextWindow: 100, percent: 10 };
     const goalLoop = { id: "loop-1", status: "running", goal: "goal", progress: Array(8).fill("same") };
     const todos = Array.from({ length: 8 }, (_, index) => ({ id: `todo-${index}`, content: "same", status: "pending" }));
+    const sessionResume = { id: "resume-1", at: "2026-10-08T10:32:53.000Z", message: "結果を確認する" };
     const permissionRequest = { id: "request-1", message: "permission", command: "echo ".repeat(80) };
     const questionRequest = { id: "question-1", questions: [{ question: "which?", options: ["A", "B"] }] };
     mocks.forwardTaskDetail
-      .mockResolvedValueOnce(result(0, { isStreaming: true, contextUsage: firstContext, goalLoop, todos, hangRetryCount: 1 }))
-      .mockResolvedValue(result(0, { isStreaming: true, contextUsage: firstContext, goalLoop, todos, hangRetryCount: 2 }));
+      .mockResolvedValueOnce(result(0, { isStreaming: true, contextUsage: firstContext, goalLoop, todos, sessionResume, hangRetryCount: 1 }))
+      .mockResolvedValue(result(0, { isStreaming: true, contextUsage: firstContext, goalLoop, todos, sessionResume, hangRetryCount: 2 }));
     mocks.forwardTaskPendingRequests.mockResolvedValue({ ok: true, permissionRequest, questionRequest });
     const sse = sink();
     const stream = await start(sse, { messageDelta: true });
@@ -103,10 +104,10 @@ describe("Backend task stream polling", () => {
     expect(sse.send).toHaveBeenCalledTimes(2);
     const first = sse.send.mock.calls[0]![1] as Record<string, unknown>;
     const second = sse.send.mock.calls[1]![1] as Record<string, unknown>;
-    expect(first).toMatchObject({ task: { id: "task-1" }, goalLoop, todos, permissionRequest, questionRequest, contextUsage: firstContext });
+    expect(first).toMatchObject({ task: { id: "task-1" }, goalLoop, todos, sessionResume, permissionRequest, questionRequest, contextUsage: firstContext });
     expect(first).toHaveProperty("messageHistory");
     expect(second).toMatchObject({ taskReused: true, hangRetryCount: 2 });
-    for (const field of ["task", "goalLoop", "todos", "permissionRequest", "questionRequest", "contextUsage", "messageHistory"]) {
+    for (const field of ["task", "goalLoop", "todos", "sessionResume", "permissionRequest", "questionRequest", "contextUsage", "messageHistory"]) {
       expect(second).not.toHaveProperty(field);
     }
     expect(utf8ByteLength(JSON.stringify(second))).toBeLessThan(utf8ByteLength(JSON.stringify(first)));

@@ -227,6 +227,7 @@ const DETAIL_ONLY_FIELDS = [
   "compactionSuggested",
   "goalLoop",
   "todos",
+  "sessionResume",
   "permissionRequest",
   "questionRequest",
   "manualAbortedAssistantId",
@@ -254,6 +255,7 @@ export function backendTaskSnapshot(
     compactionSuggested: detail?.compactionSuggested,
     goalLoop: detail?.goalLoop,
     todos: detail?.todos,
+    sessionResume: detail?.sessionResume ?? null,
     manualAbortedAssistantId: detail?.manualAbortedAssistantId ?? null,
     hangRetryCount: detail?.hangRetryCount ?? 0,
     revertLeafId: detail?.revertLeafId ?? null,
@@ -350,7 +352,7 @@ export async function startBackendTaskStream({
   let lastSnapshot: string | undefined;
   let lastTaskSummaryJson: string | undefined;
   const lastSnapshotFieldJson = new Map<string, string>();
-  const reusableSnapshotFields = ["goalLoop", "todos", "permissionRequest", "questionRequest", "contextUsage", "messageHistory", "intercomInbox"] as const;
+  const reusableSnapshotFields = ["goalLoop", "todos", "sessionResume", "permissionRequest", "questionRequest", "contextUsage", "messageHistory", "intercomInbox"] as const;
   const prepareTaskSummaryForWire = (snapshot: Record<string, unknown>, serialized: string) => {
     const entries = serializedObjectEntries(serialized);
     const serializedFieldJson = new Map(entries.map((entry) => [entry.key, serialized.slice(entry.valueStart, entry.end)]));
