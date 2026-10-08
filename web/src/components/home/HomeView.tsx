@@ -55,6 +55,8 @@ import {
 import { AUTO_TASK_PROMPT_MAX, writeAutoTaskRecord } from "@/lib/auto-task-record";
 import { notifyTasksChanged } from "@/lib/events";
 import { getJson, sendJson } from "@/lib/client";
+import { PROJECT_ORDER_API_PATH, parseProjectOrder } from "@/lib/sidebar-settings";
+import { projectsForSidebar } from "@/lib/sidebar-order";
 import { DEFAULT_AGENT, hasMultipleAgentChoices, readStoredAgent, resolveAgentSelection, writeStoredAgent } from "@/lib/default-agent";
 import {
   readStoredThinkingLevel,
@@ -156,6 +158,8 @@ export const HomeView = memo(function HomeView({
 }) {
   const router = useRouter();
   const [projects, setProjects] = useState<ProjectDto[]>([]);
+  // サイドメニューと同じ並び順にするため、カスタム並び順を保持する。
+  const [projectOrder, setProjectOrder] = useState<string[]>([]);
   // undefined = project list has not resolved; null = explicit no-project mode.
   const [projectId, setProjectId] = useState<string | null | undefined>(
     initialNoProject ? null : initialProjectId,
@@ -202,6 +206,11 @@ export const HomeView = memo(function HomeView({
   const selectedProject = projectId
     ? projects.find((project) => project.id === projectId)
     : undefined;
+  // サイドメニューと同一の projectsForSidebar を使い、ドロップダウンの並び順を揃える。
+  const orderedProjects = useMemo(
+    () => projectsForSidebar(projects, projectOrder),
+    [projects, projectOrder],
+  );
   const projectDirectory = selectedProject?.rootPath;
 
   useEffect(() => {
@@ -252,7 +261,7 @@ export const HomeView = memo(function HomeView({
         if (modelRefreshRef.current === refreshId) setModelsLoading(false);
       });
 
-    const [projectRes, healthRes, agentRes, skillRes] = await Promise.allSettled([
+    const [projectRes, healthRes, agentRes, skillRes, projectOrderRes] = await Promise.allSettled([
       getJson<{ projects: ProjectDto[] }>("/api/projects"),
       getJson<HealthDto>("/api/health"),
       getJson<{
@@ -260,9 +269,18 @@ export const HomeView = memo(function HomeView({
         autoEnabled?: boolean;
       }>("/api/agents"),
       getJson<{ skills: { name: string; description?: string; enabled: boolean }[] }>("/api/skills"),
+      getJson<{ value?: string | null }>(PROJECT_ORDER_API_PATH),
     ]);
+    if (projectOrderRes.status === "fulfilled") {
+      setProjectOrder(parseProjectOrder(projectOrderRes.value?.value) ?? []);
+    }
     if (projectRes.status === "fulfilled" && projectRefreshRef.current === projectRefreshId) {
       const nextProjects = projectRes.value.projects;
+      // デフォルト選択も並び順に合わせ、サイドメニューの先頭プロジェクトを選ぶ。
+      const nextOrder = projectOrderRes.status === "fulfilled"
+        ? parseProjectOrder(projectOrderRes.value?.value) ?? []
+        : projectOrder;
+      const orderedNext = projectsForSidebar(nextProjects, nextOrder);
       setProjects((current) =>
         current.length === nextProjects.length &&
         current.every((project, index) =>
@@ -280,7 +298,7 @@ export const HomeView = memo(function HomeView({
         }
         if (current === null) return null;
         if (current && nextProjects.some((project) => project.id === current)) return current;
-        return nextProjects[0]?.id ?? null;
+        return orderedNext[0]?.id ?? null;
       });
     }
     if (healthRes.status === "fulfilled") {
@@ -556,7 +574,7 @@ export const HomeView = memo(function HomeView({
                     <span className="truncate">{NO_PROJECT_NAME}</span>
                   </span>
                 </option>
-                {projects.map((project) => (
+                {orderedProjects.map((project) => (
                   <option key={project.id} value={project.id}>
                     <span className="flex min-w-0 items-center gap-2">
                       <span aria-hidden="true" className="shrink-0">
