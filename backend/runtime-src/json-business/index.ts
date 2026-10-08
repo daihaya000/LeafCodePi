@@ -11,6 +11,8 @@ import { usageTarget } from "@shared/usage-contract.mjs";
 import { dispatchUsageRequest } from "./usage";
 import { peerTarget } from "@shared/peer-contract.mjs";
 import { dispatchPeerRequest } from "./peer";
+import { taskCollectionTarget } from "@shared/task-collection-contract.mjs";
+import { dispatchTaskCollectionRequest } from "./tasks";
 import { projectTarget } from "@shared/project-contract.mjs";
 import { dispatchProjectRequest } from "./projects";
 import { workspaceTarget } from "@shared/workspace-contract.mjs";
@@ -47,6 +49,7 @@ export async function dispatchJsonBusinessRequest(input: JsonBusinessInput): Pro
   const request = configurationRequest(new Request(input.url, { method: input.method, headers: input.headers,
     signal, ...(input.body?.byteLength ? { body: new Uint8Array(input.body).slice().buffer } : {}) }), input.authorized);
   if (input.method !== "GET" && isCrossOriginRequest(request)) return { status: 403, headers: {}, body: { error: "Cross-origin request refused" } };
+  if (taskCollectionTarget(input.route)) return dispatchTaskCollectionRequest(input, request);
   if (projectTarget(input.route)) return dispatchProjectRequest(input, request);
   const workspace = workspaceTarget(input.route);
   if (workspace) return dispatchWorkspaceRequest(input, request, workspace);

@@ -2,9 +2,9 @@
 
 ## 進捗・範囲
 
-Phase3全体は未完了。Phase0のBackend/Phase3/JSON分類は118経路・182操作。Git・Diff・コミット文生成13経路・14操作、定義管理14経路・25操作、Provider/モデル設定7経路・8操作、Provider認証JSON4経路・5操作、アカウント管理/資格情報9経路・19操作、利用量/クレジット3経路・5操作、Peer認証共有5経路・9操作、Workspaceファイル/次タスク提案3経路・3操作、Project lifecycle1経路・4操作の合計59経路・92操作の境界を移管した。認証に付随するログインSSE 1経路・1操作も同じownerへ移管した（Phase3 JSONの集計には加算しない）。残る59経路・90操作には既存Backend中継も含まれ、受入条件の確認・残存業務処理の移管が必要。
+Phase3全体は未完了。Phase0のBackend/Phase3/JSON分類は118経路・182操作。Git・Diff・コミット文生成13経路・14操作、定義管理14経路・25操作、Provider/モデル設定7経路・8操作、Provider認証JSON4経路・5操作、アカウント管理/資格情報9経路・19操作、利用量/クレジット3経路・5操作、Peer認証共有5経路・9操作、Workspaceファイル/次タスク提案3経路・3操作、Project lifecycle1経路・4操作、Task collection1経路・3操作の合計60経路・95操作の境界を移管した。認証に付随するログインSSE 1経路・1操作も同じownerへ移管した（Phase3 JSONの集計には加算しない）。残る58経路・87操作には既存Backend中継も含まれ、受入条件の確認・残存業務処理の移管が必要。
 
-以下は第1区切り（Git・Diff・コミット文生成）の記録。第2区切りの定義管理、第3区切りのProvider/モデル設定、第4区切りのProvider認証、第5区切りのアカウント管理/資格情報、第6区切りの利用量/クレジット、第7区切りのPeer認証共有、第8区切りのWorkspaceファイル/次タスク提案、第9区切りのProject lifecycleは末尾に記載する。
+以下は第1区切り（Git・Diff・コミット文生成）の記録。第2区切りの定義管理、第3区切りのProvider/モデル設定、第4区切りのProvider認証、第5区切りのアカウント管理/資格情報、第6区切りの利用量/クレジット、第7区切りのPeer認証共有、第8区切りのWorkspaceファイル/次タスク提案、第9区切りのProject lifecycle、第10区切りのTask collectionは末尾に記載する。
 
 | 経路 | 操作 |
 | --- | --- |
@@ -174,4 +174,21 @@ Phase3全体は未完了。Phase0のBackend/Phase3/JSON分類は118経路・182�
 - pure contract・project admission・AppStore/競合書込・transport・AST/API ownership98/98成功。累計59経路・92操作でNextの業務処理がないことを検証。
 - Backend/Web typecheck成功。WebのBackend-only aliasとtestのnullable body型を修正して再実行した。Backend強制ビルド6,998 KiB成功。
 - Webなしの実Backend fixtureで登録/icon/migrate/元copy除去/archive/restore、実再起動後のmetadata/重複作成拒否・delete後のdirectory保持を検証（最終7.7秒）。移動/削除検証は隔離workspace内だけで、実ユーザーworkspace/設定/資格情報/稼働サービスは変更していない。
+- 全体スイートは今回再実行していない。対象回帰を全体成功と扱わない。
+
+## 第10区切り: Task collection（1経路・3操作）
+
+- `tasks` GET/POST/DELETEをBackendへ移管。Nextは中継returnのみ。注意一覧、孤児workingのreconcile、paneCandidates/titles/kind/archived/sidebar/ETag、Todo付きsummary、自動archiveをownerのstore/sessionで処理する。古いrelay switch・Next fallback・archive済み一括削除のlocal-by-design例外を除去する。
+- 作成の入力/文字・画像・UTF-8添付/Goal設定検証、Autoモデル・account pin・並行Auto Agent選択、PermissionのSettings解決、createTaskを同じownerへ集約。3,000,000文字iconとは別に、既存12 MiB画像総量（base64 16 MiB）・64 KiB file・32k promptを妨げない18 MiBのbounded task transportを使用する。
+- private `task-collection-command.json`（0600・最大128件）のowner queueがAuto選択/生成・session作成・一括teardownより前にunknownをcheckpointし、同じIDの再実行を再起動後も拒否する。入力/プロンプト/添付/資格情報は台帳に保存しない。受理後のwriteはclient disconnectで取り消さず、喪失/5xxはunknown、自動再送/Next fallbackなし。operation completeはJSON受付処理の終了であり、モデル生成成功・Taskの最終状態・一括削除の原子性ではない。GET時の既存自動archive方針は維持し、Nextで実行しない。
+- 専用guarded entryとhandler/dispatcher入口はAuto/Agent選択、maintenance、session作成、bulk停止・削除より前にNextを拒否。既存Backend runtime entryのcreateTaskも専用入口へ接続。SDK本体は他セッション所有差分のため編集せず、他の未移管Task操作を一律拒否しない。
+- Task metadata/Todo/Goal summary/responseModel、注意一覧、Auto decision/escalationを純粋DTOで深く投影。SDK・credential・初回添付・要求本文など未知フィールドを除去し、nullable legacy fieldsを維持する。一括削除は選択project/noProjectのarchived Codeだけを対象にし、Bot/active/別projectを保持する。
+- 個別Taskのdetail/PATCH/DELETE/abort、message履歴・fork/promote等は未移管。この区切りはTask collection全体の閉包であり、Task全API完了とは扱わない。
+
+### 第10区切りの検証結果
+
+- Task owner/Auto作成/Agent・account pin・Goal・添付/実BFF/SDK teardown・runtime ownership/auto-archive設定104/104成功。実隔離storeでkind/archived/attention/pane/sidebar/ETagとarchived-only bulk delete、入力/Origin/Next拒否を検証。作成成功とAuto/Agent選択は制御mockによる検証。
+- pure contract/admission・AppStore/競合書込・transport・AST/API ownership99/99成功。累計60経路・95操作のNext transport-onlyを確認。
+- Backend/Web typecheck、Backend強制ビルド7,016 KiB成功。途中のtest fixture型エラーと古いlocal-by-design期待値を修正して再実行。
+- Webなし実Backend fixtureで実metadata/attention/pane、存在しないprojectへの作成拒否、archived-only bulk削除、実再起動後の保存状態と作成/削除operationの重複拒否を検証（8.2秒）。実有料生成/外部Agent選択・ユーザーTask/workspace/設定/資格情報変更・稼働サービス再起動なし。
 - 全体スイートは今回再実行していない。対象回帰を全体成功と扱わない。

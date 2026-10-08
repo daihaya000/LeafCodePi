@@ -49,8 +49,8 @@ test("Backend builds and serves its runtime API without Web sources or Web packa
   writeFileSync(join(data, "store.json"), JSON.stringify({ version: 1, projects: [{ id: "fixture-project", name: "Fixture", rootPath: join(fixture, "workspaces"), archived: false, createdAt: "2026-01-01T00:00:00.000Z", updatedAt: "2026-01-01T00:00:00.000Z" }], tasks: [{
     id: "independent-task", projectId: null, projectName: "test", title: "Backend-owned task", directory: fixture,
     isolation: "current_folder", status: "idle", sessionId: null, sessionFile: null,
-    createdAt: "2026-01-01T00:00:00.000Z", updatedAt: "2026-01-01T00:00:00.000Z",
-  }] }));
+    createdAt: "2026-01-01T00:00:00.000Z", updatedAt: new Date().toISOString(),
+  }, { id: "task-collection-archived", projectId: null, projectName: "test", title: "Isolated bulk target", directory: fixture, isolation: "current_folder", status: "archived", sessionId: null, sessionFile: null, createdAt: "2026-01-01T00:00:00.000Z", updatedAt: new Date().toISOString() }] }));
   const token = randomBytes(32).toString("hex");
   const launchOptions = {
     cwd: fixture, stdio: ["ignore", "pipe", "pipe"],
@@ -221,6 +221,15 @@ test("Backend builds and serves its runtime API without Web sources or Web packa
   const projectArchived = await business("projects", { id: lifecycleId, archived: true }, "", { "x-leafcode-business-operation": "dededede-bbbb-cccc-dddd-eeeeeeeeeeee" }, "PATCH"); assert.equal(projectArchived.body.project.archived, true);
   const projectRestored = await business("projects", { id: lifecycleId, archived: false }, "", { "x-leafcode-business-operation": "efefefef-bbbb-cccc-dddd-eeeeeeeeeeee" }, "PATCH"); assert.equal(projectRestored.body.project.archived, false);
   const projectList = await business("projects", undefined, "?archived=1"); assert.match(projectList.body.projects.find(project => project.id === lifecycleId).icon, /\/api\/projects\/.+\/icon\?v=/); assert.ok(!readFileSync(join(data, "project-command.json"), "utf8").includes(lifecycleSource));
+  // Task collection owner: real metadata/maintenance/teardown; never invoke a paid generation.
+  const taskRows = await business("tasks", undefined, "?titles=1&archived=1&kind=all"); assert.equal(taskRows.status, 200); assert.ok(taskRows.body.tasks.some(task => task.id === "task-collection-archived")); assert.ok(taskRows.body.tasks.some(task => task.id === "independent-task" && task.status === "idle"));
+  const taskPane = await business("tasks", undefined, "?paneCandidates=1"); assert.ok(taskPane.body.tasks.some(task => task.id === "independent-task")); assert.ok(!("sessionFile" in taskPane.body.tasks[0]));
+  const taskAttention = await business("tasks", undefined, "?attention=1"); assert.deepEqual(taskAttention.body.attention, []);
+  const taskCreateId = "acacacac-bbbb-cccc-dddd-eeeeeeeeeeee";
+  const refusedTask = await business("tasks", { projectId: "missing-fixture-project", prompt: "no paid generation" }, "", { "x-leafcode-business-operation": taskCreateId }); assert.equal(refusedTask.status, 404); assert.equal(refusedTask.body.operation.execution, "complete");
+  const taskBulkId = "bdbdbdbd-bbbb-cccc-dddd-eeeeeeeeeeee";
+  const taskBulk = await fetch(`${base}/internal/json-business/tasks?noProject=1`, { method: "DELETE", headers: { ...businessHeaders, "x-leafcode-business-operation": taskBulkId }, signal: AbortSignal.timeout(5000) }); const taskRemoved = await taskBulk.json(); assert.equal(taskRemoved.body.removed, 1); assert.equal(taskRemoved.body.operation.execution, "complete");
+  assert.ok(!readFileSync(join(data, "task-collection-command.json"), "utf8").includes("no paid generation"));
   // Restart the actual owner process, retaining only its disk state, not a Web fallback or a module cache.
   const exited = new Promise((done) => child.once("exit", done)); child.kill(); await exited;
   stdout = ""; stderr = ""; listening = undefined; child = launch();
@@ -278,6 +287,9 @@ test("Backend builds and serves its runtime API without Web sources or Web packa
   assert.deepEqual((await usageConfigOutcome.json()).mutation, usageConfig.body.mutation);
   const consumeReplay = await fetch(`${restartedBase}/internal/json-business/codexbar/reset-credits`, { method: "POST", headers: { ...businessHeaders, "x-leafcode-business-operation": usageOperation }, body: JSON.stringify({ creditId: "must-not-execute" }), signal: AbortSignal.timeout(3000) });
   assert.equal((await consumeReplay.json()).status, 409);
+  const taskReplay = await fetch(`${restartedBase}/internal/json-business/tasks?noProject=1`, { method: "DELETE", headers: { ...businessHeaders, "x-leafcode-business-operation": taskBulkId }, signal: AbortSignal.timeout(3000) }); assert.equal((await taskReplay.json()).status, 409);
+  const taskReload = await fetch(`${restartedBase}/internal/json-business/tasks?titles=1&archived=1&kind=all`, { headers: businessHeaders, signal: AbortSignal.timeout(3000) }); const taskReloaded = (await taskReload.json()).body.tasks; assert.ok(!taskReloaded.some(task => task.id === "task-collection-archived")); assert.ok(taskReloaded.some(task => task.id === "independent-task"));
+  const taskCreateReplay = await fetch(`${restartedBase}/internal/json-business/tasks`, { method: "POST", headers: { ...businessHeaders, "x-leafcode-business-operation": taskCreateId }, body: JSON.stringify({ projectId: "missing-fixture-project", prompt: "no paid generation" }), signal: AbortSignal.timeout(3000) }); assert.equal((await taskCreateReplay.json()).status, 409);
   const projectReplay = await fetch(`${restartedBase}/internal/json-business/projects`, { method: "POST", headers: { ...businessHeaders, "x-leafcode-business-operation": projectOperation }, body: JSON.stringify({ rootPath: lifecycleDestination }), signal: AbortSignal.timeout(3000) }); assert.equal((await projectReplay.json()).status, 409);
   const lifecycleList = await fetch(`${restartedBase}/internal/json-business/projects?archived=1`, { headers: businessHeaders, signal: AbortSignal.timeout(3000) }); const lifecycleMetadata = (await lifecycleList.json()).body.projects.find(project => project.id === lifecycleId); assert.equal(lifecycleMetadata.rootPath, lifecycleDestination); assert.equal(lifecycleMetadata.archived, false);
   const lifecycleDelete = await fetch(`${restartedBase}/internal/json-business/projects?id=${lifecycleId}`, { method: "DELETE", headers: { ...businessHeaders, "x-leafcode-business-operation": "fafafafa-bbbb-cccc-dddd-eeeeeeeeeeee" }, signal: AbortSignal.timeout(3000) }); assert.equal((await lifecycleDelete.json()).status, 200); assert.equal(existsSync(join(lifecycleDestination, "keep.txt")), true);

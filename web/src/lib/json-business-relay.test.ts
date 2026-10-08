@@ -10,6 +10,8 @@ import { POST as resolvePeer } from "../app/api/peer-auth/resolve/route";
 import { GET as peerImports } from "../app/api/peer-auth/import/route";
 import { GET as workspaceFiles } from "../app/api/projects/[id]/files/route";
 import { PATCH as patchProject, GET as listProjects } from "../app/api/projects/route";
+import { POST as createCollectionTask, GET as collectionTasks, DELETE as clearArchivedTasks } from "../app/api/tasks/route";
+import { TASK_COLLECTION_BODY_LIMIT } from "@shared/task-collection-contract.mjs";
 import { POST as nextTask } from "../app/api/projects/[id]/next-task/route";
 let root: string;
 const fetcher = vi.fn();
@@ -23,6 +25,27 @@ beforeEach(() => {
 });
 afterEach(() => { vi.unstubAllGlobals(); vi.unstubAllEnvs(); rmSync(root, { recursive: true, force: true }); });
 describe("JSON business ingress", () => {
+  it("actual task route forwards opaque Auto/Agent/Goal/attachment inputs only to Backend and verifies the command ACK", async () => {
+    const input = JSON.stringify({ projectId: null, prompt: "create", auto: true, agent: "auto", goalLoop: { enabled: true, maxTurns: 2 }, files: [] });
+    fetcher.mockImplementationOnce(async (_url, options) => {
+      const id = new Headers(options.headers).get("x-leafcode-business-operation");
+      return Response.json({ status: 200, body: { task: { id: "t", status: "working", credentials: "PRIVATE" }, autoDecision: { providerID: "p", modelID: "m", variant: "", tier: "light", mode: "balanced", reason: "r", credentials: "PRIVATE" }, operation: { id, execution: "complete" } } });
+    });
+    const response = await createCollectionTask(new NextRequest("http://localhost/api/tasks", { method: "POST", body: input }));
+    expect(response.status).toBe(200); expect(JSON.stringify(await response.json())).not.toContain("PRIVATE"); expect(new TextDecoder().decode(fetcher.mock.calls[0][1].body)).toBe(input);
+    fetcher.mockResolvedValueOnce(Response.json({ status: 200, body: { task: { id: "t", status: "working" } } }));
+    const lost = await createCollectionTask(new NextRequest("http://localhost/api/tasks", { method: "POST", body: input })); expect((await lost.json()).execution).toBe("unknown"); expect(fetcher).toHaveBeenCalledTimes(2); expect(readdirSync(root)).toEqual([]);
+  });
+  it("task list keeps query/ETag and bulk removal's execution ACK without business handling in Next", async () => {
+    fetcher.mockResolvedValueOnce(Response.json({ status: 304, headers: { etag: "e" }, body: null }));
+    expect((await collectionTasks(new NextRequest("http://localhost/api/tasks?paneCandidates=1&kind=all"))).status).toBe(304); expect(fetcher.mock.calls[0][0]).toContain("?paneCandidates=1&kind=all");
+    fetcher.mockImplementationOnce(async (_url, options) => Response.json({ status: 200, body: { ok: true, removed: 2, operation: { id: new Headers(options.headers).get("x-leafcode-business-operation"), execution: "complete" } } }));
+    expect((await (await clearArchivedTasks(new NextRequest("http://localhost/api/tasks?noProject=1", { method: "DELETE" }))).json()).removed).toBe(2); expect(readdirSync(root)).toEqual([]);
+  });
+  it("task attachment transport ceiling and UI auth refuse before contacting Backend", async () => {
+    expect((await createCollectionTask(new NextRequest("http://localhost/api/tasks", { method: "POST", headers: { "content-length": String(TASK_COLLECTION_BODY_LIMIT + 1) }, body: "{}" }))).status).toBe(413);
+    vi.stubEnv("LEAFCODE_PI_WEBUI_AUTH", "required"); expect((await collectionTasks(new NextRequest("http://localhost/api/tasks"))).status).toBe(401); expect(fetcher).not.toHaveBeenCalled();
+  });
   it("actual Project route relays lifecycle input, verifies its execution ACK and never retries or falls back locally", async () => {
     fetcher.mockImplementationOnce(async (_url, options) => {
       const id = new Headers(options.headers).get("x-leafcode-business-operation");

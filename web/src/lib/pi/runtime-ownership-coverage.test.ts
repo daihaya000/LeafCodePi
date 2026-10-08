@@ -145,8 +145,6 @@ const HANDLER_GAPS: Record<string, string> = {};
  * is safe. This is a decision, not unfinished work: the scan still fails when one stops needing it.
  */
 const LOCAL_BY_DESIGN: Record<string, string> = {
-  "tasks/route.ts DELETE":
-    "bulk delete of archived tasks only: archiving already stopped and disposed the session in the owner, so there is no live session to stop, and the rest is store-level",
 };
 
 /** Every exported HTTP handler that touches an owner-only operation, and whether it guards itself. */

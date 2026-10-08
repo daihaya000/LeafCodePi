@@ -46,7 +46,7 @@ vi.mock("@/lib/direct-generation", () => ({ parseDirectModelKey: mocks.parseDire
 
 import { AUTO_AGENT_VALUE } from "@/lib/default-agent";
 import { MAX_PROMPT_ATTACHMENTS, MAX_PROMPT_IMAGE_BYTES, MAX_PROMPT_IMAGE_TOTAL_BYTES, MAX_PROMPT_TEXT_CHARS } from "@/lib/prompt-images";
-import { GET, POST } from "./route";
+import { GET, POST } from "@backend-runtime/json-business/handlers/tasks/route";
 
 describe("GET /api/tasks", () => {
   beforeEach(() => {
@@ -156,49 +156,10 @@ describe("POST /api/tasks", () => {
     mocks.createTask.mockResolvedValue({ id: "task-1" });
   });
 
-  it("creates new sessions only in the owning Backend in production", async () => {
-    mocks.localRuntimeBlocked.mockReturnValue(true);
-    mocks.createTaskOnBackend.mockResolvedValue({ ok: true, body: { task: { id: "backend-task" } } });
-    const request = () => new NextRequest("http://localhost/api/tasks", {
-      method: "POST", body: JSON.stringify({ projectId: null, prompt: "開始" }),
-    });
-    const response = await POST(request());
-    expect(response.status).toBe(200);
-    expect(await response.json()).toEqual({ task: { id: "backend-task" } });
-    expect(mocks.createTaskOnBackend).toHaveBeenCalledWith(expect.objectContaining({ projectId: null, prompt: "開始" }), { timeoutMs: 60_000 });
-    expect(mocks.createTask).not.toHaveBeenCalled();
-
-    mocks.createTaskOnBackend.mockResolvedValue({ ok: false, reason: "unreachable" });
-    const failed = await POST(request());
-    expect(failed.status).toBe(502);
-    expect(mocks.createTask).not.toHaveBeenCalled();
-  });
-
-  it.each([400, 404, 409, 413, 422])("preserves Backend create validation status %s without local fallback", async (status) => {
-    mocks.localRuntimeBlocked.mockReturnValue(true);
-    mocks.createTaskOnBackend.mockResolvedValue({ ok: false, reason: "bad-response", status });
-    const response = await POST(new NextRequest("http://localhost/api/tasks", {
-      method: "POST", body: JSON.stringify({ projectId: "missing", prompt: "start" }),
-    }));
-    expect(response.status).toBe(status);
-    expect(await response.json()).toEqual({
-      error: status === 404 ? "プロジェクトが見つかりません" : "タスクを作成できません",
-    });
-    expect(mocks.createTask).not.toHaveBeenCalled();
-  });
-
-  it.each([
-    { reason: "unauthorized", status: 401 },
-    { reason: "incompatible", status: 409 },
-    { reason: "bad-response", status: 503 },
-  ])("keeps Backend transport/protocol failures as 502: $reason/$status", async (failure) => {
-    mocks.localRuntimeBlocked.mockReturnValue(true);
-    mocks.createTaskOnBackend.mockResolvedValue({ ok: false, ...failure });
-    const response = await POST(new NextRequest("http://localhost/api/tasks", {
-      method: "POST", body: JSON.stringify({ projectId: null, prompt: "start" }),
-    }));
-    expect(response.status).toBe(502);
-    expect(mocks.createTask).not.toHaveBeenCalled();
+  it.each([400, 404, 409, 413, 422])("preserves owner create validation status %s", async (status) => {
+    mocks.createTask.mockRejectedValue(Object.assign(new Error("owner refusal"), { status }));
+    const response = await POST(new NextRequest("http://localhost/api/tasks", { method: "POST", body: JSON.stringify({ projectId: "missing", prompt: "start" }) }));
+    expect(response.status).toBe(status); expect(await response.json()).toEqual({ error: "owner refusal" }); expect(mocks.createTaskOnBackend).not.toHaveBeenCalled();
   });
 
   it("passes null as the project id for a no-project task", async () => {
@@ -646,7 +607,7 @@ describe("POST /api/tasks", () => {
   });
 });
 
-describe("GET /api/tasks relay switch", () => {
+describe("Backend GET /api/tasks never forwards to another owner", () => {
   beforeEach(() => {
     mocks.autoArchiveOldTasks.mockResolvedValue(0);
     mocks.listTasks.mockClear();
@@ -660,33 +621,30 @@ describe("GET /api/tasks relay switch", () => {
     mocks.forwardPendingAttention.mockResolvedValue({ ok: true, items: [] });
   });
 
-  it("serves the Backend rows for the raw modes when the relay answers", async () => {
+  it("serves its own raw rows even if a legacy relay mock can answer", async () => {
     mocks.relayTaskRows.mockResolvedValue([{ id: "from-backend", status: "idle" }]);
     const titles = await GET(new NextRequest("http://127.0.0.1:3010/api/tasks?titles=1"));
-    expect(await titles.json()).toEqual({ tasks: [{ id: "from-backend", status: "idle" }] });
+    expect(await titles.json()).toEqual({ tasks: [{ id: "local", status: "idle" }] });
     const pane = await GET(new NextRequest("http://127.0.0.1:3010/api/tasks?paneCandidates=1"));
-    expect(await pane.json()).toEqual({ tasks: [{ id: "from-backend", status: "idle" }] });
-    // The projection keeps exactly the pane-header fields.
-    expect(mocks.relayTaskRows).toHaveBeenCalledWith({ includeArchived: false, kind: "all" });
-    expect(mocks.relayTaskRows).toHaveBeenCalledWith({ includeArchived: false, kind: "code" });
+    expect(await pane.json()).toEqual({ tasks: [{ id: "local", status: "idle" }] });
+    expect(mocks.relayTaskRows).not.toHaveBeenCalled();
   });
 
-  it("falls back to the in-process store when the relay cannot answer", async () => {
+  it("reads its own store independently of the legacy relay", async () => {
     mocks.relayTaskRows.mockResolvedValue(null);
     const response = await GET(new NextRequest("http://127.0.0.1:3010/api/tasks?titles=1"));
     expect(await response.json()).toEqual({ tasks: [{ id: "local", status: "idle" }] });
   });
 
-  it("reports the failure instead of the local copy once this process no longer owns the runtime", async () => {
+  it("ignores the old relay switch and owns raw lists directly", async () => {
     // After the cutover the Backend owns the store: a relay miss must not be hidden by stale reads.
     mocks.relayTaskRows.mockResolvedValue(null);
     mocks.relayFallbackAllowed.mockReturnValue(false);
     const titles = await GET(new NextRequest("http://127.0.0.1:3010/api/tasks?titles=1"));
-    expect(titles.status).toBe(503);
-    await expect(titles.json()).resolves.toEqual({ error: "Backendのタスク一覧を取得できません" });
+    expect(titles.status).toBe(200);
     const pane = await GET(new NextRequest("http://127.0.0.1:3010/api/tasks?paneCandidates=1"));
-    expect(pane.status).toBe(503);
-    expect(mocks.listTasks).not.toHaveBeenCalled();
+    expect(pane.status).toBe(200);
+    expect(mocks.listTasks).toHaveBeenCalled();
   });
 
   it("never relays the derived summary with the raw row relay", async () => {
@@ -700,19 +658,19 @@ describe("GET /api/tasks relay switch", () => {
     expect(mocks.relayTaskRows).not.toHaveBeenCalled();
   });
 
-  it("reads the attention list from the owner once this process no longer owns the runtime", async () => {
+  it("reads attention from its own owner memory, never from a legacy forwarder", async () => {
     mocks.relayFallbackAllowed.mockReturnValue(false);
     mocks.forwardPendingAttention.mockResolvedValue({
       ok: true,
       items: [{ taskId: "remote", kinds: ["question"] }],
     });
     const response = await GET(new NextRequest("http://127.0.0.1:3010/api/tasks?attention=1"));
-    expect(await response.json()).toEqual({ attention: [{ taskId: "remote", kinds: ["question"] }] });
-    expect(mocks.listPendingAttention).not.toHaveBeenCalled();
+    expect(await response.json()).toEqual({ attention: [{ taskId: "local", kinds: ["permission"] }] });
+    expect(mocks.listPendingAttention).toHaveBeenCalled();
     // A failed read is reported, not answered with the empty local memory.
     mocks.forwardPendingAttention.mockResolvedValue({ ok: false, reason: "unreachable" });
     const failed = await GET(new NextRequest("http://127.0.0.1:3010/api/tasks?attention=1"));
-    expect(failed.status).toBe(503);
-    await expect(failed.json()).resolves.toEqual({ error: "Backendの注意一覧を取得できません" });
+    expect(failed.status).toBe(200);
+    expect(mocks.forwardPendingAttention).not.toHaveBeenCalled();
   });
 });
