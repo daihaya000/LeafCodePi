@@ -1,33 +1,9 @@
-import { NextRequest, NextResponse } from "next/server";
-import {
-  listWorkspaceEntries,
-  readWorkspaceFile,
-  resolveWorkspaceRoot,
-} from "@/lib/project-files";
+import type { NextRequest } from "next/server";
+import { relayJsonBusiness } from "@/lib/json-business-relay";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-/** プロジェクト内ファイルの一覧（`path`）と内容（`path` + `read=1`）。ルートは登録済みプロジェクトのみ。 */
-export async function GET(
-  req: NextRequest,
-  { params }: { params: Promise<{ id: string }> },
-) {
-  const { id } = await params;
-  const resolved = resolveWorkspaceRoot({ kind: "project", id });
-  if (!resolved.ok) {
-    return NextResponse.json({ error: resolved.error }, { status: resolved.status });
-  }
-  const search = req.nextUrl.searchParams;
-  const path = search.get("path")?.trim() ?? "";
-  const result =
-    search.get("read") === "1"
-      ? readWorkspaceFile(resolved.root, path)
-      : listWorkspaceEntries(resolved.root, path);
-  if (!result.ok) {
-    return NextResponse.json({ error: result.error }, { status: result.status });
-  }
-  // クライアント（ProjectFilePicker）はラッパーなしの payload をそのまま読む。
-  const payload = "listing" in result ? result.listing : result.file;
-  return NextResponse.json(payload, { headers: { "cache-control": "no-store" } });
+export async function GET(req: NextRequest, context: { params: Promise<{ id: string }> }) {
+  return relayJsonBusiness(req, `projects/${encodeURIComponent((await context.params).id)}/files`);
 }

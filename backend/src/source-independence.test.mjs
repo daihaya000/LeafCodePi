@@ -46,7 +46,7 @@ test("Backend builds and serves its runtime API without Web sources or Web packa
 
   const data = join(fixture, "data"), agent = join(fixture, "agent");
   mkdirSync(data); mkdirSync(agent);
-  writeFileSync(join(data, "store.json"), JSON.stringify({ version: 1, projects: [], tasks: [{
+  writeFileSync(join(data, "store.json"), JSON.stringify({ version: 1, projects: [{ id: "fixture-project", name: "Fixture", rootPath: join(fixture, "workspaces"), archived: false, createdAt: "2026-01-01T00:00:00.000Z", updatedAt: "2026-01-01T00:00:00.000Z" }], tasks: [{
     id: "independent-task", projectId: null, projectName: "test", title: "Backend-owned task", directory: fixture,
     isolation: "current_folder", status: "idle", sessionId: null, sessionFile: null,
     createdAt: "2026-01-01T00:00:00.000Z", updatedAt: "2026-01-01T00:00:00.000Z",
@@ -137,6 +137,14 @@ test("Backend builds and serves its runtime API without Web sources or Web packa
   const unsafe = await business("git/merge", { directory: workspace, branch: "--help" }); assert.equal(unsafe.status, 400);
   const outside = await business("git/branches", undefined, "?directory=" + encodeURIComponent(process.platform === "win32" ? "C:\\Windows" : "/etc"));
   assert.equal(outside.status, 403);
+  // Workspace file selection and suggestion validation run entirely in this owner.
+  const workspaceListing = await business("projects/fixture-project/files", undefined); assert.equal(workspaceListing.status, 200); assert.ok(workspaceListing.body.entries.some(entry => entry.name === "README.md"));
+  const workspaceFile = await business("projects/fixture-project/files", undefined, "?path=README.md&read=1"); assert.equal(workspaceFile.status, 200); assert.equal(Buffer.from(workspaceFile.body.data, "base64").toString("utf8"), "Owner-only fixture\nchanged\n");
+  const taskFile = await business("tasks/independent-task/files", undefined, "?path=workspaces%2FREADME.md&read=1"); assert.equal(taskFile.status, 200); assert.equal(taskFile.body.data, workspaceFile.body.data);
+  const workspaceEscape = await business("projects/fixture-project/files", undefined, "?path=..%2Fdata%2Fstore.json&read=1"); assert.equal(workspaceEscape.status, 400);
+  const workspaceId = await business("projects/fixture%252Fproject/files", undefined); assert.equal(workspaceId.status, 400);
+  writeFileSync(join(workspace, "invalid.txt"), Buffer.from([0xff, 0xfe])); assert.equal((await business("projects/fixture-project/files", undefined, "?path=invalid.txt&read=1")).status, 415);
+  const refusedSuggestion = await business("projects/fixture-project/next-task", {}); assert.equal(refusedSuggestion.status, 400); assert.equal(refusedSuggestion.body.mutation, undefined); assert.equal(refusedSuggestion.body.operation, undefined);
   // Definition writes/reload/receipts happen in this same Web-free owner.
   const definitionOperation = "bbbbbbbb-cccc-dddd-eeee-ffffffffffff";
   const definitionReply = await business("agents-md", { content: "Isolated owner 日本語" }, "", { "x-leafcode-business-operation": definitionOperation }, "PATCH");
@@ -261,6 +269,7 @@ test("Backend builds and serves its runtime API without Web sources or Web packa
   assert.deepEqual((await usageConfigOutcome.json()).mutation, usageConfig.body.mutation);
   const consumeReplay = await fetch(`${restartedBase}/internal/json-business/codexbar/reset-credits`, { method: "POST", headers: { ...businessHeaders, "x-leafcode-business-operation": usageOperation }, body: JSON.stringify({ creditId: "must-not-execute" }), signal: AbortSignal.timeout(3000) });
   assert.equal((await consumeReplay.json()).status, 409);
+  const restartedFile = await fetch(`${restartedBase}/internal/json-business/projects/fixture-project/files?path=README.md&read=1`, { headers: businessHeaders, signal: AbortSignal.timeout(3000) }); const restoredFile = await restartedFile.json(); assert.equal(restoredFile.status, 200); assert.deepEqual(restoredFile.body, workspaceFile.body);
   const peerLeaseRestored = await peerRequest(restartedBase, "peer-auth/resolve", { providerId: "openrouter", accountId }); assert.deepEqual(peerLeaseRestored.body, peerLease.body);
   const peerGrantReplay = await fetch(`${restartedBase}/internal/json-business/peer-auth/peers`, { method: "POST", headers: { ...businessHeaders, "x-leafcode-business-operation": peerOperation }, body: JSON.stringify({ label: "No replay", providers: ["openrouter"] }), signal: AbortSignal.timeout(3000) }); assert.equal((await peerGrantReplay.json()).status, 409);
   const peerMetadata = await fetch(`${restartedBase}/internal/json-business/peer-auth/peers`, { headers: businessHeaders, signal: AbortSignal.timeout(3000) }); assert.ok(!JSON.stringify(await peerMetadata.json()).includes(peerToken));

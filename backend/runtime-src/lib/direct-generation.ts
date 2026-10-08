@@ -1,3 +1,4 @@
+import { assertConfigurationOwner } from "@backend-core/configuration-command.mjs";
 import { completeModelText, listActiveLlamaAgentModels } from "@/lib/pi/harness";
 import { accountHasProvider, listAccounts } from "@/lib/accounts";
 import { readSettingValue } from "@/lib/host-control";
@@ -198,6 +199,7 @@ export async function generateDirectText(options: {
   /** Prevent provider-limit recovery from routing to these providers. */
   excludeProviderIDs?: readonly string[];
 }): Promise<string> {
+  assertConfigurationOwner();
   const system = options.system.trim();
   const prompt = options.prompt.trim();
   if (!system || !prompt) throw new DirectGenerationError("生成プロンプトが空です", 400);
@@ -346,6 +348,7 @@ type DirectGenerationFallbackOptions = Omit<Parameters<typeof generateDirectText
 export async function generateDirectTextWithFallbackResult(
   options: DirectGenerationFallbackOptions,
 ): Promise<DirectGenerationResult> {
+  assertConfigurationOwner();
   const {
     candidates,
     accountId: taskAccountId,

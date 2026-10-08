@@ -8,6 +8,8 @@ import { POST as saveAccountKey } from "../app/api/accounts/[id]/openrouter-cred
 import { POST as consumeResetCredit } from "../app/api/codexbar/reset-credits/route";
 import { POST as resolvePeer } from "../app/api/peer-auth/resolve/route";
 import { GET as peerImports } from "../app/api/peer-auth/import/route";
+import { GET as workspaceFiles } from "../app/api/projects/[id]/files/route";
+import { POST as nextTask } from "../app/api/projects/[id]/next-task/route";
 let root: string;
 const fetcher = vi.fn();
 const request = (route = "git/init", body = '{"directory":"repo"}') => new Request(`http://localhost/api/${route}`, { method: "POST", body });
@@ -20,6 +22,14 @@ beforeEach(() => {
 });
 afterEach(() => { vi.unstubAllGlobals(); vi.unstubAllEnvs(); rmSync(root, { recursive: true, force: true }); });
 describe("JSON business ingress", () => {
+  it("actual Workspace routes relay ID/query/input without local filesystem/Git/model work or save ACK", async () => {
+    fetcher.mockResolvedValueOnce(Response.json({ status: 200, headers: { "cache-control": "no-store" }, body: { name: "src/a.ts", mimeType: "text/plain", size: 1, data: "YQ==", token: "PRIVATE" } }));
+    const file = await workspaceFiles(new NextRequest("http://localhost/api/projects/p%252Fone/files?path=src%2Fa.ts&read=1"), { params: Promise.resolve({ id: "p%2Fone" }) }); expect(file.status).toBe(200); expect(await file.json()).toEqual({ name: "src/a.ts", mimeType: "text/plain", size: 1, data: "YQ==" }); expect(fetcher.mock.calls[0][0]).toContain("/projects/p%252Fone/files?path=src%2Fa.ts&read=1");
+    fetcher.mockImplementationOnce(async (_url, options) => { expect(new Headers(options.headers).has("x-leafcode-business-operation")).toBe(false); expect(new TextDecoder().decode(options.body)).toBe('{"model":"opaque input"}'); return Response.json({ status: 200, headers: {}, body: { suggestion: "Add tests", suggestions: ["Add tests"], source: "direct", model: { providerID: "fixture", modelID: "model", apiKey: "PRIVATE" } } }); });
+    const response = await nextTask(new NextRequest("http://localhost/api/projects/p1/next-task", { method: "POST", body: '{"model":"opaque input"}' }), { params: Promise.resolve({ id: "p1" }) }); expect(response.status).toBe(200); expect(JSON.stringify(await response.json())).not.toContain("PRIVATE"); expect(fetcher).toHaveBeenCalledTimes(2); expect(readdirSync(root)).toEqual([]);
+    expect((await nextTask(new NextRequest("http://localhost/api/projects/p1/next-task", { method: "POST", body: "x".repeat(320001) }), { params: Promise.resolve({ id: "p1" }) })).status).toBe(413); expect(fetcher).toHaveBeenCalledTimes(2);
+    vi.stubEnv("LEAFCODE_PI_WEBUI_AUTH", "required"); expect((await workspaceFiles(new NextRequest("http://localhost/api/projects/p1/files"), { params: Promise.resolve({ id: "p1" }) })).status).toBe(401); expect(fetcher).toHaveBeenCalledTimes(2);
+  });
   it("actual public Peer route carries only its separate bearer, hides refresh, preserves auth-first invalid body and rate-limit headers", async () => {
     vi.stubEnv("LEAFCODE_PI_WEBUI_AUTH", "required"); vi.stubEnv("LEAFCODE_PI_WEBUI_TOKEN", "UI-TOKEN");
     fetcher.mockImplementationOnce(async (_url, options) => {

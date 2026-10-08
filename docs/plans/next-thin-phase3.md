@@ -2,9 +2,9 @@
 
 ## 進捗・範囲
 
-Phase3全体は未完了。Phase0のBackend/Phase3/JSON分類は118経路・182操作。Git・Diff・コミット文生成13経路・14操作、定義管理14経路・25操作、Provider/モデル設定7経路・8操作、Provider認証JSON4経路・5操作、アカウント管理/資格情報9経路・19操作、利用量/クレジット3経路・5操作、Peer認証共有5経路・9操作の合計55経路・85操作の境界を移管した。認証に付随するログインSSE 1経路・1操作も同じownerへ移管した（Phase3 JSONの集計には加算しない）。残る63経路・97操作には既存Backend中継も含まれ、受入条件の確認・残存業務処理の移管が必要。
+Phase3全体は未完了。Phase0のBackend/Phase3/JSON分類は118経路・182操作。Git・Diff・コミット文生成13経路・14操作、定義管理14経路・25操作、Provider/モデル設定7経路・8操作、Provider認証JSON4経路・5操作、アカウント管理/資格情報9経路・19操作、利用量/クレジット3経路・5操作、Peer認証共有5経路・9操作、Workspaceファイル/次タスク提案3経路・3操作の合計58経路・88操作の境界を移管した。認証に付随するログインSSE 1経路・1操作も同じownerへ移管した（Phase3 JSONの集計には加算しない）。残る60経路・94操作には既存Backend中継も含まれ、受入条件の確認・残存業務処理の移管が必要。
 
-以下は第1区切り（Git・Diff・コミット文生成）の記録。第2区切りの定義管理、第3区切りのProvider/モデル設定、第4区切りのProvider認証、第5区切りのアカウント管理/資格情報、第6区切りの利用量/クレジット、第7区切りのPeer認証共有は末尾に記載する。
+以下は第1区切り（Git・Diff・コミット文生成）の記録。第2区切りの定義管理、第3区切りのProvider/モデル設定、第4区切りのProvider認証、第5区切りのアカウント管理/資格情報、第6区切りの利用量/クレジット、第7区切りのPeer認証共有、第8区切りのWorkspaceファイル/次タスク提案は末尾に記載する。
 
 | 経路 | 操作 |
 | --- | --- |
@@ -143,4 +143,20 @@ Phase3全体は未完了。Phase0のBackend/Phase3/JSON分類は118経路・182�
 - Peer core/wire/contract・transport・AST ownership・既存設定境界/API inventory158/158成功。JSON累計55経路・85操作が中継だけの構造を検証。
 - Backend/Web typecheck成功。Backend強制ビルド6,963 KiB成功。レビューでPeer-facing POSTの変更扱いが残ることを確認し、read-only/service分類へ修正して再検証した。初回owner回帰でimportが生WebUI tokenを要求する移管漏れを確認し、trusted configuration authorizationへ修正。OAuth制御Runtimeのmock接続も実際のgetRuntimeForへ修正し、全対象を再実行した。
 - Webなしの実Backend fixtureでgrant hash保存/有効化、Peer list/API-key lease、default拒否、実プロセス再起動後の同じlease/重複作成拒否・metadata非漏洩/revokeを検証（最終8.2秒）。外部OAuth grant/本番credential変更・実ユーザーサービス再起動は行っていない。
+- 全体Web/Backendスイートは今回再実行していない。対象回帰と過去の全体baselineを区別する。
+
+## 第8区切り: Workspaceファイル/次タスク提案（3経路・3操作）
+
+- `projects/[id]/files` GET、`tasks/[id]/files` GET、`projects/[id]/next-task` POSTをBackendへ移管。対象Nextルートは単一の中継returnだけで、登録Workspaceのroot/scope判定、ディレクトリ列挙/テキスト読取、Git snapshot/履歴・既存taskの組立、設定モデル/fallback選択と直接生成を実行しない。
+- `project-files.ts` の実装をBackendへ移動し、Web互換exportを維持。登録済みproject/taskだけをrootとし、taskではproject rootを優先する。Bot/archived project・絶対/ドライブ相対/`..`/制御文字パス・root外symlink/junctionを拒否する既存制約を維持。一覧1000件/truncated、除外ディレクトリ、UTF-8検証と64 KiB上限、255コードポイントの添付名を維持する。共通FS/model実行入口にもNext拒否を追加した。
+- 純粋なWorkspace wire contractで一覧/ファイルのラッパーなしpayloadとsuggestion/model identityを深く投影。ファイルは選択されたUTF-8添付だけをbase64で運び、size/文字形式/上限を照合する。追加SDKフィールド/資格情報/Provider例外本文は返さない。IDは1回decode後にownerで検証し、二重エスケープ名からrootを再解釈しない。
+- 次タスク提案POSTは保存/command admissionではなくread-only/serviceに分類し、mutation/operation ACKを要求しない。80,000文字の既存本文制限にUTF-8のbyte上限320,000を併設。Origin/WebUI認可、Gitのargv/path/30秒/出力/同時capture上限、生成96 tokensと既存model timeout/fallbackを維持する。クライアント切断はGit request contextと生成AbortSignalへ伝播し、中止後にfallbackを起動しない。archived projectは生成前に拒否する。
+- project CRUD/teardown、Explorer/icon、browse/dirsのBackend GET/Host POST混在境界は今回の範囲外。引き続きPhase3の未完了領域として扱う。
+
+### 第8区切りの検証結果
+
+- Workspace API/helper/direct generation/text/owner/BFFの対象回帰88/88成功。実隔離FSの列挙/UTF-8読取/1000件上限・サイズ/不正パス/symlink境界、task/project/archived/Bot scope、モデルfallback/公開DTO、Next実ルートの無書込/opaque転送/認可/body bound、制御Providerの生成中止とfallback不実行・共通Next拒否を検証。
+- Workspace pure contract・Backend transport・AST ownership/API inventory・Backend build dependency境界83/83成功。対象累計58経路・88操作にNextの業務処理が残らないことを検証。
+- Backend/Web typecheck成功。Backend強制ビルド6,985 KiB成功。
+- Webなしの実Backend fixtureでregistered project/taskのファイル列挙と内容・root escape/二重エスケープID/不正UTF-8の拒否、モデル未設定の生成拒否、実プロセス再起動後の同じファイルpayloadを検証（7.8秒）。実Providerの有料生成・ユーザーworkspace/設定/資格情報変更・稼働サービス再起動は行っていない。
 - 全体Web/Backendスイートは今回再実行していない。対象回帰と過去の全体baselineを区別する。
