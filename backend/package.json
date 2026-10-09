@@ -26,7 +26,8 @@
   "devDependencies": {
     "esbuild": "0.28.2",
     "typescript": "5.9.3",
-    "@types/node": "^20"
+    "@types/node": "^20",
+    "@types/better-sqlite3": "^7.6.13"
   },
   "overrides": {
     "@earendil-works/pi-coding-agent": "$@earendil-works/pi-coding-agent",

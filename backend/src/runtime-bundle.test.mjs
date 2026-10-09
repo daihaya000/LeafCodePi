@@ -48,6 +48,7 @@ test("the bundle is loadable from a plain Node process", { skip: !existsSync(BUN
 
 test("native MCP transport classes stay external to the runtime bundle", () => {
   assert.ok(runtimeExternals().includes("@earendil-works/pi-mcp"));
+  assert.ok(runtimeExternals().includes("better-sqlite3"), "native SQLite must resolve from Backend node_modules");
 });
 
 test("startup initializes native MCP inside the real bundle, not the separate source module", { skip: !existsSync(BUNDLE) }, async (t) => {

@@ -11,6 +11,18 @@ async function fixture(t, options = {}) {
     "x-leafcode-backend-protocol": "1", "x-leafcode-business-origin": "http://localhost", "x-leafcode-business-host": "localhost", "x-leafcode-business-authorized": "1" } };
 }
 const request = (url, options = {}) => fetch(url, { ...options, signal: options.signal ?? AbortSignal.timeout(2000) });
+test("information transport preserves opaque read-only POST, disconnect signal, unread receipt and bounded bodies without private fields",async t=>{
+  let calls=0;const f=await fixture(t,{jsonBusinessRequestAction:async input=>{
+    calls++;if(input.route==="memory-search"){assert.equal(input.operationId,undefined);assert.ok(input.signal);return{status:200,body:{results:[],databasePath:"PRIVATE"}};}
+    if(input.route==="sysmon/usage")return{status:200,body:{available:false,schema:"sysmon.usage/v1",generatedAt:null,cpu:null,memory:null,gpus:[],reason:"PRIVATE command"}};
+    return{status:200,body:input.method==="GET"?{markers:[]}:{readAt:100,operation:{id:input.operationId,execution:"complete"},token:"PRIVATE"}};
+  }});
+  for(const [route,method]of [["memory-search","POST"],["sysmon/usage","GET"],["unread","GET"],["unread","PUT"]]){
+    const response=await request(f.base+"/"+route,{method,headers:{...f.headers,...(method==="PUT"?{"x-leafcode-business-operation":"11111111-0123-4321-abcd-eeeeeeeeeeee"}:{})},...(method==="GET"?{}:{body:"{}"})});assert.equal(response.status,200);const result=await response.json();assert.equal(result.status,200);assert.ok(!JSON.stringify(result).includes("PRIVATE"));
+  }
+  assert.equal(calls,4);assert.equal((await request(f.base+"/unread",{method:"PUT",headers:f.headers,body:"{}"})).status,400);assert.equal(calls,4);
+  assert.equal((await request(f.base+"/memory-search",{method:"POST",headers:f.headers,body:"x".repeat(4097)})).status,413);assert.equal(calls,4);
+});
 test("TypeSafe transport admits six operations, retains ID-only ACK and projects no cookie/organization/path; enforces baseline bounds before owner", async t => {
   let calls = 0;
   const f = await fixture(t, { jsonBusinessRequestAction: async input => {

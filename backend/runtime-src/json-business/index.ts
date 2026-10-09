@@ -11,6 +11,8 @@ import { usageTarget } from "@shared/usage-contract.mjs";
 import { dispatchUsageRequest } from "./usage";
 import { peerTarget } from "@shared/peer-contract.mjs";
 import { dispatchPeerRequest } from "./peer";
+import { backendInformationTarget } from "@shared/backend-information-contract.mjs";
+import { dispatchBackendInformationRequest } from "./backend-information";
 import { typesafeSettingsTarget } from "@shared/typesafe-settings-contract.mjs";
 import { dispatchTypesafeSettingsRequest } from "./typesafe-settings";
 import { roomConversationTarget } from "@shared/room-conversation-contract.mjs";
@@ -83,6 +85,7 @@ export async function dispatchJsonBusinessRequest(input: JsonBusinessInput): Pro
   const request = configurationRequest(new Request(input.url, { method: input.method, headers: input.headers,
     signal, ...(input.body?.byteLength ? { body: new Uint8Array(input.body).slice().buffer } : {}) }), input.authorized);
   if (input.method !== "GET" && isCrossOriginRequest(request)) return { status: 403, headers: {}, body: { error: "Cross-origin request refused" } };
+  if (backendInformationTarget(input.route)) return dispatchBackendInformationRequest(input, request);
   const typesafeSettings = typesafeSettingsTarget(input.route);
   if (typesafeSettings) return dispatchTypesafeSettingsRequest(input, request);
   const roomConversation = roomConversationTarget(input.route);

@@ -1,45 +1,8 @@
-import { NextRequest } from "next/server";
-import { beforeEach, describe, expect, it, vi } from "vitest";
-
-const memorySearch = vi.hoisted(() => ({
-  searchLeafCodeMemory: vi.fn(),
-}));
-
-vi.mock("@/lib/memory-search", () => ({
-  MAX_MEMORY_SEARCH_QUERY_LENGTH: 200,
-  searchLeafCodeMemory: memorySearch.searchLeafCodeMemory,
-}));
+import { NextRequest } from "next/server";import { mkdtempSync,readdirSync,rmSync } from "node:fs";import { join } from "node:path";import { tmpdir } from "node:os";import { afterEach,beforeEach,expect,it,vi } from "vitest";
+let root:string;const fetcher=vi.fn();beforeEach(()=>{root=mkdtempSync(join(tmpdir(),"leafcode-information-bff-"));for(const [key,value]of Object.entries({LEAFCODE_PI_DATA_DIR:root,PI_CODING_AGENT_DIR:root,LEAFCODE_PI_PROCESS_ROLE:"next",LEAFCODE_PI_WEBUI_AUTH:"",LEAFCODE_PI_WEBUI_TOKEN:"",LEAFCODE_PI_BACKEND_TOKEN:"private-backend-token-1234567890123456789",LEAFCODE_PI_BACKEND_GENERATION:"",LEAFCODE_PI_BACKEND_GENERATION_FILE:""}))vi.stubEnv(key,value);fetcher.mockReset();vi.stubGlobal("fetch",fetcher);});afterEach(()=>{expect(readdirSync(root)).toEqual([]);vi.unstubAllGlobals();vi.unstubAllEnvs();rmSync(root,{recursive:true,force:true});});
 
 import { POST } from "./route";
-
-function request(body: unknown): NextRequest {
-  return new NextRequest("http://127.0.0.1:3010/api/memory-search", {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify(body),
-  });
-}
-
-describe("POST /api/memory-search", () => {
-  beforeEach(() => {
-    vi.clearAllMocks();
-    memorySearch.searchLeafCodeMemory.mockReturnValue([{ content: "matched" }]);
-  });
-
-  it("returns direct memory search results", async () => {
-    const response = await POST(request({ query: " deployment " }));
-
-    expect(response.status).toBe(200);
-    expect(memorySearch.searchLeafCodeMemory).toHaveBeenCalledWith("deployment");
-    expect(await response.json()).toEqual({ results: [{ content: "matched" }] });
-  });
-
-  it("rejects missing and oversized queries", async () => {
-    const missing = await POST(request({ query: " " }));
-    const oversized = await POST(request({ query: "x".repeat(201) }));
-
-    expect(missing.status).toBe(400);
-    expect(oversized.status).toBe(400);
-    expect(memorySearch.searchLeafCodeMemory).not.toHaveBeenCalled();
-  });
-});
+it("relays exact search bytes without interpreting/reading SQLite, no operation receipt required for readonly POST",async()=>{fetcher.mockResolvedValueOnce(Response.json({status:200,body:{results:[{project:null,target:"memory",category:null,content:"authored 日本語",created:"fixture",lastReferenced:"fixture",dbPath:"PRIVATE"}],token:"PRIVATE"}}));const body='{"query":" 日本語 ","path":"opaque"}',response=await POST(new NextRequest("http://localhost",{method:"POST",body}));expect(response.status).toBe(200);expect(JSON.stringify(await response.json())).not.toContain("PRIVATE");expect(new TextDecoder().decode(fetcher.mock.calls[0][1].body)).toBe(body);expect(new Headers(fetcher.mock.calls[0][1].headers).get("x-leafcode-business-operation")).toBeNull();});
+it("opaque invalid query belongs to owner; malformed owner success is 503 without fallback",async()=>{fetcher.mockResolvedValueOnce(Response.json({status:400,body:{error:"invalid"}}));expect((await POST(new NextRequest("http://localhost",{method:"POST",body:'{"query":""}'}))).status).toBe(400);fetcher.mockResolvedValueOnce(Response.json({status:200,body:{results:[{content:"partial"}]}}));expect((await POST(new NextRequest("http://localhost",{method:"POST",body:"{}"}))).status).toBe(503);expect(fetcher).toHaveBeenCalledTimes(2);});
+it("Origin and body bounds precede forwarding; detached owner never falls back to local query",async()=>{expect((await POST(new NextRequest("http://localhost",{method:"POST",body:"{}",
+headers:{origin:"https://evil.invalid"}}))).status).toBe(403);expect((await POST(new NextRequest("http://localhost",{method:"POST",body:"x".repeat(4097)}))).status).toBe(413);vi.stubEnv("LEAFCODE_PI_BACKEND_TOKEN","");expect((await POST(new NextRequest("http://localhost",{method:"POST",body:"{}"}))).status).toBe(503);expect(fetcher).not.toHaveBeenCalled();});

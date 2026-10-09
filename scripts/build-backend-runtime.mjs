@@ -49,7 +49,7 @@ export function runtimeAliases() {
  * Node builtins are never bundled.
  */
 export function runtimeExternals() {
-  return ["@earendil-works/pi-coding-agent", "@earendil-works/pi-ai", "@earendil-works/pi-mcp", "node:*"];
+  return ["@earendil-works/pi-coding-agent", "@earendil-works/pi-ai", "@earendil-works/pi-mcp", "better-sqlite3", "node:*"];
 }
 
 function collectSourceFiles(dir, files = []) {

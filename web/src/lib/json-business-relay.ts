@@ -3,6 +3,7 @@ import { providerAuthTarget, publicAuthOperation } from "@shared/provider-auth-c
 import { publicConfigurationMutation } from "@shared/configuration-contract.mjs";
 import { usageExternalCommand, publicUsageOperation } from "@shared/usage-contract.mjs";
 import { peerFacing, PEER_AUTHORIZATION_HEADER } from "@shared/peer-contract.mjs";
+import { backendInformationTarget } from "@shared/backend-information-contract.mjs";
 import { mcpBusinessTarget } from "@shared/mcp-business-contract.mjs";
 import { typesafeSettingsTarget } from "@shared/typesafe-settings-contract.mjs";
 import { roomConversationTarget } from "@shared/room-conversation-contract.mjs";
@@ -119,7 +120,7 @@ export async function relayJsonBusiness(request: Request, route: string): Promis
       if (providerAuthTarget(route)) {
         const operation = publicAuthOperation(result.body?.operation);
         if (!operation || operation.id !== operationId) return failure(503, "Backendの認証操作結果を確認できません", unknown);
-      } else if (taskCollectionTarget(route) || taskLifecycleTarget(route) || taskHistoryTarget(route) || taskExecutionSettingsTarget(route) || taskConversationTarget(route) || taskGoalLoopTarget(route) || taskSessionTarget(route) || taskCompactionTarget(route) || taskAssistanceTarget(route) || taskSupervisionTarget(route) || botLifecycleTarget(route) || botConversationTarget(route) || botCodeTarget(route) || botRoutineTarget(route) || botOverviewTarget(route) || roomLifecycleTarget(route) || roomConversationTarget(route) || typesafeSettingsTarget(route) || mcpBusinessTarget(route)) {
+      } else if (taskCollectionTarget(route) || taskLifecycleTarget(route) || taskHistoryTarget(route) || taskExecutionSettingsTarget(route) || taskConversationTarget(route) || taskGoalLoopTarget(route) || taskSessionTarget(route) || taskCompactionTarget(route) || taskAssistanceTarget(route) || taskSupervisionTarget(route) || botLifecycleTarget(route) || botConversationTarget(route) || botCodeTarget(route) || botRoutineTarget(route) || botOverviewTarget(route) || roomLifecycleTarget(route) || roomConversationTarget(route) || typesafeSettingsTarget(route) || mcpBusinessTarget(route) || backendInformationTarget(route)) {
         const operation = publicTaskOperation(result.body?.operation);
         if (!operation || operation.id !== operationId) return failure(503, "Backendのタスク操作結果を確認できません", unknown);
       } else if (projectTarget(route)) {

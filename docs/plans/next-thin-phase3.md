@@ -2,9 +2,9 @@
 
 ## 進捗・範囲
 
-Phase3全体は未完了。Phase0のBackend/Phase3/JSON分類は118経路・182操作。Git・Diff・コミット文生成13経路・14操作、定義管理14経路・25操作、Provider/モデル設定7経路・8操作、Provider認証JSON4経路・5操作、アカウント管理/資格情報9経路・19操作、利用量/クレジット3経路・5操作、Peer認証共有5経路・9操作、Workspaceファイル/次タスク提案3経路・3操作、Project lifecycle1経路・4操作、Task collection1経路・3操作、個別Task lifecycle2経路・4操作、Task履歴/検索/bookmark3経路・5操作、Task実行設定4経路・4操作、Task送信/対話応答3経路・3操作、Goal制御2経路・4操作、Task会話編集/昇格4経路・4操作、Task compaction2経路・2操作、Task進行補助4経路・5操作、Task監督/子実行2経路・2操作、Bot lifecycle2経路・5操作、Bot会話3経路・3操作、Bot Code2経路・5操作、Bot routine3経路・6操作、Bot sidebar/内線受信箱2経路・3操作、Room lifecycle2経路・5操作、Room会話コマンド3経路・3操作、TypeSafe設定2経路・6操作、MCP定義/認証3経路・6操作の合計108経路・170操作の境界を移管した。認証に付随するログインSSE 1経路・1操作も同じownerへ移管した（Phase3 JSONの集計には加算しない）。残る10経路・12操作には既存Backend中継も含まれ、受入条件の確認・残存業務処理の移管が必要。
+Phase3全体は未完了。Phase0のBackend/Phase3/JSON分類は118経路・182操作。Git・Diff・コミット文生成13経路・14操作、定義管理14経路・25操作、Provider/モデル設定7経路・8操作、Provider認証JSON4経路・5操作、アカウント管理/資格情報9経路・19操作、利用量/クレジット3経路・5操作、Peer認証共有5経路・9操作、Workspaceファイル/次タスク提案3経路・3操作、Project lifecycle1経路・4操作、Task collection1経路・3操作、個別Task lifecycle2経路・4操作、Task履歴/検索/bookmark3経路・5操作、Task実行設定4経路・4操作、Task送信/対話応答3経路・3操作、Goal制御2経路・4操作、Task会話編集/昇格4経路・4操作、Task compaction2経路・2操作、Task進行補助4経路・5操作、Task監督/子実行2経路・2操作、Bot lifecycle2経路・5操作、Bot会話3経路・3操作、Bot Code2経路・5操作、Bot routine3経路・6操作、Bot sidebar/内線受信箱2経路・3操作、Room lifecycle2経路・5操作、Room会話コマンド3経路・3操作、TypeSafe設定2経路・6操作、MCP定義/認証3経路・6操作、メモリ検索/システム監視/既読状態3経路・4操作の合計111経路・174操作の境界を移管した。認証に付随するログインSSE 1経路・1操作も同じownerへ移管した（Phase3 JSONの集計には加算しない）。残る7経路・8操作には既存Backend中継も含まれ、受入条件の確認・残存業務処理の移管が必要。
 
-以下は第1区切り（Git・Diff・コミット文生成）の記録。第2区切りの定義管理、第3区切りのProvider/モデル設定、第4区切りのProvider認証、第5区切りのアカウント管理/資格情報、第6区切りの利用量/クレジット、第7区切りのPeer認証共有、第8区切りのWorkspaceファイル/次タスク提案、第9区切りのProject lifecycle、第10区切りのTask collection、第11区切りの個別Task lifecycle、第12区切りのTask履歴/検索/bookmark、第13区切りのTask実行設定、第14区切りのTask送信/対話応答、第15区切りのGoal制御、第16区切りのTask会話編集/昇格、第17区切りのTask compaction、第18区切りのTask進行補助、第19区切りのTask監督/子実行、第20区切りのBot lifecycle、第21区切りのBot会話、第22区切りのBot Code、第23区切りのBot routine、第24区切りのBot sidebar/内線受信箱、第25区切りのRoom lifecycle、第26区切りのRoom会話コマンド、第27区切りのTypeSafe設定、第28区切りのMCP定義/認証は末尾に記載する。
+以下は第1区切り（Git・Diff・コミット文生成）の記録。第2区切りの定義管理、第3区切りのProvider/モデル設定、第4区切りのProvider認証、第5区切りのアカウント管理/資格情報、第6区切りの利用量/クレジット、第7区切りのPeer認証共有、第8区切りのWorkspaceファイル/次タスク提案、第9区切りのProject lifecycle、第10区切りのTask collection、第11区切りの個別Task lifecycle、第12区切りのTask履歴/検索/bookmark、第13区切りのTask実行設定、第14区切りのTask送信/対話応答、第15区切りのGoal制御、第16区切りのTask会話編集/昇格、第17区切りのTask compaction、第18区切りのTask進行補助、第19区切りのTask監督/子実行、第20区切りのBot lifecycle、第21区切りのBot会話、第22区切りのBot Code、第23区切りのBot routine、第24区切りのBot sidebar/内線受信箱、第25区切りのRoom lifecycle、第26区切りのRoom会話コマンド、第27区切りのTypeSafe設定、第28区切りのMCP定義/認証、第29区切りのメモリ検索/システム監視/既読状態は末尾に記載する。
 
 | 経路 | 操作 |
 | --- | --- |
@@ -476,3 +476,19 @@ Phase3全体は未完了。Phase0のBackend/Phase3/JSON分類は118経路・182�
 - Backend/Web型チェック、強制Backendビルド（7,271 KiB）成功。Webなし隔離Backendでlocalhost URL preset保存/ON-OFF/一覧/auth metadata/legacy不可用応答、実再起動後の設定復元と6 IDのcomplete/unknown replay409を確認（15.2秒）。別の隔離native Backendで新JSON入口からbearer/header保存/削除、手動header保持、空DELETEのowner解決、native OAuth開始/完了409、重複拒否、秘密非返却/非ledgerを確認した。
 - OAuth SDK bridgeはmockで検証し、実OAuthフロー・実資格情報・外部MCP接続/command・課金生成・ユーザーSOUL/稼働サービスへの操作なし。実保存は隔離fixture credentialだけ。既存localhost Bot3回/routine2回/Room3回は不変。並行差分7ファイルを保持する。
 - fixture修正: ownership ASTのbundled-handler固定前提をNode compositionにも対応させた。旧Next local/production分岐テストは実relay検証へ置換し、既存common/admin回帰は維持。reload mockの対象を実import先へ訂正。legacy bridge不在とnative OAuth未実装を区別し、Web helperのOAuth request型/異種callback型を修正して再検証した。
+
+## 第29区切り: メモリ検索・システム監視・既読状態（3経路・4操作）
+
+- `memory-search` POST、`sysmon/usage` GET、`unread` GET/PUTをBackendへ移管。Nextは単一relayだけになり、SQLite検索・OS/子プロセスのsampling・cache・設定読取/既読保存を行わない。common検索/collector/cache getter/既読reader/writerとLinux実FS/command adapterは開発Nextも効果前に拒否する。
+- memory検索はowner環境のmemory設定から固定DBを決定し、callerのdatabasePath/path/target/projectを採用しない。200文字・12 term・20結果、FTS/trigramとliteral LIKE fallback、readonly/native SQLite handleの4件/60秒cache・更新時reopen、参照日時非更新を維持する。純DTOはscope/category/著者content/日時だけを保持し、DB path・追加private列を落とす。検索POSTはread-onlyなのでoperation ID/ledger不要。同期SQLite読取は開始後に個別HTTP取消で中断しない。
+- CPU/RAM/GPU/温度sampling、250ms CPU sample、usage single-flight/TTL、温度cache、GPU stale fallback/empty backoffはBackendだけが所有する。クライアントも使う純計算/型を`shared/sysmon.ts`へ分離し、OS依存collectorと混ぜない。probe例外は従来の200/available:falseを維持し、raw command/exceptionを固定理由へ置換。非有限/不正な成功metricsはJSON nullへ変換する前に503へ拒否する。
+- 既読はbot/room/task、1〜256文字ID、有限の正のreadAtを維持し、既存settings RMW lock内でmax(previous,incoming)を永続化する。無関係の設定を保持する。serial `unread-command.json`は0600・最大128 ID、効果前unknown/終了complete、同IDは実再起動後も409。marker/id/path/時刻/秘密hashはledgerへ記録しない。GETはledgerなし。受付後disconnectは処理継続、ACK欠落/不一致とpost-save typed 4xxは503/unknown、自動再送/Next fallback/偽装rollbackなし。無制限exactly-onceやsettings/cache/receiptの原子性は約束しない。
+- 認証・Origin・readiness・protocol・世代確認を維持し、対象の本文は4 KiB、公開応答は既存32 MiB上限。SQL/FS/command/破損setting例外のprivate本文は応答/ログへ返さない。旧GETの破損既読settingsの空fallbackは維持するが、PUTは既存RMW lock内でfixed settingsのJSON/versionを検証し、破損時は更新せず原本bytesを保持する。
+- 原因: 旧既読mapの通常objectは`constructor`/`__proto__`を継承値/特殊setterとして扱い、NaNや未保存の成功になり得た。null-prototype mapで既存の任意ID規約を保持し、monotonic保存/再起動復元を検証。共通settings readerの寛容fallbackがwriterへ伝播して別設定を消し得る点も、lock内検証で拒否した。
+- SQLite native bindingはbundleへ埋め込まず`better-sqlite3`をexternalにし、Backend自身のnode_modulesから解決する。Backendに`@types/better-sqlite3`を追加し、Web型/packageへの依存なしでコンパイルする。実DB照会を含むWebなしfixtureで検証した。
+
+### 第29区切りの検証結果
+
+- 検索/監視/既読/common cache/owner/実Next BFF/関連設定/runtime ownership回帰116件、pure DTO/実HTTP/AST/serial admission/Backend build/native binding回帰155件、Webなし独立Backend1件、計272件成功。全体スイートは再実行していない。
+- Backend/Web型チェック、強制Backendビルド（7,326 KiB）成功。Webなし隔離Backendで実native SQLite FTS検索/著者日本語content/DB bytes不変、CPU/RAMの有限値・usage cache再利用、特殊名IDの既読保存/古いreadAtの拒否的max、無関係settings保持、実owner再起動後の検索/既読復元と4 IDのcomplete replay409を確認（15.9秒）。
+- GPU/thermal probeはfixtureの存在しないbinary名とthermal無効設定で隔離し、実GPU/PowerShell/WMI/kernel probeやレジストリ/driver変更は実行していない。実CPU/RAM読取は読み取りのみ。Linux sysfs・温度/GPU parsing・cacheはfake source/既存unitで検証。外部生成/課金・実資格情報・ユーザーSOUL/サービスへの操作なし。既存localhost Bot3回/routine2回/Room3回は不変。並行差分7ファイルを保持する。

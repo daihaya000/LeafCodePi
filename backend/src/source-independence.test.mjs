@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { spawn, spawnSync } from "node:child_process";
 import { randomBytes } from "node:crypto";
+import { createRequire } from "node:module";
 import { createServer } from "node:http";
 import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -47,6 +48,11 @@ test("Backend builds and serves its runtime API without Web sources or Web packa
 
   const data = join(fixture, "data"), agent = join(fixture, "agent");
   mkdirSync(data); mkdirSync(agent);
+  const memoryDirectory=join(agent,"leafcode-memory");mkdirSync(memoryDirectory);
+  const Database=createRequire(join(backend,"package.json"))("better-sqlite3"),memoryFile=join(memoryDirectory,"sessions.db"),memoryDb=new Database(memoryFile);
+  memoryDb.exec("CREATE TABLE memories(id INTEGER PRIMARY KEY,project TEXT,target TEXT,category TEXT,content TEXT,created TEXT,last_referenced TEXT); CREATE VIRTUAL TABLE memory_fts USING fts5(content,content='memories',content_rowid='id',tokenize='trigram');");
+  memoryDb.prepare("INSERT INTO memories VALUES(1,NULL,'memory','convention',?,'fixture','fixture')").run("Fixture Backend memory 日本語");
+  memoryDb.exec("INSERT INTO memory_fts(memory_fts) VALUES('rebuild')");memoryDb.close();const memoryBytes=readFileSync(memoryFile);
   // A fixture-only SDK command extension exercises durable Goal control without any model turn or tool execution.
   mkdirSync(join(agent,"extensions"));
   writeFileSync(join(agent,"extensions","goal-fixture.ts"),`
@@ -185,6 +191,7 @@ export default function(api) {
       LEAFCODE_PI_BACKEND_PORT: "0", LEAFCODE_PI_BACKEND_TOKEN: token, LEAFCODE_PI_BACKEND_RUNTIME: "1",
       LEAFCODE_PI_BACKEND_GENERATION: "", LEAFCODE_PI_MCP_NATIVE: "", LEAFCODE_PI_PROCESS_ROLE: "backend",
       LEAFCODE_PI_BACKEND_RUNTIME_BUNDLE: join(backend, "runtime", "runtime.bundle.mjs"),
+      LEAFCODE_SYSMON_NVIDIA_SMI: "__fixture_missing_nvidia__", LEAFCODE_SYSMON_POWERSHELL: "__fixture_missing_powershell__", LEAFCODE_SYSMON_THERMAL: "0",
       LEAFCODE_PI_PUSHOVER_TOKEN: "", LEAFCODE_PI_PUSHOVER_USER: "", LEAFCODE_PI_WEBUI_AUTH: "required" },
   };
   const launch = () => spawn(process.execPath, [join(backend, "src", "entry.mjs")], launchOptions);
@@ -579,6 +586,12 @@ export default function(api) {
   const mcpAuth=await business("mcp/n8n/auth",undefined);assert.equal(mcpAuth.status,200,JSON.stringify(mcpAuth));assert.equal(mcpAuth.body.name,"n8n");assert.equal(mcpAuth.body.credentialStatus,"unavailable");
   for(const [body,id,method]of [[{token:"fixture-private-mcp"},mcpIds[2],"POST"],[{type:"oauth"},mcpIds[3],"POST"],[{type:"oauth"},mcpIds[4],"DELETE"],[{type:"oauth",action:"complete",input:"fixture-private-code"},mcpIds[5],"POST"]]){const refused=await business("mcp/n8n/auth",body,"",{"x-leafcode-business-operation":id},method);assert.equal(refused.status,503,JSON.stringify(refused));assert.equal(refused.body.operation.execution,"unknown");}
   const mcpLedger=readFileSync(join(data,"mcp-business-command.json"),"utf8");assert.equal(JSON.parse(mcpLedger).operations.length,6);for(const secret of ["fixture-private","n8n","token","oauth","127.0.0.1"])assert.ok(!mcpLedger.includes(secret));
+  // Owner-only information: real native read-only SQLite, bounded sampling and durable monotonic read markers.
+  const memoryResult=await business("memory-search",{query:"Backend memory",databasePath:join(fixture,"forged.db"),target:"forged"});assert.equal(memoryResult.status,200,JSON.stringify(memoryResult));assert.equal(memoryResult.body.results[0].content,"Fixture Backend memory 日本語");assert.equal(memoryResult.body.operation,undefined);assert.deepEqual(readFileSync(memoryFile),memoryBytes);assert.equal(existsSync(join(fixture,"forged.db")),false);
+  const usageResult=await business("sysmon/usage",undefined);assert.equal(usageResult.status,200,JSON.stringify(usageResult));assert.equal(usageResult.body.available,true);assert.equal(usageResult.body.schema,"sysmon.usage/v1");assert.ok(Number.isFinite(usageResult.body.memory.usedBytes));assert.deepEqual(usageResult.body.gpus,[]);assert.equal((await business("sysmon/usage",undefined)).body.generatedAt,usageResult.body.generatedAt);
+  const unreadIds=Array.from({length:4},(_,index)=>String(index+1).repeat(8)+"-2345-4321-abcd-eeeeeeeeeeee");
+  for(const [kind,id,readAt,operationId]of [["bot","constructor",200,unreadIds[0]],["room","__proto__",300,unreadIds[1]],["task","fixture-unread",400,unreadIds[2]],["bot","constructor",100,unreadIds[3]]]){const saved=await business("unread",{kind,id,readAt,path:join(fixture,"forged.json")},"",{"x-leafcode-business-operation":operationId},"PUT");assert.equal(saved.status,200,JSON.stringify(saved));assert.equal(saved.body.operation.execution,"complete");assert.equal(saved.body.readAt,kind==="bot"?200:readAt);}
+  const markers=(await business("unread",undefined)).body.markers;assert.ok(markers.some(row=>row.id==="constructor"&&row.readAt===200));assert.ok(markers.some(row=>row.id==="__proto__"&&row.readAt===300));const unreadLedger=readFileSync(join(data,"unread-command.json"),"utf8");assert.equal(JSON.parse(unreadLedger).operations.length,4);assert.ok(!/constructor|__proto__|fixture-unread|readAt|forged/.test(unreadLedger));assert.equal(JSON.parse(readFileSync(join(data,"web-settings.json"),"utf8"))["history-page-size"],"100");
   // Restart the actual owner process, retaining only its disk state, not a Web fallback or a module cache.
   const exited = new Promise((done) => child.once("exit", done)); child.kill(); await exited;
   stdout = ""; stderr = ""; listening = undefined; child = launch();
@@ -602,6 +615,9 @@ export default function(api) {
   assert.equal(restored?.value, "100", stderr);
   const restartedMcp=await fetch(restartedBase+"/internal/json-business/mcp",{headers:businessHeaders});const restoredMcp=await restartedMcp.json();assert.equal(restoredMcp.status,200,JSON.stringify(restoredMcp));assert.ok(restoredMcp.body.servers.some(row=>row.name==="n8n"&&row.enabled===false));
   for(const [route,method,id]of [["mcp","POST",mcpIds[0]],["mcp/n8n","PATCH",mcpIds[1]],["mcp/n8n/auth","POST",mcpIds[2]],["mcp/n8n/auth","POST",mcpIds[3]],["mcp/n8n/auth","DELETE",mcpIds[4]],["mcp/n8n/auth","POST",mcpIds[5]]]){const reply=await fetch(restartedBase+"/internal/json-business/"+route,{method,headers:{...businessHeaders,"x-leafcode-business-operation":id},body:"{}"});assert.equal(reply.status,200);const result=await reply.json();assert.equal(result.status,409,JSON.stringify(result));assert.equal(result.body.operation.execution,route.endsWith("/auth")?"unknown":"complete");}
+  const restartedUnreadReply=await fetch(restartedBase+"/internal/json-business/unread",{headers:businessHeaders}),restartedUnread=await restartedUnreadReply.json();assert.equal(restartedUnread.status,200);assert.deepEqual(restartedUnread.body.markers,markers);
+  for(const id of unreadIds){const reply=await fetch(restartedBase+"/internal/json-business/unread",{method:"PUT",headers:{...businessHeaders,"x-leafcode-business-operation":id},body:'{"kind":"task","id":"FORGED","readAt":999}'});assert.equal(reply.status,200);const result=await reply.json();assert.equal(result.status,409,JSON.stringify(result));assert.equal(result.body.operation.execution,"complete");}
+  const restartedMemoryReply=await fetch(restartedBase+"/internal/json-business/memory-search",{method:"POST",headers:businessHeaders,body:'{"query":"Backend memory"}'}),restartedMemory=await restartedMemoryReply.json();assert.equal(restartedMemory.status,200,JSON.stringify(restartedMemory));assert.deepEqual(restartedMemory.body,memoryResult.body);assert.deepEqual(readFileSync(memoryFile),memoryBytes);
   const outcome = await fetch(`${restartedBase}/internal/configuration/settings?operationId=${committed.mutation.operationId}`, { headers: configHeaders, signal: AbortSignal.timeout(3_000) });
   assert.equal(outcome.status, 200); assert.deepEqual((await outcome.json()).mutation, committed.mutation);
   for(const [route,method,id]of [["typesafe-cookie","POST",typesafeIds[0]],["typesafe-baseline","POST",typesafeIds[1]],["typesafe-cookie","DELETE",typesafeIds[2]],["typesafe-baseline","DELETE",typesafeIds[3]],["typesafe-cookie","POST",typesafeIds[4]],["typesafe-baseline","POST",typesafeIds[5]],["typesafe-baseline","POST",typesafeIds[6]]]){const reply=await fetch(restartedBase+"/internal/json-business/"+route,{method,headers:{...businessHeaders,"x-leafcode-business-operation":id},body:'{"cookies":"invalid","baselineUsd":1}'});assert.equal(reply.status,200);const result=await reply.json();assert.equal(result.status,409,JSON.stringify(result));assert.equal(result.body.operation.execution,"complete");}
