@@ -2,7 +2,7 @@
 
 ## Scope and ownership
 
-LCP owns compaction in `web/src/lib/pi/compaction-controller.ts`. The memory extension asks the session-local event bus (`leafcode:compaction:owner`) before doing any auth/model work and yields to that owner. Standalone Pi, without the LCP host, retains the memory extension's existing single-pass path. No external compaction package is installed.
+LCP owns compaction in `backend/runtime-src/lib/pi/compaction-controller.ts` (`web/src/lib/pi/compaction-controller.ts` is a compatibility re-export). The memory extension asks the session-local event bus (`leafcode:compaction:owner`) before doing any auth/model work and yields to that owner. Standalone Pi, without the LCP host, retains the memory extension's existing single-pass path. No external compaction package is installed.
 
 The host uses one pipeline for manual, threshold, overflow and background requests:
 
@@ -26,6 +26,17 @@ This implements the snapshot/background/atomic-boundary approach described by [p
 - Failed, stale, empty, non-shrinking or timed-out results are discarded; the native threshold/overflow mechanism remains the fallback. A provider that ignores abort cannot accumulate more speculative jobs.
 
 Original history remains in Pi's append-only session log, recoverable through existing session-history/search facilities. There is no new recall tool, vector store, every-turn pruning, or deterministic emergency history deletion. This avoids a second memory system and repeated prompt-cache invalidations. Background compaction still invalidates the cached prefix once applied; it hides generation latency, not all total cost.
+
+## Bounded history paging
+
+Model context and UI history are separate: compaction supplies a checkpoint plus the verbatim recent suffix to the model, while the original append-only log remains available. `GET /api/tasks/<id>/messages` pages a cold/archived version-3 log **before** hydration; it does not open a writable SDK session or parse all message payloads on each request.
+
+- The first request scans the log and builds offsets/branch metadata. Later requests parse only the selected page, its necessary hidden persona/Goal Loop/intercom markers and matching throughput records. Cache identity uses the verified file descriptor's dev/inode/size/mtimeNs/ctimeNs and is checked against the named file before/after reads. Appends, rewrites and replacements invalidate the index.
+- Cache stores no message text, summaries or image payloads: at most four indexes and an 8 MiB metadata budget. Scanning is serialized with at most 16 waiters, a 512 MiB file limit, a 16 MiB line limit, 100,000 entries and an eight-second reader deadline. Hydrated rows have a separate 16 MiB per-page budget. Oversized pages refuse with 413 rather than silently truncating or relaxing safety limits.
+- Turn-boundary cursors, branch rejection, original part IDs and hidden markers match the existing UI projection. Cold images are lazy placeholders and use the existing message-image endpoint, avoiding retention of base64 data URLs in the UI projector. Current live pages retain their owner snapshot/streaming behavior.
+- Only admitted small legacy logs fall back to SDK migration. Budget/abort/race failures never fall back to a full-history load. Original bytes are not rewritten. Full-transcript detail/search/bookmark APIs and live SDK admission are unchanged; this optimization applies to the paged history endpoint, not every history consumer.
+
+The 256 MiB repeated-read regression keeps the existing 48 MiB heap-growth ceiling and additionally verifies that repeat requests do not rescan the file or parse unselected rows. No gzip archive or second summarization system is introduced.
 
 ## Server settings
 
