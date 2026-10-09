@@ -24,6 +24,9 @@ import { POST as selectTaskAgent } from "../app/api/tasks/[id]/agent/route";
 import { PUT as selectGoalAuto } from "../app/api/tasks/[id]/goal-loop-auto-model/route";
 import { GET as readTaskGoal, POST as startTaskGoal, PATCH as controlTaskGoal } from "../app/api/tasks/[id]/goal-loop/route";
 import { GET as activeTaskGoals } from "../app/api/goal-loop/active/route";
+import { GET as listBotRoutines, POST as createBotRoutine } from "../app/api/bots/[id]/routines/route";
+import { GET as getBotRoutine, PATCH as patchBotRoutine, DELETE as deleteBotRoutine } from "../app/api/bots/[id]/routines/[routineId]/route";
+import { POST as runBotRoutine } from "../app/api/bots/[id]/routines/[routineId]/run/route";
 import { GET as botCodePanel, POST as startBotCode, PATCH as controlBotCode } from "../app/api/bots/[id]/code-session/route";
 import { GET as botCodeRequests, POST as stopBotCodeRequest } from "../app/api/bots/[id]/code-requests/route";
 import { POST as sendBotPrompt } from "../app/api/bots/[id]/prompt/route";
@@ -61,6 +64,14 @@ beforeEach(() => {
 });
 afterEach(() => { vi.restoreAllMocks(); vi.unstubAllGlobals(); vi.unstubAllEnvs(); rmSync(root, { recursive: true, force: true }); });
 describe("JSON business ingress", () => {
+  it("Bot routines relay six operations/opaque bytes, project authored config and require mutation ACKs",async()=>{
+    const id="11111111-0123-4321-abcd-eeeeeeeeeeee",routineId="22222222-0123-4321-abcd-eeeeeeeeeeee",context={params:Promise.resolve({id,routineId})},routine={id:routineId,botId:id,name:"authored 日本語",prompt:"authored",schedule:"0 0 29 2 *",enabled:true,createdAt:"fixture",updatedAt:"fixture",failureCount:0,lastRunAt:null,token:"PRIVATE"};
+    for(const [method,fn,body,result] of [["GET",listBotRoutines,undefined,{routines:[routine]}],["POST",createBotRoutine,'{"name":"日本語","prompt":"authored","schedule":"0 0 29 2 *"}',{routine}],["GET",getBotRoutine,undefined,{routine}],["PATCH",patchBotRoutine,'{"enabled":false}',{routine}],["DELETE",deleteBotRoutine,'{"botId":"forged"}',{ok:true}],["POST",runBotRoutine,'{"prompt":"forged","permissionMode":"allow"}',{routine}]]as const){
+      fetcher.mockImplementationOnce(async(_url,init)=>Response.json({status:200,body:{...result,...(method!=="GET"?{operation:{id:new Headers(init.headers).get("x-leafcode-business-operation"),execution:"complete"}}:{})}}));
+      const response=await fn(new NextRequest("http://localhost/api/bots/"+id+"/routines",{method,...(body?{body}:{})}),context);expect(response.status).toBe(200);expect(JSON.stringify(await response.json())).not.toContain("PRIVATE");const [url,init]=fetcher.mock.calls.at(-1)!;expect(url).toContain("/bots/"+id+"/routines");if(body)expect(new TextDecoder().decode(init.body)).toBe(body);
+    }
+    fetcher.mockResolvedValueOnce(Response.json({status:200,body:{routine}}));expect((await runBotRoutine(new NextRequest("http://localhost",{method:"POST",body:"{}"}),context)).status).toBe(503);const calls=fetcher.mock.calls.length;expect((await runBotRoutine(new NextRequest("http://localhost",{method:"POST",body:"x".repeat(4097)}),context)).status).toBe(413);expect(fetcher).toHaveBeenCalledTimes(calls);expect(readdirSync(root)).toEqual([]);
+  });
   it("Bot Code relays five operations without business decisions, validates ACKs and projects deep reports",async()=>{
     const id="11111111-0123-4321-abcd-eeeeeeeeeeee",context={params:Promise.resolve({id})},task={id:"code",status:"idle",token:"PRIVATE"};
     for(const [action,method,fn,body,result]of [

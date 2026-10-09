@@ -2,9 +2,9 @@
 
 ## 進捗・範囲
 
-Phase3全体は未完了。Phase0のBackend/Phase3/JSON分類は118経路・182操作。Git・Diff・コミット文生成13経路・14操作、定義管理14経路・25操作、Provider/モデル設定7経路・8操作、Provider認証JSON4経路・5操作、アカウント管理/資格情報9経路・19操作、利用量/クレジット3経路・5操作、Peer認証共有5経路・9操作、Workspaceファイル/次タスク提案3経路・3操作、Project lifecycle1経路・4操作、Task collection1経路・3操作、個別Task lifecycle2経路・4操作、Task履歴/検索/bookmark3経路・5操作、Task実行設定4経路・4操作、Task送信/対話応答3経路・3操作、Goal制御2経路・4操作、Task会話編集/昇格4経路・4操作、Task compaction2経路・2操作、Task進行補助4経路・5操作、Task監督/子実行2経路・2操作、Bot lifecycle2経路・5操作、Bot会話3経路・3操作、Bot Code2経路・5操作の合計93経路・141操作の境界を移管した。認証に付随するログインSSE 1経路・1操作も同じownerへ移管した（Phase3 JSONの集計には加算しない）。残る25経路・41操作には既存Backend中継も含まれ、受入条件の確認・残存業務処理の移管が必要。
+Phase3全体は未完了。Phase0のBackend/Phase3/JSON分類は118経路・182操作。Git・Diff・コミット文生成13経路・14操作、定義管理14経路・25操作、Provider/モデル設定7経路・8操作、Provider認証JSON4経路・5操作、アカウント管理/資格情報9経路・19操作、利用量/クレジット3経路・5操作、Peer認証共有5経路・9操作、Workspaceファイル/次タスク提案3経路・3操作、Project lifecycle1経路・4操作、Task collection1経路・3操作、個別Task lifecycle2経路・4操作、Task履歴/検索/bookmark3経路・5操作、Task実行設定4経路・4操作、Task送信/対話応答3経路・3操作、Goal制御2経路・4操作、Task会話編集/昇格4経路・4操作、Task compaction2経路・2操作、Task進行補助4経路・5操作、Task監督/子実行2経路・2操作、Bot lifecycle2経路・5操作、Bot会話3経路・3操作、Bot Code2経路・5操作、Bot routine3経路・6操作の合計96経路・147操作の境界を移管した。認証に付随するログインSSE 1経路・1操作も同じownerへ移管した（Phase3 JSONの集計には加算しない）。残る22経路・35操作には既存Backend中継も含まれ、受入条件の確認・残存業務処理の移管が必要。
 
-以下は第1区切り（Git・Diff・コミット文生成）の記録。第2区切りの定義管理、第3区切りのProvider/モデル設定、第4区切りのProvider認証、第5区切りのアカウント管理/資格情報、第6区切りの利用量/クレジット、第7区切りのPeer認証共有、第8区切りのWorkspaceファイル/次タスク提案、第9区切りのProject lifecycle、第10区切りのTask collection、第11区切りの個別Task lifecycle、第12区切りのTask履歴/検索/bookmark、第13区切りのTask実行設定、第14区切りのTask送信/対話応答、第15区切りのGoal制御、第16区切りのTask会話編集/昇格、第17区切りのTask compaction、第18区切りのTask進行補助、第19区切りのTask監督/子実行、第20区切りのBot lifecycle、第21区切りのBot会話、第22区切りのBot Codeは末尾に記載する。
+以下は第1区切り（Git・Diff・コミット文生成）の記録。第2区切りの定義管理、第3区切りのProvider/モデル設定、第4区切りのProvider認証、第5区切りのアカウント管理/資格情報、第6区切りの利用量/クレジット、第7区切りのPeer認証共有、第8区切りのWorkspaceファイル/次タスク提案、第9区切りのProject lifecycle、第10区切りのTask collection、第11区切りの個別Task lifecycle、第12区切りのTask履歴/検索/bookmark、第13区切りのTask実行設定、第14区切りのTask送信/対話応答、第15区切りのGoal制御、第16区切りのTask会話編集/昇格、第17区切りのTask compaction、第18区切りのTask進行補助、第19区切りのTask監督/子実行、第20区切りのBot lifecycle、第21区切りのBot会話、第22区切りのBot Code、第23区切りのBot routineは末尾に記載する。
 
 | 経路 | 操作 |
 | --- | --- |
@@ -375,3 +375,19 @@ Phase3全体は未完了。Phase0のBackend/Phase3/JSON分類は118経路・182�
 - Goalは既存fixture-only state command、Code/報告Botのモデルは到達不能localhostだけ。追加の有料/外部provider生成・tool実行・子agent起動はなく、既存固定Bot responderの3要求も増えていない。稼働ユーザーTask/Bot/設定/資格情報/SOUL/サービスへの操作なし。
 - 原因: レビューで停止/部分link更新後のtyped 4xx例外を安全なrefusalとして返せる点を確認。503/unknown・秘密非公開・同ID拒否を追加検証した。初回HTTPテストは任意operationIdのundefinedをnull限定で比較したため503となり、未指定の契約に合わせて修正。ownershipの残存session-starter期待値は11→9。
 - 並行差分7ファイルと既存routing timeout/selected-leaf永続化制約は保持し、今回解消したとは扱わない。Phase3全体は未完了で、Bot routine/sidebar/intercom/Room等25経路・41操作が残る。
+
+## 第23区切り: Bot routine（3経路・6操作）
+
+- `bots/[id]/routines` GET/POST、`routines/[routineId]` GET/PATCH/DELETE、`run` POSTをBackendへ移管。Nextは単一の中継returnのみ。UUIDのBot/routine IDを1回だけdecodeしてBot/routine保存先へのアクセス前に検証する。AST検証も複数の動的selectorをそれぞれencodeする構造へ拡張した。
+- 既存routineの一覧/個別読取・CRUD・手動run・scheduler start/tickにowner guardを追加。cronの有効日/5分以上の間隔、名前100/プロンプト8,000コードポイント、enabled最大10件、失敗3回の自動disable、run claim/heartbeat、busy leaseの非消費、通知/完了busと待機完了を維持する。既知の設定検証は400、予期しないI/O/SDKエラーは秘匿する。
+- createはownerが生成するID/保存Bot/失敗状態を使用し、runは保存済みpromptとBotのpermissionだけを使用する。PATCHは4つの設定フィールドと型を検証し、scalar/array/不正cron/過大文字列/実行状態の偽造を拒否する。routine/失敗後snapshot/receiptを純粋DTOで投影し、追加SDK/秘密フィールドや生の5xx例外を返さない。
+- private `bot-routine-command.json`（0600・最大128件）はoperation IDとexecutionのみ記録。手動runを待機してもdisable/CRUDが詰まらない並行admissionを使用する。実行前unknown checkpoint、再起動後も同じIDは409、応答喪失/5xx/記録失敗はunknown、自動再送/Next実行fallbackなし。受付済みrunはクライアント切断で中止せず、明示Bot StopがSDKを中止する。schedulerのrun lockは別系統のままで、恒久的exactly-once/複数ファイルの原子性は保証しない。
+- create/PATCH本文64 KiB（8,000文字を全てJSON escapeした場合を含む）、run/DELETEは4 KiB。認証/Origin/readiness、operation ACK一致、GETの無ledger、5xxでのscoped snapshotを維持する。
+
+### 第23区切りの検証結果
+
+- routine/実FS owner・手動handler・scheduler/cron・Next relay・runtime ownership: 108/108成功。
+- pure contract/実HTTP transport/AST ownership: 117/117成功。Bot lifecycle/cron/scheduler/並行command・bundle/独立build: 57/57成功。独立実プロセスfixture1件を含め、今回の対象回帰283件成功。全体Web/Backendスイートは再実行していない。
+- Backend/Web型チェックとBackend強制ビルド（7,220 KiB）成功。Webなしの隔離Backend実プロセスでroutine作成/list/個別GET/改名、保存promptによる実SDK text生成、hold中のdisable→Bot Stop→failure snapshot、別routineの削除、再起動後のdisable/失敗数/成功時刻/改名/削除と8つの重複受付拒否（held runはunknown、他はcomplete）を検証した。
+- 新規routine用固定localhost responderは2回（正常1・hold/明示Stop1）。既存Bot responder3回は不変。tool call/resultを出さず、課金Provider/実通知/外部生成、ユーザー設定/SOUL/資格情報、稼働サービスを変更していない。
+- 初回検証失敗の原因: ASTテストが動的IDを1つと仮定し、独立fixtureはBot configだけをseedして通常のBot作成で登録される1:1 Taskが欠落していた。ASTを複数IDへ拡張し、fixtureのTask登録を補って再実行成功。レビューでscalar PATCHの誤受理も修正し、関連検証を再実行した。

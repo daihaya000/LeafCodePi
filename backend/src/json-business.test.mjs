@@ -25,6 +25,14 @@ test("business transport enforces auth, protocol, readiness, method, context and
   assert.equal((await request(`${unavailable.base}/git/init`, { method: "POST", headers: unavailable.headers })).status, 503);
   assert.equal(calls, 0);
 });
+test("Bot routine transport admits CRUD/run separately and retains trusted selectors, byte bounds and failure snapshot",async t=>{
+ const botId="11111111-0123-4321-abcd-eeeeeeeeeeee",routineId="22222222-0123-4321-abcd-eeeeeeeeeeee",routine={id:routineId,botId,name:"authored",prompt:"authored",schedule:"0 0 29 2 *",enabled:false,createdAt:"fixture",updatedAt:"fixture",failureCount:1,lastRunAt:null};let writes=0;
+ const f=await fixture(t,{jsonBusinessRequestAction:async input=>{if(input.method==="GET")return {status:200,body:input.route.endsWith("routines")?{routines:[routine]}:{routine}};writes++;assert.equal(input.signal,undefined);assert.ok(input.operationId);return {status:500,body:{error:"failed",routine,operation:{id:input.operationId,execution:"unknown"}}};}});
+ const headers={...f.headers,"x-leafcode-business-operation":"aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"},base=f.base+"/bots/"+botId+"/routines";
+ for(const path of [base,base+"/"+routineId])assert.equal((await request(path,{headers:f.headers})).status,200);
+ for(const [path,method,bound]of [[base,"POST",65536],[base+"/"+routineId,"PATCH",65536],[base+"/"+routineId,"DELETE",4096],[base+"/"+routineId+"/run","POST",4096]]){assert.equal((await request(path,{method,headers:f.headers,body:"{}"})).status,400);assert.equal((await request(path,{method,headers,body:"x".repeat(bound+1)})).status,413);const response=await request(path,{method,headers,body:"opaque"});assert.equal(response.status,200);const result=await response.json();assert.equal(result.status,500);assert.equal(result.body.routine.enabled,false);}
+ assert.equal(writes,4);
+});
 test("Bot Code transport keeps read context, opaque commands and per-route budgets separate",async t=>{
  let calls=0;const f=await fixture(t,{jsonBusinessRequestAction:async input=>{
   calls++;if(input.method==="GET"){assert.ok(input.operationId==null);return input.route.endsWith("code-session")?{status:200,body:{tasks:[],loops:{}}}:{status:200,body:{requests:[]}};}

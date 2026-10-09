@@ -17,15 +17,17 @@ for (const [route, methods] of Object.entries(JSON_BUSINESS_ROUTES)) {
       const statement = handler.body.statements[0];
       assert.ok(ts.isReturnStatement(statement) && ts.isCallExpression(statement.expression));
       assert.equal(statement.expression.expression.getText(source), "relayJsonBusiness");
-      const parameter = /\[(name|id|key)\]/.exec(route)?.[1];
-      if (parameter) {
+      const parameters = [...route.matchAll(/\[([^\]]+)\]/g)].map(match => match[1]);
+      if (parameters.length) {
         const argument = statement.expression.arguments[1];
         assert.ok(ts.isTemplateExpression(argument));
-        const [prefix, suffix] = route.split(`[${parameter}]`);
-        assert.equal(argument.head.text, prefix);
-        assert.equal(argument.templateSpans[0].literal.text, suffix);
-        assert.equal(argument.templateSpans.length, 1);
-        assert.equal(argument.templateSpans[0].expression.getText(source), `encodeURIComponent((await context.params).${parameter})`);
+        const literals = route.split(/\[[^\]]+\]/);
+        assert.equal(argument.head.text, literals[0]);
+        assert.equal(argument.templateSpans.length, parameters.length);
+        parameters.forEach((parameter, index) => {
+          assert.equal(argument.templateSpans[index].literal.text, literals[index + 1]);
+          assert.equal(argument.templateSpans[index].expression.getText(source), `encodeURIComponent((await context.params).${parameter})`);
+        });
       } else assert.equal(statement.expression.arguments[1].text, route);
     }
     assert.doesNotMatch(readFileSync(join(root, "backend/runtime-src/json-business/handlers", route, "route.ts"), "utf8"), /from ["']next\//);

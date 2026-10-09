@@ -1,3 +1,4 @@
+import { assertConfigurationOwner } from "@backend-core/configuration-command.mjs";
 import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, utimesSync, writeFileSync } from "node:fs";
 import { EventEmitter } from "node:events";
 import { join } from "node:path";
@@ -73,12 +74,12 @@ function withBotRoutineLock<T>(botId: string, action: () => T): T { const botsDi
 function validId(value: string): boolean { return /^[0-9a-f]{8}-[0-9a-f-]{27,}$/i.test(value); }
 function assertRoutinePromptLength(prompt: string): void {
   if (Array.from(prompt).length > ROUTINE_MAX_PROMPT_CHARS) {
-    throw new Error(`ルーチンのプロンプトは${ROUTINE_MAX_PROMPT_CHARS}文字以内にしてください`);
+    throw Object.assign(new Error(`ルーチンのプロンプトは${ROUTINE_MAX_PROMPT_CHARS}文字以内にしてください`), { status: 400 });
   }
 }
 function assertRoutineNameLength(name: string): void {
   if (Array.from(name).length > ROUTINE_MAX_NAME_CHARS) {
-    throw new Error(`ルーチン名は${ROUTINE_MAX_NAME_CHARS}文字以内にしてください`);
+    throw Object.assign(new Error(`ルーチン名は${ROUTINE_MAX_NAME_CHARS}文字以内にしてください`), { status: 400 });
   }
 }
 function writeRoutine(routine: RoutineFile): RoutineDto { mkdirSync(routineDir(routine.botId), { recursive: true }); writeFileSync(routinePath(routine.botId, routine.id), `${JSON.stringify(routine, null, 2)}\n`, "utf8"); return routine; }
@@ -136,40 +137,47 @@ export function validateRoutineSchedule(schedule: string): void {
   if (firstEvent === null || lastEvent === null) throw new Error("この cron は実行されない日時を指定しています");
   if ((MINUTES_PER_GREGORIAN_CYCLE + firstEvent - lastEvent) * MS_PER_MINUTE < ROUTINE_MIN_INTERVAL_MS) throw new Error("ルーティンの最短間隔は 5 分です");
 }
-export function listRoutines(botId: string): RoutineDto[] { if (!getBot(botId) || !existsSync(routineDir(botId))) return []; return readdirSync(routineDir(botId)).filter((file) => file.endsWith(".json")).map((file) => parseRoutine(botId, file)).filter((item): item is RoutineDto => Boolean(item)).sort((a, b) => a.createdAt.localeCompare(b.createdAt)); }
-export function getRoutine(botId: string, routineId: string): RoutineDto | undefined { if (!getBot(botId) || !validId(routineId)) return undefined; return parseRoutine(botId, `${routineId}.json`) ?? undefined; }
+function validateRoutineInputSchedule(schedule: string): void {
+  try { validateRoutineSchedule(schedule); }
+  catch (error) { throw Object.assign(error instanceof Error ? error : new Error("Invalid schedule"), { status: 400 }); }
+}
+export function listRoutines(botId: string): RoutineDto[] { assertConfigurationOwner(); if (!getBot(botId) || !existsSync(routineDir(botId))) return []; return readdirSync(routineDir(botId)).filter((file) => file.endsWith(".json")).map((file) => parseRoutine(botId, file)).filter((item): item is RoutineDto => Boolean(item)).sort((a, b) => a.createdAt.localeCompare(b.createdAt)); }
+export function getRoutine(botId: string, routineId: string): RoutineDto | undefined { assertConfigurationOwner(); if (!getBot(botId) || !validId(routineId)) return undefined; return parseRoutine(botId, `${routineId}.json`) ?? undefined; }
 export function createRoutine(botId: string, input: { name: string; prompt: string; schedule: string; enabled?: boolean }): RoutineDto {
-  if (!getBot(botId)) throw new Error("Bot not found");
+  assertConfigurationOwner();
+  if (!getBot(botId)) throw Object.assign(new Error("Bot not found"), { status: 404 });
   return withBotRoutineLock(botId, () => {
-    if (!getBot(botId)) throw new Error("Bot not found");
+    if (!getBot(botId)) throw Object.assign(new Error("Bot not found"), { status: 404 });
     const name = input.name.trim();
     const prompt = input.prompt.trim();
     const schedule = input.schedule.trim();
-    if (!name || !prompt) throw new Error("ルーティン名とプロンプトは必須です");
+    if (!name || !prompt) throw Object.assign(new Error("ルーティン名とプロンプトは必須です"), { status: 400 });
     assertRoutineNameLength(name);
     assertRoutinePromptLength(prompt);
-    validateRoutineSchedule(schedule);
+    validateRoutineInputSchedule(schedule);
     const enabled = input.enabled !== false;
-    if (enabled && listRoutines(botId).filter((item) => item.enabled).length >= ROUTINE_MAX_ENABLED) throw new Error(`有効なルーティンは最大 ${ROUTINE_MAX_ENABLED} 件です`);
+    if (enabled && listRoutines(botId).filter((item) => item.enabled).length >= ROUTINE_MAX_ENABLED) throw Object.assign(new Error(`有効なルーティンは最大 ${ROUTINE_MAX_ENABLED} 件です`), { status: 400 });
     const now = new Date().toISOString();
     return writeRoutine({ id: randomUUID(), botId, name, prompt, schedule, enabled, createdAt: now, updatedAt: now, failureCount: 0, lastRunAt: null });
   });
 }
 export function patchRoutine(botId: string, routineId: string, patch: Partial<Pick<RoutineDto, "name" | "prompt" | "schedule" | "enabled">>): RoutineDto | undefined {
+  assertConfigurationOwner();
   if (!getRoutine(botId, routineId)) return undefined;
   return withBotRoutineLock(botId, () => withRoutineLock(botId, routineId, () => {
     const current = getRoutine(botId, routineId);
     if (!current) return undefined;
     const next = { ...current, ...patch, name: (patch.name ?? current.name).trim(), prompt: (patch.prompt ?? current.prompt).trim(), schedule: (patch.schedule ?? current.schedule).trim(), updatedAt: new Date().toISOString() };
-    if (!next.name || !next.prompt) throw new Error("ルーティン名とプロンプトは必須です");
+    if (!next.name || !next.prompt) throw Object.assign(new Error("ルーティン名とプロンプトは必須です"), { status: 400 });
     assertRoutineNameLength(next.name);
     assertRoutinePromptLength(next.prompt);
-    validateRoutineSchedule(next.schedule);
-    if (next.enabled && !current.enabled && listRoutines(botId).filter((item) => item.enabled).length >= ROUTINE_MAX_ENABLED) throw new Error(`有効なルーティンは最大 ${ROUTINE_MAX_ENABLED} 件です`);
+    validateRoutineInputSchedule(next.schedule);
+    if (next.enabled && !current.enabled && listRoutines(botId).filter((item) => item.enabled).length >= ROUTINE_MAX_ENABLED) throw Object.assign(new Error(`有効なルーティンは最大 ${ROUTINE_MAX_ENABLED} 件です`), { status: 400 });
     return writeRoutine(next);
   }));
 }
 export function deleteRoutine(botId: string, routineId: string): boolean {
+  assertConfigurationOwner();
   if (!getRoutine(botId, routineId)) return false;
   return withBotRoutineLock(botId, () => withRoutineLock(botId, routineId, () => {
     if (!getRoutine(botId, routineId)) return false;
@@ -241,6 +249,7 @@ function startRoutineRunClaimHeartbeat(claim: RoutineRunClaim): () => void {
 }
 
 export async function runRoutine(botId: string, routineId: string): Promise<RoutineDto> {
+  assertConfigurationOwner();
   const key = `${botId}:${routineId}`;
   // The run-lock path is derived from these ids; reject unknown ids before
   // claiming the lock so invalid ids cannot create directories.
@@ -326,6 +335,7 @@ function tryRoutineSchedulerLock(): string | undefined {
   });
 }
 export async function tickRoutines(now = new Date()): Promise<void> {
+  assertConfigurationOwner();
   // Lock, due decision and detached starts live in backend core; storage and
   // the run itself stay here and are resolved at call time.
   return runSchedulerTick({
@@ -340,4 +350,4 @@ export async function tickRoutines(now = new Date()): Promise<void> {
 }
 type SchedulerState = { interval?: ReturnType<typeof setInterval>; started?: boolean };
 const schedulerState = (globalThis as typeof globalThis & { __leafcodeRoutineScheduler?: SchedulerState }).__leafcodeRoutineScheduler ??= {};
-export function ensureRoutineScheduler(): void { if (schedulerState.started) return; schedulerState.started = true; schedulerState.interval = setInterval(() => { void tickRoutines(); }, 60_000); if (typeof schedulerState.interval === "object" && "unref" in schedulerState.interval) schedulerState.interval.unref(); void tickRoutines(); }
+export function ensureRoutineScheduler(): void { assertConfigurationOwner(); if (schedulerState.started) return; schedulerState.started = true; schedulerState.interval = setInterval(() => { void tickRoutines(); }, 60_000); if (typeof schedulerState.interval === "object" && "unref" in schedulerState.interval) schedulerState.interval.unref(); void tickRoutines(); }
