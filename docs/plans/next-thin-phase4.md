@@ -106,6 +106,17 @@ Phase0のPhase4対象は14経路・15操作。今回の移管は `tasks/[id]/ima
 - 最終RSS増分Backend92,790,784 / relay51,273,728bytes、heap8,310,264 / 2,980,272、external90,766,011 / 44,427,649。RSS128MiB/heap48MiB/external96MiBの閾値を維持。有限の2段HTTP試験で、Next production全体・全suite・無期限の証明ではない。
 - 原因: Nextのrequest body変数を同scopeのresponse body宣言がshadowし、fetch前のTDZで503になった。変数を分離してPOST/既存file中継を再検証した。追加copy版はBackend external増分102,164,057bytesで96MiBに抵触し、受信最大256KiBを保持した64KiB viewへ変更して閾値を緩めず再測定した。reviewでreceiptの全量readもbounded FD readへ修正した。
 
+## 追加単位: Task/Bot個別SSE
+
+- `tasks/[id]/events` と `bots/[id]/events` GETを共通live-eventsへ移管。累計13経路・Phase0掲載14操作（追加HEAD7操作）。Nextはquery/Last-Event-IDとbytesだけを中継し、詳細poll・履歴比較・SDK subscription・Bot inbox読取を持たない。auth/private protocol/readiness/generation/32枠、undici bodyTimeout=0、native drain45秒を共用する。
+- 既存owner側のbootstrap/ready/cache_ready/messagesReused/historyReset、permission/question・abort/hang/Goal/todos/sessionResume、delta/streamDeltas/streamMessages/perf、foreign lease poll/backoffとmessage deltaを維持。ready待ちのcontrol保持・resolved pair・古いhistory除去の純粋helperをBackendに配置した。Bot inboxはowner subscriptionに加え2秒のread-only safety pollで他process更新も取得する。
+- 詳細取得は既存BackendのreadOnly経路を指定し、閲覧でensureLive/モデル生成を開始しない。共有詳細取得2件・待機32件、待機中切断はSDK read前に取消す。受付済readonly getterそのものはSDK APIの期限/完了に従い、SSE切断でTaskや生成処理をabortしない。cold SDK transcriptの解析・cacheは既存ownerの実装で、巨大cold transcriptの追加ストレス計測は今回の試験に含めていない。
+- frame/stream queue8MiB・全SSE queue16MiB、ready待機64件/8MiB・全個別ready buffer16MiB。JSONを事前見積りし、over-limitは閉じて次回のfull snapshotを要求する。64KiB出力/HWM0、15秒heartbeat、45秒stall。差分判定のfield cacheは各16,384文字、foreign page cacheは131,072文字まで。巨大summaryで過去の小さなcacheが残り、元に戻した変更を誤ってreuseする問題もreviewで修正した。
+- Last-Event-IDでイベントlogをreplayしない。再接続・Backend/relay再起動は最新bootstrap/readyの再取得でhistory/controlを復元する。接続終了時にsubscription・ready buffer・queue・poll/heartbeat/stall timerを解放する。未知Taskはownerで404。read-only受付やstream closeをTask commandとして再実行しない。
+- 関連Web75件、native/server/契約/AST89件、実2段HTTP1件の計165件成功。Backend/Web全source型チェック成功。隔離v3 transcript＋実Backend＋実Next relay/Node HTTP adapterを使い、Task/Bot同時65,010ms・138,550,875bytes、32切断、停滞socketのqueue overflow終了、producer継続、再接続・両process再起動後のTask/Bot readyを実証。session SHA256不変、active/subscription/reader/waiter/pending buffer/poll/heartbeat/stall/relayは終了時0。実モデル・ユーザーデータ・ユーザーサービスを操作しない。
+- 最終RSS増分Backend58,744,832 / relay11,325,440bytes、heap31,087,664 / 583,864、external7,500,248 / 8,432,228。queue peak8,343,011bytes、global16MiB以下。RSS128MiB/heap48MiB/external96MiBの閾値を維持。有限のSDK snapshot＋イベントbus試験で、実モデル生成中・巨大cold履歴・Next production・無期限の証明ではない。
+- 原因: 旧NextはBackend詳細のpoll・前回page/serialized fields・Bot共有mailboxを所有し、配信と業務snapshotが混在していた。ownerの既存local SSE契約を移し、有界writerとready bufferへ接続した。初期fixtureのBot taskをstoreへ登録せずreadyが空になった点、readOnly flag/小frame分割/dedup後の再構成が旧mock期待値と異なった点を修正し再検証した。
+
 ## 残り
 
-Task/Bot個別SSE・Provider SSE。既存のProvider SSE中継もPhase4の共通切断・再接続・長時間/停滞検証の対象にする。全対象の所有権と長時間SSEの有界性が確認できるまでPhase4の受入完了とはしない。
+Provider SSE。既存のProvider SSE中継もPhase4の共通切断・再接続・長時間/停滞検証の対象にする。全対象の所有権と長時間SSEの有界性が確認できるまでPhase4の受入完了とはしない。

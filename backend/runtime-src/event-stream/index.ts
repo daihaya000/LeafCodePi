@@ -1,3 +1,8 @@
+import { getTask } from "../lib/store";
+import { GET as taskEvents } from "./handlers/tasks/route";
+import { GET as botEvents } from "./handlers/bots/route";
+import { configurationRequest } from "../configuration/http";
+import { runIndividualScope, readIndividualDiagnostics } from "./individual-state";
 import { assertConfigurationOwner } from "@backend-core/configuration-command.mjs";
 import { liveEventTarget } from "@shared/live-event-contract.mjs";
 import { subscribeRoom,roomBotTaskId } from "@/lib/rooms";
@@ -7,7 +12,7 @@ import { BOT_ROUTINE_RUN_EVENT,type RoomDto,type RoomMessage } from "../lib/type
 import { readRoomStreamSnapshot,readRoomAttachmentDiagnostics } from "../file-stream/room-attachments";
 import { createBoundedEventWriter,readBoundedEventDiagnostics,serializeBoundedEvent } from "./bounded-writer";
 const stats={active:0,subscriptions:0,pollTimers:0,pendingReads:0,retainedSnapshotBytes:0};
-export function readLiveEventDiagnostics(){assertConfigurationOwner();return{...stats,...readBoundedEventDiagnostics(),...readRoomAttachmentDiagnostics(),maxActive:32};}
+export function readLiveEventDiagnostics(){assertConfigurationOwner();return{...stats,...readIndividualDiagnostics(),...readBoundedEventDiagnostics(),...readRoomAttachmentDiagnostics(),maxActive:32};}
 const fail=(status:number)=>Response.json({error:"イベントを取得できません"},{status,headers:{"cache-control":"private, no-store"}});
 type Input={route:string;method:string;url:string;authorized:boolean;signal:AbortSignal};
 function changedMessages(previous:RoomDto,next:RoomDto):RoomMessage[]|null{
@@ -21,6 +26,11 @@ export async function openLiveEvents(input:Input):Promise<Response>{
  if(input.signal.aborted)return fail(400);if(stats.active>=32)return fail(503);
  stats.active++;const lifetime=new AbortController(),abort=()=>lifetime.abort();input.signal.addEventListener("abort",abort,{once:true});
  let disposed=false;const dispose=()=>{if(disposed)return;disposed=true;stats.active--;input.signal.removeEventListener("abort",abort);lifetime.abort();};
+ if(target.kind==="task"||target.kind==="bot"){
+  try{if(!getTask(target.kind==="task"?target.id:"bot:"+target.id)){dispose();return fail(404);}const handler=target.kind==="task"?taskEvents:botEvents;const request=configurationRequest(new Request(input.url,{signal:lifetime.signal}),input.authorized);
+   return await runIndividualScope(lifetime.signal,()=>handler(request as Parameters<typeof handler>[0],{params:Promise.resolve({id:target.id})}),dispose);
+  }catch{dispose();return fail(503);}
+ }
  let initial:RoomDto|undefined;
  try{if(target.kind==="room"){stats.pendingReads++;try{initial=await readRoomStreamSnapshot(target.id,lifetime.signal);}finally{stats.pendingReads--;}}}
  catch(error){dispose();return fail(error&&typeof error==="object"&&"code" in error&&error.code==="ENOENT"?404:503);}

@@ -1,5 +1,6 @@
 import { afterEach,beforeEach,expect,it,vi } from "vitest";
 const deps=vi.hoisted(()=>({room:vi.fn(),read:vi.fn(),task:vi.fn(),code:vi.fn(),routine:vi.fn(),dirty:vi.fn(),pending:vi.fn(),linked:vi.fn()}));
+vi.mock("@/lib/bot-intercom",()=>({getBotIntercomInbox:()=>({}),subscribeBotIntercomInbox:()=>()=>{}}));
 vi.mock("@/lib/rooms",()=>({subscribeRoom:deps.room,roomBotTaskId:(r:string,b:string)=>"room:"+r+":"+b}));
 vi.mock("@/lib/pi/harness",()=>({subscribeTask:deps.task,subscribeBotCodeSession:deps.code,subscribeTaskDirty:deps.dirty,linkedCodeTaskIdsForOrigin:deps.linked,pendingPermissionForTask:deps.pending,pendingQuestionForTask:()=>null}));
 vi.mock("@/lib/routines",()=>({subscribeRoutineRuns:deps.routine}));
