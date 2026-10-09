@@ -9,7 +9,7 @@ import test from "node:test";
 import {
   buildHostRestartScript,
   buildHostRestartWaitProgram,
-  consumeHostRestartOptions,
+  consumeHostRestartBuild,
   HOST_RESTART_SPAWN_TIMEOUT_MS,
   hostStdoutLogFile,
   waitForHostRestartChildSpawn,
@@ -21,32 +21,15 @@ const lines = buildHostRestartScript({
   startBat: "C:\\app\\start.bat",
 });
 
-test("Host restart reuses existing builds and skips a second source pull", () => {
-  assert.ok(lines.includes('set "LEAFCODE_PI_REBUILD_SERVICES="'));
-  assert.ok(lines.includes('set "LEAFCODE_PI_SKIP_SOURCE_PULL=1"'));
-  assert.ok(lines.includes('set "LEAFCODE_PI_SKIP_STALE_REBUILD=1"'));
-  assert.doesNotMatch(lines.join("\n"), /LEAFCODE_PI_FORCE_REBUILD_SERVICES=1/);
-  const updateLines = buildHostRestartScript({
-    lockFile: "C:\\data\\host.lock",
-    launcherExe: "C:\\app\\LeafCodePi.exe",
-    startBat: "C:\\app\\start.bat",
-    forceBuild: true,
-  });
-  assert.ok(updateLines.includes('set "LEAFCODE_PI_FORCE_REBUILD_SERVICES=1"'));
-
-  const env = { LEAFCODE_PI_REBUILD_SERVICES: "1" };
-  assert.deepEqual(consumeHostRestartOptions(env), { forceBuild: false, pull: false });
-  assert.deepEqual(env, { LEAFCODE_PI_SKIP_STALE_REBUILD: "1" });
-
-  const updateEnv = {
-    LEAFCODE_PI_FORCE_REBUILD_SERVICES: "1",
-    LEAFCODE_PI_SKIP_SOURCE_PULL: "1",
-    LEAFCODE_PI_SKIP_STALE_REBUILD: "1",
-  };
-  assert.deepEqual(consumeHostRestartOptions(updateEnv), { forceBuild: true, pull: false });
-  assert.deepEqual(updateEnv, { LEAFCODE_PI_SKIP_STALE_REBUILD: "1" });
-
-  assert.deepEqual(consumeHostRestartOptions({}), { forceBuild: false, pull: true });
+test("replacement rebuilds both services exactly once instead of skipping stale builds", () => {
+  assert.ok(lines.includes('set "LEAFCODE_PI_REBUILD_SERVICES=1"'));
+  const env = { LEAFCODE_PI_REBUILD_SERVICES: "1", LEAFCODE_PI_SKIP_STALE_REBUILD: "1" };
+  assert.equal(consumeHostRestartBuild(env), true);
+  assert.deepEqual(env, {});
+  assert.equal(consumeHostRestartBuild(env), false);
+  const legacyEnv = { LEAFCODE_PI_SKIP_STALE_REBUILD: "1" };
+  assert.equal(consumeHostRestartBuild(legacyEnv), true);
+  assert.deepEqual(legacyEnv, {});
 });
 
 test("waits for the lock, launches, then relaunches once if no host owns the lock", () => {
@@ -186,11 +169,9 @@ test("Windows restart script launches once, and relaunches only when nobody owns
     lockFile: "C:\\data\\host.lock",
     launcherExe: "",
     startBat: "C:\\app\\start.bat",
-    forceBuild: true,
     maxWaitAttempts: 2,
     relaunchGraceSeconds: 1,
   }).join("\n");
-  assert.match(sample, /LEAFCODE_PI_FORCE_REBUILD_SERVICES=1/);
   assert.match(sample, /set \/a WAIT=0/);
   assert.match(sample, /if %WAIT% GEQ 2 goto :launch/);
   assert.match(sample, /if defined RELAUNCHED goto :done/);
