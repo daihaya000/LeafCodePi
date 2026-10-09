@@ -240,6 +240,8 @@ import {
 import { blocksAutoCompactionAfterManualAbort } from "@/lib/aborted-resume";
 import { HANG_RETRY_PREFIX } from "@/lib/hang-retry";
 import { overrideSessionAutoRetry } from "@backend-core/session-retry-settings.mjs";
+import { sessionLocalSettingsManager } from "@backend-core/session-local-settings.mjs";
+import { isProviderTransportError } from "@shared/provider-transport.mjs";
 import {
   createPermissionPromptService,
   taskIdForSession,
@@ -2211,7 +2213,7 @@ export function isWebSocketTransportError(value: unknown): boolean {
   );
 }
 
-function lastAssistantWebSocketError(event: unknown): string | null {
+export function lastAssistantWebSocketError(event: unknown): string | null {
   if (!event || typeof event !== "object") return null;
   const record = event as Record<string, unknown>;
   if (record.type !== "agent_end" || !Array.isArray(record.messages)) return null;
@@ -2220,6 +2222,11 @@ function lastAssistantWebSocketError(event: unknown): string | null {
     if (!message || typeof message !== "object") continue;
     const item = message as Record<string, unknown>;
     if (item.role !== "assistant") continue;
+    // Diagnostics survive a successful WebSocket -> SSE fallback and also
+    // survive a later abort/auth failure. They are not the final outcome.
+    if (item.stopReason !== "error") return null;
+    const direct = assistantFailureText({ errorMessage: item.errorMessage, error: item.error });
+    if (direct.trim() && !isProviderTransportError(direct)) return null;
     const text = assistantFailureText(item);
     return isWebSocketTransportError(text) ? text : null;
   }
@@ -4595,6 +4602,8 @@ async function createSession(options: {
       thinkingLevel: options.thinkingLevel,
       sessionManager,
       resourceLoader,
+      // Global persistence belongs to the settings owner, not each live session.
+      ...(settingsManager ? { settingsManager: sessionLocalSettingsManager(settingsManager) } : {}),
       modelRuntime,
       ...("tools" in toolSelection ? { tools: toolSelection.tools } : { excludeTools: toolSelection.excludeTools }),
     });

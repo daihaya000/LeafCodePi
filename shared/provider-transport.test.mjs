@@ -3,10 +3,10 @@ import test from "node:test";
 import { isProviderTransportError, providerTransportRetryDelayMs } from "./provider-transport.mjs";
 
 test("matches provider transport interruptions without widening terminal failures", () => {
-  for (const value of ["terminated", "TypeError: terminated", "Error: terminated", "fetch failed", "read ECONNRESET", "UND_ERR_SOCKET", "socket hang up", "other side closed", "WebSocket closed", "stream ended before a terminal response event"]) {
+  for (const value of ["terminated", "TypeError: terminated", "Error: terminated", "fetch failed", "read ECONNRESET", "UND_ERR_SOCKET", "socket hang up", "other side closed", "WebSocket closed", "WebSocketError", "stream ended before a terminal response event"]) {
     assert.equal(isProviderTransportError(value), true, value);
   }
-  for (const value of ["Request was aborted", "This operation was aborted", "401 unauthorized", "403 forbidden", "invalid api key", "usage limit reached", "quota exceeded", "context length exceeded", "provider failed", "tool execution terminated", "process terminated", "Our servers are overloaded", "", null, {}, "fetch failed: Request was aborted", "network error: unauthorized"]) {
+  for (const value of ["Request was aborted", "This operation was aborted", "401 unauthorized", "403 forbidden", "invalid api key", "usage limit reached", "quota exceeded", "context length exceeded", "provider failed", "tool execution terminated", "process terminated", "Our servers are overloaded", "", null, {}, "fetch failed: Request was aborted", "network error: unauthorized", "WebSocketError: unauthorized"]) {
     assert.equal(isProviderTransportError(value), false, String(value));
   }
 });
