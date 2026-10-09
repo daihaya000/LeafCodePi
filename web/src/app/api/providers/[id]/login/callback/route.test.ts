@@ -5,7 +5,7 @@ const mocks = vi.hoisted(() => ({
   jsonError: (error: unknown) => ({ error: (error as Error).message, status: (error as { status?: number }).status ?? 500 }),
 }));
 vi.mock("@/lib/pi/harness", () => mocks);
-import { POST } from "./route";
+import { POST } from "@backend-runtime/json-business/handlers/providers/[id]/login/callback/route";
 
 const input = "http://127.0.0.1:1456/oauth/callback?code=test-code&state=test-state";
 const context = { params: Promise.resolve({ id: "radius" }) };
@@ -33,6 +33,6 @@ describe("POST provider login callback", () => {
     mocks.completeProviderLoginCallback.mockRejectedValue(Object.assign(new Error("Session mismatch"), { status: 409 }));
     const response = await POST(request({ sessionId: "stale", input }), context);
     expect(response.status).toBe(409);
-    expect(await response.json()).toEqual({ error: "Session mismatch" });
+    expect(await response.json()).toEqual({ error: "認証操作に失敗しました" });
   });
 });

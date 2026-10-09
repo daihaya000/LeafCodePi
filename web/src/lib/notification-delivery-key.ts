@@ -1,2 +1,2 @@
-/** Existing Pushover setting also controls browser notifications; keep the key to preserve OFF states. */
-export const NOTIFICATION_DELIVERY_SETTING_KEY = "pushover-notifications-enabled";
+// Compatibility entrypoint. Implementation is owned by Backend.
+export * from "@backend-runtime/lib/notification-delivery-key";

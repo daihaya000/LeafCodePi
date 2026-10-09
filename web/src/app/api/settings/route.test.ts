@@ -8,7 +8,7 @@ vi.mock("@/lib/pi/hang-settings", () => ({
 }));
 vi.mock("@/lib/accounts", () => ({ listAccounts: () => [] }));
 
-import { GET } from "./route";
+import { GET } from "@backend-runtime/configuration/handlers/settings/route";
 
 describe("/api/settings", () => {
   beforeEach(() => {

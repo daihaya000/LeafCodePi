@@ -3,9 +3,9 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const mocks = vi.hoisted(() => ({ list: vi.fn(), resolve: vi.fn(), usage: vi.fn() }));
 vi.mock("@/lib/peer-auth/runtime", () => ({ peerAuthService: () => mocks }));
 
-import { GET as listRoute } from "./list/route";
-import { POST as resolveRoute } from "./resolve/route";
-import { POST as usageRoute } from "./usage/route";
+import { GET as listRoute } from "@backend-runtime/json-business/handlers/peer-auth/list/route";
+import { POST as resolveRoute } from "@backend-runtime/json-business/handlers/peer-auth/resolve/route";
+import { POST as usageRoute } from "@backend-runtime/json-business/handlers/peer-auth/usage/route";
 
 const ok = { status: 200, body: { ok: true }, headers: { "Cache-Control": "no-store" } };
 

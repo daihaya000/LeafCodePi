@@ -1,10 +1,9 @@
 /**
  * Bundles the Pi runtime for the Backend process.
  *
- * The Backend runs the same harness the Web app does, so it is built from the same sources: the
- * Web app's `@/` alias, the shared contracts and the extracted `backend/core/` modules are all
- * resolved here. The Pi SDK and AI stay external because the Backend installs their synchronized
- * pinned copies — the bundle must never embed a second Pi generation.
+ * Backend owns runtime-src/, dependencies and compilation. Web imports compatibility adapters;
+ * neither its sources nor its installed packages are inputs to this build. The Pi SDK and AI
+ * stay external so the bundle never embeds a second Pi generation.
  *
  * Output is a build artifact (`backend/runtime/runtime.bundle.mjs`), not source: it is ignored by
  * git and rebuilt by `npm run build:backend-runtime`.
@@ -22,22 +21,25 @@ import {
 import { createRequire } from "node:module";
 import { dirname, join, relative, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
-import { assertInstalledPiVersions, assertPiDependencyVersions } from "../shared/pi-dependencies.mjs";
+import { assertInstalledPiVersions, assertPiProjectVersions, PI_SDK_PACKAGE } from "../shared/pi-dependencies.mjs";
 
 const HERE = fileURLToPath(import.meta.url);
 const ROOT = resolve(dirname(HERE), "..");
-const WEB_SRC = join(ROOT, "web", "src");
+const BACKEND = join(ROOT, "backend");
+const RUNTIME_SRC = join(BACKEND, "runtime-src");
 const CORE = join(ROOT, "backend", "core");
 const SHARED = join(ROOT, "shared");
 export const BUNDLE_PATH = join(ROOT, "backend", "runtime", "runtime.bundle.mjs");
 export const BUNDLE_STAMP_PATH = `${BUNDLE_PATH}.stamp`;
 
-/** Aliases mirror the Web app's tsconfig paths plus the extracted core and shared contracts. */
+/** The same neutral aliases resolve only Backend/shared/extension sources in this build. */
 export function runtimeAliases() {
   return {
-    "@": WEB_SRC,
+    "@": RUNTIME_SRC,
+    "@backend-runtime": RUNTIME_SRC,
     "@backend-core": CORE,
     "@shared": SHARED,
+    "@extensions": join(ROOT, "extensions"),
   };
 }
 
@@ -47,7 +49,7 @@ export function runtimeAliases() {
  * Node builtins are never bundled.
  */
 export function runtimeExternals() {
-  return ["@earendil-works/pi-coding-agent", "@earendil-works/pi-ai", "@earendil-works/pi-mcp", "node:*"];
+  return ["@earendil-works/pi-coding-agent", "@earendil-works/pi-ai", "@earendil-works/pi-mcp", "better-sqlite3", "node:*"];
 }
 
 function collectSourceFiles(dir, files = []) {
@@ -63,20 +65,17 @@ function collectSourceFiles(dir, files = []) {
 
 /**
  * Fingerprint of the sources esbuild would pull in for the Backend runtime bundle.
- * Include all of `web/src` (not just the entry file): the entry re-exports harness and
- * store modules via `@/`, so a harness-only change must invalidate the stamp or Host
- * will keep reusing a stale `runtime.bundle.mjs` after restart.
- *
- * Also stamp lockfiles (inlined deps like undici/yaml resolve from them), and this
- * build script itself (banner / aliases / externals), so Host cannot reuse after those
- * change without a content rebuild.
+ * Only Backend, shared contracts and the two imported extension APIs are inputs. UI sources and
+ * Web manifests/lockfiles cannot invalidate this stamp. Include the Backend compiler config,
+ * dependency lockfile and this script so resolver/compiler changes rebuild the artifact.
  */
 export function backendRuntimeSourceStamp({
-  roots = [WEB_SRC, CORE, SHARED],
-  webPackage = join(ROOT, "web", "package.json"),
-  backendPackage = join(ROOT, "backend", "package.json"),
-  webLock = join(ROOT, "web", "package-lock.json"),
-  backendLock = join(ROOT, "backend", "package-lock.json"),
+  roots = [RUNTIME_SRC, CORE, SHARED,
+    join(ROOT, "extensions", "leafcode-subagents", "src", "api", "background-work.ts"),
+    join(ROOT, "extensions", "leafcode-todowrite", "visibility.ts")],
+  backendPackage = join(BACKEND, "package.json"),
+  backendLock = join(BACKEND, "package-lock.json"),
+  compilerConfig = join(BACKEND, "tsconfig.runtime.json"),
   buildScript = HERE,
 } = {}) {
   const hash = createHash("sha1");
@@ -87,7 +86,7 @@ export function backendRuntimeSourceStamp({
       else files.add(root);
     } catch { /* missing optional root */ }
   }
-  for (const manifest of [webPackage, backendPackage, webLock, backendLock, buildScript]) {
+  for (const manifest of [backendPackage, backendLock, compilerConfig, buildScript]) {
     if (existsSync(manifest)) files.add(manifest);
   }
   for (const file of [...files].sort()) {
@@ -125,9 +124,21 @@ export function publishRuntimeBuild({ outputFiles, stampPath, sourceStamp, write
   }
 }
 
+/** Fail closed if a future import reintroduces Web sources or dependencies. */
+export function assertBackendInputs(metafile) {
+  const forbidden = Object.keys(metafile.inputs).filter((input) => {
+    const path = relative(ROOT, resolve(input)).replaceAll("\\", "/");
+    return path === "web" || path.startsWith("web/");
+  });
+  if (forbidden.length) throw new Error(`Backend build depends on Web: ${forbidden.join(", ")}`);
+}
+
 export async function buildBackendRuntime({ log = console.log, force = false } = {}) {
-  const version = assertPiDependencyVersions(join(ROOT, "web"), join(ROOT, "backend"));
-  for (const dir of ["web", "backend"]) assertInstalledPiVersions(join(ROOT, dir), version);
+  const manifest = JSON.parse(readFileSync(join(BACKEND, "package.json"), "utf8"));
+  const lock = JSON.parse(readFileSync(join(BACKEND, "package-lock.json"), "utf8"));
+  const version = manifest.dependencies?.[PI_SDK_PACKAGE];
+  assertPiProjectVersions(manifest, lock, version, "Backend");
+  assertInstalledPiVersions(BACKEND, version);
   mkdirSync(dirname(BUNDLE_PATH), { recursive: true });
   const sourceStamp = backendRuntimeSourceStamp();
   if (!force && backendRuntimeBundleIsCurrent({ sourceStamp })) {
@@ -135,12 +146,10 @@ export async function buildBackendRuntime({ log = console.log, force = false } =
     log(`[backend-runtime] reused ${BUNDLE_PATH} (${Math.round(size / 1024)} KiB)`);
     return { outfile: BUNDLE_PATH, size, reused: true };
   }
-  // esbuild is a Web devDependency (through vitest); resolve it from the Web project so the root
-  // script does not need its own copy.
-  const webRequire = createRequire(join(ROOT, "web", "package.json"));
-  const esbuildPath = webRequire.resolve("esbuild");
+  const backendRequire = createRequire(join(BACKEND, "package.json"));
+  const esbuildPath = backendRequire.resolve("esbuild");
   const esbuild = await import(pathToFileURL(esbuildPath).href);
-  const entry = join(WEB_SRC, "lib", "pi", "backend-runtime-entry.ts");
+  const entry = join(RUNTIME_SRC, "lib", "pi", "backend-runtime-entry.ts");
   const result = await esbuild.build({
     entryPoints: [entry],
     outfile: BUNDLE_PATH,
@@ -152,6 +161,8 @@ export async function buildBackendRuntime({ log = console.log, force = false } =
     target: "node22",
     sourcemap: true,
     logLevel: "silent",
+    tsconfig: join(BACKEND, "tsconfig.runtime.json"),
+    metafile: true,
     alias: runtimeAliases(),
     external: runtimeExternals(),
     // The harness reads `import.meta.url` and process.env at call time, so no define is needed.
@@ -173,6 +184,7 @@ export async function buildBackendRuntime({ log = console.log, force = false } =
     for (const error of result.errors) log(`[backend-runtime] ${error.text}`);
     throw new Error("Backend runtime bundle failed");
   }
+  assertBackendInputs(result.metafile);
   publishRuntimeBuild({ outputFiles: result.outputFiles, stampPath: BUNDLE_STAMP_PATH, sourceStamp });
   const size = statSync(BUNDLE_PATH).size;
   log(`[backend-runtime] wrote ${BUNDLE_PATH} (${Math.round(size / 1024)} KiB)`);

@@ -1,6 +1,9 @@
 import { NextRequest } from "next/server";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { PATCH, POST } from "./route";
+import { PATCH, POST } from "@backend-runtime/json-business/handlers/tasks/[id]/title/route";
+import { afterEach } from "vitest";
+beforeEach(() => { vi.stubEnv("LEAFCODE_PI_PROCESS_ROLE", "backend"); vi.stubEnv("LEAFCODE_PI_BACKEND_RUNTIME", "attach"); });
+afterEach(() => vi.unstubAllEnvs());
 
 const mocks = vi.hoisted(() => ({
   getTask: vi.fn(),

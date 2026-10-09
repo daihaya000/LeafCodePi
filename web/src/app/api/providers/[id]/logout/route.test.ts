@@ -15,7 +15,7 @@ vi.mock("@/lib/pi/harness", () => mocks);
 vi.mock("@/lib/peer-auth/account-runtime-options", () => ({ isPeerAccount: mocks.isPeerAccount }));
 vi.mock("@/lib/accounts", () => ({ resolvePiAgentDir: mocks.resolvePiAgentDir }));
 
-import { POST } from "./route";
+import { POST } from "@backend-runtime/json-business/handlers/providers/[id]/logout/route";
 
 function request(accountId?: string): NextRequest {
   const url = new URL("http://localhost/api/providers/anthropic/logout");

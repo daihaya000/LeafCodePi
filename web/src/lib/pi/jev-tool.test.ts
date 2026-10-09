@@ -13,6 +13,8 @@ vi.mock("./typesafe-system-one", async (importOriginal) => {
 function tool() {
   let registered: {
     name: string;
+    parameters: { properties: Record<string, { description?: string; minLength?: number; maxLength?: number }>; required?: string[] };
+    promptGuidelines: string[];
     execute: (...args: unknown[]) => Promise<{ content: { text: string }[]; details: unknown }>;
   } | undefined;
   registerJevTool({
@@ -40,10 +42,38 @@ describe("jev_judge tool", () => {
     expect(mockEvaluate).toHaveBeenCalledWith({
       state: "The build passed.",
       questions: { ready: { type: "noul", instructions: "Is the build ready?" } },
-    });
+    }, {});
     expect(JSON.parse(result.content[0].text)).toMatchObject({
       answers: { ready: { noul: 0.9 } },
     });
+  });
+
+  it.each([
+    { provider: "openrouter" },
+    { model: "jev-latest" },
+    { provider: "openai", model: "gpt-6-luna" },
+    { provider: "openrouter", model: "typesafe/jev-1.13", accountId: "one" },
+  ])("passes the per-call selection and cancellation to the evaluator: %j", async (selection) => {
+    mockEvaluate.mockResolvedValueOnce(okResponse({ ready: { type: "noul", noul: 0.9 } }));
+    const controller = new AbortController();
+    await tool().execute("call", {
+      ...selection,
+      state: "data",
+      questions: [{ id: "ready", type: "noul", instructions: "Ready?" }],
+    }, controller.signal);
+    expect(mockEvaluate).toHaveBeenCalledWith({
+      state: "data",
+      questions: { ready: { type: "noul", instructions: "Ready?" } },
+    }, { selector: selection, signal: controller.signal });
+  });
+
+  it("advertises optional selection fields and exact-ID guidance to agents", () => {
+    const registered = tool();
+    for (const key of ["provider", "model", "accountId"]) {
+      expect(registered.parameters.properties[key]).toMatchObject({ minLength: 1, maxLength: 256 });
+      expect(registered.parameters.required).not.toContain(key);
+    }
+    expect(registered.promptGuidelines.join(" ")).toContain("exact provider/model IDs");
   });
 
   it("rejects empty state and duplicate ids before any request", async () => {

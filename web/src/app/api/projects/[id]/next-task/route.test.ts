@@ -1,6 +1,6 @@
 import { NextRequest } from "next/server";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { POST } from "./route";
+import { POST } from "@backend-runtime/json-business/handlers/projects/[id]/next-task/route";
 
 const mocks = vi.hoisted(() => ({
   getProject: vi.fn(),

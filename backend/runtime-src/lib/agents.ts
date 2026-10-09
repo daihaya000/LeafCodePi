@@ -1,0 +1,765 @@
+/**
+ * pi-subagents agents with ON/OFF.
+ *
+ * Discovery mirrors pi-subagents:
+ * - User:   ~/.pi/agent/agents（再帰検索 .md）
+ * - Package: agents/ dir inside each installed pi package (e.g. pi-subagents builtins)
+ *
+ * Web-managed overrides are persisted in ~/.pi/agent/agent-overrides.json so Pi core's
+ * whole-file settings.json writes cannot overwrite them. Legacy settings.json overrides remain readable.
+ */
+
+import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+import YAML from "yaml";
+import { withDirectoryLock } from "@backend-core/directory-lock.mjs";
+import { assertConfigurationOwner, watchConfigurationPath } from "@backend-core/configuration-command.mjs";
+import { resolvePiAgentDir } from "@/lib/agents-md";
+import { readPiSettings } from "@/lib/extensions";
+import { bundledExtensionsDir, resolvePackageDir } from "@/lib/extensions";
+import { AUTO_AGENT_VALUE, DEFAULT_AGENT } from "@/lib/default-agent";
+import { isThinkingLevel } from "@/lib/thinking-levels";
+import type { ThinkingLevel } from "@/lib/types";
+
+/**
+ * `thinking: false` is pi-subagents' explicit "no thinking" marker and outranks
+ * `subagents.defaultThinking`, so it must survive round-trips as a real value.
+ */
+export type AgentThinking = ThinkingLevel | false;
+
+export type AgentDto = {
+  id: string;
+  name: string;
+  description?: string;
+  enabled: boolean;
+  model?: string;
+  thinking?: AgentThinking;
+  filePath: string;
+  source: "user" | "builtin" | "package";
+  tools?: string[];
+  /** Markdown body — shown read-only in agent settings. */
+  systemPrompt: string;
+};
+
+/** Editable fields for user agent definitions. */
+export type AgentDraft = {
+  name: string;
+  description?: string;
+  aliases?: string[];
+  tools?: string[];
+  model?: string;
+  fallbackModels?: string[];
+  thinking?: AgentThinking;
+  systemPromptMode?: "replace" | "append";
+  inheritProjectContext?: boolean;
+  inheritSkills?: boolean;
+  async?: boolean;
+  systemPrompt: string;
+};
+
+/** Agent prompts are reapplied whenever a session is created, so keep them bounded. */
+export const MAX_AGENT_SYSTEM_PROMPT_CHARS = 8_000;
+/** Repeated for every enabled agent on every Auto-routing decision; a short label, not a document. */
+export const MAX_AGENT_DESCRIPTION_CHARS = 500;
+
+export type AgentListResult = {
+  agents: AgentDto[];
+  /** User agents dir (for display). */
+  agentsDir: string;
+};
+
+export class AgentsError extends Error {
+  constructor(
+    readonly code: "invalid-name" | "invalid-prompt" | "not-found" | "readonly",
+    message: string,
+  ) {
+    super(message);
+  }
+}
+
+export function agentsErrorStatus(error: unknown): number {
+  if (error instanceof AgentsError) {
+    return error.code === "invalid-name" || error.code === "invalid-prompt" ? 400 : error.code === "readonly" ? 403 : 404;
+  }
+  return 500;
+}
+
+export function agentsDir(agentDir = resolvePiAgentDir()): string {
+  return join(agentDir, "agents");
+}
+
+type AgentOverride = { disabled?: boolean; model?: string | null; thinking?: AgentThinking | null; tools?: string[] | false | "inherit" };
+
+type PiSettings = {
+  subagents?: { agentOverrides?: Record<string, AgentOverride>; [key: string]: unknown };
+  [key: string]: unknown;
+};
+
+function readSettings(agentDir: string): PiSettings {
+  try {
+    const parsed = JSON.parse(readFileSync(join(agentDir, "settings.json"), "utf8"));
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed as PiSettings : {};
+  } catch {
+    return {};
+  }
+}
+
+type AgentOverridesFile = { version: 1; overrides: Record<string, AgentOverride> };
+
+function agentOverridesPath(agentDir: string): string {
+  return join(agentDir, "agent-overrides.json");
+}
+
+function readAgentOverridesFile(agentDir: string): AgentOverridesFile {
+  let text: string;
+  try {
+    text = readFileSync(agentOverridesPath(agentDir), "utf8");
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException)?.code === "ENOENT") return { version: 1, overrides: {} };
+    throw Object.assign(new Error("agent-overrides.json を読み取れないため更新を中止しました"), { status: 500, cause: error });
+  }
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(text);
+  } catch (error) {
+    throw Object.assign(new Error("agent-overrides.json が壊れているため更新を中止しました"), { status: 500, cause: error });
+  }
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+    throw Object.assign(new Error("agent-overrides.json の形式が不正なため更新を中止しました"), { status: 500 });
+  }
+  const root = parsed as Record<string, unknown>;
+  const overrides = root.overrides;
+  if (root.version !== 1 || !overrides || typeof overrides !== "object" || Array.isArray(overrides)) {
+    throw Object.assign(new Error("agent-overrides.json の形式が不正なため更新を中止しました"), { status: 500 });
+  }
+  return { version: 1, overrides: overrides as Record<string, AgentOverride> };
+}
+
+function mergeAgentOverrides(
+  legacy: Record<string, AgentOverride>,
+  stored: Record<string, AgentOverride>,
+): Record<string, AgentOverride> {
+  const merged = { ...legacy };
+  for (const [name, patch] of Object.entries(stored)) {
+    const previous = merged[name];
+    merged[name] = previous && typeof previous === "object" && !Array.isArray(previous)
+      ? { ...previous, ...patch }
+      : patch;
+  }
+  return merged;
+}
+
+function atomicWrite(filePath: string, content: string): void {
+  watchConfigurationPath(filePath);
+  mkdirSync(dirname(filePath), { recursive: true });
+  const tmp = join(dirname(filePath), `.${Date.now()}.${process.pid}.tmp`);
+  try {
+    writeFileSync(tmp, content, "utf8");
+    renameSync(tmp, filePath);
+  } catch (error) {
+    try {
+      rmSync(tmp, { force: true });
+    } catch {
+      /* ignore */
+    }
+    throw error;
+  }
+}
+
+export type ParsedAgent = {
+  name?: unknown;
+  description?: unknown;
+  tools?: unknown;
+  disabled?: unknown;
+  aliases?: unknown;
+  model?: unknown;
+  fallbackModels?: unknown;
+  thinking?: unknown;
+  systemPromptMode?: unknown;
+  inheritProjectContext?: unknown;
+  inheritSkills?: unknown;
+  async?: unknown;
+};
+
+/** Parse YAML frontmatter from a pi agent markdown file. */
+export function parseAgentFile(content: string): ParsedAgent {
+  const match = /^---\s*\n([\s\S]*?)\n---/.exec(content);
+  if (!match) return {};
+  try {
+    const data = YAML.parse(match[1]);
+    if (data && typeof data === "object" && !Array.isArray(data)) {
+      return data as ParsedAgent;
+    }
+  } catch {
+    /* ignore */
+  }
+  return {};
+}
+
+/** Frontmatter keys `AgentDraft` round-trips. Everything else is preserved verbatim. */
+const MANAGED_FRONTMATTER_KEYS: ReadonlySet<string> = new Set([
+  "name",
+  "description",
+  "aliases",
+  "tools",
+  "model",
+  "fallbackModels",
+  "thinking",
+  "systemPromptMode",
+  "inheritProjectContext",
+  "inheritSkills",
+  "async",
+]);
+
+function extraFrontmatterFrom(fm: ParsedAgent): Record<string, unknown> | undefined {
+  const extras: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(fm as Record<string, unknown>)) {
+    if (!MANAGED_FRONTMATTER_KEYS.has(key)) extras[key] = value;
+  }
+  return Object.keys(extras).length > 0 ? extras : undefined;
+}
+
+function readExtraFrontmatter(filePath: string): Record<string, unknown> | undefined {
+  try {
+    return extraFrontmatterFrom(parseAgentFile(readFileSync(filePath, "utf8")));
+  } catch {
+    return undefined;
+  }
+}
+
+function toThinking(value: unknown): AgentThinking | undefined {
+  if (value === false) return false;
+  if (typeof value === "string" && isThinkingLevel(value.trim())) return value.trim() as ThinkingLevel;
+  return undefined;
+}
+
+function toTools(value: unknown): string[] | undefined {
+  if (typeof value === "string") {
+    return value.split(",").map((t) => t.trim()).filter(Boolean);
+  }
+  if (Array.isArray(value)) {
+    return value.filter((t): t is string => typeof t === "string");
+  }
+  return undefined;
+}
+
+type DiscoveredAgent = {
+  name: string;
+  description?: string;
+  model?: string;
+  thinking?: AgentThinking;
+  tools?: string[];
+  systemPrompt: string;
+  filePath: string;
+};
+
+/** Agent .md trees are shallow; cap recursion so a deep tree cannot stall the listing. */
+const MAX_AGENT_DISCOVERY_DEPTH = 6;
+const SKIPPED_AGENT_DIRS = new Set(["node_modules", ".git"]);
+
+function discoverInDir(dir: string, source: AgentDto["source"], depth = 0): DiscoveredAgent[] {
+  const entries: DiscoveredAgent[] = [];
+  if (!existsSync(dir)) return entries;
+  for (const entry of readdirSync(dir, { withFileTypes: true })) {
+    const full = join(dir, entry.name);
+    // Dirent.isDirectory() is false for symlinks/junctions, so link cycles are never followed.
+    if (entry.isDirectory()) {
+      if (depth >= MAX_AGENT_DISCOVERY_DEPTH || SKIPPED_AGENT_DIRS.has(entry.name)) continue;
+      entries.push(...discoverInDir(full, source, depth + 1));
+      continue;
+    }
+    if (!/\.md$/.test(entry.name)) continue;
+    let content = "";
+    try {
+      content = readFileSync(full, "utf8");
+    } catch {
+      continue;
+    }
+    const fm = parseAgentFile(content);
+    if (typeof fm.name !== "string" || !fm.name.trim()) continue;
+    const description = typeof fm.description === "string" ? boundedDescription(fm.description) : undefined;
+    const model = typeof fm.model === "string" && fm.model.trim() ? fm.model.trim() : undefined;
+    const thinking = toThinking(fm.thinking);
+    const body = /^---\s*\n[\s\S]*?\n---\n?([\s\S]*)$/.exec(content)?.[1] ?? "";
+    entries.push({
+      name: fm.name.trim(),
+      description,
+      model,
+      thinking,
+      tools: toTools(fm.tools),
+      systemPrompt: boundedSystemPrompt(body),
+      filePath: full,
+    });
+  }
+  return entries;
+}
+
+/** Find agents/ dirs inside installed pi packages (settings.json packages). */
+function discoverPackageAgentDirs(agentDir: string): string[] {
+  const settings = readPiSettings(agentDir);
+  const dirs: string[] = [];
+  for (const source of settings.packages ?? []) {
+    const pkgDir = resolvePackageDir(source, agentDir);
+    if (!pkgDir || !existsSync(pkgDir)) continue;
+    // pi-subagents declares its conventional `agents/` folder.
+    const agentsDir = join(pkgDir, "agents");
+    if (existsSync(agentsDir) && statSync(agentsDir).isDirectory()) dirs.push(agentsDir);
+  }
+  return dirs;
+}
+
+/**
+ * agents/ shipped inside the bundled leafcode-subagents fork. Listed before
+ * the npm package dirs so the fork's builtin agents win same-name collisions.
+ */
+function bundledForkAgentsDir(): string | null {
+  const root = bundledExtensionsDir();
+  if (!root) return null;
+  const dir = join(root, "leafcode-subagents", "agents");
+  return existsSync(dir) ? dir : null;
+}
+
+export function listAgents(agentDir = resolvePiAgentDir()): AgentListResult {
+  const userDir = agentsDir(agentDir);
+  const settings = readSettings(agentDir);
+  const overrides = mergeAgentOverrides(
+    settings.subagents?.agentOverrides ?? {},
+    readAgentOverridesFile(agentDir).overrides,
+  );
+
+  const byName = new Map<string, AgentDto>();
+  const push = (source: AgentDto["source"], dir: string) => {
+    for (const entry of discoverInDir(dir, source)) {
+      if (entry.name === AUTO_AGENT_VALUE) continue;
+      if (!byName.has(entry.name)) {
+        const override = overrides[entry.name];
+        const rawOverrideModel = override?.model;
+        const overrideModel = typeof rawOverrideModel === "string" ? rawOverrideModel.trim() || undefined : undefined;
+        const model = source === "user"
+          ? entry.model ?? overrideModel
+          : overrideModel ?? entry.model;
+        const overrideThinking = override?.thinking ?? undefined;
+        const thinking = source === "user"
+          ? entry.thinking ?? overrideThinking
+          : overrideThinking ?? entry.thinking;
+        const rawOverrideTools = override?.tools;
+        const overrideTools = Array.isArray(rawOverrideTools)
+          ? rawOverrideTools.filter((tool): tool is string => typeof tool === "string")
+          : rawOverrideTools === false
+            ? []
+            : undefined;
+        // default is the full-capability persona: inherit the live registry, never a stale snapshot.
+        // Ignore legacy tools overrides/frontmatter; other agents retain their explicit allowlists.
+        const tools = entry.name === DEFAULT_AGENT
+          ? undefined
+          : source === "user"
+            ? entry.tools
+            : rawOverrideTools === "inherit"
+              ? undefined
+              : overrideTools ?? entry.tools;
+        byName.set(entry.name, {
+          id: entry.name,
+          name: entry.name,
+          description: entry.description,
+          // Auto is represented separately; only the default agent starts enabled.
+          enabled: override?.disabled === false || (override?.disabled !== true && entry.name === DEFAULT_AGENT),
+          ...(model ? { model } : {}),
+          ...(thinking !== undefined ? { thinking } : {}),
+          filePath: entry.filePath,
+          source,
+          tools,
+          systemPrompt: entry.systemPrompt,
+        });
+      }
+    }
+  };
+
+  // User agents take precedence over package/builtin same-name collisions.
+  // The in-repo fork comes before installed packages so its builtins win.
+  push("user", userDir);
+  const forkDir = bundledForkAgentsDir();
+  if (forkDir) push("package", forkDir);
+  for (const pkgDir of discoverPackageAgentDirs(agentDir)) push("package", pkgDir);
+
+  const agents = sortAgents([...byName.values()]);
+  return { agents, agentsDir: userDir };
+}
+
+export function sortAgents(agents: readonly AgentDto[]): AgentDto[] {
+  return [...agents].sort(
+    (a, b) => Number(b.enabled) - Number(a.enabled) || a.name.localeCompare(b.name, "en"),
+  );
+}
+
+function assertListedAgent(name: string, agentDir: string): { name: string; agent: AgentDto } {
+  const trimmed = name.trim();
+  if (!trimmed || trimmed.includes("/") || trimmed.includes("\\") || trimmed.includes("..")) {
+    throw new AgentsError("invalid-name", "名前が不正です");
+  }
+  const listed = listAgents(agentDir);
+  const agent = listed.agents.find((entry) => entry.name === trimmed);
+  if (!agent) {
+    throw new AgentsError("not-found", "エージェントが見つかりません");
+  }
+  return { name: trimmed, agent };
+}
+
+function updateAgentOverride(
+  name: string,
+  update: (override: AgentOverride) => void,
+  agentDir: string,
+): AgentListResult {
+  assertConfigurationOwner();
+  const { name: trimmed } = assertListedAgent(name, agentDir);
+  const overridesPath = agentOverridesPath(agentDir);
+  withDirectoryLock({
+    lockPath: `${overridesPath}.lock`,
+    parentDir: agentDir,
+    staleMs: 30_000,
+    busyMessage: "agent overrides are busy",
+  }, () => {
+    const agentOverrides = readAgentOverridesFile(agentDir).overrides;
+    const current = agentOverrides[trimmed];
+    const next: AgentOverride = current && typeof current === "object" && !Array.isArray(current)
+      ? { ...current }
+      : {};
+    update(next);
+    agentOverrides[trimmed] = next;
+    atomicWrite(overridesPath, `${JSON.stringify({ version: 1, overrides: agentOverrides }, null, 2)}\n`);
+  });
+  return listAgents(agentDir);
+}
+
+export function setAgentEnabled(name: string, enabled: boolean, agentDir = resolvePiAgentDir()): AgentListResult {
+  if (name.trim() === DEFAULT_AGENT && !enabled) {
+    throw new AgentsError("readonly", "default エージェントは無効化できません");
+  }
+  return updateAgentOverride(
+    name,
+    (override) => {
+      if (enabled) {
+        override.disabled = false;
+      } else {
+        override.disabled = true;
+      }
+    },
+    agentDir,
+  );
+}
+
+/** Set a user agent's frontmatter model or a package agent's settings override. */
+export function setAgentModel(
+  name: string,
+  model: string | null,
+  agentDir = resolvePiAgentDir(),
+): AgentListResult {
+  const { name: trimmed, agent } = assertListedAgent(name, agentDir);
+  const nextModel = model?.trim() || null;
+  if (agent.source === "user") {
+    const { draft } = readUserAgent(trimmed, agentDir);
+    return updateAgent({ ...draft, model: nextModel ?? undefined }, agentDir);
+  }
+  return updateAgentOverride(
+    trimmed,
+    (override) => {
+      override.model = nextModel;
+    },
+    agentDir,
+  );
+}
+
+/**
+ * Set a user agent's frontmatter effort or a package agent's settings override.
+ * `null` clears the setting; `false` records pi-subagents' explicit "no thinking".
+ */
+export function setAgentThinking(
+  name: string,
+  thinking: AgentThinking | null,
+  agentDir = resolvePiAgentDir(),
+): AgentListResult {
+  const { name: trimmed, agent } = assertListedAgent(name, agentDir);
+  if (agent.source === "user") {
+    const { draft } = readUserAgent(trimmed, agentDir);
+    return updateAgent({ ...draft, thinking: thinking ?? undefined }, agentDir);
+  }
+  return updateAgentOverride(
+    trimmed,
+    (override) => {
+      override.thinking = thinking;
+    },
+    agentDir,
+  );
+}
+
+/** Set an explicit allowlist; null restores runtime inheritance (not the package's fixed list). */
+export function setAgentTools(
+  name: string,
+  tools: readonly string[] | null,
+  agentDir = resolvePiAgentDir(),
+): AgentListResult {
+  const { name: trimmed, agent } = assertListedAgent(name, agentDir);
+  if (trimmed === DEFAULT_AGENT) {
+    throw new AgentsError("readonly", "default エージェントは常に全ツールを継承します");
+  }
+  const normalized = tools === null ? undefined : [...new Set(tools.map((tool) => tool.trim()).filter(Boolean))];
+  if (agent.source === "user") {
+    const { draft } = readUserAgent(trimmed, agentDir);
+    return updateAgent({ ...draft, tools: normalized }, agentDir);
+  }
+  return updateAgentOverride(
+    trimmed,
+    (override) => {
+      override.tools = normalized ?? "inherit";
+    },
+    agentDir,
+  );
+}
+
+function userAgentPath(agentDir: string, name: string): string {
+  return join(agentsDir(agentDir), `${name}.md`);
+}
+
+function assertValidName(name: string): string {
+  const trimmed = name.trim();
+  if (trimmed === AUTO_AGENT_VALUE) throw new AgentsError("invalid-name", "予約された名前です");
+  if (!trimmed || !/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(trimmed)) {
+    throw new AgentsError("invalid-name", "名前は英数字・._- のみ使用できます");
+  }
+  if (trimmed.includes("..")) throw new AgentsError("invalid-name", "名前が不正です");
+  return trimmed;
+}
+
+function assertEditable(agentDir: string, name: string): string {
+  const listed = listAgents(agentDir);
+  const agent = listed.agents.find((a) => a.name === name);
+  if (!agent) throw new AgentsError("not-found", "エージェントが見つかりません");
+  if (agent.source !== "user") {
+    throw new AgentsError("readonly", "ビルトイン・パッケージエージェントは編集できません");
+  }
+  return agent.filePath;
+}
+
+function joinCsv(values: string[] | undefined): string | undefined {
+  if (!values || values.length === 0) return undefined;
+  return values.join(", ");
+}
+
+function boundedSystemPrompt(value: string): string {
+  return Array.from(value.trim()).slice(0, MAX_AGENT_SYSTEM_PROMPT_CHARS).join("");
+}
+
+function assertSystemPromptLength(value: string): void {
+  if (Array.from(value.trim()).length > MAX_AGENT_SYSTEM_PROMPT_CHARS) {
+    throw new AgentsError("invalid-prompt", `システムプロンプトは${MAX_AGENT_SYSTEM_PROMPT_CHARS}文字以内にしてください`);
+  }
+}
+
+function boundedDescription(value: string): string {
+  return Array.from(value.trim()).slice(0, MAX_AGENT_DESCRIPTION_CHARS).join("");
+}
+
+function assertDescriptionLength(value: string | undefined): void {
+  if (value !== undefined && Array.from(value.trim()).length > MAX_AGENT_DESCRIPTION_CHARS) {
+    throw new AgentsError("invalid-prompt", `説明は${MAX_AGENT_DESCRIPTION_CHARS}文字以内にしてください`);
+  }
+}
+
+/** Build markdown file with YAML frontmatter for a user agent. */
+export function serializeAgent(
+  draft: AgentDraft,
+  extraFrontmatter?: Readonly<Record<string, unknown>>,
+): string {
+  const frontmatter: Record<string, unknown> = { name: draft.name };
+  if (draft.description) frontmatter.description = draft.description;
+  const aliases = joinCsv(draft.aliases);
+  if (aliases) frontmatter.aliases = aliases;
+  if (draft.tools !== undefined) frontmatter.tools = draft.tools.length > 0 ? draft.tools.join(", ") : "";
+  if (draft.model) frontmatter.model = draft.model;
+  const fallback = joinCsv(draft.fallbackModels);
+  if (fallback) frontmatter.fallbackModels = fallback;
+  if (draft.thinking === false) frontmatter.thinking = false;
+  else if (draft.thinking) frontmatter.thinking = draft.thinking;
+  if (draft.systemPromptMode) frontmatter.systemPromptMode = draft.systemPromptMode;
+  if (draft.inheritProjectContext !== undefined) frontmatter.inheritProjectContext = draft.inheritProjectContext;
+  if (draft.inheritSkills !== undefined) frontmatter.inheritSkills = draft.inheritSkills;
+  if (draft.async !== undefined) frontmatter.async = draft.async;
+  // Unmanaged keys are server-owned and never overwrite a managed value.
+  for (const [key, value] of Object.entries(extraFrontmatter ?? {})) {
+    if (!(key in frontmatter)) frontmatter[key] = value;
+  }
+  assertSystemPromptLength(draft.systemPrompt);
+  assertDescriptionLength(draft.description);
+  const prompt = boundedSystemPrompt(draft.systemPrompt);
+  const body = prompt ? `\n${prompt}\n` : "";
+  return `---\n${YAML.stringify(frontmatter).trimEnd()}\n---\n${body}`;
+}
+
+/** Read a user agent definition into an editable draft. */
+export function readUserAgent(name: string, agentDir = resolvePiAgentDir()): { draft: AgentDraft; filePath: string } {
+  const filePath = assertEditable(agentDir, name);
+  const content = readFileSync(filePath, "utf8");
+  const fm = parseAgentFile(content);
+  const match = /^---\s*\n[\s\S]*?\n---\n?([\s\S]*)$/.exec(content);
+  const systemPrompt = boundedSystemPrompt(match?.[1] ?? "");
+  return {
+    filePath,
+    draft: {
+      name,
+      description: typeof fm.description === "string" ? boundedDescription(fm.description) : undefined,
+      aliases: fromCsv(fm.aliases),
+      tools: name.trim() === DEFAULT_AGENT ? undefined : toTools(fm.tools),
+      model: typeof fm.model === "string" ? fm.model : undefined,
+      fallbackModels: fromCsv(fm.fallbackModels),
+      thinking: toThinking(fm.thinking),
+      systemPromptMode: fm.systemPromptMode === "append" ? "append" : fm.systemPromptMode === "replace" ? "replace" : undefined,
+      inheritProjectContext: typeof fm.inheritProjectContext === "boolean" ? fm.inheritProjectContext : undefined,
+      inheritSkills: typeof fm.inheritSkills === "boolean" ? fm.inheritSkills : undefined,
+      async: typeof fm.async === "boolean" ? fm.async : undefined,
+      systemPrompt,
+    },
+  };
+}
+
+function fromCsv(value: unknown): string[] | undefined {
+  if (typeof value === "string") {
+    const list = value.split(",").map((v) => v.trim()).filter(Boolean);
+    return list.length > 0 ? list : undefined;
+  }
+  if (Array.isArray(value)) {
+    const list = value.filter((v): v is string => typeof v === "string");
+    return list.length > 0 ? list : undefined;
+  }
+  return undefined;
+}
+
+function assertDefaultToolsInherited(name: string, tools: unknown): void {
+  if (name === DEFAULT_AGENT && tools !== undefined) {
+    throw new AgentsError("readonly", "default エージェントは常に全ツールを継承します");
+  }
+}
+
+/** Create a new user agent. Rejects names that already exist. */
+export function createAgent(draft: AgentDraft, agentDir = resolvePiAgentDir()): AgentListResult {
+  assertConfigurationOwner();
+  const name = assertValidName(draft.name);
+  assertDefaultToolsInherited(name, draft.tools);
+  const existing = listAgents(agentDir);
+  if (existing.agents.some((a) => a.name === name)) {
+    throw new AgentsError("invalid-name", "同名のエージェントが既に存在します");
+  }
+  mkdirSync(agentsDir(agentDir), { recursive: true });
+  atomicWrite(userAgentPath(agentDir, name), serializeAgent({ ...draft, name }));
+  return listAgents(agentDir);
+}
+
+/** Update a user agent. Frontmatter the editor does not manage is preserved server-side. */
+export function updateAgent(draft: AgentDraft, agentDir = resolvePiAgentDir()): AgentListResult {
+  const name = assertValidName(draft.name);
+  assertDefaultToolsInherited(name, draft.tools);
+  const filePath = assertEditable(agentDir, name);
+  atomicWrite(filePath, serializeAgent({ ...draft, name }, readExtraFrontmatter(filePath)));
+  return listAgents(agentDir);
+}
+
+/** Delete a user agent. */
+export function deleteAgent(name: string, agentDir = resolvePiAgentDir()): AgentListResult {
+  const filePath = assertEditable(agentDir, name.trim());
+  watchConfigurationPath(filePath);
+  rmSync(filePath, { force: true });
+  return listAgents(agentDir);
+}
+
+/** An agent definition resolved for running it as the main session persona. */
+export type LoadedAgentDefinition = {
+  name: string;
+  description?: string;
+  tools?: string[];
+  model?: string;
+  thinking?: string | false;
+  /** pi-subagents semantics: replace (default) swaps the base prompt, append adds to it. */
+  systemPromptMode: "replace" | "append";
+  inheritProjectContext: boolean;
+  inheritSkills: boolean;
+  /** Markdown body — the agent's own instructions. */
+  systemPrompt: string;
+};
+
+function defaultSystemPromptMode(name: string): "replace" | "append" {
+  // pi-subagents: only the built-in delegate agent appends by default.
+  return name === "delegate" ? "append" : "replace";
+}
+
+/**
+ * Load an enabled agent definition (user / package / builtin) by name.
+ * Defaults mirror pi-subagents' frontmatter handling.
+ */
+export function loadAgentDefinition(
+  name: string,
+  agentDir = resolvePiAgentDir(),
+): LoadedAgentDefinition | undefined {
+  const trimmed = name.trim();
+  if (!trimmed || trimmed === AUTO_AGENT_VALUE) return undefined;
+  const dto = listAgents(agentDir).agents.find(
+    (agent) => agent.name === trimmed && agent.enabled,
+  );
+  if (!dto) return undefined;
+  let content = "";
+  try {
+    content = readFileSync(dto.filePath, "utf8");
+  } catch {
+    return undefined;
+  }
+  const fm = parseAgentFile(content);
+  const match = /^---\s*\n[\s\S]*?\n---\n?([\s\S]*)$/.exec(content);
+  return {
+    name: dto.name,
+    ...(typeof fm.description === "string" && fm.description.trim()
+      ? { description: boundedDescription(fm.description) }
+      : {}),
+    tools: dto.tools,
+    model: typeof fm.model === "string" && fm.model.trim() ? fm.model.trim() : undefined,
+    thinking: toThinking(fm.thinking),
+    systemPromptMode:
+      fm.systemPromptMode === "append"
+        ? "append"
+        : fm.systemPromptMode === "replace"
+          ? "replace"
+          : defaultSystemPromptMode(dto.name),
+    inheritProjectContext:
+      typeof fm.inheritProjectContext === "boolean"
+        ? fm.inheritProjectContext
+        : dto.name === "delegate",
+    inheritSkills: typeof fm.inheritSkills === "boolean" ? fm.inheritSkills : true,
+    systemPrompt: boundedSystemPrompt(match?.[1] ?? ""),
+  };
+}
+
+/**
+ * Resource-loader options that make the selected agent talk as the main
+ * session (mirrors how pi CLI applies --system-prompt/--append-system-prompt,
+ * --no-context-files and --no-skills for subagent child sessions).
+ */
+export function buildAgentResourceOptions(definition: LoadedAgentDefinition): {
+  systemPrompt?: string;
+  appendSystemPrompt?: string[];
+  noContextFiles?: boolean;
+  noSkills?: boolean;
+  tools?: string[];
+} {
+  // An empty body means "no prompt override", like pi-subagents does.
+  const prompt =
+    definition.systemPromptMode === "replace"
+      ? definition.systemPrompt || undefined
+      : undefined;
+  const append =
+    definition.systemPromptMode === "append" && definition.systemPrompt
+      ? [definition.systemPrompt]
+      : undefined;
+  return {
+    ...(prompt ? { systemPrompt: prompt } : {}),
+    ...(append ? { appendSystemPrompt: append } : {}),
+    ...(definition.inheritProjectContext ? {} : { noContextFiles: true }),
+    ...(definition.inheritSkills ? {} : { noSkills: true }),
+    ...(definition.tools !== undefined ? { tools: definition.tools } : {}),
+  };
+}

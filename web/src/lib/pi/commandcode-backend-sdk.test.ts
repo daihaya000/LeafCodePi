@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
@@ -11,15 +11,14 @@ it("registers and selects Command Code in a Backend bundle without a global prov
   const root = mkdtempSync(join(tmpdir(), "commandcode-backend-sdk-"));
   try {
     const repo = resolve(fileURLToPath(new URL("../../../../", import.meta.url)));
-    mkdirSync(join(root, "web"));
-    symlinkSync(join(repo, "web", "node_modules"), join(root, "web", "node_modules"), "junction");
     mkdirSync(join(root, "backend"));
     symlinkSync(join(repo, "backend", "node_modules"), join(root, "backend", "node_modules"), "junction");
     const bundle = join(root, "backend", "runtime", "provider.bundle.mjs");
     const require = createRequire(import.meta.url);
     const esbuild = require("esbuild") as typeof import("esbuild");
     await esbuild.build({
-      entryPoints: [join(repo, "web", "src", "lib", "pi", "commandcode-provider.ts")],
+      entryPoints: [join(repo, "backend", "runtime-src", "lib", "pi", "commandcode-provider.ts")],
+      tsconfig: join(repo, "backend", "tsconfig.runtime.json"),
       outfile: bundle, bundle: true, format: "esm", platform: "node", target: "node22",
       external: ["@earendil-works/pi-ai", "@earendil-works/pi-coding-agent", "node:*"],
       banner: { js: 'import { createRequire as __createRequire } from "node:module"; const require = __createRequire(import.meta.url);' },
@@ -75,7 +74,7 @@ it("registers and selects Command Code in a Backend bundle without a global prov
     assert.equal(answer.provider, "commandcode");
     assert.equal(answer.model, "backend-test");
     assert.equal(answer.available, true);
-    assert.equal(answer.entry, join(root, "web", "node_modules", "pi-commandcode-provider", "index.ts"));
+    assert.equal(answer.entry, realpathSync(join(root, "backend", "node_modules", "pi-commandcode-provider", "index.ts")));
   } finally {
     rmSync(root, { recursive: true, force: true });
   }

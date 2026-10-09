@@ -20,7 +20,7 @@ vi.mock("@/lib/pi/web-settings", () => ({
 vi.mock("@/lib/accounts", () => ({ listAccounts: accounts.listAccounts }));
 vi.mock("@/lib/machine-name", () => ({ getMachineName: () => "x870" }));
 
-import { GET, PUT } from "./route";
+import { GET, PUT } from "@backend-runtime/configuration/handlers/settings/[key]/route";
 
 function request(key: string, body: unknown): NextRequest {
   return new NextRequest(`http://127.0.0.1:3010/api/settings/${key}`, {
@@ -66,15 +66,13 @@ describe("/api/settings/[key]", () => {
     ["compactionThreshold", "85"],
     ["compactionAction", null],
     ["compactionThreshold", ""],
-  ])("refreshes suggestions after saving %s=%s", async (key, value) => {
+  ])("persists %s=%s; the owner command applies suggestions", async (key, value) => {
     const response = await PUT(request(key!, { value }), {
       params: Promise.resolve({ key: key! }),
     });
     expect(response.status).toBe(200);
-    expect(harness.refreshCompactionSuggestions).toHaveBeenCalledOnce();
-    expect(settings.setSetting.mock.invocationCallOrder[0]).toBeLessThan(
-      harness.refreshCompactionSuggestions.mock.invocationCallOrder[0]!,
-    );
+    expect(settings.setSetting).toHaveBeenCalled();
+    expect(harness.refreshCompactionSuggestions).not.toHaveBeenCalled();
   });
 
   it.each([
@@ -110,15 +108,12 @@ describe("/api/settings/[key]", () => {
     ["code-permission-mode", "deny"],
     ["code-skill-permission", "deny"],
     ["code-subagent-permission", "allow"],
-  ])("saves %s=%s and applies it to open Code sessions", async (key, value) => {
+  ])("persists %s=%s; the owner command updates open Code sessions", async (key, value) => {
     const response = await PUT(request(key, { value }), { params: Promise.resolve({ key }) });
 
     expect(response.status).toBe(200);
     expect(settings.setSetting).toHaveBeenCalledWith(key, value);
-    expect(harness.applyCodePermissionSettingsToLiveTasks).toHaveBeenCalledOnce();
-    expect(settings.setSetting.mock.invocationCallOrder[0]).toBeLessThan(
-      harness.applyCodePermissionSettingsToLiveTasks.mock.invocationCallOrder[0]!,
-    );
+    expect(harness.applyCodePermissionSettingsToLiveTasks).not.toHaveBeenCalled();
   });
 
   it.each([

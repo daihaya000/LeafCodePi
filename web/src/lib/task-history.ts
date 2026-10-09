@@ -82,18 +82,7 @@ export function mergeNewerTaskMessages(
  * part stays identifiable. History paging calls this: those messages were already
  * delivered in the newest page, so the client keeps its copy and re-sends nothing.
  */
-export function stripImageDataFromMessages(messages: readonly UiMessage[]): UiMessage[] {
-  return messages.map((message) => {
-    let changed = false;
-    const parts = message.parts.map((part) => {
-      if (part.type !== "image" || !part.url.startsWith("data:")) return part;
-      changed = true;
-      const filename = part.filename ?? `${part.id}.${part.mime.split("/")[1] ?? "png"}`;
-      return { ...part, url: "", filename };
-    });
-    return changed ? { ...message, parts } : message;
-  });
-}
+export { stripImageDataFromMessages } from "@shared/task-history-content.mjs";
 
 /**
  * Recover one image part's data URL from a projection that still carries it.

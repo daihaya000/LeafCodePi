@@ -11,7 +11,7 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock("@/lib/pi/harness", () => mocks);
 
-import { PATCH } from "./route";
+import { PATCH } from "@backend-runtime/json-business/handlers/provider-models/order/route";
 
 function request(body: unknown): NextRequest {
   return new NextRequest("http://localhost/api/provider-models/order", {

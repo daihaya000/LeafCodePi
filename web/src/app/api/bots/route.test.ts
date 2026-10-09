@@ -7,7 +7,7 @@ vi.mock("../../../lib/paths", async (importOriginal) => { const actual = await i
 import { NextRequest } from "next/server";
 import { insertTask, setTaskStatus } from "../../../lib/store";
 import { MAX_BOT_NAME_CHARS } from "../../../lib/bots";
-import { GET, POST } from "./route";
+import { GET, POST } from "@backend-runtime/json-business/handlers/bots/route";
 
 const backendClientMock = vi.hoisted(() => ({
   readBackendBots: vi.fn(),
@@ -18,8 +18,8 @@ const backendClientMock = vi.hoisted(() => ({
 vi.mock("../../../lib/backend-client", () => backendClientMock);
 
 describe("/api/bots", () => {
-  let root = ""; beforeEach(() => { root = mkdtempSync(join(tmpdir(), "leafcode-api-bots-")); botApiTestState.root = root; });
-  afterEach(() => { rmSync(root, { recursive: true, force: true }); botApiTestState.root = ""; });
+  let root = ""; beforeEach(() => { root = mkdtempSync(join(tmpdir(), "leafcode-api-bots-")); botApiTestState.root = root; vi.stubEnv("LEAFCODE_PI_PROCESS_ROLE", "backend"); vi.stubEnv("LEAFCODE_PI_BACKEND_RUNTIME", "attach"); });
+  afterEach(() => { rmSync(root, { recursive: true, force: true }); botApiTestState.root = ""; vi.unstubAllEnvs(); });
   it("creates and lists bots", async () => {
     const response = await POST(new NextRequest("http://localhost/api/bots", { method: "POST", body: JSON.stringify({ name: "Test bot" }) }));
     expect(response.status).toBe(201); const created = (await response.json()).bot;
@@ -47,50 +47,5 @@ describe("/api/bots", () => {
 
     const listed = await GET();
     expect((await listed.json()).bots[0].codeSessionCount).toBe(1);
-  });
-});
-
-describe("/api/bots relay", () => {
-  let root = "";
-  beforeEach(() => { root = mkdtempSync(join(tmpdir(), "leafcode-api-bots-relay-")); botApiTestState.root = root; });
-  afterEach(() => {
-    rmSync(root, { recursive: true, force: true });
-    botApiTestState.root = "";
-    vi.unstubAllEnvs();
-  });
-  /** A shipped WebUI: production is the Backend's client, and not the runtime host itself. */
-  const clientEnv = () => {
-    vi.stubEnv("NODE_ENV", "production");
-    vi.stubEnv("LEAFCODE_PI_BACKEND_RUNTIME", "");
-  };
-  it("serves the Backend Bot view while this process is a client", async () => {
-    clientEnv();
-    const { readBackendBots, readBackendTasks } = await import("../../../lib/backend-client");
-    vi.mocked(readBackendBots).mockResolvedValue({ ok: true, status: 200, body: { bots: [{ id: "bot-remote", name: "Backend bot" }] } } as never);
-    vi.mocked(readBackendTasks).mockResolvedValue({ ok: true, status: 200, body: { tasks: [{ id: "t1", status: "working", botId: "bot-remote" }] } } as never);
-    const listed = await GET();
-    expect(await listed.json()).toEqual({ bots: [{ id: "bot-remote", name: "Backend bot", codeSessionCount: 1 }] });
-  });
-  it("reports a failing Backend instead of the local list for a client", async () => {
-    clientEnv();
-    const response = await POST(new NextRequest("http://localhost/api/bots", { method: "POST", body: JSON.stringify({ name: "Local bot" }) }));
-    expect(response.status).toBe(201);
-    const { readBackendBots, readBackendTasks } = await import("../../../lib/backend-client");
-    vi.mocked(readBackendBots).mockResolvedValue({ ok: false, reason: "unreachable" } as never);
-    vi.mocked(readBackendTasks).mockResolvedValue({ ok: true, status: 200, body: { tasks: [] } } as never);
-    const listed = await GET();
-    expect(listed.status).toBe(503);
-    await expect(listed.json()).resolves.toEqual({ error: "BackendのBot一覧を取得できません" });
-  });
-  it("keeps the in-process list while this process owns the runtime", async () => {
-    const response = await POST(new NextRequest("http://localhost/api/bots", { method: "POST", body: JSON.stringify({ name: "Local bot" }) }));
-    const bot = (await response.json()).bot;
-    const { readBackendBots } = await import("../../../lib/backend-client");
-    vi.mocked(readBackendBots).mockClear();
-    const listed = await GET();
-    const bots = (await listed.json()).bots;
-    expect(bots.map((item: { id: string }) => item.id)).toEqual([bot.id]);
-    expect(bots[0].codeSessionCount).toBe(0);
-    expect(vi.mocked(readBackendBots)).not.toHaveBeenCalled();
   });
 });

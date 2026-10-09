@@ -103,7 +103,7 @@ describe("sessionToolSelection", () => {
 
 describe("harness wiring", () => {
   it("creates sessions from the selection and applies the initial loadout", () => {
-    const source = readFileSync(new URL("./harness.ts", import.meta.url), "utf8");
+    const source = readFileSync(new URL("../../../../backend/runtime-src/lib/pi/harness.ts", import.meta.url), "utf8");
     assert.equal(source.includes("const dynamicMcpTools = shouldUseDynamicMcpTools({"), true);
     assert.equal(source.includes("factoryCount: nativeMcp.factories.length"), true);
     assert.equal(source.includes("{ excludeTools: toolSelection.excludeTools }"), true);

@@ -8,7 +8,7 @@ import type { WorkspaceFileDto, WorkspaceListingDto } from "@/lib/types";
 const mocks = vi.hoisted(() => ({ getProject: vi.fn(), getTask: vi.fn() }));
 vi.mock("@/lib/store", () => mocks);
 
-import { GET } from "./route";
+import { GET } from "@backend-runtime/json-business/handlers/projects/[id]/files/route";
 
 function request(query: string) {
   return new NextRequest(`http://localhost/api/projects/p1/files${query}`);

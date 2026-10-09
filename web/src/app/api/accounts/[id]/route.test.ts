@@ -14,7 +14,7 @@ vi.mock("@/lib/pi/harness", () => ({
   }),
 }));
 
-import { DELETE, PATCH } from "./route";
+import { DELETE, PATCH } from "@backend-runtime/json-business/handlers/accounts/[id]/route";
 
 let root: string;
 const agentDir = () => join(root, "agent");

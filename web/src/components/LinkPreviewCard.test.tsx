@@ -29,14 +29,54 @@ it("renders standalone Markdown links as cards with same-origin thumbnails, with
   expect(container.querySelector("img")).toBeNull();
   expect(screen.getByRole("link", { name: "公開Notionページ" })).toBeTruthy();
 });
-it("preserves internal links, code and prose and caps previews to six per message", async () => {
+it.each([
+  "出典: [Flyle / PR TIMES](https://example.com/source-case-0)",
+  "出典：[Flyle / PR TIMES](https://example.com/source-case-1)",
+  "**出典:** [Flyle / PR TIMES](https://example.com/source-case-2)",
+  "要約の本文。\n出典: [Flyle / PR TIMES](https://example.com/source-case-3)",
+  "要約の本文。  \n出典: [Flyle / PR TIMES](https://example.com/source-case-4)",
+  "- **ニュース**\n  要約の本文。\n  出典: [Flyle / PR TIMES](https://example.com/source-case-5)",
+  "Source: [Flyle / PR TIMES](https://example.com/source-case-6)",
+])("renders source-labelled links as cards: %s", (source) => {
+  const { container } = render(<Markdown remarkPlugins={[remarkGfm, remarkLinkCards]} components={{ a: MarkdownLink }}>{source}</Markdown>);
+  expect(container.querySelectorAll("a[data-link-card]")).toHaveLength(1);
+  expect(container.textContent).toContain("Flyle / PR TIMES");
+  expect(container.textContent).toMatch(/出典|Source/);
+  if (source.includes("要約")) expect(container.textContent).toContain("要約の本文。");
+});
+it("keeps source-line limits and deduplication while preserving surrounding prose", () => {
+  const source = [
+    "本文の[リンク](https://example.com/source-inline)",
+    "出典: [A](https://example.com/source-a) / [B](https://example.com/source-b)",
+    "本文の続き。", "",
+    "出典: [A重複](https://example.com/source-a)", "",
+    ...Array.from({ length: 12 }, (_, index) => `出典: [資料${index}](https://example.com/source-limit-${index})\n`),
+  ].join("\n");
+  const { container } = render(<Markdown remarkPlugins={[remarkGfm, remarkLinkCards]} components={{ a: MarkdownLink }}>{source}</Markdown>);
+  expect(container.querySelectorAll("a[data-link-card]")).toHaveLength(12);
+  expect(screen.getByRole("link", { name: "リンク" }).hasAttribute("data-link-card")).toBe(false);
+  expect(screen.getByRole("link", { name: "A重複" }).hasAttribute("data-link-card")).toBe(false);
+  expect(container.textContent).toContain("本文の続き。");
+});
+it.each([
+  "出典: [資料](https://example.com/source-sentence)を確認した。",
+  "本文で出典: [資料](https://example.com/source-prose)を紹介。",
+  "出典: [内部](/task/source-internal)",
+  "出典: [![画像](./source.png)](https://example.com/source-image)",
+  "`出典:` [資料](https://example.com/source-code-label)",
+  "出典: `コード` [資料](https://example.com/source-code-prefix)",
+])("does not turn prose, images, code or internal sources into cards: %s", (source) => {
+  const { container } = render(<Markdown remarkPlugins={[remarkGfm, remarkLinkCards]} components={{ a: MarkdownLink }}>{source}</Markdown>);
+  expect(container.querySelector("a[data-link-card]")).toBeNull();
+});
+it("preserves internal links, code and prose and caps previews to twelve per message", async () => {
   request.mockResolvedValue(new Response("{}", { status: 503 }));
-  const urls = Array.from({ length: 8 }, (_, index) => `https://example.com/cap${index}`);
+  const urls = Array.from({ length: 14 }, (_, index) => `https://example.com/cap${index}`);
   const source = ["[内部](/task/abc)", "", "```text", "https://example.com/code", "```", "", ...urls.flatMap((url) => [url, ""])].join("\n");
   const { container } = render(<Markdown remarkPlugins={[remarkGfm, remarkLinkCards]} components={{ a: MarkdownLink }}>{source}</Markdown>);
-  expect(container.querySelectorAll("a[data-link-card]")).toHaveLength(6);
+  expect(container.querySelectorAll("a[data-link-card]")).toHaveLength(12);
   expect(screen.getByRole("link", { name: "内部" }).getAttribute("href")).toBe("/task/abc");
-  await waitFor(() => expect(request).toHaveBeenCalledTimes(6));
+  await waitFor(() => expect(request).toHaveBeenCalledTimes(12));
   expect(JSON.stringify(request.mock.calls)).not.toContain("example.com/code");
 });
 it("keeps a clickable labelled fallback when metadata is unavailable and ignores external image responses", async () => {

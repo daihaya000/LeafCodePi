@@ -34,7 +34,7 @@ function encryptLinuxCookie(plaintext: string, password = DEFAULT_LINUX_SAFE_STO
 
 describe("chromium-cookie-crypto parity with leafcode-web-access", () => {
   it("keeps the same implementation body as the extension copy", () => {
-    const webCopy = readFileSync(join(HERE, "chromium-cookie-crypto.ts"), "utf8");
+    const webCopy = readFileSync(join(HERE, "..", "..", "..", "..", "backend", "runtime-src", "lib", "codexbar", "chromium-cookie-crypto.ts"), "utf8");
     const extensionCopy = readFileSync(
       join(HERE, "..", "..", "..", "..", "extensions", "leafcode-web-access", "chromium-cookie-crypto.ts"),
       "utf8",

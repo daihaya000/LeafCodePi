@@ -80,35 +80,10 @@ describe("runtime ownership coverage", () => {
       .map((route) => route.path)
       .sort();
     expect(guarded).toEqual([
-      "bots/[id]/abort/route.ts",
-      "bots/[id]/code-requests/route.ts",
-      "bots/[id]/code-session/route.ts",
       "bots/[id]/events/route.ts",
-      "bots/[id]/prompt/route.ts",
-      "bots/[id]/revert/route.ts",
-      "bots/[id]/routines/[routineId]/run/route.ts",
-      "bots/rooms/[id]/code/route.ts",
       "bots/rooms/[id]/events/route.ts",
-      "bots/rooms/[id]/prompt/route.ts",
-      "bots/rooms/[id]/revert/route.ts",
-      "bots/rooms/[id]/route.ts",
-      "tasks/[id]/abort/route.ts",
-      "tasks/[id]/agent/route.ts",
-      "tasks/[id]/compact/abort/route.ts",
-      "tasks/[id]/compact/route.ts",
       "tasks/[id]/events/route.ts",
-      "tasks/[id]/fork/route.ts",
-      "tasks/[id]/goal-loop/route.ts",
       "tasks/[id]/message-image/route.ts",
-      "tasks/[id]/messages/route.ts",
-      "tasks/[id]/model/route.ts",
-      "tasks/[id]/permission/route.ts",
-      "tasks/[id]/prompt/route.ts",
-      "tasks/[id]/question/route.ts",
-      "tasks/[id]/revert/route.ts",
-      "tasks/[id]/route.ts",
-      "tasks/[id]/thinking/route.ts",
-      "tasks/[id]/unrevert/route.ts",
     ]);
   });
 
@@ -118,8 +93,8 @@ describe("runtime ownership coverage", () => {
     // Every unguarded starter is a measured, listed gap — never an unrecorded one.
     expect(pending).toEqual(Object.keys(LOCAL_ONLY_PENDING).sort());
     expect({ starters: starters.length, guarded: starters.length - pending.length }).toEqual({
-      starters: 29,
-      guarded: 29,
+      starters: 4,
+      guarded: 4,
     });
     // No route may act as a second owner: every starter is guarded and the pending list is empty.
     expect(pending).toEqual([]);
@@ -145,8 +120,6 @@ const HANDLER_GAPS: Record<string, string> = {};
  * is safe. This is a decision, not unfinished work: the scan still fails when one stops needing it.
  */
 const LOCAL_BY_DESIGN: Record<string, string> = {
-  "tasks/route.ts DELETE":
-    "bulk delete of archived tasks only: archiving already stopped and disposed the session in the owner, so there is no live session to stop, and the rest is store-level",
 };
 
 /** Every exported HTTP handler that touches an owner-only operation, and whether it guards itself. */
@@ -185,13 +158,9 @@ describe("runtime ownership coverage per handler", () => {
     expect(staleByDesign, "a handler that now guards itself must leave the by-design list").toEqual([]);
   });
 
-  it("profile replacement/reset/package restore handlers cannot bypass ownership coverage", () => {
-    expect(ownerHandlers().filter(({ id }) => id.startsWith("profile/route.ts "))).toEqual([
-      { id: "profile/route.ts POST", guarded: true },
-      { id: "profile/route.ts PATCH", guarded: true },
-      { id: "profile/route.ts PUT", guarded: true },
-      { id: "profile/route.ts DELETE", guarded: true },
-    ]);
+  it("profile ingress has no local replacement/reset/package restore calls", () => {
+    // All four mutations are relays; scripts/check-configuration-ownership.test.mjs verifies each export.
+    expect(ownerHandlers().filter(({ id }) => id.startsWith("profile/route.ts "))).toEqual([]);
   });
 
   it("no handler is left as unfinished work", () => {

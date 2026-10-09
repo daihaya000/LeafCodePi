@@ -7,7 +7,7 @@ const profile = vi.hoisted(() => ({
 }));
 vi.mock("@/lib/profile", () => profile);
 // Use the real ownership policy, including Backend identity, rather than a boolean mock.
-import { DELETE, GET, PATCH, POST, PUT } from "./route";
+import { DELETE, GET, PATCH, POST, PUT } from "@backend-runtime/configuration/handlers/profile/route";
 
 const url = "http://127.0.0.1:3010/api/profile";
 const summary = { fileCount: 1, bytes: 12 };

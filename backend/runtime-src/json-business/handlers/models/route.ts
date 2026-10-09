@@ -1,0 +1,49 @@
+import { ConfigurationRequest as NextRequest, ConfigurationResponse as NextResponse } from "../../../configuration/http";
+import { listAccounts } from "@/lib/accounts";
+import { listModelsForAccounts, jsonError } from "@/lib/pi/harness";
+import { getCachedUsage } from "@/lib/codexbar/cache";
+import { attachCodexBarUsage } from "./map";
+import { modelThroughputKey, readModelThroughputAverages } from "@/lib/model-throughput-stats";
+
+export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
+
+/**
+ * Read the aggregate cache only — never fetch here. A short-timeout
+ * fetchNativeUsage aborts slow providers mid-flight and poisons their
+ * per-provider caches with errors. The CodexBar widget (~5min poll) keeps
+ * the cache warm; allow up to 30 min stale for dropdown coloring.
+ */
+const USAGE_MAX_AGE_MS = 30 * 60 * 1000;
+
+/**
+ * モデル一覧。マルチアカウント対応プロバイダーはアカウント由来だけを返す。
+ * 共有プロバイダーは既定 auth.json 由来の候補を維持する。アカウントのモデルには
+ * accountId / accountLabel が付く。レガシーの `?accountId=` は互換のため受けるだけ。
+ */
+export async function GET(req: NextRequest) {
+  try {
+    void req.nextUrl.searchParams.get("accountId");
+    const now = Date.now();
+    const accounts = listAccounts();
+    const models = await listModelsForAccounts(
+      accounts.map((account) => ({
+        id: account.id,
+        label: account.label,
+        enabled: account.enabled,
+        providers: account.providers,
+      })),
+    );
+    const displayProviders = getCachedUsage(now, USAGE_MAX_AGE_MS)?.providers ?? [];
+    const averages = await readModelThroughputAverages();
+    return NextResponse.json({
+      models: attachCodexBarUsage(models, displayProviders).map((model) => {
+        const avg = averages.get(modelThroughputKey(model.providerID, model.modelID));
+        return avg === undefined ? model : { ...model, avgTokensPerSecond: avg };
+      }),
+    });
+  } catch (error) {
+    const { error: message, status } = jsonError(error);
+    return NextResponse.json({ error: message }, { status });
+  }
+}

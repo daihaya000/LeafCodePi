@@ -12,7 +12,7 @@ const harness = vi.hoisted(() => ({
 
 vi.mock("@/lib/pi/harness", () => harness);
 
-import { GET, PATCH } from "./route";
+import { GET, PATCH } from "@backend-runtime/configuration/handlers/cache-warming/route";
 
 function request(body: unknown): NextRequest {
   return new NextRequest("http://127.0.0.1:3010/api/cache-warming", {

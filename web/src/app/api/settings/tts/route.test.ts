@@ -10,7 +10,7 @@ const mocks = vi.hoisted(() => ({
 }));
 vi.mock("@/lib/tts-config", () => mocks);
 
-import { GET, PATCH } from "./route";
+import { GET, PATCH } from "@backend-runtime/configuration/handlers/settings/tts/route";
 
 const authHeaders = { authorization: `Bearer ${TOKEN}` };
 

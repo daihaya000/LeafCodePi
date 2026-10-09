@@ -8,7 +8,10 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock("@/lib/pi/harness", () => mocks);
 
-import { GET } from "./route";
+import { openProviderLoginEvents } from "@backend-runtime/json-business/provider-auth-events";
+async function GET(req: NextRequest, context: { params: Promise<{ id: string }> }) {
+  return openProviderLoginEvents({ route: (await context.params).id, method: "GET", url: req.url, headers: {}, authorized: true, signal: req.signal });
+}
 
 async function readEventTypes(response: Response): Promise<string[]> {
   const reader = response.body!.getReader();

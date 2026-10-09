@@ -4,7 +4,7 @@ const WEBUI_TOKEN = "peer-import-webui-token";
 const mocks = vi.hoisted(() => ({ listPeerAccounts: vi.fn(), importPeerAccount: vi.fn() }));
 vi.mock("@/lib/peer-auth/import", () => ({ listPeerAccounts: mocks.listPeerAccounts, importPeerAccount: mocks.importPeerAccount }));
 
-import { GET, POST } from "./route";
+import { GET, POST } from "@backend-runtime/json-business/handlers/peer-auth/import/route";
 
 beforeEach(() => {
   vi.stubEnv("LEAFCODE_PI_WEBUI_AUTH", "required");

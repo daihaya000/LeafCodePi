@@ -77,8 +77,9 @@ function parseShellCommand(command: string, toolName: string): ShellCommandShape
     // Adjacent fragments can construct hidden flags (e.g. "--fo"rce). Reject instead of guessing.
     if (next && !/[\s;|&]/.test(next)) malformed = true;
     const option = /^(--[a-z][\w-]*(?==|$))/i.exec(quoted);
-    // Preserve whole short-option tokens: reducing '-uo' to '-u' hides sort's write flag.
-    part += option ? ` ${option[1]} ` : /^-[a-z]/i.test(quoted) ? ` ${quoted} ` : " '' ";
+    // Preserve complete option tokens, including values: dropping '=false' would turn
+    // '--noEmit=false' into a verification flag; reducing '-uo' hides sort's write flag.
+    part += option || /^-[a-z]/i.test(quoted) ? ` ${quoted} ` : " '' ";
     quote = undefined;
     quoted = "";
   };
@@ -156,20 +157,49 @@ function parseShellCommand(command: string, toolName: string): ShellCommandShape
 }
 
 export type ClosingShellPhase = "confirmation" | "merge";
+export type ReviewShellPhase = ClosingShellPhase | "verification";
 
-/** Parse once to distinguish safe closing work, tree-changing merges and unsupported commands. */
-export function classifyClosingShellCommand(command: unknown, toolName = "powershell"): ClosingShellPhase | undefined {
+// These are audit classifications, NOT execution/permission exceptions. Package scripts and
+// unknown CLI options stay opaque: a script named "test" can still rewrite source files.
+const VERIFICATION_OPTIONS: Record<string, ReadonlySet<string>> = {
+  vitest: new Set(["--reporter", "--config", "--root", "--environment", "--pool", "--maxWorkers", "--minWorkers", "--testNamePattern", "-t", "--no-file-parallelism", "--passWithNoTests", "--silent"]),
+  tsc: new Set(["--noEmit", "--project", "-p", "--pretty"]),
+  eslint: new Set(["--max-warnings", "--format", "-f", "--config", "-c", "--no-warn-ignored"]),
+};
+function isVerificationCommand(command: string): boolean {
+  const tokens = command.trim().split(/\s+/);
+  if (tokens[0] === "npx") tokens.splice(0, tokens[1] === "--no-install" ? 2 : 1);
+  const executable = tokens.shift() ?? "";
+  const allowed = Object.hasOwn(VERIFICATION_OPTIONS, executable) ? VERIFICATION_OPTIONS[executable] : undefined;
+  if (!allowed) return false;
+  if (executable === "vitest" && tokens.shift() !== "run") return false;
+  if (executable === "tsc" && (!tokens.includes("--noEmit") || tokens.some((token) => token.startsWith("--noEmit=")))) return false;
+  // The parser neutralizes quoted data, so even a quoted boolean is ambiguous here.
+  // Require a terminal --noEmit or another option after it; never accept a value.
+  if (executable === "tsc" && tokens.some((token, index) => token === "--noEmit"
+    && tokens[index + 1] !== undefined && !tokens[index + 1]!.startsWith("-"))) return false;
+  // PowerShell splatting can inject options such as --fix from an unseen variable.
+  return tokens.every((token) => !token.startsWith("@")
+    && (!token.startsWith("-") || allowed.has(token.split("=", 1)[0]!)));
+}
+
+/** Parse once; keep unsupported/ambiguous shell work review-affecting. */
+export function classifyReviewShellCommand(command: unknown, toolName = "powershell"): ReviewShellPhase | undefined {
   if (typeof command !== "string" || !command.trim()) return undefined;
   const parsed = parseShellCommand(command, toolName);
   if (parsed.malformed || parsed.dangerous || parsed.statements.length === 0) return undefined;
   const directoryChange = toolName === "powershell"
     ? /^(cd|set-location|pushd|sl)\s+\S/i
     : /^(cd|pushd)\s+\S/i;
-  let phase: ClosingShellPhase = "confirmation";
+  let phase: ReviewShellPhase = "confirmation";
   const valid = parsed.statements.every((pipeline) => {
     const [head = "", ...filters] = pipeline;
     if (!filters.every(isClosingOutputFilter)) return false;
     if (directoryChange.test(head)) return true;
+    if (isVerificationCommand(head)) {
+      if (phase !== "merge") phase = "verification";
+      return true;
+    }
     const match = /^git(?:\s+-C\s+\S+)?\s+([a-z-]+)(.*)$/i.exec(head);
     if (!match) return false;
     const subcommand = match[1]!.toLowerCase();
@@ -179,13 +209,20 @@ export function classifyClosingShellCommand(command: unknown, toolName = "powers
   return valid ? phase : undefined;
 }
 
+/** Verification never grants closing-phase shell access. */
+export function classifyClosingShellCommand(command: unknown, toolName = "powershell"): ClosingShellPhase | undefined {
+  const phase = classifyReviewShellCommand(command, toolName);
+  return phase === "verification" ? undefined : phase;
+}
+
 export function isClosingShellCommand(command: unknown, toolName = "powershell"): boolean {
   return classifyClosingShellCommand(command, toolName) !== undefined;
 }
 
-/** Commit/confirmation does not modify reviewed working-tree content. Merge still needs review. */
+/** Verification/confirmation preserve a review; merges and opaque commands still invalidate it. */
 export function isNonReviewShellCommand(command: unknown, toolName: string): boolean {
-  return classifyClosingShellCommand(command, toolName) === "confirmation";
+  const phase = classifyReviewShellCommand(command, toolName);
+  return phase === "confirmation" || phase === "verification";
 }
 
 function clip(text: string): string {
@@ -248,9 +285,10 @@ export function blockedWhenClosedReason(todos: readonly TodoItem[]): string {
 }
 
 /** A short state note appended to each provider request while a list is being worked. */
-export function buildStateNote(todos: readonly TodoItem[]): string | undefined {
-  if (todos.length === 0) return undefined;
+export function buildStateNote(todos: readonly TodoItem[], reviewRequired = false): string | undefined {
   const open = listOpen(todos);
-  if (!open) return undefined;
+  if (!open) return reviewRequired
+    ? "[ToDo状態] レビュー未完了。全項目completedでも終了不可。レビュー項目を再着手し、差分・要件・テスト結果を確認してcompletedへ更新する。最終報告はまだ行わない。"
+    : undefined;
   return `[ToDo状態] ${open}。完了した項目はその場で completed、次の項目を in_progress にする。`;
 }

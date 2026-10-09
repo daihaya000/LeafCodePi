@@ -1,36 +1,13 @@
-import { NextRequest, NextResponse } from "next/server";
-import { readIntercomTriggerPolicy, writeIntercomTriggerPolicy } from "@/lib/intercom-config";
-import { isIntercomTriggerPolicy } from "@/lib/intercom-trigger";
+import { NextRequest } from "next/server";
+import { relayConfiguration } from "@/lib/configuration-relay";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : "Intercom設定の処理に失敗しました";
+export function GET(request?: NextRequest) {
+  return relayConfiguration(request ?? new Request("http://127.0.0.1/api/settings/intercom", { method: "GET" }), "settings/intercom");
 }
 
-export async function GET() {
-  try {
-    return NextResponse.json({ inboundTrigger: readIntercomTriggerPolicy() });
-  } catch (error) {
-    return NextResponse.json({ error: errorMessage(error) }, { status: 500 });
-  }
-}
-
-export async function PATCH(req: NextRequest) {
-  const body = (await req.json().catch(() => null)) as { inboundTrigger?: unknown } | null;
-  const inboundTrigger = body?.inboundTrigger;
-  if (!isIntercomTriggerPolicy(inboundTrigger)) {
-    return NextResponse.json(
-      { error: 'inboundTrigger は "replies"、"always"、または "never" です' },
-      { status: 400 },
-    );
-  }
-
-  try {
-    const saved = writeIntercomTriggerPolicy(inboundTrigger);
-    return NextResponse.json({ inboundTrigger: saved });
-  } catch (error) {
-    return NextResponse.json({ error: errorMessage(error) }, { status: 500 });
-  }
+export function PATCH(request: NextRequest) {
+  return relayConfiguration(request ?? new Request("http://127.0.0.1/api/settings/intercom", { method: "PATCH" }), "settings/intercom");
 }

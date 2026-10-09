@@ -1,7 +1,7 @@
 import { NextRequest } from "next/server";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { DEFAULT_JEV_MODEL_SETTINGS } from "@/lib/jev-model-settings";
-import { GET, PUT } from "./route";
+import { GET, PUT } from "@backend-runtime/configuration/handlers/jev-model/route";
 
 const mocks = vi.hoisted(() => ({ get: vi.fn(), save: vi.fn(), list: vi.fn(), latency: vi.fn() }));
 vi.mock("@/lib/pi/jev-model-config", () => ({ getJevModelSettingsDto: mocks.get, saveJevModelSettings: mocks.save }));

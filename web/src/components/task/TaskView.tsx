@@ -3662,7 +3662,7 @@ export const TaskView = memo(function TaskView({
             <StatusBadge
               status={displayedStatus}
               className={cx(
-                "shrink-0",
+                "min-w-0",
                 displayedStatus === "working" &&
                   (permissionRequest || questionRequest) &&
                   "@max-[500px]/task:hidden",

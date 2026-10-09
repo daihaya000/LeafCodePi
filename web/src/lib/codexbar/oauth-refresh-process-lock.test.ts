@@ -7,7 +7,7 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import { afterEach, describe, it } from "vitest";
 
 const dirs: string[] = [];
-const utilityUrl = pathToFileURL(fileURLToPath(new URL("./utils.ts", import.meta.url))).href;
+const utilityUrl = pathToFileURL(fileURLToPath(new URL("../../../../backend/runtime-src/lib/codexbar/utils.ts", import.meta.url))).href;
 const workerSource = `
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { withRefreshFileLock } from ${JSON.stringify(utilityUrl)};

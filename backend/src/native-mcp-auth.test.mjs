@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
-import { randomBytes } from "node:crypto";
+import { randomBytes, randomUUID } from "node:crypto";
 import { once } from "node:events";
 import { execFileSync } from "node:child_process";
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
@@ -99,5 +99,22 @@ test("a real Backend persists native bearer/header auth and removes only what it
   // An unknown target is a 404 and a malformed body is a 400, both sanitized.
   assert.equal((await fetch(base.replace("/remote/", "/unknown/"), { method: "POST", headers, body: JSON.stringify({ type: "bearer", token: "x" }) })).status, 404);
   assert.equal((await fetch(base, { method: "POST", headers, body: JSON.stringify({ type: "bearer", token: "" }) })).status, 400);
+  // New JSON BFF entry reaches the same real native actions, with explicit ID-only receipts.
+  const businessHeaders = { ...headers, "x-leafcode-business-origin": "http://localhost", "x-leafcode-business-host": "localhost", "x-leafcode-business-authorized": "1" };
+  const businessBase = `http://127.0.0.1:${listening.port}/internal/json-business/mcp`;
+  const command = async (method, body, id = randomUUID()) => {
+    const response = await fetch(businessBase + "/remote/auth", { method, headers: { ...businessHeaders, "x-leafcode-business-operation": id }, body: JSON.stringify(body) });
+    assert.equal(response.status, 200); const result = await response.json();
+    assert.ok(!JSON.stringify(result).includes("business-private")); return { result, id };
+  };
+  const listed = await fetch(businessBase, { headers: businessHeaders }); assert.equal((await listed.json()).status, 200);
+  const status = await fetch(businessBase + "/remote/auth", { headers: businessHeaders }); assert.equal((await status.json()).body.name, "remote");
+  const businessBearer = await command("POST", { token: "business-private-token" }); assert.equal(businessBearer.result.status, 200); assert.equal(businessBearer.result.body.operation.execution, "complete"); assert.equal(config().headers.Authorization, "Bearer business-private-token");
+  const businessHeadersSaved = await command("POST", { type: "headers", headers: { "x-business": "business-private-value" } }); assert.equal(businessHeadersSaved.result.status, 200); assert.equal(config().headers["x-business"], "business-private-value");
+  for (const type of ["headers", "bearer"]) { const removed = await command("DELETE", type === "bearer" ? {} : { type }); assert.equal(removed.result.status, 200); assert.equal(removed.result.body.operation.execution, "complete"); }
+  assert.equal(config().headers["x-manual"], "hand-edited"); assert.equal(Object.hasOwn(config().headers, "x-business"), false); assert.equal(Object.hasOwn(config().headers, "Authorization"), false);
+  for (const body of [{ type: "oauth" }, { type: "oauth", action: "complete", input: "business-private-code" }]) { const refused = await command("POST", body); assert.equal(refused.result.status, 409); assert.equal(refused.result.body.operation.execution, "complete"); }
+  const duplicate = await command("POST", { token: "business-private-replay" }, businessBearer.id); assert.equal(duplicate.result.status, 409); assert.equal(duplicate.result.body.operation.execution, "complete"); assert.equal(Object.hasOwn(config().headers, "Authorization"), false);
+  const ledger = readFileSync(join(root, "data", "mcp-business-command.json"), "utf8"); assert.equal(JSON.parse(ledger).operations.length, 6); assert.ok(!/business-private|remote|headers|oauth/.test(ledger));
   assert.equal(child.exitCode, null);
 });

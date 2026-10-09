@@ -24,7 +24,7 @@ const gitMocks = vi.hoisted(() => ({
 
 vi.mock("@/lib/git", () => gitMocks);
 
-import { POST } from "./route";
+import { GET, POST } from "@backend-runtime/json-business/handlers/git/pr/route";
 
 function request(body: unknown): NextRequest {
   return new NextRequest("http://localhost/api/git/pr", {
@@ -33,6 +33,13 @@ function request(body: unknown): NextRequest {
     body: JSON.stringify(body),
   });
 }
+
+it("refuses unauthorized PR-check directories before invoking gh", async () => {
+  gitMocks.gitDirectoryError.mockReturnValueOnce("directory is not allowed" as never);
+  const before = spawnMock.mock.calls.length;
+  const response = await GET(new NextRequest("http://localhost/api/git/pr?directory=C:/Windows"));
+  expect(response.status).toBe(403); expect(spawnMock.mock.calls.length).toBe(before);
+});
 
 describe("POST /api/git/pr", () => {
   it("rejects a non-string title before invoking GitHub CLI", async () => {

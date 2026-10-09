@@ -81,13 +81,13 @@ vi.mock("@/lib/backend-forward", () => ({
   needsLocalResolution: vi.fn(() => false),
   forwardablePromptBody: vi.fn((body) => body),
 }));
-vi.mock("@/lib/webui-auth", () => ({
-  isWebUiRequestAuthorized: mocks.isWebUiRequestAuthorized,
+vi.mock("@backend-runtime/configuration/http", () => ({
+  isConfigurationRequestAuthorized: mocks.isWebUiRequestAuthorized,
 }));
 
 import { NextRequest } from "next/server";
 import { beforeEach } from "vitest";
-import { DELETE, GET, PATCH } from "./route";
+import { DELETE, GET, PATCH } from "@backend-runtime/json-business/handlers/bots/[id]/route";
 
 const emptyRequest = () => new Request("http://localhost") as NextRequest;
 
@@ -113,6 +113,8 @@ const bot = (id = "one"): BotDto => ({
 const params = (id: string) => ({ params: Promise.resolve({ id }) });
 beforeEach(() => {
   vi.clearAllMocks();
+  vi.stubEnv("LEAFCODE_PI_PROCESS_ROLE", "backend");
+  vi.stubEnv("LEAFCODE_PI_BACKEND_RUNTIME", "attach");
   // Ownership and forwarding are per-test: a leftover value would make every later test forward.
   mocks.localRuntimeBlocked.mockReturnValue(false);
   mocks.forwardTaskAbort.mockReset();
@@ -430,76 +432,4 @@ describe("DELETE /api/bots/[id]", () => {
   });
 });
 
-describe("Bot mutations after the cutover", () => {
-  it("hands a settings change to the owning Backend and replays its answer", async () => {
-    mocks.localRuntimeBlocked.mockReturnValue(true);
-    mocks.forwardBotAdmin.mockResolvedValue({ ok: true, status: 200, body: { bot: { id: "one", enabled: false } } });
-
-    const response = await PATCH(jsonRequest({ enabled: false }), params("one"));
-
-    expect(response.status).toBe(200);
-    expect(await response.json()).toEqual({ bot: { id: "one", enabled: false } });
-    expect(mocks.forwardBotAdmin).toHaveBeenCalledWith("one", { action: "patch", body: { enabled: false } });
-    // None of the owner work runs in this process.
-    expect(mocks.patchBot).not.toHaveBeenCalled();
-    expect(mocks.setBotModel).not.toHaveBeenCalled();
-    expect(mocks.abortTaskIncludingColdGoalLoop).not.toHaveBeenCalled();
-    expect(mocks.detachBotFromRoomRuntime).not.toHaveBeenCalled();
-  });
-
-  it("hands the deletion to the owning Backend, which stops the Bot's sessions", async () => {
-    mocks.localRuntimeBlocked.mockReturnValue(true);
-    mocks.forwardBotAdmin.mockResolvedValue({ ok: true, status: 200, body: { ok: true } });
-
-    const response = await DELETE(emptyRequest(), params("one"));
-
-    expect(await response.json()).toEqual({ ok: true });
-    expect(mocks.forwardBotAdmin).toHaveBeenCalledWith("one", { action: "delete" });
-    expect(mocks.deleteBot).not.toHaveBeenCalled();
-    expect(mocks.destroyTask).not.toHaveBeenCalled();
-    expect(mocks.stopAllCodeSessionsForBot).not.toHaveBeenCalled();
-  });
-
-  it("keeps the owner's refusal and reports an unreachable Backend as 502", async () => {
-    mocks.localRuntimeBlocked.mockReturnValue(true);
-    mocks.forwardBotAdmin.mockResolvedValueOnce({ ok: true, status: 400, body: { error: "ボット設定が不正です" } });
-    const refused = await PATCH(jsonRequest({ enabled: "yes" }), params("one"));
-    expect(refused.status).toBe(400);
-    expect(await refused.json()).toEqual({ error: "ボット設定が不正です" });
-
-    mocks.forwardBotAdmin.mockResolvedValueOnce({ ok: false, reason: "unreachable" });
-    expect((await DELETE(emptyRequest(), params("one"))).status).toBe(502);
-    expect(mocks.deleteBot).not.toHaveBeenCalled();
-  });
-
-  it("checks the privileged-mutation token here, before anything is forwarded", async () => {
-    mocks.localRuntimeBlocked.mockReturnValue(true);
-    mocks.isWebUiRequestAuthorized.mockReturnValue(false);
-
-    const response = await PATCH(jsonRequest({ codeAutoApprove: true }), params("one"));
-
-    expect(response.status).toBe(403);
-    expect(mocks.forwardBotAdmin).not.toHaveBeenCalled();
-  });
-
-  it("does not refresh live sessions when reading a Bot from a client", async () => {
-    mocks.getBot.mockReturnValue(bot());
-    mocks.localRuntimeBlocked.mockReturnValue(true);
-
-    const response = await GET(emptyRequest(), params("one"));
-
-    expect(response.status).toBe(200);
-    expect(mocks.setBotTools).not.toHaveBeenCalled();
-  });
-
-  it("keeps the local stops while this process owns the runtime", async () => {
-    mocks.getBot.mockReturnValue({ ...bot(), codeSessionTaskId: "code-loop" });
-    mocks.getTask.mockReturnValue({ id: "code-loop", status: "working" });
-    mocks.deleteBot.mockReturnValue(true);
-
-    await DELETE(emptyRequest(), params("one"));
-
-    expect(mocks.forwardBotAdmin).not.toHaveBeenCalled();
-    expect(mocks.stopBotCodeTask).toHaveBeenCalledWith("one", "code-loop");
-  });
-});
+// Transport/fallback/ACK coverage lives in json-business-relay.test.ts.

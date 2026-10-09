@@ -1,51 +1,7 @@
-import { NextRequest } from "next/server";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { NextRequest } from "next/server";import { mkdtempSync,readdirSync,rmSync } from "node:fs";import { join } from "node:path";import { tmpdir } from "node:os";import { afterEach,beforeEach,expect,it,vi } from "vitest";
+let root:string;const fetcher=vi.fn();beforeEach(()=>{root=mkdtempSync(join(tmpdir(),"leafcode-information-bff-"));for(const [key,value]of Object.entries({LEAFCODE_PI_DATA_DIR:root,PI_CODING_AGENT_DIR:root,LEAFCODE_PI_PROCESS_ROLE:"next",LEAFCODE_PI_WEBUI_AUTH:"",LEAFCODE_PI_WEBUI_TOKEN:"",LEAFCODE_PI_BACKEND_TOKEN:"private-backend-token-1234567890123456789",LEAFCODE_PI_BACKEND_GENERATION:"",LEAFCODE_PI_BACKEND_GENERATION_FILE:""}))vi.stubEnv(key,value);fetcher.mockReset();vi.stubGlobal("fetch",fetcher);});afterEach(()=>{expect(readdirSync(root)).toEqual([]);vi.unstubAllGlobals();vi.unstubAllEnvs();rmSync(root,{recursive:true,force:true});});
 
-const unread = vi.hoisted(() => ({
-  getUnreadReadMarkers: vi.fn(),
-  markUnreadRead: vi.fn(),
-}));
-
-vi.mock("@/lib/unread-state", () => unread);
-
-import { GET, PUT } from "./route";
-
-function request(body: unknown): NextRequest {
-  return new NextRequest("http://127.0.0.1:3010/api/unread", {
-    method: "PUT",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify(body),
-  });
-}
-
-describe("/api/unread", () => {
-  beforeEach(() => {
-    vi.clearAllMocks();
-  });
-
-  it("returns persisted read markers", async () => {
-    unread.getUnreadReadMarkers.mockReturnValue([{ kind: "bot", id: "bot-1", readAt: 123 }]);
-
-    const response = GET();
-
-    expect(await response.json()).toEqual({ markers: [{ kind: "bot", id: "bot-1", readAt: 123 }] });
-  });
-
-  it("persists a valid marker", async () => {
-    unread.markUnreadRead.mockReturnValue(456);
-
-    const response = await PUT(request({ kind: "task", id: "task-1", readAt: 456 }));
-
-    expect(response.status).toBe(200);
-    expect(unread.markUnreadRead).toHaveBeenCalledWith("task", "task-1", 456);
-    expect(await response.json()).toEqual({ readAt: 456 });
-  });
-
-  it("rejects malformed markers", async () => {
-    unread.markUnreadRead.mockReturnValue(null);
-
-    const response = await PUT(request({ kind: "other", id: "task-1", readAt: 456 }));
-
-    expect(response.status).toBe(400);
-  });
-});
+import { GET,PUT } from "./route";
+it("GET forwards redacted stored markers, PUT exact opaque bytes requires owner ACK",async()=>{fetcher.mockResolvedValueOnce(Response.json({status:200,body:{markers:[{kind:"task",id:"constructor",readAt:1,secret:"PRIVATE"}]}}));const read=await GET(new NextRequest("http://localhost"));expect(read.status).toBe(200);expect(JSON.stringify(await read.json())).not.toContain("PRIVATE");fetcher.mockImplementationOnce(async(_url,init)=>Response.json({status:200,body:{readAt:123,token:"PRIVATE",operation:{id:new Headers(init.headers).get("x-leafcode-business-operation"),execution:"complete"}}}));const body='{"kind":"task","id":"constructor","readAt":123,"path":"opaque"}',response=await PUT(new NextRequest("http://localhost",{method:"PUT",body}));expect(response.status).toBe(200);expect(JSON.stringify(await response.json())).not.toContain("PRIVATE");expect(new TextDecoder().decode(fetcher.mock.calls.at(-1)![1].body)).toBe(body);});
+it.each([undefined,{id:"11111111-0123-4321-abcd-eeeeeeeeeeee",execution:"complete"}])("missing/mismatched ACK never persists locally or retries",async(operation)=>{fetcher.mockResolvedValueOnce(Response.json({status:200,body:{readAt:1,operation}}));expect((await PUT(new NextRequest("http://localhost",{method:"PUT",body:"{}"}))).status).toBe(503);expect(fetcher).toHaveBeenCalledOnce();});
+it("PUT refuses invalid Origin and oversized bytes before transport",async()=>{expect((await PUT(new NextRequest("http://localhost",{method:"PUT",body:"{}",headers:{origin:"https://evil.invalid"}}))).status).toBe(403);expect((await PUT(new NextRequest("http://localhost",{method:"PUT",body:"x".repeat(4097)}))).status).toBe(413);expect(fetcher).not.toHaveBeenCalled();});

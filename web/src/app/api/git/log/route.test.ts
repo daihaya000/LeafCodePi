@@ -13,7 +13,7 @@ vi.mock("@/lib/git", () => ({
   gitLogGraph: mocks.gitLogGraph,
 }));
 
-import { GET } from "./route";
+import { GET } from "@backend-runtime/json-business/handlers/git/log/route";
 
 const url = "http://localhost/api/git/log?directory=C%3A%5Crepo&limit=80&skip=0";
 

@@ -1,0 +1,485 @@
+import { spawn } from "node:child_process";
+import { createRequire } from "node:module";
+import { assertConfigurationOwner, watchConfigurationPath, markConfigurationRecovery, markConfigurationExternalWrite } from "@backend-core/configuration-command.mjs";
+import { gzipSync, gunzipSync } from "node:zlib";
+import {
+  existsSync,
+  lstatSync,
+  mkdirSync,
+  readFileSync,
+  readdirSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
+import { dirname, join, relative, resolve } from "node:path";
+import { resolvePiAgentDir } from "@/lib/agents-md";
+import { dataDir } from "@/lib/paths";
+import { MAX_ARCHIVE_BYTES } from "@/lib/profile-limits";
+
+const PROFILE_FORMAT = "leafcode-pi-profile";
+const PROFILE_VERSION = 1;
+const MAX_CONTENT_BYTES = 240 * 1024 * 1024;
+const MAX_EXPANDED_BYTES = 384 * 1024 * 1024;
+// User-managed agent resources can contain many files.
+const MAX_PROFILE_FILES = 50_000;
+
+const AGENT_FILES = [
+  "AGENTS.md",
+  "BOTS.md",
+  "DESIGN.md",
+  "SOUL.md",
+  "TOOLS.md",
+  "USER.md",
+  "WORKFLOW.md",
+  "leafcode-memory-config.json",
+  "mcp.json",
+  "models.json",
+  "settings.json",
+] as const;
+// Legacy v1 profiles may contain credentials here; imports ignore them.
+const LEGACY_AUTH_AGENT_FILES = ["auth.json"] as const;
+// npm and git packages are restored explicitly after import via `pi update --extensions`.
+const EXPORTED_AGENT_DIRECTORIES = ["agents", "extensions", "intercom", "skills"] as const;
+// Older v1 profiles may contain account auth and peer tokens under this directory.
+const LEGACY_AUTH_AGENT_DIRECTORIES = ["accounts"] as const;
+const MANAGED_AGENT_DIRECTORIES = [...EXPORTED_AGENT_DIRECTORIES, ...LEGACY_AUTH_AGENT_DIRECTORIES, "git", "npm"] as const;
+const DATA_FILES = [
+  "browser-config.json",
+  "extensions-state.json",
+  "permission-gate.json",
+  "provider-endpoints.json",
+  "provider-model-state.json",
+  "provider-routing.json",
+  "skills-state.json",
+  "tts.json",
+  "web-settings.json",
+] as const;
+// Account records belong to credential transfer; WebUI access auth stays local.
+const LEGACY_AUTH_DATA_FILES = ["accounts.json", "webui-auth.json"] as const;
+const ALLOWED_AGENT_FILES = new Set<string>([...AGENT_FILES, ...LEGACY_AUTH_AGENT_FILES]);
+const ALLOWED_DATA_FILES = new Set<string>([...DATA_FILES, ...LEGACY_AUTH_DATA_FILES]);
+const DATA_DIRECTORIES = ["settings"] as const;
+
+type ProfileArchive = {
+  format: typeof PROFILE_FORMAT;
+  version: typeof PROFILE_VERSION;
+  createdAt: string;
+  files: Record<string, string>;
+  /** POSIX executable bits for imported package scripts; absent in v1 profiles. */
+  modes?: Record<string, number>;
+};
+
+export type ProfileSummary = {
+  fileCount: number;
+  bytes: number;
+};
+
+export type ProfileBackup = {
+  name: string;
+  createdAt: string;
+};
+
+export type ProfileBackupSummary = ProfileSummary & {
+  backupPath: string;
+};
+
+export type ProfilePackageRestoreSummary = {
+  packageCount: number;
+};
+
+type ProfileRoots = {
+  agentDir?: string;
+  leafcodeDir?: string;
+};
+
+const PACKAGE_RESTORE_TIMEOUT_MS = 120_000;
+const PACKAGE_RESTORE_OUTPUT_MAX_CHARS = 64 * 1024;
+
+type PackageUpdateRunner = (agentDir: string) => Promise<void>;
+
+type PiUpdateCommand = {
+  command: string;
+  args: string[];
+};
+
+/**
+ * The desktop launcher does not inherit the shell's node_modules/.bin PATH.
+ * Prefer the Pi CLI shipped with this checkout so package restore does not
+ * depend on a separately installed global `pi` command.
+ */
+function piUpdateCommand(): PiUpdateCommand {
+  const require = createRequire(import.meta.url);
+  const sdkEntry = require.resolve("@earendil-works/pi-coding-agent");
+  const cliCandidates = [join(dirname(sdkEntry), "bundle", "cli.js")];
+  const cliPath = cliCandidates.find((candidate) => existsSync(candidate));
+  if (cliPath) {
+    return { command: process.execPath, args: [cliPath, "update", "--extensions"] };
+  }
+  if (process.platform === "win32") {
+    return { command: "cmd.exe", args: ["/d", "/s", "/c", "pi.cmd update --extensions"] };
+  }
+  return { command: "pi", args: ["update", "--extensions"] };
+}
+
+function roots(options: ProfileRoots = {}) {
+  return {
+    agentDir: resolve(options.agentDir ?? resolvePiAgentDir()),
+    leafcodeDir: resolve(options.leafcodeDir ?? dataDir()),
+  };
+}
+
+function profilePath(root: "agent" | "data", path: string): string {
+  return `${root}/${path.replaceAll("\\", "/")}`;
+}
+
+function isSafeRelativePath(path: string): boolean {
+  return !path.includes("\\") && !path.includes("\0") &&
+    path.split("/").every((part) => part.length > 0 && part !== "." && part !== "..");
+}
+
+function isAllowedProfilePath(path: string): boolean {
+  const [root, ...parts] = path.split("/");
+  if ((root !== "agent" && root !== "data") || parts.length === 0 || !isSafeRelativePath(parts.join("/"))) {
+    return false;
+  }
+  const [entry] = parts;
+  if (root === "agent") {
+    return (parts.length === 1 && ALLOWED_AGENT_FILES.has(entry)) || (parts.length > 1 && MANAGED_AGENT_DIRECTORIES.includes(entry as never));
+  }
+  return (parts.length === 1 && ALLOWED_DATA_FILES.has(entry)) || (parts.length > 1 && DATA_DIRECTORIES.includes(entry as never));
+}
+
+type ProfileTotal = { bytes: number; fileCount: number; agentDir: string; leafcodeDir: string };
+
+function addFile(files: Record<string, string>, modes: Record<string, number>, key: string, path: string, total: ProfileTotal) {
+  const stat = lstatSync(path);
+  if (!stat.isFile()) return;
+  total.bytes += stat.size;
+  if (total.bytes > MAX_CONTENT_BYTES) {
+    throw new Error(`設定ファイルが${MAX_CONTENT_BYTES / 1024 / 1024}MBを超えています`);
+  }
+  if (total.fileCount >= MAX_PROFILE_FILES) {
+    throw new Error(`設定ファイルに含めるファイル数が${MAX_PROFILE_FILES}件を超えています`);
+  }
+  files[key] = readFileSync(path).toString("base64");
+  modes[key] = stat.mode & 0o777;
+  total.fileCount += 1;
+}
+
+function addDirectory(files: Record<string, string>, modes: Record<string, number>, root: "agent" | "data", directory: string, total: ProfileTotal) {
+  if (!existsSync(directory) || lstatSync(directory).isSymbolicLink()) return;
+  for (const entry of readdirSync(directory, { withFileTypes: true })) {
+    const path = join(directory, entry.name);
+    if (entry.isSymbolicLink()) continue;
+    if (entry.isDirectory()) {
+      addDirectory(files, modes, root, path, total);
+      continue;
+    }
+    if (entry.isFile()) {
+      const key = profilePath(root, relative(root === "agent" ? total.agentDir : total.leafcodeDir, path));
+      addFile(files, modes, key, path, total);
+    }
+  }
+}
+
+/** Export portable settings and user-installed agent resources, excluding credentials. */
+export function exportProfile(options: ProfileRoots = {}): { archive: Buffer; summary: ProfileSummary } {
+  const { agentDir, leafcodeDir } = roots(options);
+  const files: Record<string, string> = {};
+  const modes: Record<string, number> = {};
+  const total: ProfileTotal = { bytes: 0, fileCount: 0, agentDir, leafcodeDir };
+
+  for (const name of AGENT_FILES) {
+    const path = join(agentDir, name);
+    if (existsSync(path)) addFile(files, modes, profilePath("agent", name), path, total);
+  }
+  for (const name of EXPORTED_AGENT_DIRECTORIES) addDirectory(files, modes, "agent", join(agentDir, name), total);
+  for (const name of DATA_FILES) {
+    const path = join(leafcodeDir, name);
+    if (existsSync(path)) addFile(files, modes, profilePath("data", name), path, total);
+  }
+  for (const name of DATA_DIRECTORIES) addDirectory(files, modes, "data", join(leafcodeDir, name), total);
+
+  const archive: ProfileArchive = {
+    format: PROFILE_FORMAT,
+    version: PROFILE_VERSION,
+    createdAt: new Date().toISOString(),
+    files,
+    modes,
+  };
+  return {
+    archive: gzipSync(Buffer.from(JSON.stringify(archive), "utf8"), { level: 1 }),
+    summary: { fileCount: total.fileCount, bytes: total.bytes },
+  };
+}
+
+function parseProfile(archive: Buffer): ProfileArchive {
+  if (archive.length > MAX_ARCHIVE_BYTES) throw new Error("設定ファイルが大きすぎます");
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(gunzipSync(archive, { maxOutputLength: MAX_EXPANDED_BYTES }).toString("utf8"));
+  } catch {
+    throw new Error("有効なLeafCodePi設定ファイルではありません");
+  }
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) throw new Error("設定ファイルの形式が不正です");
+  const profile = parsed as Partial<ProfileArchive>;
+  if (profile.format !== PROFILE_FORMAT || profile.version !== PROFILE_VERSION || !profile.files || typeof profile.files !== "object" || Array.isArray(profile.files)) {
+    throw new Error("対応していない設定ファイル形式です");
+  }
+  const files = Object.entries(profile.files);
+  if (files.length > MAX_PROFILE_FILES) throw new Error("設定ファイルに含まれるファイル数が多すぎます");
+  if (profile.modes !== undefined && (typeof profile.modes !== "object" || profile.modes === null || Array.isArray(profile.modes))) {
+    throw new Error("設定ファイルの権限情報が不正です");
+  }
+  const modes = profile.modes ?? {};
+  if (Object.keys(modes).length > files.length) throw new Error("設定ファイルの権限情報が不正です");
+  for (const [path, mode] of Object.entries(modes)) {
+    if (!Object.hasOwn(profile.files, path) || !isAllowedProfilePath(path) || !Number.isInteger(mode) || mode < 0 || mode > 0o777) {
+      throw new Error("設定ファイルの権限情報が不正です");
+    }
+  }
+  let bytes = 0;
+  for (const [path, content] of files) {
+    if (!isAllowedProfilePath(path) || typeof content !== "string") throw new Error("設定ファイルに許可されないパスがあります");
+    const decoded = Buffer.from(content, "base64");
+    if (decoded.toString("base64") !== content) throw new Error("設定ファイルの内容が壊れています");
+    bytes += decoded.length;
+    if (bytes > MAX_CONTENT_BYTES) throw new Error("設定ファイルの展開サイズが大きすぎます");
+  }
+  return profile as ProfileArchive;
+}
+
+function removeConfiguredPaths(agentDir: string, leafcodeDir: string, includePackages = true): void {
+  for (const name of [...AGENT_FILES, ...EXPORTED_AGENT_DIRECTORIES, ...(includePackages ? ["git", "npm"] : [])]) watchConfigurationPath(join(agentDir, name));
+  for (const name of [...DATA_FILES, ...DATA_DIRECTORIES]) watchConfigurationPath(join(leafcodeDir, name));
+  for (const name of AGENT_FILES) rmSync(join(agentDir, name), { force: true });
+  for (const name of EXPORTED_AGENT_DIRECTORIES) rmSync(join(agentDir, name), { recursive: true, force: true });
+  if (includePackages) {
+    for (const name of ["git", "npm"]) rmSync(join(agentDir, name), { recursive: true, force: true });
+  }
+  for (const name of DATA_FILES) rmSync(join(leafcodeDir, name), { force: true });
+  for (const name of DATA_DIRECTORIES) rmSync(join(leafcodeDir, name), { recursive: true, force: true });
+}
+
+const BACKUP_DIRECTORY = "profile-backups";
+const BACKUP_SUFFIX = ".bak.lcp.gz";
+
+type StoredProfileBackup = ProfileBackup & { path: string; modifiedAt: number };
+
+function profileBackups(leafcodeDir: string): StoredProfileBackup[] {
+  const directory = join(leafcodeDir, BACKUP_DIRECTORY);
+  if (!existsSync(directory)) return [];
+  return readdirSync(directory, { withFileTypes: true })
+    .flatMap((entry) => {
+      if (!entry.isFile() || !entry.name.startsWith("leafcode-pi-profile-") || !entry.name.endsWith(BACKUP_SUFFIX)) return [];
+      const path = join(directory, entry.name);
+      const stat = lstatSync(path);
+      return [{ name: entry.name, createdAt: stat.mtime.toISOString(), modifiedAt: stat.mtimeMs, path }];
+    })
+    .sort((left, right) => right.modifiedAt - left.modifiedAt || right.name.localeCompare(left.name));
+}
+
+function writeProfileBackup(archive: Buffer, leafcodeDir: string): string {
+  assertConfigurationOwner();
+  const directory = join(leafcodeDir, BACKUP_DIRECTORY);
+  mkdirSync(directory, { recursive: true, mode: 0o700 });
+  const base = `leafcode-pi-profile-${new Date().toISOString().replaceAll(/[:.]/g, "-")}-${process.pid}`;
+  for (let index = 0; ; index += 1) {
+    const path = join(directory, `${base}${index ? `-${index}` : ""}${BACKUP_SUFFIX}`);
+    try {
+      writeFileSync(path, archive, { mode: 0o600, flag: "wx" });
+      return path;
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
+    }
+  }
+}
+
+function destination(path: string, agentDir: string, leafcodeDir: string): string {
+  const [root, ...parts] = path.split("/");
+  const base = root === "agent" ? agentDir : leafcodeDir;
+  const result = resolve(base, ...parts);
+  if (result !== base && !result.startsWith(`${base}${process.platform === "win32" ? "\\" : "/"}`)) {
+    throw new Error("設定ファイルの出力先が不正です");
+  }
+  return result;
+}
+
+function isLegacyCredentialPath(path: string): boolean {
+  return path === "agent/auth.json" || path.startsWith("agent/accounts/") ||
+    path === "data/accounts.json" || path === "data/webui-auth.json";
+}
+
+function importedFileMode(mode: number | undefined): number {
+  // Keep imported configuration private; preserve only package scripts' owner-executable bit.
+  return 0o600 | ((mode ?? 0) & 0o100);
+}
+
+function applyProfile(profile: ProfileArchive, agentDir: string, leafcodeDir: string): ProfileSummary {
+  const files = Object.entries(profile.files)
+    // Backward-compatible v1 imports ignore credential paths rather than restoring them.
+    .filter(([profilePath]) => !isLegacyCredentialPath(profilePath))
+    .map(([profilePath, content]) => ({
+      path: destination(profilePath, agentDir, leafcodeDir),
+      content: Buffer.from(content, "base64"),
+      mode: importedFileMode(profile.modes?.[profilePath]),
+    }));
+  // New profiles omit package artifacts; keep the current copies until explicit reinstallation succeeds.
+  const includesPackageArtifacts = Object.keys(profile.files).some((path) => path.startsWith("agent/git/") || path.startsWith("agent/npm/"));
+  removeConfiguredPaths(agentDir, leafcodeDir, includesPackageArtifacts);
+  for (const file of files) {
+    mkdirSync(dirname(file.path), { recursive: true, mode: 0o700 });
+    writeFileSync(file.path, file.content, { mode: file.mode });
+  }
+  return { fileCount: files.length, bytes: files.reduce((total, file) => total + file.content.length, 0) };
+}
+
+function replaceProfile(
+  profile: ProfileArchive,
+  agentDir: string,
+  leafcodeDir: string,
+  rollback: () => ProfileArchive,
+): ProfileSummary {
+  try {
+    return applyProfile(profile, agentDir, leafcodeDir);
+  } catch (error) {
+    try {
+      applyProfile(rollback(), agentDir, leafcodeDir);
+      markConfigurationRecovery("restored");
+    } catch {
+      markConfigurationRecovery("required");
+    }
+    throw error;
+  }
+}
+
+function configuredPackageCount(agentDir: string): number {
+  const settingsPath = join(agentDir, "settings.json");
+  if (!existsSync(settingsPath)) return 0;
+  try {
+    const settings = JSON.parse(readFileSync(settingsPath, "utf8")) as { packages?: unknown };
+    return Array.isArray(settings.packages) ? settings.packages.length : 0;
+  } catch {
+    throw new Error("パッケージ設定を読み込めません");
+  }
+}
+
+function updateProfilePackages(agentDir: string): Promise<void> {
+  return new Promise((resolveUpdate, rejectUpdate) => {
+    const update = piUpdateCommand();
+    const child = spawn(update.command, update.args, {
+      cwd: agentDir,
+      shell: false,
+      windowsHide: true,
+      env: { ...process.env, PI_CODING_AGENT_DIR: agentDir, GIT_TERMINAL_PROMPT: "0" },
+    });
+    let output = "";
+    let settled = false;
+    const timer = setTimeout(() => {
+      if (settled) return;
+      settled = true;
+      child.kill();
+      rejectUpdate(new Error("パッケージの再取得がタイムアウトしました"));
+    }, PACKAGE_RESTORE_TIMEOUT_MS);
+    if (typeof timer.unref === "function") timer.unref();
+    // Only the tail matters for the error message; keep memory bounded.
+    const append = (chunk: unknown) => {
+      output += String(chunk);
+      if (output.length > PACKAGE_RESTORE_OUTPUT_MAX_CHARS) output = output.slice(-PACKAGE_RESTORE_OUTPUT_MAX_CHARS);
+    };
+    child.stdout.on("data", append);
+    child.stderr.on("data", append);
+    child.on("error", (error) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      rejectUpdate(error);
+    });
+    child.on("close", (code) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      if (code === 0) resolveUpdate();
+      else rejectUpdate(new Error(output.trim() || "パッケージの再取得に失敗しました"));
+    });
+  });
+}
+
+/** Reinstall package resources declared in the imported profile's settings. */
+export async function restoreProfilePackages(
+  options: ProfileRoots = {},
+  update: PackageUpdateRunner = updateProfilePackages,
+): Promise<ProfilePackageRestoreSummary> {
+  const { agentDir } = roots(options);
+  const packageCount = configuredPackageCount(agentDir);
+  assertConfigurationOwner();
+  if (packageCount) {
+    markConfigurationExternalWrite("started");
+    await update(agentDir);
+    markConfigurationExternalWrite("saved");
+  }
+  return { packageCount };
+}
+
+/** Save all profile-managed settings to a dated, non-overwriting local backup. */
+export function createProfileBackup(options: ProfileRoots = {}): ProfileBackupSummary {
+  const { agentDir, leafcodeDir } = roots(options);
+  const { archive, summary } = exportProfile({ agentDir, leafcodeDir });
+  return { ...summary, backupPath: writeProfileBackup(archive, leafcodeDir) };
+}
+
+/** Back up all profile-managed settings, then remove them for a clean start. */
+export function resetProfile(options: ProfileRoots = {}): ProfileBackupSummary {
+  const { agentDir, leafcodeDir } = roots(options);
+  const { archive, summary } = exportProfile({ agentDir, leafcodeDir });
+  const backupPath = writeProfileBackup(archive, leafcodeDir);
+  try {
+    removeConfiguredPaths(agentDir, leafcodeDir);
+    return { ...summary, backupPath };
+  } catch (error) {
+    try {
+      applyProfile(parseProfile(archive), agentDir, leafcodeDir);
+      markConfigurationRecovery("restored");
+    } catch {
+      markConfigurationRecovery("required");
+    }
+    throw error;
+  }
+}
+
+/** List local profile backups, newest first. */
+export function listProfileBackups(options: ProfileRoots = {}): ProfileBackup[] {
+  return profileBackups(roots(options).leafcodeDir).map(({ name, createdAt }) => ({ name, createdAt }));
+}
+
+/** Restore a selected locally retained profile backup. */
+export function restoreProfile(backupName: string, options: ProfileRoots = {}): ProfileBackupSummary {
+  const { agentDir, leafcodeDir } = roots(options);
+  const backup = profileBackups(leafcodeDir).find(({ name }) => name === backupName);
+  if (!backup) throw new Error("指定されたバックアップがありません");
+  return importProfileWithBackup(readFileSync(backup.path), { agentDir, leafcodeDir });
+}
+
+/** Replace all profile-managed settings after validating the entire archive. */
+export function importProfile(archive: Buffer, options: ProfileRoots = {}): ProfileSummary {
+  const profile = parseProfile(archive);
+  const { agentDir, leafcodeDir } = roots(options);
+  // Keep a validated in-memory rollback point so a full disk or permission failure cannot leave a half-imported profile.
+  const previous = exportProfile({ agentDir, leafcodeDir }).archive;
+  return replaceProfile(profile, agentDir, leafcodeDir, () => parseProfile(previous));
+}
+
+/** Retain the current settings before replacing them with a validated profile archive. */
+export function importProfileWithBackup(archive: Buffer, options: ProfileRoots = {}): ProfileBackupSummary {
+  const profile = parseProfile(archive);
+  const { agentDir, leafcodeDir } = roots(options);
+  const previous = exportProfile({ agentDir, leafcodeDir });
+  const backupPath = writeProfileBackup(previous.archive, leafcodeDir);
+  // The backup is durable on disk, so release the exported archive before replacing.
+  // Rollback re-reads that file, which keeps one profile in memory instead of two.
+  previous.archive = Buffer.alloc(0);
+  return {
+    ...replaceProfile(profile, agentDir, leafcodeDir, () => parseProfile(readFileSync(backupPath))),
+    backupPath,
+  };
+}

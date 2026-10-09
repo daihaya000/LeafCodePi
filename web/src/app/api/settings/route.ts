@@ -1,10 +1,9 @@
-import { NextResponse } from "next/server";
-import { readSettingsSnapshot } from "@/lib/pi/settings-snapshot";
+import { NextRequest } from "next/server";
+import { relayConfiguration } from "@/lib/configuration-relay";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-/** タブ復帰時などの一括再取得用。起動時は (app)/layout がサーバ描画で埋め込む。 */
-export async function GET() {
-  return NextResponse.json({ values: readSettingsSnapshot() });
+export function GET(request?: NextRequest) {
+  return relayConfiguration(request ?? new Request("http://127.0.0.1/api/settings", { method: "GET" }), "settings");
 }

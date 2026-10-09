@@ -12,7 +12,7 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock("@/lib/git", () => mocks);
 
-import { POST } from "./route";
+import { POST } from "@backend-runtime/json-business/handlers/git/rm/route";
 
 function request(body: unknown): NextRequest {
   return new NextRequest("http://localhost/api/git/rm", {

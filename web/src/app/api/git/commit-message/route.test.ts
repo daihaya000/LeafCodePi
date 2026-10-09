@@ -1,6 +1,6 @@
 import { NextRequest } from "next/server";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { POST } from "./route";
+import { POST } from "@backend-runtime/json-business/handlers/git/commit-message/route";
 
 const mocks = vi.hoisted(() => ({
   getSetting: vi.fn<(key: string) => string | null>(),
@@ -118,7 +118,7 @@ describe("/api/git/commit-message", () => {
     mocks.getSetting.mockImplementation((key: string) =>
       key === "generation-model" ? "openrouter::stealth/ox-alpha" : null,
     );
-    mocks.completeModelText.mockRejectedValue(new Error("429: temporarily rate-limited"));
+    mocks.completeModelText.mockRejectedValue(new Error("429: PRIVATE-PROVIDER-CREDENTIAL"));
     vi.spyOn(console, "warn").mockImplementation(() => undefined);
 
     const response = await POST(request({ directory: "C:\\repo-failure", files: [file] }));
@@ -129,8 +129,9 @@ describe("/api/git/commit-message", () => {
       source: "fallback",
       model: null,
       warning:
-        "AI生成に失敗したため、ファイル情報から生成しました: 直接生成に失敗しました: 429: temporarily rate-limited",
+        "AI生成に失敗したため、ファイル情報から生成しました",
     });
+    expect(console.warn).toHaveBeenCalledWith("[LeafCodePi] direct commit-message generation failed");
   });
 
   it("tries the configured fallback model without reasoning before the deterministic fallback", async () => {

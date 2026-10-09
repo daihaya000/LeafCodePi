@@ -18,7 +18,7 @@ vi.mock("@/lib/pi/goal-loop-auto-model", () => ({
   clearGoalLoopAutoModel: mocks.clearGoalLoopAutoModel,
 }));
 
-import { PUT } from "./route";
+import { PUT } from "@backend-runtime/json-business/handlers/tasks/[id]/goal-loop-auto-model/route";
 
 const params = { params: Promise.resolve({ id: "task-1" }) };
 

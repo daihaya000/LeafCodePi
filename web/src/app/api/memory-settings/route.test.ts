@@ -8,7 +8,7 @@ const settings = vi.hoisted(() => ({
 
 vi.mock("@/lib/leafcode-memory-settings", () => settings);
 
-import { GET, PUT } from "./route";
+import { GET, PUT } from "@backend-runtime/configuration/handlers/memory-settings/route";
 
 function request(body: unknown): NextRequest {
   return new NextRequest("http://127.0.0.1:3010/api/memory-settings", {

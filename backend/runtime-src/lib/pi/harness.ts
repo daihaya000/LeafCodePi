@@ -1,0 +1,12588 @@
+import { EventEmitter } from "node:events";
+import { assertConfigurationOwner } from "@backend-core/configuration-command.mjs";
+import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import { rm } from "node:fs/promises";
+import { homedir } from "node:os";
+import { basename, dirname, join, relative, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
+import { captureSessionBackgroundWorkStop, captureSessionShutdownResourceStop, listBackgroundWorkProviders } from "@extensions/leafcode-subagents/src/api/background-work.ts";
+import { resumeReservationFromBranch } from "@shared/session-resume";
+import { runBackendMcpNativeSessionShutdownActions } from "@backend-core/mcp-native-session.mjs";
+import { assertSessionLoadAllowed, isRuntimeMemoryPressure, openSessionManagerSafely, readRuntimeMemory } from "@backend-core/session-memory-guard.mjs";
+import {
+  dataDir,
+  isAbsolutePath,
+  noProjectRoot,
+  pathKey,
+  sameOrDescendantPath,
+  samePath,
+} from "@/lib/paths";
+import { prepareWorkspaceMove, type PreparedWorkspaceMove } from "@/lib/workspace-move";
+import { assertLocalRuntimeAllowed, localRuntimeBlocked } from "@/lib/pi/runtime-ownership";
+import { readDiskTodoProgress } from "@/lib/pi/disk-todo-progress";
+import { fetchRemoteCodeProgress, fetchRemoteTodoProgressMany, needsRemoteTodoProgress } from "@/lib/pi/remote-todo-progress";
+import { createTaskStreamWake } from "./task-stream-wake";
+import { assertAutoUpdateAvailable, setAutoUpdateMaintenance } from "./auto-update-maintenance";
+import { beginTaskPreparation, hasActiveTaskOperations, hasTaskPreparation, invalidateTaskPreparations, isTaskTreeEditing, withTaskSessionMutation, withTaskTreeEdit } from "./task-operation-guard";
+import { buildGoalLoopResumeCommand, dispatchGoalLoopCommand, isGoalLoopCommandApplied } from "@/lib/pi/goal-loop-command";
+import { notifyPushoverCompletion, shouldNotifyPushoverCompletion } from "@/lib/pushover";
+import { BOT_DEFAULT_TOOL_NAMES, BOT_TOOL_NAMES, botPromptSources, botRuntimeContext, botSoulRevision, botTaskId, getBot, listBots, patchBot } from "@/lib/bots";
+import { AGENTS_MD_FILENAME, codeOnDemandPrompt, codePromptSources, compactSdkDocumentation, readAgentsMdFile } from "@/lib/agents-md";
+import { DEFAULT_AGENT } from "@/lib/default-agent";
+import { BOT_CODE_RESULT, BOT_CODE_TOOL, botCodeReportText, createBotCodeRelay, hasBotCodeReport, isBotCodeOriginTask, isRoomDelegatedCodeTask, queueBotCodePrompt, roomForCodeOrigin, runUserBotCodeRequest, stopBotCodeRequestForTask, truncateCodeReportRequest, type CodePromptOptions, type CodeRequest } from "@/lib/pi/bot-code-relay";
+import { catalogFromRoomUserRequest, catalogFromSessionEntries } from "@/lib/pi/bot-code-images";
+import { roomRequestImages } from "@/lib/rooms";
+import { BOT_SOUL_TOOL, botSoulTool } from "@/lib/pi/bot-soul-tool";
+import { JEV_TOOL_NAME, registerJevTool } from "@/lib/pi/jev-tool";
+import { createJevNoulJudge, registerJevNoulJudge } from "@/lib/pi/jev-noul-judge";
+import { ROOM_HANDOFF_TOOL, roomHandoffTool } from "@/lib/room-handoff-tool";
+import { botIntercomTool } from "@/lib/bot-intercom-tool";
+import {
+  flushQueuedBotIntercom,
+  promptAttachmentsFromIntercomMessageAsync,
+  setBotIntercomBusyLookup,
+  setBotIntercomResidentLookup,
+  setBotIntercomRoomBusyLookup,
+  setBotIntercomSteerHandler,
+} from "@/lib/bot-intercom";
+import { ROOM_SYSTEM_PROMPT, roomBotPrompt } from "@/lib/room-conversation";
+import { requestWebUiPermission } from "@/lib/pi/webui-permission-bridge";
+import {
+  deleteProjectRecord,
+  deleteTask,
+  getProject,
+  getTask,
+  insertTask,
+  listProjects,
+  listTasks,
+  type TaskKind,
+  patchProject,
+  patchTask,
+  setTaskStatus,
+  upsertProject,
+} from "@/lib/store";
+import {
+  ProviderLoginSession,
+  isHighlightedProvider,
+  providerAuthMethods,
+  type AuthTypeDto,
+  type LoginSessionEvent,
+} from "@/lib/pi/auth-login";
+import { formatPromptWithFiles, parsePromptFileMarkers, type PromptFileInput } from "@/lib/prompt-images";
+import { readStoredPromptFileContent, storePromptFileContent } from "@/lib/prompt-file-store";
+import {
+  isBotPromptText,
+  markBotPrompt,
+  rawUserMessageText,
+  goalLoopUiPrompt,
+  stripBotPromptPrefix,
+  titleFromPrompt,
+  toolResultText,
+  toolTimingFromSessionEntries,
+} from "@/lib/pi/messages";
+import { installToolResultCap } from "@/lib/pi/tool-result-cap";
+import { registerRequestImageCap } from "@/lib/pi/request-image-cap";
+import { registerShowImage, registerShowVideo, registerShowAudio } from "@/lib/pi/show-image";
+import { validateTaskLocalImage } from "@/lib/local-image";
+import { validateTaskLocalMedia } from "@/lib/local-media";
+import {
+  applyMessageAccountIds,
+  applyMessageAgentIds,
+  applyThroughput,
+  applyToolOutput,
+  applyToolTiming,
+  snapshotMessages,
+  type MessageAccountContext,
+} from "@/lib/pi/snapshot-messages";
+import { VersionedTimingMap } from "@/lib/pi/versioned-timing-map";
+import { VersionedThroughputMap } from "@/lib/pi/versioned-throughput-map";
+export {
+  applyMessageAccountIds,
+  applyMessageAgentIds,
+  applyThroughput,
+  applyToolOutput,
+  applyToolTiming,
+  snapshotMessages,
+};
+export type { MessageAccountContext };
+import { readSessionConversation } from "@/lib/direct-session";
+import {
+  buildProviderModelsCatalog,
+  enabledModelOptionsFromCatalog,
+  mergeIntegratedProviderRows,
+  providerDisplayName,
+  type ProviderModelSnapshot,
+  type ProviderModelsRow,
+} from "@/lib/provider-models";
+import {
+  accountProviderModelKey,
+  contextWindowForModel,
+  defaultThinkingLevelForModel as storedDefaultThinkingLevelForModel,
+  ensureProviderModelsKnown,
+  isProviderDisabled,
+  readProviderModelState,
+  setProviderModelDisabled,
+  setProviderModelOrder,
+  sortByPreferredOrder,
+  type ProviderModelRef,
+} from "@/lib/provider-model-state";
+import {
+  LLAMA_SERVER_PROVIDER_ID,
+  registerLlamaProviders,
+  syncLlamaServerProvider,
+} from "@/lib/pi/llama-provider";
+import { registerCursorProvider } from "@/lib/pi/cursor-provider";
+import { registerCommandCodeProvider, shouldRetryCommandCodeRegistration } from "@/lib/pi/commandcode-provider";
+import {
+  registerRemoteProvider,
+  syncRemoteProvider,
+} from "@/lib/pi/remote-provider";
+import {
+  registerOllamaCloudProvider,
+  syncOllamaCloudProvider,
+} from "@/lib/pi/ollama-cloud-provider";
+import {
+  registerExperientialLabsProvider,
+  syncExperientialLabsProvider,
+} from "@/lib/pi/experientiallabs-provider";
+import { registerTypeSafeProvider } from "@/lib/pi/typesafe-provider";
+import { isJevModel, type JevCatalogModel, type JevModelRef } from "@/lib/jev-model-catalog";
+import { clearJevDiscoveryCache, discoverJevModels } from "@/lib/pi/jev-model-discovery";
+import { resolveRegisteredJevConnection, type JevModelConnection } from "@/lib/pi/jev-model-connection";
+import { readJevModelSettings } from "@/lib/pi/jev-model-config";
+import { hasUsableJevModel, JEV_MODEL_SETTING_KEY } from "@/lib/jev-model-settings";
+import {
+  registerOrcaRouterProvider,
+  syncOrcaRouterProvider,
+} from "@/lib/pi/orcarouter-provider";
+import {
+  effectiveBaseUrl,
+  isEditableBaseUrlProvider,
+  setProviderBaseUrl as setProviderBaseUrlFromEndpoints,
+} from "@/lib/provider-endpoints";
+import {
+  isGoalLoopControlAction,
+  isGoalLoopLiveStatus,
+  isGoalLoopOperatorHold,
+  isGoalLoopSessionOwned,
+  readGoalLoopState,
+  shouldRollbackStaleGoalPrepare,
+} from "@/lib/pi/goal-loop-state";
+import { activeToolLabel } from "@/lib/tool-labels";
+import type { TaskProgressSnapshot } from "@/lib/task-progress";
+import { AUTO_ARCHIVE_DAYS_SETTING_KEY, parseAutoArchiveDays } from "@/lib/auto-archive-settings";
+import { PINNED_TASKS_SETTING_KEY, parsePinnedTaskIds } from "@/lib/sidebar-settings";
+import { acquireTaskLease, hasActiveTaskLease, ownsTaskLease, releaseTaskLease, reconcileOrphanedWorkingTasks, runWithTaskLeaseOwnership } from "@/lib/task-runtime-lease";
+import {
+  todoProgressFromTodos,
+  todosFromPiMessages,
+} from "@/lib/pi/todowrite-state";
+import { toContextUsageDto, type ContextUsageDto } from "@/lib/context-usage";
+import {
+  COMPACTION_ACTION_SETTING_KEY,
+  COMPACTION_MODEL_EFFORT_SETTING_KEY,
+  COMPACTION_MODEL_SETTING_KEY,
+  COMPACTION_THRESHOLD_SETTING_KEY,
+  parseCompactionAction,
+  parseCompactionThreshold,
+  reserveTokensForThreshold,
+  shouldCompactAtThreshold,
+  shouldSuggestAtThreshold,
+  type CacheWarmingMode,
+} from "@/lib/compaction-settings";
+import {
+  bundledSkillPaths,
+  compactSkillsForPrompt,
+  filterSkillsByState,
+  filterSkillsForBot,
+  type SkillScope,
+} from "@/lib/skills";
+import type { SkillPermission } from "@/lib/skill-permission";
+import {
+  captureNativeToolSearch,
+  COMPUTER_USE_TOOL_NAMES,
+  type NativeToolSearch,
+  registerDeferredTools,
+  TOOL_SEARCH_NAME,
+} from "@/lib/pi/deferred-tools";
+import { hasIdentityChanges, sessionIdentityPatch, sessionIdentitySource } from "@/lib/pi/session-identity";
+import { taskResponseModel } from "@/lib/task-response-model";
+import { canInterruptForSteer } from "@/lib/pi/impact-aware-steer";
+import { nestedCallsStoreFor, trackNestedToolEvent } from "@/lib/pi/nested-live-calls";
+import { sessionToolSelection, shouldUseDynamicMcpTools } from "@/lib/pi/session-tool-selection";
+import { attachCodeToolPolicy, codeToolAllowed, preservingPendingToolNames, registerCodeToolPolicy, updateCodeSubagentPolicy, type CodeToolPolicy } from "@/lib/pi/session-tool-policy";
+import {
+  bundledExtensionEntries,
+  filterExtensionsByState,
+  isExtensionDisabled,
+  isWebUiRequiredExtension,
+  readExtensionsState,
+  resolvePackageDir,
+} from "@/lib/extensions";
+import {
+  applyPermissionMode,
+  readPermissionGateConfig,
+} from "@/lib/permission-gate-config";
+import {
+  codePermissionUpdates,
+  readCodePermissionMode,
+  readCodeSkillPermission,
+  readCodeSubagentPermission,
+} from "@/lib/pi/code-permission-settings";
+import { buildAgentResourceOptions, loadAgentDefinition } from "@/lib/agents";
+import {
+  armTaskHangWatch,
+  disarmTaskHangWatch,
+  getTaskHangWatch,
+  registerHangWatchdogHooks,
+  startHangWatchdog,
+} from "@/lib/pi/hang-watchdog";
+import { blocksAutoCompactionAfterManualAbort } from "@/lib/aborted-resume";
+import { HANG_RETRY_PREFIX } from "@/lib/hang-retry";
+import {
+  createPermissionPromptService,
+  taskIdForSession,
+} from "@/lib/pi/permission-prompt";
+import { registerWebUiPermissionHandler } from "@/lib/pi/webui-permission-bridge";
+import { AccountRuntimeManager } from "@/lib/pi/account-runtime-manager";
+import { SdkRuntimeFactory } from "@backend-core/sdk-runtime.mjs";
+import * as corePromptControl from "@backend-core/prompt-control.mjs";
+import {
+  canRouteAccountForPrompt,
+  isRecoverableResumeSelectionError,
+  promptSendCustomType,
+  reasoningFallbackLevel as coreReasoningFallbackLevel,
+  resolveHangWatchQueueAction,
+  resolvePromptGate,
+  resolvePromptPermissionOptions,
+  resolvePromptSendKind,
+  shouldApplyPromptModelSelection,
+  shouldApplyPromptSubagentPermission,
+  shouldApplyPromptThinkingLevel,
+  shouldArmHangWatchAtSend,
+  shouldCompleteCodeRequestAfterPrompt,
+  shouldDemoteInterrupt,
+  shouldForwardBotCodePrompt as coreShouldForwardBotCodePrompt,
+  shouldIgnorePromptError,
+  shouldRetryWithReasoningFallback,
+  shouldWaitForSteerStreamBeforeSend,
+  stillEligibleForAccountRouting,
+} from "@backend-core/prompt-control.mjs";
+import { runHangWatchdogAbort, runUserAbort } from "@backend-core/abort-coordinator.mjs";
+import { roomBotIdFromTaskId } from "@backend-core/abort-control.mjs";
+import { detachReplacedLive as coreDetachReplacedLive, disposeUnattachedSession, hasOtherBusyRoomLive, isRegisteredLive, isStaleEnsureEpoch, promoteMailboxOnAttach, resolveAttachAccount, resolveAttachedSessionAction, resolveCreatedSessionAction, runCoalescedLiveShutdown, runTrackedEnsure, shouldShutdownOnDispose as coreShouldShutdownOnDispose } from "@backend-core/live-lifecycle.mjs";
+import { restoredPromptState, restoredTaskMetadata, restoredThroughputState as coreRestoredThroughputState } from "@backend-core/live-attach-state.mjs";
+import { compactionFailureMessage, isHarnessAutoCompactionError as coreIsHarnessAutoCompactionError, runAgentStartTaskSync, shouldApplySettledStatus, shouldSkipEventForMissingTask, shouldSyncTaskFromSessionEvent as coreShouldSyncTaskFromSessionEvent, type SessionSyncEvent } from "@backend-core/session-event-decisions.mjs";
+import { classifySnapshotEvent, flushPendingSnapshotOnUnsubscribe, pendingSnapshotFlush, SNAPSHOT_THROTTLE_MS, snapshotOmitsMessages } from "@backend-core/snapshot-schedule.mjs";
+import {
+  detailIncludesGoalLoop,
+  detailIncludesMessages,
+  detailStreamingFlag,
+  liveDetailErrorStatus,
+  liveDetailFlags,
+  offlineDetailFlags,
+  resolveTaskDetailSource,
+  shouldSuggestCompaction,
+} from "@backend-core/task-detail.mjs";
+import { codeSessionChangedPayload } from "@backend-core/bot-code-request.mjs";
+import { attentionClearTargets, attentionEmitPlan, attentionItemForTask, resolveAttentionSource } from "@backend-core/attention.mjs";
+import { ensureGlobalPromptService } from "@backend-core/webui-bridge.mjs";
+import {
+  isSamePromptRoute,
+  publishAttachedLive,
+  remainingPendingLiveSettings,
+  resolveEnsureLiveAttempt,
+  runEnsureLiveGates,
+  shouldApplyPendingReload,
+  shouldDeferLiveSetting as coreShouldDeferLiveSetting,
+  shouldFlagSoulReload,
+  shouldReloadAgentDefinition,
+  SOFT_LIVE_SETTING_KEYS,
+  softLiveSettings,
+} from "@backend-core/live-lifecycle.mjs";
+import { isReplacedPackageSource, keepsLoadedExtension, replacedUpstreamPackages } from "@backend-core/replaced-packages.mjs";
+import { bundledPathsForNativeMcp, nativeMcpExtensionFactory, resolveBackendMcpNativeSession } from "@backend-core/mcp-native-session.mjs";
+import { resolveBotSessionOptions } from "@backend-core/bot-session-options.mjs";
+import { runSessionEventEffects } from "@backend-core/session-event-effects.mjs";
+import { isBotTask, liveSessionName, liveSessionRefusalError, liveSessionWorkspace, preflightLiveSession, resolveSessionPermissionDefaults, TASK_ARCHIVED_MESSAGE, TASK_NOT_FOUND_MESSAGE, resolveSessionAccountId, resolveSessionAccountRefusal, resolveSessionPermissionMode, resolveSessionSkillPermission, resolveSessionThinkingLevelSource, resolveStoredModelOutcome } from "@backend-core/live-session-preflight.mjs";
+import { runSerializedByKey } from "@backend-core/keyed-serializer.mjs";
+import { accountRuntimeOptions, watchPeerAvailability } from "@/lib/peer-auth/account-runtime-options";
+import { attachReplacementSession } from "@backend-core/live-replace.mjs";
+import { buildBotCodeReportContent } from "@backend-core/bot-code-report.mjs";
+import {
+  accountAuthPath,
+  accountHasProvider,
+  accountStoredProviders,
+  getAccount,
+  isAccountEnabled,
+  isAccountOnlyProvider,
+  isAccountProviderId,
+  listAccounts,
+  resolvePiAgentDir,
+  type AccountProviderId,
+  type AccountRecord,
+} from "@/lib/accounts";
+import {
+  createQuestionPromptService,
+  type QuestionAnswer,
+} from "@/lib/pi/question-prompt";
+import { registerWebUiQuestionHandler } from "@/lib/pi/webui-question-bridge";
+import { getSetting } from "@/lib/pi/web-settings";
+import { isGoalLoopAutoModel } from "@/lib/pi/goal-loop-auto-model";
+import { listSubagentRuns } from "@/lib/pi/subagent-runs";
+import { stopRunningSubagentRuns } from "@/lib/pi/stop-subagent-runs";
+import { getCachedUsage, invalidateCachedUsage } from "@/lib/codexbar/cache";
+import type { CodexBarProvider } from "@/lib/codexbar";
+import { ensureFreshRoutingUsage } from "@/lib/pi/routing-usage";
+import {
+  autoModelValue,
+  autoProviderUsageFromModels,
+  autoVariantToThinkingLevel,
+  AUTO_MODEL_VALUE,
+  chooseAutoModel,
+  classifyPrompt,
+  DEFAULT_AUTO_OPTIMIZE_MODE,
+  isAutoOptimizeMode,
+  normalizeAutoRouteConfig,
+  type AutoDecision,
+  type AutoOptimizeMode,
+  type AutoRouteConfig,
+} from "@/lib/auto-model";
+import { classifyAutoTierWithJev, matchSessionLabelByRule } from "@/lib/auto-jev";
+import {
+  resolveSessionLabels,
+  SESSION_LABELS_SETTING_KEY,
+} from "@/lib/session-label-settings";
+import { compactWithJev } from "@/lib/pi/jev-compaction";
+import { compactWithConfiguredModel } from "@/lib/pi/compaction-model";
+import { compactSinglePass } from "@/lib/pi/single-pass-compaction";
+import { prepareBackgroundCompaction } from "@/lib/pi/prepare-background-compaction";
+import { registerCompactionController, type CompactionControllerOptions } from "@/lib/pi/compaction-controller";
+import {
+  COMPACTION_BACKGROUND_SETTING_KEY,
+  COMPACTION_BACKGROUND_THRESHOLD_SETTING_KEY,
+  COMPACTION_SUMMARY_MAX_TOKENS_SETTING_KEY,
+  parseBackgroundCompactionThreshold,
+  parseCompactionSummaryMaxTokens,
+} from "@/lib/compaction-settings";
+import {
+  isJevCompactionEnabled,
+  JEV_COMPACTION_ENABLED_SETTING_KEY,
+  JEV_COMPACTION_THRESHOLD_SETTING_KEY,
+  parseJevCompactionThreshold,
+} from "@/lib/jev-compaction-settings";
+import {
+  applyOpenAiFastMode,
+  isOpenAiFastModeEnabled,
+  OPENAI_FAST_MODE_SETTING_KEY,
+} from "@/lib/openai-fast-mode";
+import {
+  AUTO_JEV_ENABLED_SETTING_KEY,
+  AUTO_JEV_MIN_CONFIDENCE_SETTING_KEY,
+  isAutoJevEnabled,
+  parseAutoJevMinConfidence,
+} from "@/lib/auto-jev-settings";
+import { clearProviderCache } from "@/lib/codexbar/provider-cache";
+import {
+  accountRoutingMode,
+  chooseRoutingCandidate,
+  clearProviderLimit,
+  hasSubscriptionCreditsRemaining,
+  isAccountRoutingProvider,
+  isProviderLimitError,
+  markProviderLimited,
+  providerLimitMark,
+  readProviderRouting,
+  setAccountRoutingMode,
+  type AccountRoutingMode,
+  type RoutingCandidate,
+} from "@/lib/provider-routing";
+
+/** True when a skill lives under the user's ~/.agents directory. */
+function isAgentsSkill(skill: {
+  baseDir?: string;
+  filePath?: string;
+}): boolean {
+  const agentsRoot = join(homedir(), ".agents");
+  const lower = agentsRoot.toLowerCase();
+  return (
+    (skill.baseDir?.toLowerCase().startsWith(lower) ?? false) ||
+    (skill.filePath?.toLowerCase().startsWith(lower) ?? false)
+  );
+}
+
+/** Restore bundled skills that Pi deduplicated behind its excluded ~/.agents root. */
+export function mergeBundledSkills<T extends {
+  name: string;
+  baseDir?: string;
+  filePath?: string;
+}>(baseSkills: readonly T[], bundledSkills: readonly T[]): T[] {
+  const merged = baseSkills.filter((skill) => !isAgentsSkill(skill));
+  const names = new Set(merged.map((skill) => skill.name));
+  for (const skill of bundledSkills) {
+    if (!isAgentsSkill(skill) && !names.has(skill.name)) {
+      merged.push(skill);
+      names.add(skill.name);
+    }
+  }
+  return merged;
+}
+import {
+  clampThinkingLevelForModel,
+  isThinkingLevel,
+  resolveThinkingLevel,
+  thinkingLevelsForModel,
+} from "@/lib/thinking-levels";
+import {
+  THROUGHPUT_CUSTOM_TYPE,
+  createThroughputTiming,
+  isContentDeltaType,
+  noteContentDelta,
+  noteReportedOutputTokens,
+  restoreThroughputFromEntries,
+  snapshotThroughput,
+  toPersistedThroughput,
+  type ThroughputTiming,
+} from "@/lib/token-throughput";
+import { recordModelThroughput } from "@/lib/model-throughput-stats";
+import { recordAssistantTokenUsage } from "@/lib/codexbar/token-usage";
+import { BOT_CODE_SESSION_CHANGED_EVENT } from "@/lib/types";
+import type {
+  CompactionSettingsDto,
+  GoalLoopDto,
+  GoalLoopSummaryDto,
+  HealthDto,
+  ModelOption,
+  ProjectDto,
+  BotSkillsConfig,
+  ProviderAuthDto,
+  PermissionRequestDto,
+  QuestionRequestDto,
+  AttentionItemDto,
+  TaskDetail,
+  TaskSummary,
+  SessionResumeDto,
+  TodoDto,
+  TodoProgressDto,
+  ThinkingLevel,
+  UiMessage,
+} from "@/lib/types";
+
+import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import { uuidv7 } from "@earendil-works/pi-ai/utils/uuid";
+
+type PiModule = typeof import("@earendil-works/pi-coding-agent");
+
+type AgentSession = Awaited<
+  ReturnType<PiModule["createAgentSession"]>
+>["session"];
+type ResourceLoader = InstanceType<PiModule["DefaultResourceLoader"]>;
+type ResourceLoaderOptions = ConstructorParameters<
+  PiModule["DefaultResourceLoader"]
+>[0];
+type SkillsOverride = NonNullable<ResourceLoaderOptions["skillsOverride"]>;
+type ResourceExtensions = ReturnType<ResourceLoader["getExtensions"]>["extensions"];
+type SessionPromptOptions = NonNullable<Parameters<AgentSession["prompt"]>[1]>;
+type ModelRuntime = Awaited<ReturnType<PiModule["ModelRuntime"]["create"]>>;
+type Model = NonNullable<AgentSession["model"]>;
+
+export type PromptImage = {
+  mimeType: string;
+  data: string;
+};
+
+export type PendingLiveSettings = {
+  model?: {
+    route: ConcreteModelRoute;
+    accountIdExplicit: boolean;
+  };
+  thinkingLevel?: ThinkingLevel;
+  agentName?: string | null;
+  agentPreviousName?: string | null;
+  permissionMode?: "allow" | "ask" | "deny";
+  skillPermission?: SkillPermission;
+  subagentPermission?: "allow" | "deny";
+  /** Bot tool allowlist deferred until the next idle prepareLiveForPrompt. */
+  botTools?: readonly string[];
+};
+
+type LiveRuntime = {
+  taskId: string;
+  /** セッション生成時に使ったアカウント（null = 既定）。破棄時の参照解放に使う。 */
+  accountId: string | null;
+  /** メッセージID → 生成時の認証アカウント。セッション置き換え後も保持して過去の表示を守る。 */
+  accountByMessageId: Map<string, string>;
+  /** セッション生成時のエージェント（null = 既定）。 */
+  agentName: string | null;
+  /** メッセージID → 生成時のエージェント。セッション置き換え後も保持して過去の表示を守る。 */
+  agentByMessageId: Map<string, string | null>;
+  session: AgentSession;
+  skillPermission: SkillPermission;
+  skillPermissionRef: { current: SkillPermission };
+  unsubscribe: () => void;
+  promptChain: Promise<void>;
+  /** Compaction started after the last settled response; prompts wait for it. */
+  autoCompactionPromise: Promise<void> | null;
+  /** Prevent the settled event from starting auto-compaction during a manual abort. */
+  manualCompactionInProgress: boolean;
+  /** Native Pi compaction already ran during the current agent run. */
+  nativeCompactionAttempted: boolean;
+  /** The current agent run belongs to an active Goal Loop turn. */
+  goalLoopTurnActive: boolean;
+  /** A prompt has been accepted and is about to start or is still running. */
+  promptActive: boolean;
+  /** This process lost the task lease; suppress later session effects. */
+  leaseLost: boolean;
+  /** Settings selected during the current turn, applied before the next turn. */
+  pendingSettings?: PendingLiveSettings;
+  /** Bumped on abort so in-flight promptChain work after await does not resume. */
+  promptEpoch: number;
+  /** Normal prompts outstanding on promptChain, including the running one. */
+  promptQueueDepth: number;
+  /** Do not publish an idle boundary or accept another prompt while replacing a turn. */
+  immediateInterruptInProgress: boolean;
+  /** Running top-level tools; unknown names are deliberately not interruptible. */
+  activeToolNames: Map<string, string>;
+  /** Assistant throughput samples keyed by message.timestamp (ms). */
+  throughputByStartedAt: Map<number, ThroughputTiming>;
+  /** startedAtMs values already written to the Pi session file. */
+  persistedThroughputKeys: Set<number>;
+  /** toolCallId → wall-clock start (ms) for live elapsed display. */
+  toolStartedAt: Map<string, number>;
+  /** toolCallId → wall-clock end (ms), set on tool_execution_end. */
+  toolEndedAt: Map<string, number>;
+  /** toolCallId → latest cumulative partial output while a tool is running. */
+  toolPartialOutputByCallId: Map<string, string>;
+  /** Coalesce message_update snapshots onto the event loop. */
+  snapshotTimer: ReturnType<typeof setTimeout> | null;
+  pendingSnapshotEventType: string | null;
+  /** pending がフルスナップショット待ちか（delta 待ちとの区別）。 */
+  pendingSnapshotIsDelta: boolean;
+  /** フルスナップショットに付与する追加フィールド（error 等）。 */
+  pendingSnapshotExtra: Record<string, unknown> | undefined;
+  /** Session entry id the last navigateTree moved the leaf to (for undo). */
+  revertLeafId: string | null;
+  /** POST /abort で中断したターンの assistant メッセージ ID。 */
+  manualAbortedAssistantId: string | null;
+  /** 直近のハング自動再開回数（UI 通知用）。 */
+  hangRetryCount: number;
+  /** 「Reasoning is mandatory」400 で思考 ON に上げて再試行済みか。 */
+  reasoningFallbackTried: boolean;
+  /** A provider-limit response is handled at the next safe turn boundary. */
+  pendingProviderFallback: {
+    providerID: string;
+    modelID: string;
+    message: string;
+  } | null;
+  /** A terminal WebSocket failure is retried once through SSE. */
+  pendingTransportRecovery: boolean;
+  /** Prevent a failed SSE recovery from recursively queueing more recoveries. */
+  transportRecoveryAttempted: boolean;
+  /** Restore the user's retry setting after suppressing a duplicate limit retry. */
+  restoreAutoRetry: boolean;
+  /** Recreate this Bot session after update_soul so the next turn reads the new file. */
+  soulReloadPending: boolean;
+  /** SOUL.md revision observed when this session was created. */
+  soulRevision: string | null;
+  /** Reload AGENTS/skills/MCP into a Code (or busy-skipped) session at the next idle prompt. */
+  contextReloadPending: boolean;
+  /** Recreate a selected-agent session so updated fixed resource options (notably tools) take effect. */
+  agentDefinitionReloadPending: boolean;
+  /** True only after this session was created with the Jev tool factory. */
+  jevToolRegistered: boolean;
+  /** Last event/request touching this live session (ms); drives idle eviction. */
+  lastActivityAt?: number;
+  /** Extension session_shutdown handlers already ran for this session. */
+  shutdownEmitted?: boolean;
+  /**
+   * Session used Auto because the stored model is unavailable.
+   * Keep task.providerID/modelID as the unavailable selection (no silent pin).
+   */
+  preserveTaskModel: boolean;
+};
+
+function messageContext(live: LiveRuntime): MessageAccountContext {
+  return {
+    accountId: live.accountId,
+    byMessageId: live.accountByMessageId,
+    agentName: live.agentName,
+    agentByMessageId: live.agentByMessageId,
+  };
+}
+
+type SessionSetup = {
+  session: AgentSession;
+  skillPermissionRef: { current: SkillPermission };
+};
+
+type SessionManagerWriteGuard = {
+  attach: (live: LiveRuntime) => void;
+  invalidate: () => void;
+};
+
+const sessionManagerWriteGuards = new WeakMap<object, SessionManagerWriteGuard>();
+
+type HarnessState = {
+  pi: PiModule | null;
+  sdkFactory: SdkRuntimeFactory | null;
+  modelRuntime: ModelRuntime | null;
+  /** アカウント別ランタイム（accountId → runtime）。既定は上のシングルトン。 */
+  accountRuntimes: AccountRuntimeManager | null;
+  initError: string | null;
+  initPromise: Promise<void> | null;
+  live: Map<string, LiveRuntime>;
+  botToolAllowlists?: WeakMap<AgentSession, readonly string[]>;
+  events: EventEmitter;
+  loginSession: ProviderLoginSession | null;
+  healthCache: HealthCacheEntry | null;
+  modelCache: ModelCacheEntry | null;
+  modelInflight: Promise<ModelOption[]> | null;
+  accountModelCache: AccountModelCacheEntry | null;
+  accountModelInflight: AccountModelInflight | null;
+  accountRecordsCache: AccountModelRecordCacheEntry | null;
+  accountRecordsInflight: AccountModelRecordsInflight | null;
+  watchdogRegistered: boolean;
+  lastProviderSyncWarnings: string[];
+};
+
+const GLOBAL_KEY = "__leafcodePiHarness" as const;
+
+/** Coalesce concurrent ensureLive(taskId) so only one Pi session is created. */
+const ensureLiveInflight = new Map<string, Promise<LiveRuntime>>();
+/** Bumped by disposeLive so inflight ensureLive abandons a disposed runtime. */
+const ensureLiveEpoch = new Map<string, number>();
+const promoteInflight = new Map<string, Promise<PromoteTaskResult>>();
+const projectMigrationInflight = new Map<string, Promise<ProjectMigrationResult>>();
+const promoteDestinationInflight = new Map<string, Promise<void>>();
+
+type PromoteTaskResult = {
+  task: TaskSummary;
+  project: ProjectDto;
+  warning?: string;
+};
+
+type ProjectMigrationResult = {
+  project: ProjectDto;
+  warning?: string;
+};
+/** Serialize selection + task insert for the same integrated provider/model. */
+const routeLocks = new Map<string, Promise<void>>();
+/** Reserve selected accounts until the new task has a live session. */
+const routeReservations = new Map<string, Map<string, number>>();
+
+function reserveRoute(providerID: string, accountId: string): void {
+  const accounts =
+    routeReservations.get(providerID) ?? new Map<string, number>();
+  accounts.set(accountId, (accounts.get(accountId) ?? 0) + 1);
+  routeReservations.set(providerID, accounts);
+}
+
+function releaseRoute(providerID: string, accountId: string): void {
+  const accounts = routeReservations.get(providerID);
+  if (!accounts) return;
+  const remaining = (accounts.get(accountId) ?? 0) - 1;
+  if (remaining > 0) accounts.set(accountId, remaining);
+  else accounts.delete(accountId);
+  if (accounts.size === 0) routeReservations.delete(providerID);
+}
+
+async function withRouteLock<T>(
+  key: string,
+  action: () => Promise<T>,
+): Promise<T> {
+  const previous = routeLocks.get(key) ?? Promise.resolve();
+  let release!: () => void;
+  const current = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const chain = previous.catch(() => undefined).then(() => current);
+  routeLocks.set(key, chain);
+  await previous.catch(() => undefined);
+  try {
+    return await action();
+  } finally {
+    release();
+    if (routeLocks.get(key) === chain) routeLocks.delete(key);
+  }
+}
+
+type ContextUsageCacheEntry = {
+  source: readonly unknown[];
+  length: number;
+  last: unknown;
+  /** The last message's usage numbers: the same object is mutated in place while it streams. */
+  lastUsageKey: string;
+  value: ContextUsageDto | undefined;
+};
+
+function lastMessageUsageKey(message: unknown): string {
+  const usage = (message as { usage?: Record<string, unknown> } | null | undefined)?.usage;
+  if (!usage || typeof usage !== "object") return "";
+  return [usage.input, usage.output, usage.cacheRead, usage.cacheWrite, usage.totalTokens].join(",");
+}
+
+/** getContextUsage() estimates tokens over all messages; skip it while messages are unchanged. */
+const contextUsageCache = new WeakMap<object, ContextUsageCacheEntry>();
+
+type TodoProgressCacheEntry = {
+  mtimeMs: number;
+  size: number;
+  value: TodoProgressDto | undefined;
+};
+
+/** Reopen archived task session files only when they actually changed on disk. */
+const todoProgressCache = new Map<string, TodoProgressCacheEntry>();
+/** キャッシュ上限。実利用で 400+ タスクが常駐するため、全件走査時に上限以下で
+ *  毎回追い出されセッション再解析（秒単位）が起きないよう余裕を持たせる。 */
+const TODO_PROGRESS_CACHE_MAX_ENTRIES = 2048;
+
+function cacheTodoProgress(
+  sessionFile: string,
+  entry: TodoProgressCacheEntry,
+): void {
+  if (
+    todoProgressCache.size >= TODO_PROGRESS_CACHE_MAX_ENTRIES &&
+    !todoProgressCache.has(sessionFile)
+  ) {
+    const oldest = todoProgressCache.keys().next().value;
+    if (oldest !== undefined) todoProgressCache.delete(oldest);
+  }
+  todoProgressCache.set(sessionFile, entry);
+}
+
+type PermissionPromptService = ReturnType<typeof createPermissionPromptService>;
+type QuestionPromptService = ReturnType<typeof createQuestionPromptService>;
+
+// Next compiles Route Handlers into separate server bundles. Keep these
+// process-local services shared so /prompt, /events, and /permission use the
+// same pending request queue.
+const PERMISSION_PROMPT_SERVICE_KEY = "__leafcodePiPermissionPromptService" as const;
+const QUESTION_PROMPT_SERVICE_KEY = "__leafcodePiQuestionPromptService" as const;
+let permissionPromptService: PermissionPromptService | null = null;
+let questionPromptService: QuestionPromptService | null = null;
+
+function resolveTaskIdFromSession(sessionId: string): string | null {
+  if (!sessionId) return null;
+  return taskIdForSession(
+    sessionId,
+    [...state().live.values()].map((live) => ({
+      taskId: live.taskId,
+      sessionId: live.session.sessionId,
+    })),
+  );
+}
+
+function permissionSnapshotExtras(taskId: string): Record<string, unknown> {
+  const live = state().live.get(taskId);
+  const task = getTask(taskId);
+  if (!live || !task) return {};
+  return {
+    task: toSummary(task),
+    ...liveSnapshotFields(live),
+    manualAbortedAssistantId: live.manualAbortedAssistantId,
+    hangRetryCount: live.hangRetryCount,
+    revertLeafId: live.revertLeafId,
+  };
+}
+
+function ensurePermissionPromptService(): PermissionPromptService {
+  if (permissionPromptService) return permissionPromptService;
+  // One service per process and the handler wiring live in backend core.
+  permissionPromptService = ensureGlobalPromptService({
+    host: globalThis as unknown as Record<string, unknown>,
+    key: PERMISSION_PROMPT_SERVICE_KEY,
+    create: () =>
+      createPermissionPromptService({
+        resolveTaskId: resolveTaskIdFromSession,
+        emit: emitAttention,
+        snapshotExtras: permissionSnapshotExtras,
+      }),
+    registerHandler: (handler) =>
+      registerWebUiPermissionHandler((request) => handler(request) as ReturnType<PermissionPromptService["handleRequest"]>),
+  });
+  return permissionPromptService;
+}
+
+function ensureQuestionPromptService(): QuestionPromptService {
+  if (questionPromptService) return questionPromptService;
+  // One service per process and the handler wiring live in backend core.
+  questionPromptService = ensureGlobalPromptService({
+    host: globalThis as unknown as Record<string, unknown>,
+    key: QUESTION_PROMPT_SERVICE_KEY,
+    create: () =>
+      createQuestionPromptService({
+        resolveTaskId: resolveTaskIdFromSession,
+        emit: emitAttention,
+        snapshotExtras: permissionSnapshotExtras,
+      }),
+    registerHandler: (handler) =>
+      registerWebUiQuestionHandler((request) => handler(request) as ReturnType<QuestionPromptService["handleRequest"]>),
+  });
+  return questionPromptService;
+}
+
+function state(): HarnessState {
+  const globalRef = globalThis as typeof globalThis & {
+    [GLOBAL_KEY]?: HarnessState;
+  };
+  if (!globalRef[GLOBAL_KEY]) {
+    // Resident = any live session for this Bot (1:1 or Room). Room-only bots were
+    // wrongly offline, so peers queued forever even while the Room turn was active.
+    setBotIntercomResidentLookup((botId) => {
+      const liveMap = globalRef[GLOBAL_KEY]?.live;
+      if (!liveMap) return false;
+      if (liveMap.has(`bot:${botId}`)) return true;
+      const prefix = `bot:${botId}:room:`;
+      for (const taskId of liveMap.keys()) {
+        if (taskId.startsWith(prefix)) return true;
+      }
+      return false;
+    });
+    const liveBusy = (live: LiveRuntime | undefined) =>
+      Boolean(live && (live.promptActive || live.session.isStreaming || live.session.isCompacting));
+    setBotIntercomBusyLookup((botId) => liveBusy(globalRef[GLOBAL_KEY]?.live.get(`bot:${botId}`)));
+    setBotIntercomRoomBusyLookup((botId) => {
+      const liveMap = globalRef[GLOBAL_KEY]?.live;
+      if (!liveMap) return false;
+      const prefix = `bot:${botId}:room:`;
+      for (const [taskId, live] of liveMap) {
+        if (taskId.startsWith(prefix) && liveBusy(live)) return true;
+      }
+      return false;
+    });
+    setBotIntercomSteerHandler(async (message) => {
+      const taskId = `bot:${message.toBotId}`;
+      const steered = message.delivery === "steered";
+      const content = steered
+        ? `[Bot間メッセージ] 実行中ターンへの割り込み（from ${message.fromBotId}）:\n${message.text}`
+        : `[Bot間メッセージ] from ${message.fromBotId}:\n${message.text}`;
+      const { images, files } = await promptAttachmentsFromIntercomMessageAsync(message);
+      await promptTask(taskId, content, images.length > 0 ? images : undefined, {
+        ...(steered ? { streamingBehavior: "steer" as const } : {}),
+        ...(files.length > 0 ? { files } : {}),
+      });
+    });
+    globalRef[GLOBAL_KEY] = {
+      pi: null,
+      sdkFactory: null,
+      modelRuntime: null,
+      accountRuntimes: null,
+      initError: null,
+      initPromise: null,
+      live: new Map(),
+      events: new EventEmitter(),
+      loginSession: null,
+      healthCache: null,
+      modelCache: null,
+      modelInflight: null,
+      accountModelCache: null,
+      accountModelInflight: null,
+      accountRecordsCache: null,
+      accountRecordsInflight: null,
+      watchdogRegistered: false,
+      lastProviderSyncWarnings: [],
+    };
+    globalRef[GLOBAL_KEY].events.setMaxListeners(100);
+  }
+  return globalRef[GLOBAL_KEY];
+}
+
+function packageVersion(): string | null {
+  try {
+    const candidates = [
+      join(
+        process.cwd(),
+        "node_modules",
+        "@earendil-works",
+        "pi-coding-agent",
+        "package.json",
+      ),
+      join(
+        dirname(fileURLToPath(import.meta.url)),
+        "..",
+        "..",
+        "..",
+        "node_modules",
+        "@earendil-works",
+        "pi-coding-agent",
+        "package.json",
+      ),
+    ];
+    for (const pkgPath of candidates) {
+      if (!existsSync(/* turbopackIgnore: true */ pkgPath)) continue;
+      const pkg = JSON.parse(
+        readFileSync(/* turbopackIgnore: true */ pkgPath, "utf8"),
+      ) as { version?: string };
+      if (pkg.version) return pkg.version;
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+function sdkRuntimeFactory(): SdkRuntimeFactory {
+  const current = state();
+  // Keep the SDK identity with the existing process-local harness state. The
+  // injected loader preserves WebUI dependency resolution and test SDK stubs.
+  return current.sdkFactory ??= new SdkRuntimeFactory({
+    loadSdk: async () => {
+      if (!current.pi) current.pi = await import("@earendil-works/pi-coding-agent");
+      return current.pi;
+    },
+  });
+}
+
+async function loadPi(): Promise<PiModule> {
+  return state().pi ?? sdkRuntimeFactory().load();
+}
+
+/**
+ * タスク/クエリ由来の accountId に対応する ModelRuntime を解決する。
+ * - 未指定 = 既定ランタイム（~/.pi/agent/auth.json のシングルトン）
+ * - 指定時 = アカウント別認証ストレージ（~/.pi/agent/accounts/<id>/auth.json）の
+ *   ランタイムを遅延生成して再利用する（docs/plans/multi-account.md Phase 6）。
+ */
+export async function getRuntimeFor(
+  accountId?: string | null,
+): Promise<ModelRuntime | null> {
+  if (!accountId) return state().modelRuntime;
+  if (!getAccount(accountId)) {
+    throw Object.assign(new Error("アカウントが見つかりません"), {
+      status: 404,
+    });
+  }
+  try {
+    const runtime = await accountRuntimeManager().ensure(accountId);
+    // Account runtimes are cached; retry transient Command Code failures on reuse too.
+    if (shouldRetryCommandCodeRegistration(runtime)) {
+      const agentDir = await resolvePiAgentDir();
+      await registerCommandCodeProvider(runtime, {
+        key: `account:${accountId}`, kind: "account", accountId,
+        accountLabel: getAccount(accountId)?.label ?? null,
+        authPath: accountAuthPath(accountId, agentDir),
+      });
+      if (runtime.getModels("commandcode").length > 0) invalidateHealthCache();
+    }
+    return runtime;
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    throw Object.assign(
+      new Error(`アカウントランタイムの初期化に失敗しました: ${message}`),
+      { status: 503 },
+    );
+  }
+}
+
+/** アカウント別ランタイムの生成ファクトリ（生成時にプロバイダー登録まで行う）。 */
+function accountRuntimeManager(): AccountRuntimeManager {
+  const current = state();
+  if (!current.accountRuntimes) {
+    current.accountRuntimes = new AccountRuntimeManager(async (id) => {
+      const factory = sdkRuntimeFactory();
+      await factory.load();
+      const agentDir = await resolvePiAgentDir();
+      const authPath = accountAuthPath(id, agentDir);
+      // Peer accounts (peer.json) use a remote credential store instead of authPath.
+      const runtime = await factory.createModelRuntime(
+        accountRuntimeOptions(id, agentDir),
+        registerLlamaProviders,
+      );
+      await ensureOptionalProviders(runtime, {
+        key: `account:${id}`,
+        kind: "account",
+        accountId: id,
+        accountLabel: getAccount(id)?.label ?? null,
+        authPath,
+      });
+      // Peer accounts: retry the SDK's one-time credential check until the shared providers appear.
+      watchPeerAvailability(runtime, id, agentDir, invalidateHealthCache);
+      return runtime;
+    });
+  }
+  return current.accountRuntimes;
+}
+
+const OPTIONAL_PROVIDERS_KEY = "__leafcodePiOptionalProviders" as const;
+
+async function ensureOptionalProviders(
+  runtime: ModelRuntime,
+  scope?: import("@/lib/codexbar/types").UsageScope,
+): Promise<void> {
+  const globalRef = globalThis as typeof globalThis & {
+    [OPTIONAL_PROVIDERS_KEY]?: WeakMap<object, Promise<void>>;
+  };
+  const promises = (globalRef[OPTIONAL_PROVIDERS_KEY] ??= new WeakMap());
+  const existing = promises.get(runtime);
+  if (existing) return existing;
+  const promise = Promise.all([
+    registerCursorProvider(runtime, scope),
+    registerCommandCodeProvider(runtime, scope),
+    registerOllamaCloudProvider(runtime),
+    registerExperientialLabsProvider(runtime),
+    registerRemoteProvider(runtime),
+    registerTypeSafeProvider(runtime),
+    registerOrcaRouterProvider(runtime, scope),
+  ]).then(() => undefined);
+  promises.set(runtime, promise);
+  try {
+    await promise;
+  } finally {
+    if (promises.get(runtime) === promise) promises.delete(runtime);
+  }
+}
+
+let jevNoulJudgeRegistered = false;
+
+/**
+ * Lets standalone extensions (the ToDo gate) ask Jev yes/no questions. Jev being
+ * unconfigured or disabled answers null, so they keep their conventional behavior.
+ */
+function ensureJevNoulJudge(): void {
+  if (jevNoulJudgeRegistered) return;
+  jevNoulJudgeRegistered = true;
+  registerJevNoulJudge(createJevNoulJudge({ isUsable: () => hasUsableJevModelConfigured() }));
+}
+
+async function ensureRuntime(
+  options: { skipDefaultRuntime?: boolean } = {},
+): Promise<void> {
+  startBotCodeRelay();
+  reconcileOrphanedWorkingTasks();
+  const current = state();
+  // Account sessions own an isolated ModelRuntime. Do not make them wait for
+  // the unrelated shared catalog and optional-provider network warm-up.
+  const ensureDefaultRuntime = options.skipDefaultRuntime !== true;
+  if (ensureDefaultRuntime && !current.modelRuntime && !current.initPromise) {
+    current.initPromise = (async () => {
+      try {
+        current.modelRuntime = await sdkRuntimeFactory().createModelRuntime({
+          allowModelNetwork: true,
+          modelRefreshTimeoutMs: 8_000,
+        }, registerLlamaProviders);
+        current.initError = null;
+      } catch (error) {
+        current.initError =
+          error instanceof Error ? error.message : String(error);
+        current.initPromise = null;
+        throw error;
+      }
+    })();
+  }
+  if (ensureDefaultRuntime && current.initPromise) await current.initPromise;
+  if (ensureDefaultRuntime && current.modelRuntime) {
+    await ensureOptionalProviders(current.modelRuntime);
+  }
+  if (!current.watchdogRegistered) {
+    current.watchdogRegistered = true;
+    registerHangWatchdogHooks({
+      getLive: (taskId) => {
+        const live = current.live.get(taskId);
+        if (!live) return null;
+        return {
+          isStreaming: live.session.isStreaming,
+          isCompacting: live.session.isCompacting,
+          messages: snapshotMessages(
+            live.session,
+            live.throughputByStartedAt,
+            live.toolStartedAt,
+            live.toolEndedAt,
+            live.toolPartialOutputByCallId,
+            false,
+            messageContext(live),
+          ),
+          hasPendingAttention:
+            pendingPermissionForTask(taskId) !== null ||
+            pendingQuestionForTask(taskId) !== null,
+        };
+      },
+      abortTask: abortLiveForHangWatchdog,
+      resumePrompt: (taskId, input) => {
+        const live = current.live.get(taskId);
+        if (!live) return;
+        queuePrompt(live, input.prompt, input.images, {
+          files: input.files,
+          agent: input.agent,
+          subagentPermission: input.subagentPermission,
+          permissionMode: input.permissionMode,
+          isHangRetry: true,
+          isProviderFallback: input.isProviderFallback,
+          isTransportRecovery: input.isTransportRecovery,
+          codeRequestId: botCodeRelay().requestIdForCode(taskId),
+        });
+      },
+      notifyHangRetry: (taskId, retryCount) => {
+        persistHangRetryCount(taskId, retryCount);
+        const live = current.live.get(taskId);
+        if (!live) return;
+        emitTaskSnapshot(live, "hang_retry", { hangRetryCount: retryCount });
+      },
+      onMissingLive: (taskId, reason) => {
+        // 別ワーカーが実行中なら、このプロセスの LiveRuntime 不在は想定内。
+        if (hasActiveTaskLease(taskId) && !ownsTaskLease(taskId)) return;
+        const task = getTask(taskId);
+        if (!task || task.status !== "working") return;
+        // Stop cold Goal Loop / leftover work before marking error — otherwise disk loop stays live.
+        void abortTaskIncludingColdGoalLoop(taskId)
+          .catch((error) => {
+            console.warn(
+              `[hang-watchdog] failed to stop missing-live task ${taskId}:`,
+              error instanceof Error ? error.message : String(error),
+            );
+          })
+          .finally(() => {
+            const updated = setTaskStatus(taskId, "error", reason);
+            if (!updated) return;
+            emit(taskId, {
+              type: "snapshot",
+              task: toSummary(updated),
+              isStreaming: false,
+              isCompacting: false,
+              permissionRequest: null,
+              questionRequest: null,
+              eventType: "missing_live_session",
+              error: reason,
+            });
+          });
+      },
+    });
+    startHangWatchdog();
+    startLiveIdleReaper();
+  }
+  ensurePermissionPromptService();
+  ensureJevNoulJudge();
+}
+
+function modelValue(providerID: string, modelID: string): string {
+  return `${providerID}::${modelID}`;
+}
+
+export type ParsedModelValue = {
+  accountId?: string;
+  providerID: string;
+  modelID: string;
+};
+
+/**
+ * True when the task already points at the requested route. Re-resolving an
+ * unchanged model would collect every account's models (~1.3s) for nothing;
+ * the per-turn account choice is made by prepareLiveForPrompt anyway.
+ */
+export function taskMatchesRequestedModel(
+  task: Pick<TaskSummary, "providerID" | "modelID" | "accountId" | "accountIdExplicit">,
+  requested: ParsedModelValue | null,
+  accountIdExplicit: boolean,
+): boolean {
+  return (
+    requested !== null &&
+    task.providerID === requested.providerID &&
+    task.modelID === requested.modelID &&
+    (!requested.accountId || task.accountId === requested.accountId) &&
+    Boolean(task.accountIdExplicit) === accountIdExplicit
+  );
+}
+
+function parseModelValue(value: string | undefined): ParsedModelValue | null {
+  if (!value) return null;
+  const parts = value.split("::");
+  // 先頭セグメントが登録済みアカウントIDのときだけアカウント付き値として扱う。
+  // モデルID側に "::" が含まれる共有値を誤って分割しないためのガード。
+  if (parts.length >= 3 && parts[0] && parts[1] && parts.slice(2).join("::")) {
+    if (getAccount(parts[0])) {
+      return {
+        accountId: parts[0],
+        providerID: parts[1],
+        modelID: parts.slice(2).join("::"),
+      };
+    }
+  }
+  const separator = value.indexOf("::");
+  if (separator <= 0) return null;
+  const providerID = value.slice(0, separator);
+  const modelID = value.slice(separator + 2);
+  if (!providerID || !modelID) return null;
+  return { providerID, modelID };
+}
+
+function validateModelAccountSelection(
+  parsed: ParsedModelValue | null,
+  requestedAccountId: string | undefined,
+  explicitAccountId?: string | null,
+): void {
+  if (explicitAccountId && parsed?.accountId && explicitAccountId !== parsed.accountId) {
+    throw Object.assign(new Error("モデルとアカウントの指定が一致しません"), {
+      status: 400,
+    });
+  }
+  if (requestedAccountId) {
+    const account = getAccount(requestedAccountId);
+    if (!account) {
+      throw Object.assign(new Error("アカウントが見つかりません"), {
+        status: 404,
+      });
+    }
+    if (!isAccountEnabled(account)) {
+      throw Object.assign(new Error("一時停止中のアカウントです"), {
+        status: 409,
+      });
+    }
+  }
+  if (requestedAccountId && parsed && !isAccountRoutingProvider(parsed.providerID)) {
+    throw Object.assign(
+      new Error("共有プロバイダーにはアカウントを指定できません"),
+      { status: 400 },
+    );
+  }
+}
+
+function modelId(model: Model | undefined): {
+  providerID?: string;
+  modelID?: string;
+} {
+  if (!model) return {};
+  const record = model as unknown as Record<string, unknown>;
+  const providerID = String(record.provider ?? record.providerID ?? "");
+  const modelID = String(record.id ?? record.model ?? "");
+  return {
+    providerID: providerID || undefined,
+    modelID: modelID || undefined,
+  };
+}
+
+export function loadThroughputFromSession(session: AgentSession): {
+  timings: Map<number, ThroughputTiming>;
+  persistedKeys: Set<number>;
+} {
+  try {
+    return restoreThroughputFromEntries(session.sessionManager.getEntries());
+  } catch {
+    /* session may not expose entries yet */
+    return { timings: new Map(), persistedKeys: new Set() };
+  }
+}
+
+/** 再起動後もツール実行時間を表示できるよう、履歴エントリから復元する。 */
+function loadToolTimingFromSession(session: AgentSession): {
+  startedAt: Map<string, number>;
+  endedAt: Map<string, number>;
+} {
+  try {
+    return toolTimingFromSessionEntries(
+      session.sessionManager.getEntries() as unknown[],
+    );
+  } catch {
+    /* session may not expose entries yet */
+    return { startedAt: new Map(), endedAt: new Map() };
+  }
+}
+
+function persistThroughputSample(
+  live: LiveRuntime,
+  timing: ThroughputTiming,
+  model?: { provider: string; model: string },
+): void {
+  if (live.persistedThroughputKeys.has(timing.startedAtMs)) return;
+  const payload = toPersistedThroughput(timing);
+  if (!payload) return;
+  // Defer until after Pi appends the assistant message on message_end.
+  queueMicrotask(() => {
+    if (live.persistedThroughputKeys.has(timing.startedAtMs)) return;
+    try {
+      live.session.sessionManager.appendCustomEntry(
+        THROUGHPUT_CUSTOM_TYPE,
+        payload,
+      );
+      live.persistedThroughputKeys.add(timing.startedAtMs);
+      // Persisting made this sample evictable, so the live map can shed it now.
+      trimLiveThroughputMap(live);
+      const persisted = {
+        ...timing,
+        // payload holds the resolved count, which stays valid once the streamed chars are dropped.
+        outputTokens: payload.outputTokens,
+        outputTokensPartial: false,
+        charCount: 0,
+      };
+      live.throughputByStartedAt.set(timing.startedAtMs, persisted);
+      // モデル一覧の平均 tok/s 実績用。TTFT を含む end-to-end 値は混ぜず decode 区間だけ集計する。
+      const snap = snapshotThroughput(persisted, persisted.lastTokenAtMs ?? Date.now());
+      if (
+        model &&
+        snap?.decodePhase &&
+        persisted.firstTokenAtMs !== null &&
+        persisted.lastTokenAtMs !== null
+      ) {
+        recordModelThroughput(model.provider, model.model, {
+          outputTokens: snap.outputTokens,
+          decodeMs: persisted.lastTokenAtMs - persisted.firstTokenAtMs,
+        });
+      }
+    } catch {
+      /* persistence is best-effort; in-memory sample still works for this process */
+    }
+  });
+}
+
+function assistantUsageOutput(message: unknown): number | null {
+  if (!message || typeof message !== "object") return null;
+  const usage = (message as { usage?: { output?: unknown } }).usage;
+  if (
+    !usage ||
+    typeof usage.output !== "number" ||
+    !Number.isFinite(usage.output)
+  )
+    return null;
+  return Math.max(0, Math.round(usage.output));
+}
+
+/** Aborted/errored streams end before the provider sends its final usage (Anthropic: message_delta). */
+function hasPartialUsage(message: unknown): boolean {
+  const stopReason = (message as { stopReason?: unknown }).stopReason;
+  return stopReason === "aborted" || stopReason === "error";
+}
+
+function toolCallIdFromEvent(event: { [key: string]: unknown }): string {
+  return typeof event.toolCallId === "string"
+    ? event.toolCallId
+    : typeof event.toolCallID === "string"
+      ? event.toolCallID
+      : "";
+}
+
+function trackMessageEndEvent(
+  live: LiveRuntime,
+  event: { type: string; [key: string]: unknown },
+): void {
+  const message = event.message;
+  if (!message || typeof message !== "object") return;
+  const role = (message as { role?: unknown }).role;
+  if (role === "toolResult") {
+    const toolCallId = (message as { toolCallId?: unknown }).toolCallId;
+    if (typeof toolCallId === "string") {
+      live.toolPartialOutputByCallId.delete(toolCallId);
+      // The finished result carries the recorded calls, so the live copy is done.
+      nestedCallsStoreFor(live.session)?.delete(toolCallId);
+    }
+    return;
+  }
+  if (role !== "assistant") return;
+
+  recordAssistantTokenUsage(live.session.sessionManager.getSessionId?.() ?? "", live.accountId, message);
+
+  const startedAt =
+    typeof (message as { timestamp?: unknown }).timestamp === "number"
+      ? (message as { timestamp: number }).timestamp
+      : null;
+  if (startedAt === null) return;
+  let timing =
+    live.throughputByStartedAt.get(startedAt) ??
+    createThroughputTiming(startedAt);
+  timing = noteReportedOutputTokens(timing, assistantUsageOutput(message), hasPartialUsage(message));
+  if (timing.lastTokenAtMs === null) {
+    timing = { ...timing, lastTokenAtMs: Date.now() };
+  }
+  live.throughputByStartedAt.set(startedAt, timing);
+  const { provider, model } = message as { provider?: unknown; model?: unknown };
+  persistThroughputSample(
+    live,
+    timing,
+    typeof provider === "string" && typeof model === "string" ? { provider, model } : undefined,
+  );
+}
+
+/**
+ * Live tool timing only feeds the projection of tool parts that are still on
+ * screen. Map iteration is insertion-ordered, so dropping from the front evicts
+ * the oldest calls. Throughput samples stay untouched: they are persisted to
+ * the session file and reloaded on restore.
+ */
+const LIVE_TOOL_TIMING_LIMIT = 512;
+
+/**
+ * Throughput samples are persisted to the session file and reloaded on restore,
+ * so the live map only has to cover what is still on screen. It is keyed by the
+ * message timestamp (insertion-ordered), so dropping from the front evicts the
+ * oldest turns instead of growing one entry per assistant message forever.
+ */
+const LIVE_THROUGHPUT_LIMIT = 512;
+
+function trimLiveThroughputMap(live: LiveRuntime): void {
+  if (live.throughputByStartedAt.size <= LIVE_THROUGHPUT_LIMIT) return;
+  for (const startedAt of live.throughputByStartedAt.keys()) {
+    // Only persisted samples are safe to drop: a missing sample would otherwise
+    // lose the tok/s display for a turn that never reached the session file.
+    if (!live.persistedThroughputKeys.has(startedAt)) continue;
+    live.throughputByStartedAt.delete(startedAt);
+    live.persistedThroughputKeys.delete(startedAt);
+    if (live.throughputByStartedAt.size <= LIVE_THROUGHPUT_LIMIT) break;
+  }
+}
+
+function trimLiveTimingMaps(live: LiveRuntime): void {
+  // Partial outputs normally leave on the tool result message_end; a missed one would stay forever
+  // (up to MAX_UI_TOOL_OUTPUT_CHARS each), so cap the map and never evict a still-running call.
+  if (live.toolPartialOutputByCallId.size > LIVE_TOOL_TIMING_LIMIT) {
+    for (const callId of live.toolPartialOutputByCallId.keys()) {
+      if (live.activeToolNames?.has(callId)) continue;
+      live.toolPartialOutputByCallId.delete(callId);
+      if (live.toolPartialOutputByCallId.size <= LIVE_TOOL_TIMING_LIMIT) break;
+    }
+  }
+  const excess = live.toolStartedAt.size - LIVE_TOOL_TIMING_LIMIT;
+  if (excess <= 0) return;
+  for (const callId of live.toolStartedAt.keys()) {
+    live.toolStartedAt.delete(callId);
+    live.toolEndedAt.delete(callId);
+    if (live.toolStartedAt.size <= LIVE_TOOL_TIMING_LIMIT) break;
+  }
+}
+
+function trackToolExecutionEvent(
+  live: LiveRuntime,
+  event: { type: string; [key: string]: unknown },
+): boolean {
+  // A call a tool made is not a card of its own: it must not enter the per-call maps, whose size
+  // decides how cheaply a snapshot is projected.
+  if (typeof event.parentToolCallId === "string" && event.parentToolCallId) {
+    const store = nestedCallsStoreFor(live.session, true);
+    return store ? trackNestedToolEvent(store, event) : true;
+  }
+  if (event.type === "tool_execution_start") {
+    const toolCallId = toolCallIdFromEvent(event);
+    (live.activeToolNames ??= new Map()).set(toolCallId || "",
+      toolCallId && typeof event.toolName === "string" ? event.toolName : "");
+    if (toolCallId) live.toolStartedAt.set(toolCallId, Date.now());
+    return true;
+  }
+
+  if (event.type === "tool_execution_update") {
+    const toolCallId = toolCallIdFromEvent(event);
+    if (toolCallId) {
+      live.toolPartialOutputByCallId.set(
+        toolCallId,
+        toolResultText(event.partialResult),
+      );
+    }
+    return true;
+  }
+
+  if (event.type === "tool_execution_end") {
+    const toolCallId = toolCallIdFromEvent(event);
+    live.activeToolNames?.delete(toolCallId || "");
+    if (toolCallId) {
+      live.toolEndedAt.set(toolCallId, Date.now());
+      const output = toolResultText(event.result);
+      if (output) live.toolPartialOutputByCallId.set(toolCallId, output);
+      // A long session would otherwise keep one start/end entry per tool call for
+      // its whole life. The oldest cards are long since rendered, so evict them
+      // instead of letting the maps grow without bound.
+      trimLiveTimingMaps(live);
+    }
+    return true;
+  }
+
+  return false;
+}
+
+export function trackThroughputEvent(
+  live: LiveRuntime,
+  event: { type: string; [key: string]: unknown },
+): void {
+  if (trackToolExecutionEvent(live, event)) return;
+
+  if (event.type === "message_end") {
+    trackMessageEndEvent(live, event);
+    return;
+  }
+
+  if (event.type === "message_start") {
+    const message = event.message;
+    if (!message || typeof message !== "object") return;
+    if ((message as { role?: unknown }).role !== "assistant") return;
+    const startedAt =
+      typeof (message as { timestamp?: unknown }).timestamp === "number"
+        ? (message as { timestamp: number }).timestamp
+        : Date.now();
+    if (!live.throughputByStartedAt.has(startedAt)) {
+      live.throughputByStartedAt.set(
+        startedAt,
+        createThroughputTiming(startedAt),
+      );
+      trimLiveThroughputMap(live);
+    }
+    return;
+  }
+
+  if (event.type === "message_update") {
+    const message = event.message;
+    if (!message || typeof message !== "object") return;
+    if ((message as { role?: unknown }).role !== "assistant") return;
+    const startedAt =
+      typeof (message as { timestamp?: unknown }).timestamp === "number"
+        ? (message as { timestamp: number }).timestamp
+        : null;
+    if (startedAt === null) return;
+    let timing = live.throughputByStartedAt.get(startedAt);
+    if (!timing) {
+      timing = createThroughputTiming(startedAt);
+      live.throughputByStartedAt.set(startedAt, timing);
+    }
+    const assistantEvent = event.assistantMessageEvent;
+    if (
+      assistantEvent &&
+      typeof assistantEvent === "object" &&
+      isContentDeltaType((assistantEvent as { type?: unknown }).type)
+    ) {
+      const delta = (assistantEvent as { delta?: unknown }).delta;
+      timing = noteContentDelta(
+        timing,
+        typeof delta === "string" ? delta : undefined,
+      );
+    }
+    // Mid-stream usage is not final (Anthropic still carries message_start's placeholder).
+    timing = noteReportedOutputTokens(timing, assistantUsageOutput(message), true);
+    live.throughputByStartedAt.set(startedAt, timing);
+    return;
+  }
+}
+
+export function sessionContextUsage(
+  session: AgentSession,
+): ContextUsageDto | undefined {
+  const stored: unknown[] = Array.isArray(session.messages)
+    ? session.messages
+    : [];
+  const last = stored[stored.length - 1];
+  const cached = contextUsageCache.get(session);
+  const lastUsageKey = lastMessageUsageKey(last);
+  if (
+    cached?.source === stored &&
+    cached.length === stored.length &&
+    cached.last === last &&
+    cached.lastUsageKey === lastUsageKey
+  ) {
+    return cached.value;
+  }
+  let value: ContextUsageDto | undefined;
+  try {
+    value = toContextUsageDto(session.getContextUsage());
+  } catch {
+    value = undefined;
+  }
+  contextUsageCache.set(session, {
+    source: stored,
+    length: stored.length,
+    last,
+    lastUsageKey,
+    value,
+  });
+  return value;
+}
+
+type TaskDetailTiming = {
+  phase: string;
+  durationMs: number;
+};
+
+type TaskDetailTimingReporter = (timing: TaskDetailTiming) => void;
+
+function reportTaskDetailPhase(
+  reporter: TaskDetailTimingReporter | undefined,
+  phase: string,
+  startedAt: number,
+): void {
+  if (!reporter) return;
+  reporter({
+    phase,
+    durationMs: Math.max(0, performance.now() - startedAt),
+  });
+}
+
+function sessionSnapshotFields(
+  session: AgentSession,
+  throughputByStartedAt?: Map<number, ThroughputTiming>,
+  toolStartedAt?: Map<string, number>,
+  toolEndedAt?: Map<string, number>,
+  toolPartialOutputByCallId?: Map<string, string>,
+  accountContext?: MessageAccountContext,
+  includeMessages = true,
+  reporter?: TaskDetailTimingReporter,
+): {
+  messages: UiMessage[];
+  isStreaming: boolean;
+  isCompacting: boolean;
+  contextUsage: ContextUsageDto | undefined;
+  compactionSuggested: boolean;
+  goalLoop: GoalLoopDto | null;
+  todos: TodoDto[];
+  sessionResume: SessionResumeDto | null;
+  /** Cheap transcript identity for idle remote polls that omit message bodies. */
+  messageRevision: string;
+  /** Running tool label; kept when messages are omitted for cutover peeks. */
+  activity?: string;
+} {
+  const messagesStartedAt = reporter ? performance.now() : 0;
+  // Only an explicit false omits the projection (rule lives in backend core).
+  const includeBodies = detailIncludesMessages(includeMessages);
+  const messages = includeBodies
+    ? snapshotMessages(
+        session,
+        throughputByStartedAt,
+        toolStartedAt,
+        toolEndedAt,
+        toolPartialOutputByCallId,
+        false,
+        accountContext,
+      )
+    : [];
+  // Omit still needs the live tool label for Bot/Room Code cards after cutover.
+  const activityMessage = includeBodies
+    ? messages.at(-1) ?? null
+    : snapshotMessages(
+        session,
+        throughputByStartedAt,
+        toolStartedAt,
+        toolEndedAt,
+        toolPartialOutputByCallId,
+        true,
+        accountContext,
+      ).at(-1) ?? null;
+  const activity = activeToolLabel(activityMessage)?.slice(0, 80);
+  reportTaskDetailPhase(reporter, "messages", messagesStartedAt);
+
+  const contextStartedAt = reporter ? performance.now() : 0;
+  const contextUsage = sessionContextUsage(session);
+  reportTaskDetailPhase(reporter, "contextUsage", contextStartedAt);
+
+  const goalLoopStartedAt = reporter ? performance.now() : 0;
+  const goalLoop = readGoalLoopState(
+    session.sessionManager.getCwd(),
+    session.sessionId,
+  );
+  reportTaskDetailPhase(reporter, "goalLoop", goalLoopStartedAt);
+
+  const todosStartedAt = reporter ? performance.now() : 0;
+  const todos = todosFromPiMessages(session.messages);
+  reportTaskDetailPhase(reporter, "todos", todosStartedAt);
+  const resume = resumeReservationFromBranch(session.sessionManager.getBranch(), session.sessionId);
+  const sessionResume = resume?.status === "scheduled"
+    ? { id: resume.id, at: resume.at, message: resume.message }
+    : null;
+
+  // The Goal Loop exemption lives in backend core; the Settings reads stay here.
+  const compactionSuggested = shouldSuggestCompaction({
+    goalLoopOwned: isGoalLoopSessionOwned(goalLoop),
+    overThreshold: shouldSuggestAtThreshold(
+      parseCompactionAction(getSetting(COMPACTION_ACTION_SETTING_KEY)),
+      contextUsage?.percent,
+      parseCompactionThreshold(getSetting(COMPACTION_THRESHOLD_SETTING_KEY)),
+    ),
+  });
+
+  const storedMessages = Array.isArray(session.messages) ? session.messages : [];
+  const lastStored = storedMessages.at(-1);
+  const lastId =
+    lastStored && typeof lastStored === "object" && lastStored && "id" in lastStored
+      ? String((lastStored as { id: unknown }).id ?? "")
+      : "";
+
+  return {
+    messages,
+    isStreaming: session.isStreaming,
+    isCompacting: session.isCompacting,
+    contextUsage,
+    compactionSuggested,
+    goalLoop,
+    todos,
+    sessionResume,
+    messageRevision: `${storedMessages.length}:${lastId}:${session.isStreaming ? 1 : 0}:${session.isCompacting ? 1 : 0}`,
+    ...(activity ? { activity } : {}),
+  };
+}
+
+/** Snapshot fields for a live runtime: every caller projects the same maps and account/agent context. */
+function liveSnapshotFields(
+  live: LiveRuntime,
+  includeMessages = true,
+  reporter?: TaskDetailTimingReporter,
+): ReturnType<typeof sessionSnapshotFields> {
+  return sessionSnapshotFields(
+    live.session,
+    live.throughputByStartedAt,
+    live.toolStartedAt,
+    live.toolEndedAt,
+    live.toolPartialOutputByCallId,
+    messageContext(live),
+    includeMessages,
+    reporter,
+  );
+}
+
+function emit(
+  taskId: string,
+  payload: { type: string; [key: string]: unknown },
+): void {
+  const active = state().live.get(taskId);
+  if (active) active.lastActivityAt = Date.now();
+  state().events.emit(taskId, payload.type === "snapshot" && taskId.startsWith("bot:") ? {
+    ...payload,
+    permissionRequest: pendingPermissionForTask(taskId),
+    questionRequest: pendingQuestionForTask(taskId),
+  } : payload);
+  // Deltas are high-frequency; remote Web streams poll while streaming. Lifecycle/attention
+  // snapshots must still wake the cutover UI even when this process has no SSE listeners.
+  if (payload.type !== "delta") {
+    publishTaskDirty(taskId, typeof payload.eventType === "string" ? payload.eventType : payload.type);
+  }
+}
+
+const BOT_CODE_SESSION_EVENT_CHANNEL = "__bot_code_session_changed__";
+const TASK_DIRTY_EVENT_CHANNEL = "__task_dirty__";
+const TASK_DIRTY_COALESCE_MS = 50;
+const pendingTaskDirty = new Map<string, { reason: string; timer: ReturnType<typeof setTimeout> }>();
+
+/** Coalesced dirty wake for Web cutover streams that do not subscribeTask in this process. */
+function publishTaskDirty(taskId: string, reason: string): void {
+  const existing = pendingTaskDirty.get(taskId);
+  if (existing) {
+    existing.reason = reason;
+    return;
+  }
+  const timer = setTimeout(() => {
+    const pending = pendingTaskDirty.get(taskId);
+    pendingTaskDirty.delete(taskId);
+    state().events.emit(TASK_DIRTY_EVENT_CHANNEL, {
+      taskId,
+      reason: pending?.reason ?? reason,
+    });
+  }, TASK_DIRTY_COALESCE_MS);
+  timer.unref?.();
+  pendingTaskDirty.set(taskId, { reason, timer });
+}
+
+const TASK_STREAM_EVENT_CHANNEL = "__task_stream__";
+/**
+ * Streaming-text wakes for cutover viewers. Deltas never publish `task_dirty` (lifecycle consumers
+ * such as the Sidebar must not wake per token), so without this a Backend-owned stream only
+ * refreshed on its 2s poll and replies appeared in 2-second jumps.
+ */
+const throttledTaskStreamWake = createTaskStreamWake({
+  emit: (taskId, delta) => state().events.emit(TASK_STREAM_EVENT_CHANNEL, {
+    taskId,
+    reason: "stream",
+    ...(delta ? { delta } : {}),
+  }),
+});
+function publishTaskStream(taskId: string, delta: () => Record<string, unknown>): void {
+  // No cutover consumer (in-process WebUI): nothing to wake, and no timers to arm.
+  if (state().events.listenerCount(TASK_STREAM_EVENT_CHANNEL) === 0) return;
+  throttledTaskStreamWake(taskId, delta);
+}
+
+/** Backend→Web cutover: throttled message deltas (never on the dirty channel). */
+export function subscribeTaskStream(
+  listener: (payload: { taskId: string; reason?: string; delta?: Record<string, unknown> }) => void,
+): () => void {
+  const handler = (payload: { taskId: string; reason?: string; delta?: Record<string, unknown> }) => listener(payload);
+  state().events.on(TASK_STREAM_EVENT_CHANNEL, handler);
+  return () => state().events.off(TASK_STREAM_EVENT_CHANNEL, handler);
+}
+
+export function subscribeBotCodeSession(
+  listener: (payload: Record<string, unknown>) => void,
+): () => void {
+  const handler = (payload: Record<string, unknown>) => listener(payload);
+  state().events.on(BOT_CODE_SESSION_EVENT_CHANNEL, handler);
+  return () => state().events.off(BOT_CODE_SESSION_EVENT_CHANNEL, handler);
+}
+
+/** Backend→Web cutover: light task change notices without projecting a full snapshot. */
+export function subscribeTaskDirty(
+  listener: (payload: { taskId: string; reason?: string }) => void,
+): () => void {
+  const handler = (payload: { taskId: string; reason?: string }) => listener(payload);
+  state().events.on(TASK_DIRTY_EVENT_CHANNEL, handler);
+  return () => state().events.off(TASK_DIRTY_EVENT_CHANNEL, handler);
+}
+
+function emitAttention(taskId: string, payload: { type: string; [key: string]: unknown }): void {
+  // Where an attention event goes (task, plus a distinct origin) lives in backend core.
+  const plan = attentionEmitPlan({ taskId, originTaskId: botCodeRelay().originForCode(taskId) });
+  emit(plan.taskId, payload);
+  if (plan.origin) emit(plan.origin, { type: "snapshot", eventType: payload.eventType, ...permissionSnapshotExtras(plan.origin) });
+}
+
+/** Tell the originating Bot/Room stream about a Code request's terminal state without mounting Code UI. */
+function emitCodeSessionChanged(request: CodeRequest): void {
+  // The event payload shape lives in backend core; the event names stay here.
+  const payload = codeSessionChangedPayload({
+    eventType: BOT_CODE_SESSION_CHANGED_EVENT,
+    requestId: request.id,
+    codeTaskId: request.codeTaskId,
+    state: request.state,
+  }) satisfies Record<string, unknown>;
+  emit(request.originTaskId, payload);
+  state().events.emit(BOT_CODE_SESSION_EVENT_CHANNEL, payload);
+}
+
+/** プロバイダが「思考オフ不可」の 400 を返したか。 */
+export const isReasoningMandatoryError = corePromptControl.isReasoningMandatoryError;
+
+/** 思考必須モデル向けのフォールバックレベル（対応する最下位、なければ minimal）。 */
+export function reasoningFallbackLevel(
+  model: Model | null | undefined,
+): ThinkingLevel {
+  // The level rule lives in backend core; the model's level list stays here.
+  const levels = model ? thinkingLevelsForModel(model) : [];
+  return coreReasoningFallbackLevel(levels) as ThinkingLevel;
+}
+
+function emitTaskSnapshot(
+  live: LiveRuntime,
+  eventType: string,
+  extra?: Record<string, unknown>,
+): void {
+  // Always wake cutover Web viewers even when this process has no local SSE listeners.
+  publishTaskDirty(live.taskId, eventType);
+  // SSE リスナーが誰もいないタスクのスナップショット生成（メッセージ射影・
+  // エントリ走査・goal loop 読込・todo 抽出）は丸ごと不要。リスナーが付いた
+  // タイミングで getTaskDetail が初期状態を送るため欠落は生じない。
+  if (state().events.listenerCount(live.taskId) === 0) return;
+  const task = getTask(live.taskId);
+  if (!task) return;
+  const omitMessages = snapshotOmitsMessages(eventType, extra);
+  const fields = liveSnapshotFields(live, !omitMessages);
+  if (omitMessages) delete (fields as { messages?: unknown }).messages;
+  emit(live.taskId, {
+    type: "snapshot",
+    task: toSummary(task),
+    ...fields,
+    manualAbortedAssistantId: live.manualAbortedAssistantId,
+    hangRetryCount: live.hangRetryCount,
+    revertLeafId: live.revertLeafId,
+    eventType,
+    ...extra,
+  });
+}
+
+/** Emit a persisted task metadata change to any live SSE subscribers. */
+export function emitTaskChanged(taskId: string, eventType = "task_changed"): void {
+  const live = state().live.get(taskId);
+  if (live) emitTaskSnapshot(live, eventType);
+}
+
+/**
+ * Stream only the newest projected message for token/tool updates.
+ * Reuse the cached branch and project the streaming suffix alone through the
+ * latestOnly snapshot path.
+ */
+function projectTaskDelta(live: LiveRuntime, eventType: string): { type: "delta"; [key: string]: unknown } {
+  // High-frequency events only change the message and session flags. Task metadata is refreshed
+  // by lifecycle snapshots, so avoid the store read and session-file scans done by toSummary().
+  const message = snapshotMessages(
+    live.session,
+    live.throughputByStartedAt,
+    live.toolStartedAt,
+    live.toolEndedAt,
+    live.toolPartialOutputByCallId,
+    true,
+    messageContext(live),
+  ).at(-1) ?? null;
+  const contextUsage = sessionContextUsage(live.session);
+  const compactionSuggested = !live.goalLoopTurnActive && shouldSuggestAtThreshold(
+    parseCompactionAction(getSetting(COMPACTION_ACTION_SETTING_KEY)),
+    contextUsage?.percent,
+    parseCompactionThreshold(getSetting(COMPACTION_THRESHOLD_SETTING_KEY)),
+  );
+  return {
+    type: "delta",
+    message,
+    isStreaming: live.session.isStreaming,
+    isCompacting: live.session.isCompacting,
+    ...(contextUsage ? { contextUsage } : {}),
+    compactionSuggested,
+    eventType,
+  };
+}
+
+function emitTaskDelta(live: LiveRuntime, eventType: string): void {
+  const hasLocalListeners = state().events.listenerCount(live.taskId) > 0;
+  const hasCutoverListeners = state().events.listenerCount(TASK_STREAM_EVENT_CHANNEL) > 0;
+  if (!hasLocalListeners && !hasCutoverListeners) return;
+  if (hasLocalListeners) {
+    const delta = projectTaskDelta(live, eventType);
+    if (hasCutoverListeners) publishTaskStream(live.taskId, () => delta);
+    emit(live.taskId, delta);
+    return;
+  }
+  // Remote-only consumers project only for leading/trailing throttled wakes, not each token event.
+  if (hasCutoverListeners) publishTaskStream(live.taskId, () => projectTaskDelta(live, eventType));
+}
+
+/** Refresh idle clients after settings changes without projecting conversation history. */
+export function refreshCompactionSuggestions(): void {
+  const action = parseCompactionAction(getSetting(COMPACTION_ACTION_SETTING_KEY));
+  const threshold = parseCompactionThreshold(getSetting(COMPACTION_THRESHOLD_SETTING_KEY));
+  for (const live of state().live.values()) {
+    if (state().events.listenerCount(live.taskId) === 0) continue;
+    emit(live.taskId, {
+      type: "delta",
+      compactionSuggested: !live.goalLoopTurnActive &&
+        !isActiveGoalLoopSession(live.session) &&
+        shouldSuggestAtThreshold(action, sessionContextUsage(live.session)?.percent, threshold),
+      eventType: "compaction_settings_changed",
+    });
+  }
+}
+
+function scheduleTaskSnapshot(
+  live: LiveRuntime,
+  eventType: string,
+  extra?: Record<string, unknown>,
+): void {
+  // ライフサイクルイベントの連続（message_start/end・agent_start 等）も100ms窓で
+  // 1つのスナップショットへ合流させる。分類はbackend core、タイマーとemitはここ。
+  const decision = classifySnapshotEvent(eventType, {
+    eventType: live.pendingSnapshotEventType,
+    isDelta: live.pendingSnapshotIsDelta === true,
+  });
+  // フルスナップショット待機中に来た delta は、そのフルに含まれるため送らない。
+  if (decision.action !== "schedule") return;
+  live.pendingSnapshotEventType = eventType;
+  live.pendingSnapshotExtra = extra;
+  live.pendingSnapshotIsDelta = decision.isDelta;
+  if (live.snapshotTimer) return;
+  live.snapshotTimer = setTimeout(() => {
+    live.snapshotTimer = null;
+    const flush = pendingSnapshotFlush({
+      eventType: live.pendingSnapshotEventType,
+      extra: live.pendingSnapshotExtra,
+      isDelta: live.pendingSnapshotIsDelta === true,
+    });
+    live.pendingSnapshotEventType = null;
+    live.pendingSnapshotExtra = undefined;
+    live.pendingSnapshotIsDelta = false;
+    const pendingType = flush.eventType ?? eventType;
+    if (flush.isDelta) emitTaskDelta(live, pendingType);
+    else emitTaskSnapshot(live, pendingType, flush.extra);
+  }, SNAPSHOT_THROTTLE_MS);
+}
+
+function mapCompactionError(error: unknown): Error {
+  const message = error instanceof Error ? error.message : String(error);
+  if (/Nothing to compact/i.test(message)) {
+    return Object.assign(new Error("圧縮するほど履歴がありません"), {
+      status: 400,
+    });
+  }
+  if (/Already compacted/i.test(message)) {
+    return Object.assign(new Error("すでに圧縮済みです"), { status: 400 });
+  }
+  if (
+    /Compaction cancelled/i.test(message) ||
+    (error instanceof Error && error.name === "AbortError")
+  ) {
+    return Object.assign(new Error("圧縮をキャンセルしました"), {
+      status: 400,
+    });
+  }
+  return error instanceof Error ? error : new Error(message);
+}
+
+function isActiveGoalLoopSession(session: AgentSession): boolean {
+  try {
+    const loop = readGoalLoopState(
+      session.sessionManager.getCwd(),
+      session.sessionId,
+    );
+    return isGoalLoopSessionOwned(loop);
+  } catch {
+    return false;
+  }
+}
+
+function isLiveGoalLoopSession(session: AgentSession): boolean {
+  try {
+    const loop = readGoalLoopState(
+      session.sessionManager.getCwd(),
+      session.sessionId,
+    );
+    return isGoalLoopLiveStatus(loop?.status);
+  } catch {
+    return false;
+  }
+}
+
+function applySessionCompactionSettings(
+  session: AgentSession,
+  enabledOverride?: boolean,
+  skipGoalLoop = false,
+): void {
+  const action = parseCompactionAction(
+    getSetting(COMPACTION_ACTION_SETTING_KEY),
+  );
+  const threshold = parseCompactionThreshold(
+    getSetting(COMPACTION_THRESHOLD_SETTING_KEY),
+  );
+  const goalLoopActive = skipGoalLoop || isActiveGoalLoopSession(session);
+  const contextWindow = Number(session.model?.contextWindow ?? 0);
+  const settingsManager = session.settingsManager;
+  if (
+    !settingsManager ||
+    typeof settingsManager.applyOverrides !== "function"
+  ) {
+    return;
+  }
+  settingsManager.applyOverrides({
+    compaction: {
+      enabled: goalLoopActive ? true : (enabledOverride ?? action === "auto"),
+      ...(contextWindow > 0 && !goalLoopActive
+        ? { reserveTokens: reserveTokensForThreshold(contextWindow, threshold) }
+        : {}),
+    },
+  });
+}
+
+function scheduleAutoCompaction(live: LiveRuntime): void {
+  if (
+    live.autoCompactionPromise ||
+    live.manualCompactionInProgress ||
+    // "" = abort before any assistant message; still blocks auto-compact.
+    blocksAutoCompactionAfterManualAbort(live.manualAbortedAssistantId) ||
+    live.nativeCompactionAttempted ||
+    live.goalLoopTurnActive ||
+    live.pendingProviderFallback ||
+    providerFallbackInflight.has(live.taskId) ||
+    live.session.isCompacting ||
+    isActiveGoalLoopSession(live.session)
+  ) {
+    return;
+  }
+  const action = parseCompactionAction(
+    getSetting(COMPACTION_ACTION_SETTING_KEY),
+  );
+  const threshold = parseCompactionThreshold(
+    getSetting(COMPACTION_THRESHOLD_SETTING_KEY),
+  );
+  let percent: number | null | undefined;
+  try {
+    percent = live.session.getContextUsage()?.percent;
+  } catch {
+    percent = undefined;
+  }
+  if (!shouldCompactAtThreshold(action, percent, threshold)) return;
+
+  const operation = Promise.resolve()
+    .then(() => live.session.compact())
+    .then(() => undefined)
+    .catch((error) => {
+      console.warn(
+        `[leafcode-pi] automatic compaction failed for ${live.taskId}: ${
+          error instanceof Error ? error.message : String(error)
+        }`,
+      );
+    })
+    .finally(() => {
+      if (live.autoCompactionPromise === operation) {
+        live.autoCompactionPromise = null;
+      }
+    });
+  live.autoCompactionPromise = operation;
+}
+
+function openSettingsManager() {
+  const pi = state().pi;
+  if (!pi)
+    throw Object.assign(new Error("Pi ランタイムが初期化されていません"), {
+      status: 503,
+    });
+  return pi.SettingsManager.create(homedir(), pi.getAgentDir());
+}
+
+const providerFallbackInflight = new Map<string, Promise<void>>();
+
+/**
+ * Start a provider login one microtask later so the SSE client can attach first.
+ * Only the session that is still current when the microtask runs may start: a
+ * newer login cancels the previous one, and running both would race on the
+ * loopback listener the OAuth flow binds.
+ */
+export function queueLoginStart(
+  holder: { loginSession: unknown },
+  session: unknown,
+  run: () => Promise<unknown>,
+): void {
+  queueMicrotask(() => {
+    if (holder.loginSession !== session) return;
+    void run();
+  });
+}
+
+/**
+ * Test-only: wait out provider-limit fallbacks started in the current test so
+ * a late session replacement cannot leak into the next test's runtime.
+ */
+export async function __waitForProviderFallbackIdleForTests(): Promise<void> {
+  for (let attempt = 0; attempt < 50 && providerFallbackInflight.size > 0; attempt += 1) {
+    await Promise.allSettled([...providerFallbackInflight.values()]);
+    // The fallback queues its hidden resume prompt after the inflight promise.
+    await new Promise<void>((resolve) => setTimeout(resolve, 0));
+  }
+}
+
+const soulReloadInflight = new Map<string, Promise<LiveRuntime>>();
+const sessionReloadInflight = new WeakMap<AgentSession, Promise<void>>();
+const goalLoopRoutingOwners = new WeakMap<object, symbol>();
+const GOAL_LOOP_HOST_ROUTING_CHANNEL = "leafcode-goal-loop:host-routing";
+const GOAL_LOOP_HOST_ROUTING_READY_CHANNEL = "leafcode-goal-loop:host-routing-ready";
+
+/** Serialize all session.reload() paths and let concurrent prompts wait for rebuild. */
+function reloadSession(session: AgentSession): Promise<void> {
+  const existing = sessionReloadInflight.get(session);
+  if (existing) return existing;
+  const operation = session.reload();
+  sessionReloadInflight.set(session, operation);
+  void operation.then(
+    () => {
+      if (sessionReloadInflight.get(session) === operation) sessionReloadInflight.delete(session);
+    },
+    () => {
+      if (sessionReloadInflight.get(session) === operation) sessionReloadInflight.delete(session);
+    },
+  );
+  return operation;
+}
+
+async function waitForSessionReload(session: AgentSession): Promise<void> {
+  while (true) {
+    const operation = sessionReloadInflight.get(session);
+    if (!operation) return;
+    try {
+      await operation;
+    } catch {
+      // The initiating reload caller reports the error. A waiter re-checks the
+      // live session and proceeds through its normal reload/prepare path.
+    }
+  }
+}
+
+/** Session entry customType for the hidden provider-limit resume prompt. */
+const PROVIDER_FALLBACK_CUSTOM_TYPE = "leafcode-pi.provider-fallback";
+/** Session entry customType for the hidden WebSocket-to-SSE recovery prompt. */
+const PROVIDER_TRANSPORT_RECOVERY_CUSTOM_TYPE = "leafcode-pi.provider-transport-recovery";
+const PROVIDER_TRANSPORT_RECOVERY_PROMPT =
+  "The previous response was interrupted by a WebSocket transport error. Continue the pending request from the existing conversation. Do not repeat completed actions.";
+
+function assistantFailureText(value: unknown): string {
+  if (value instanceof Error) return `${value.name} ${value.message}`;
+  if (typeof value === "string") return value;
+  if (!value || typeof value !== "object") return "";
+  const record = value as Record<string, unknown>;
+  const parts: string[] = [];
+  for (const key of ["errorMessage", "error"] as const) {
+    const direct = record[key];
+    if (typeof direct === "string") parts.push(direct);
+    else if (direct && typeof direct === "object") {
+      const error = direct as { name?: unknown; message?: unknown };
+      if (typeof error.name === "string") parts.push(error.name);
+      if (typeof error.message === "string") parts.push(error.message);
+    }
+  }
+  if (Array.isArray(record.diagnostics)) {
+    for (const diagnostic of record.diagnostics) {
+      if (!diagnostic || typeof diagnostic !== "object") continue;
+      const item = diagnostic as Record<string, unknown>;
+      if (typeof item.type === "string") parts.push(item.type);
+      const error = item.error;
+      if (error && typeof error === "object") {
+        const errorRecord = error as { name?: unknown; message?: unknown };
+        if (typeof errorRecord.name === "string") parts.push(errorRecord.name);
+        if (typeof errorRecord.message === "string") parts.push(errorRecord.message);
+      }
+    }
+  }
+  return parts.join("\n");
+}
+
+/** WebSocket failures are transient transport errors, not terminal task errors. */
+export function isWebSocketTransportError(value: unknown): boolean {
+  return /websocket\s*(?:error|closed)|websocketerror|provider[_\s-]*transport[_\s-]*failure/i.test(
+    assistantFailureText(value),
+  );
+}
+
+function lastAssistantWebSocketError(event: unknown): string | null {
+  if (!event || typeof event !== "object") return null;
+  const record = event as Record<string, unknown>;
+  if (record.type !== "agent_end" || !Array.isArray(record.messages)) return null;
+  for (let index = record.messages.length - 1; index >= 0; index -= 1) {
+    const message = record.messages[index];
+    if (!message || typeof message !== "object") continue;
+    const item = message as Record<string, unknown>;
+    if (item.role !== "assistant") continue;
+    const text = assistantFailureText(item);
+    return isWebSocketTransportError(text) ? text : null;
+  }
+  return null;
+}
+
+function noteWebSocketTransportFailure(
+  live: LiveRuntime,
+  session: AgentSession,
+  event: { type: string; willRetry?: boolean; messages?: unknown[] },
+): void {
+  if (event.type !== "agent_end") return;
+  const error = lastAssistantWebSocketError(event);
+  if (!error || isActiveGoalLoopSession(session)) return;
+  // The SDK may retry the current turn itself. Make that retry use SSE so it
+  // does not reconnect the failing WebSocket cache.
+  if (session.agent.transport !== "sse") {
+    session.agent.transport = "sse";
+    console.warn("[leafcode-pi] WebSocket transport failed; retrying with SSE");
+  }
+  // When SDK auto-retry is disabled/exhausted, queue one hidden continuation
+  // after agent_settled instead of leaving the task in the error state.
+  if (
+    !event.willRetry &&
+    !live.transportRecoveryAttempted &&
+    !live.pendingProviderFallback
+  ) {
+    live.pendingTransportRecovery = true;
+  }
+}
+
+function lastAssistantLimitError(event: unknown): string | null {
+  if (!event || typeof event !== "object") return null;
+  const record = event as Record<string, unknown>;
+  if (record.type !== "agent_end" || !Array.isArray(record.messages)) return null;
+  for (let index = record.messages.length - 1; index >= 0; index -= 1) {
+    const message = record.messages[index];
+    if (!message || typeof message !== "object") continue;
+    const item = message as Record<string, unknown>;
+    if (item.role !== "assistant") continue;
+    const error =
+      typeof item.errorMessage === "string"
+        ? item.errorMessage
+        : typeof item.error === "string"
+          ? item.error
+          : "";
+    return error && isProviderLimitError(error) ? error : null;
+  }
+  return null;
+}
+
+/**
+ * A usage limit leaves the route unusable, so recovery beats route stickiness:
+ * an explicitly selected account and a separate-mode provider both fall back
+ * too. Those settings govern normal routing, not an exhausted route.
+ */
+function canAutoFallbackTask(task: TaskSummary, providerID: string): boolean {
+  return task.providerID === providerID;
+}
+
+/**
+ * Route resolution can briefly depend on cold caches or a just-marked account.
+ * Retry inside the fallback instead of leaving the task dead in `error`.
+ */
+const PROVIDER_FALLBACK_RETRY_DELAYS_MS = [0, 1_500, 4_000] as const;
+
+/** Shown when no route could be taken so the user knows manual recovery is required. */
+export const PROVIDER_FALLBACK_FAILED_MESSAGE =
+  "利用上限に達したため、別のアカウントまたはプロバイダーへ自動で切り替えられませんでした。モデルを変更するか、利用枠のリセット後に再開してください。";
+
+type ProviderFallbackAttempt =
+  | { status: "resumed"; live: LiveRuntime }
+  | { status: "unavailable" }
+  | { status: "superseded" };
+
+function delay(ms: number): Promise<void> {
+  return new Promise((resolve) => {
+    const timer = setTimeout(resolve, ms);
+    timer.unref?.();
+  });
+}
+
+/**
+ * One route-resolution attempt under the route lock. Resolves every candidate
+ * and tries them in order: a single unusable destination must not strand the
+ * task, and a destination identical to the exhausted route is not a fallback.
+ */
+async function attemptProviderFallbackRoute(
+  task: TaskSummary,
+  pending: NonNullable<LiveRuntime["pendingProviderFallback"]>,
+  promptEpoch: number,
+  fallbackLive: LiveRuntime,
+): Promise<ProviderFallbackAttempt> {
+  let currentLive = state().live.get(task.id) ?? fallbackLive;
+  const pendingCompaction = currentLive.autoCompactionPromise;
+  if (pendingCompaction) {
+    await pendingCompaction.catch(() => undefined);
+    currentLive = state().live.get(task.id) ?? currentLive;
+  }
+  const latestTask = getTask(task.id);
+  if (
+    !latestTask ||
+    !latestTask.providerID ||
+    !latestTask.modelID ||
+    latestTask.providerID !== pending.providerID ||
+    latestTask.modelID !== pending.modelID ||
+    !canAutoFallbackTask(latestTask, pending.providerID)
+  ) {
+    // The task moved off the exhausted route (or vanished); nothing to recover.
+    return { status: "superseded" };
+  }
+  if (currentLive.promptEpoch !== promptEpoch) {
+    // A user action owns the route now; never override it with a retry.
+    return { status: "superseded" };
+  }
+  if (currentLive.session.isStreaming) return { status: "unavailable" };
+
+  const routes = await resolveProviderFallbackRoutes({
+    providerID: pending.providerID,
+    modelID: pending.modelID,
+    ...(currentLive.accountId ? { accountId: currentLive.accountId } : {}),
+  });
+  if (currentLive.promptEpoch !== promptEpoch) return { status: "superseded" };
+  const liveIds = modelId(currentLive.session.model);
+  const liveAccountId = currentLive.accountId ?? null;
+  const candidates = routes.filter((route) => {
+    const ids = modelId(route.model);
+    // A destination identical to the exhausted route is not a fallback, whether
+    // it matches the stored task identity or only the live session's route.
+    if (ids.providerID === liveIds.providerID && ids.modelID === liveIds.modelID &&
+      route.accountId === liveAccountId) return false;
+    return !(
+      ids.providerID === latestTask.providerID &&
+      ids.modelID === latestTask.modelID &&
+      route.accountId === (latestTask.accountId ?? null)
+    );
+  });
+  for (const route of candidates) {
+    if (currentLive.promptEpoch !== promptEpoch) return { status: "superseded" };
+    try {
+      // Limit recovery moves the route; drop the explicit pin so integrated
+      // rebalancing can resume on the next prepareLiveForPrompt.
+      const nextLive = await replaceLiveForRoute(currentLive, latestTask, route, {
+        accountIdExplicit: false,
+      });
+      setTaskStatus(nextLive.taskId, "idle");
+      emitTaskSnapshot(nextLive, "provider_fallback", {
+        fallbackFrom: `${pending.providerID}::${pending.modelID}`,
+      });
+      return { status: "resumed", live: nextLive };
+    } catch (error) {
+      console.warn(
+        `[leafcode-pi] provider fallback route failed: ${
+          error instanceof Error ? error.message : String(error)
+        }`,
+      );
+    }
+  }
+  return { status: "unavailable" };
+}
+
+async function fallbackProviderAfterLimit(
+  live: LiveRuntime,
+  pending: NonNullable<LiveRuntime["pendingProviderFallback"]>,
+): Promise<void> {
+  // Serialize behind an in-flight attempt. A newer limit error that arrived
+  // while the previous attempt was retrying still needs its own fallback; the
+  // guards below turn this call into a no-op when that attempt already moved
+  // the task off the exhausted route.
+  let previous = providerFallbackInflight.get(live.taskId);
+  while (previous) {
+    await previous.catch(() => undefined);
+    previous = providerFallbackInflight.get(live.taskId);
+  }
+  const promptEpoch = live.promptEpoch;
+  const goalLoop = isActiveGoalLoopSession(live.session);
+  let resumedLive: LiveRuntime | undefined;
+  let exhausted = false;
+  const operation = (async () => {
+    try {
+      const task = getTask(live.taskId);
+      if (
+        !task ||
+        !task.providerID ||
+        !task.modelID ||
+        task.providerID !== pending.providerID ||
+        task.modelID !== pending.modelID ||
+        !canAutoFallbackTask(task, pending.providerID)
+      ) {
+        return;
+      }
+
+      for (const delayMs of PROVIDER_FALLBACK_RETRY_DELAYS_MS) {
+        if (delayMs > 0) await delay(delayMs);
+        if ((state().live.get(live.taskId) ?? live).promptEpoch !== promptEpoch) return;
+        const attempt = await withRouteLock(
+          `${task.providerID}::${task.modelID}`,
+          () => attemptProviderFallbackRoute(task, pending, promptEpoch, live),
+        );
+        if (attempt.status === "resumed") {
+          resumedLive = attempt.live;
+          return;
+        }
+        if (attempt.status === "superseded") return;
+      }
+      exhausted = true;
+    } finally {
+      // A queued user prompt may already have re-entered promptActive on this
+      // lease while fallback was replacing the route. Releasing here would drop
+      // that turn's lease; settle of that turn releases instead.
+      const current = state().live.get(live.taskId);
+      if (!current?.promptActive) {
+        releaseTaskLease(live.taskId);
+      }
+    }
+  })().finally(() => {
+    if (providerFallbackInflight.get(live.taskId) === operation) {
+      providerFallbackInflight.delete(live.taskId);
+    }
+  });
+  providerFallbackInflight.set(live.taskId, operation);
+  await operation;
+  // Resume only after releasing the route lock and fallback guard. Another
+  // exhausted account must be able to fall back again. Goal Loop resumes itself.
+  if (
+    resumedLive &&
+    !goalLoop &&
+    state().live.get(live.taskId) === resumedLive &&
+    resumedLive.promptEpoch === promptEpoch
+  ) {
+    void queuePrompt(
+      resumedLive,
+      "The previous response was interrupted by a provider usage limit. Continue the pending request from the existing conversation. Do not repeat completed actions.",
+      undefined,
+      { isProviderFallback: true },
+    );
+    return;
+  }
+  // Never leave the user staring at the provider error when the recovery could
+  // not produce a route. The raw limit error is replaced by an actionable one.
+  if (
+    exhausted &&
+    !goalLoop &&
+    state().live.get(live.taskId) === live &&
+    live.promptEpoch === promptEpoch
+  ) {
+    setTaskStatus(live.taskId, "error", PROVIDER_FALLBACK_FAILED_MESSAGE);
+    emitTaskSnapshot(live, "provider_fallback_failed");
+  }
+}
+
+type SessionEvent = Parameters<Parameters<AgentSession["subscribe"]>[0]>[0];
+
+/** Track native-compaction and Goal Loop flags for the run that owns this event. */
+function trackTurnLifecycleFlags(
+  live: LiveRuntime,
+  session: AgentSession,
+  event: SessionEvent,
+): void {
+  if (event.type === "agent_start") {
+    live.nativeCompactionAttempted = false;
+    live.goalLoopTurnActive = isActiveGoalLoopSession(session);
+    applySessionCompactionSettings(session, undefined, live.goalLoopTurnActive);
+  }
+  if (event.type === "compaction_start" && event.reason !== "manual") {
+    live.nativeCompactionAttempted = true;
+  }
+  if (event.type === "agent_end" && isActiveGoalLoopSession(session)) {
+    live.goalLoopTurnActive = true;
+  }
+}
+
+/** Mark or clear the provider usage limit reported by a finished agent run. */
+function trackProviderLimit(
+  live: LiveRuntime,
+  session: AgentSession,
+  event: SessionEvent,
+): void {
+  if (event.type !== "agent_end") return;
+  const ids = modelId(session.model);
+  if (!ids.providerID) return;
+  const limitMessage = lastAssistantLimitError(event);
+  if (!limitMessage) {
+    if (!event.willRetry) clearRouteLimit(ids.providerID, live.accountId);
+    return;
+  }
+  markRouteLimited(ids.providerID, live.accountId);
+  live.pendingProviderFallback = {
+    providerID: ids.providerID,
+    modelID: ids.modelID ?? "",
+    message: limitMessage,
+  };
+  if (
+    session.autoRetryEnabled &&
+    typeof session.setAutoRetryEnabled === "function"
+  ) {
+    session.setAutoRetryEnabled(false);
+    live.restoreAutoRetry = true;
+  }
+}
+
+/** Publish the terminal status of a finished turn. */
+function applySettledTaskStatus(
+  live: LiveRuntime,
+  session: AgentSession,
+  taskId: string,
+): void {
+  // An immediate steer replaces this run without opening an idle window that
+  // could drain another client's follow-up or release the replacement's lease.
+  if (live.immediateInterruptInProgress) return;
+  const settledError = session.agent.state.errorMessage ?? null;
+  // A Goal Loop stop aborts its own turn and Pi reports that abort as an error message. The loop
+  // file already says "stopped", so this is the user's deliberate stop, not a failure: keep the
+  // same shape as abortTask (idle + the manual-abort sentinel) instead of painting the task red.
+  // Manual Stop also leaves manualAbortedAssistantId set (possibly "") before agent_settled.
+  const stoppedByUser =
+    settledError !== null &&
+    isAbortErrorMessage(settledError) &&
+    (goalLoopIsStopped(live) || live.manualAbortedAssistantId !== null);
+  if (stoppedByUser) persistManualAbortedAssistantId(taskId, "");
+  let taskError = settledError;
+  if (!stoppedByUser && settledError && isAbortErrorMessage(settledError)) {
+    // Automatic inactivity timeout is not a manual Stop. Preserve its recorded
+    // cause rather than reporting the SDK's generic "Request was aborted".
+    try {
+      const loop = readGoalLoopState(session.sessionManager.getCwd(), session.sessionId);
+      if (loop?.status === "paused" && loop.pauseReason === "turn_timeout") {
+        taskError = loop.error || "Goal Loop の進捗が確認できないため時間切れで停止しました。";
+      }
+    } catch { /* retain the SDK error when loop state is unavailable */ }
+  }
+  setTaskStatus(taskId, stoppedByUser || !settledError ? "idle" : "error", stoppedByUser ? null : taskError);
+  // Keep the lease while provider-limit fallback still needs to replace the session.
+  if (!live.pendingProviderFallback) {
+    releaseTaskLease(taskId);
+  }
+}
+
+/** Post-turn work that runs once the SDK reports the session settled. */
+function finishSettledTurn(
+  live: LiveRuntime,
+  session: AgentSession,
+  taskId: string,
+): void {
+  if (live.restoreAutoRetry) {
+    session.setAutoRetryEnabled(true);
+    live.restoreAutoRetry = false;
+  }
+  if (live.pendingTransportRecovery) {
+    live.pendingTransportRecovery = false;
+    live.transportRecoveryAttempted = true;
+    setTaskStatus(taskId, "working");
+    emitTaskSnapshot(live, "transport_retry", { isStreaming: false });
+    void queuePrompt(live, PROVIDER_TRANSPORT_RECOVERY_PROMPT, undefined, {
+      isTransportRecovery: true,
+    }).catch((error) => {
+      console.warn(
+        `[leafcode-pi] WebSocket transport recovery failed: ${
+          error instanceof Error ? error.message : String(error)
+        }`,
+      );
+    });
+    return;
+  }
+  const goalLoopTurnActive = live.goalLoopTurnActive;
+  live.goalLoopTurnActive = false;
+  // A pending SOUL update is applied by replacing the idle session before
+  // the next prompt. Disposing here would make Goal Loop's session_shutdown
+  // handler pause an otherwise active loop.
+  const pending = live.pendingProviderFallback;
+  // Provider-limit recovery replaces this session; compacting the exhausted
+  // route first only delays fallback and can race with replaceLiveForRoute.
+  if (!goalLoopTurnActive && !pending) scheduleAutoCompaction(live);
+  live.pendingProviderFallback = null;
+  const settledError = session.agent.state.errorMessage ?? null;
+  // Provider-limit recovery uses a hidden custom message, so the
+  // watchdog cannot identify its completed turn from the projected UI
+  // history (there is no visible user message to anchor it). Once the
+  // fallback settles successfully, its watch is terminal. Keep the watch
+  // for ordinary provider errors so the existing recovery path remains.
+  if (
+    !pending &&
+    !settledError &&
+    (getTaskHangWatch(taskId)?.isProviderFallback ||
+      getTaskHangWatch(taskId)?.isTransportRecovery)
+  ) {
+    disarmTaskHangWatch(taskId);
+  }
+  if (pending && pending.modelID) {
+    void fallbackProviderAfterLimit(live, pending).catch((error) => {
+      console.warn(
+        `[leafcode-pi] provider fallback failed: ${
+          error instanceof Error ? error.message : String(error)
+        }`,
+      );
+    });
+  }
+  ensureSessionLabelAfterTurn(taskId);
+  const task = getTask(taskId);
+  if (task && shouldNotifyPushoverCompletion({
+    error: settledError,
+    manuallyAborted: live.manualAbortedAssistantId !== null,
+    recovering: pending !== null,
+    goalLoopRunning: isLiveGoalLoopSession(session),
+    botNotificationsEnabled: task.kind !== "bot" ||
+      (task.botId ? getBot(task.botId)?.notificationsEnabled !== false : false),
+  })) {
+    // Do not delay the turn or reveal credentials through the session stream.
+    void notifyPushoverCompletion(task.title, { task });
+  }
+}
+
+/** Carry per-task state across a session replacement, or load it from the session file. */
+/**
+ * Transcript-derived timing state for a new (or replaced) live. Kept as a named
+ * export because callers outside this module restore throughput state directly;
+ * the rules live in backend core and the versioned map classes stay here.
+ */
+export function restoredThroughputState(
+  existing: LiveRuntime | undefined,
+  loaded: ReturnType<typeof loadThroughputFromSession> | null,
+  loadedToolTiming: ReturnType<typeof loadToolTimingFromSession> | null,
+): Pick<
+  LiveRuntime,
+  | "throughputByStartedAt"
+  | "persistedThroughputKeys"
+  | "toolStartedAt"
+  | "toolEndedAt"
+> {
+  return coreRestoredThroughputState(existing, loaded, loadedToolTiming, {
+    createThroughputMap: (initial) => new VersionedThroughputMap(initial),
+    createTimingMap: (initial) => new VersionedTimingMap(initial),
+  });
+}
+
+/** Carry per-task state across a session replacement, or load it from the session file. */function buildLiveRuntime(input: {
+  taskId: string;
+  session: AgentSession;
+  skillPermissionRef: { current: SkillPermission };
+  existing: LiveRuntime | undefined;
+  accountId: string | null;
+  agentName: string | null;
+  botId: string | undefined;
+  preserveTaskModel?: boolean;
+}): LiveRuntime {
+  const { taskId, session, skillPermissionRef, existing } = input;
+  const loaded = existing ? null : loadThroughputFromSession(session);
+  const loadedToolTiming = existing ? null : loadToolTimingFromSession(session);
+  const task = getTask(taskId);
+  return {
+    taskId,
+    accountId: input.accountId,
+    // Initial state rules live in backend core; the transcript scans and versioned
+    // map classes stay here.
+    ...restoredPromptState(existing),
+    ...restoredTaskMetadata(existing, task),
+    ...(input.preserveTaskModel !== undefined
+      ? { preserveTaskModel: input.preserveTaskModel }
+      : {}),
+    agentName: input.agentName,
+    session,
+    skillPermission: skillPermissionRef.current,
+    skillPermissionRef,
+    unsubscribe: () => undefined,
+    autoCompactionPromise: null,
+    manualCompactionInProgress: false,
+    nativeCompactionAttempted: false,
+    goalLoopTurnActive: false,
+    leaseLost: false,
+    promptQueueDepth: existing?.promptQueueDepth ?? 0,
+    immediateInterruptInProgress: false,
+    activeToolNames: existing?.session === session ? existing.activeToolNames : new Map(),
+    ...restoredThroughputState(existing, loaded, loadedToolTiming),
+    snapshotTimer: null,
+    pendingSnapshotEventType: null,
+    pendingSnapshotIsDelta: false,
+    pendingSnapshotExtra: undefined,
+    reasoningFallbackTried: false,
+    pendingTransportRecovery: false,
+    transportRecoveryAttempted: false,
+    restoreAutoRetry: false,
+    // A newly created session has already re-read the Bot's SOUL.md.
+    soulReloadPending: false,
+    soulRevision: input.botId ? botSoulRevision(input.botId) : null,
+    contextReloadPending: existing?.contextReloadPending ?? false,
+    agentDefinitionReloadPending: false,
+    jevToolRegistered: true,
+  };
+}
+function detachExistingLive(
+  existing: LiveRuntime | undefined,
+  session: AgentSession,
+  attachedAccountId: string | null,
+): void {
+  // Detach ordering lives in backend core; the account manager and timer stay here.
+  coreDetachReplacedLive(existing, session, attachedAccountId, {
+    releaseAccount: (accountId) => accountRuntimeManager().release(accountId),
+    disposeSession: (replaced) => (replaced as AgentSession).dispose(),
+    clearSnapshotTimer: (timer) => clearTimeout(timer as ReturnType<typeof setTimeout>),
+  });
+}
+
+// Event classification lives in backend core; the live's own state is passed in.
+function isHarnessAutoCompactionError(event: SessionSyncEvent, live: LiveRuntime): boolean {
+  return coreIsHarnessAutoCompactionError(event, live.autoCompactionPromise !== null);
+}
+
+function shouldSyncTaskFromSessionEvent(event: SessionSyncEvent, harnessAutoCompactionError: boolean): boolean {
+  return coreShouldSyncTaskFromSessionEvent(event, harnessAutoCompactionError);
+}
+
+async function attachSession(
+  taskId: string,
+  session: AgentSession,
+  skillPermissionRef: { current: SkillPermission },
+  options?: {
+    preserveTaskModel?: boolean;
+    /** Runtime account when the stored task account is intentionally left unchanged. */
+    sessionAccountId?: string | null;
+  },
+): Promise<LiveRuntime> {
+  const attachedTask = getTask(taskId);
+  // Hard-delete can race createSession; never attach a live map entry for a gone task.
+  if (!attachedTask) {
+    await disposeSessionBestEffort(session);
+    throw Object.assign(new Error("タスクが見つかりません"), { status: 404 });
+  }
+  const current = state();
+  const existing = current.live.get(taskId);
+  // タスクの利用アカウント。セッション生存中はマネージャ参照で蒸発対象外にする。
+  const { accountId: attachedAccountId, acquire: acquiresAccountRef } = resolveAttachAccount({
+    sessionAccountId: options?.sessionAccountId,
+    taskAccountId: attachedTask.accountId,
+    existingAccountId: existing?.accountId,
+  });
+  const attachedAgentName = attachedTask.agent?.trim() || null;
+  const attachedBotId = attachedTask.kind === "bot" ? attachedTask.botId : undefined;
+  if (acquiresAccountRef && attachedAccountId) {
+    await accountRuntimeManager().acquire(attachedAccountId);
+  }
+  detachExistingLive(existing, session, attachedAccountId);
+
+  const live = buildLiveRuntime({
+    taskId,
+    session,
+    skillPermissionRef,
+    existing,
+    accountId: attachedAccountId,
+    agentName: attachedAgentName,
+    botId: attachedBotId,
+    // Keep Auto-fallback sessions from silently pinning when agent/soul recreate attach.
+    preserveTaskModel:
+      options?.preserveTaskModel ?? existing?.preserveTaskModel === true,
+  });
+
+  const appendMessage = session.sessionManager.appendMessage.bind(session.sessionManager);
+  session.sessionManager.appendMessage = (message) => {
+    if (live.leaseLost) return "";
+    if (!ownsTaskLease(taskId)) {
+      abortTaskSessionsAfterLeaseLoss([taskId]);
+      return "";
+    }
+    return appendMessage(message);
+  };
+  const appendModelChange = session.sessionManager.appendModelChange.bind(session.sessionManager);
+  session.sessionManager.appendModelChange = (provider, modelId) => {
+    if (live.leaseLost) return "";
+    const leaseRequired =
+      live.promptActive || session.isStreaming || hasActiveTaskLease(taskId);
+    if (leaseRequired && !ownsTaskLease(taskId)) {
+      abortTaskSessionsAfterLeaseLoss([taskId]);
+      return "";
+    }
+    return appendModelChange(provider, modelId);
+  };
+  const appendThinkingLevelChange = session.sessionManager.appendThinkingLevelChange.bind(
+    session.sessionManager,
+  );
+  session.sessionManager.appendThinkingLevelChange = (thinkingLevel) => {
+    if (live.leaseLost) return "";
+    const leaseRequired =
+      live.promptActive || session.isStreaming || hasActiveTaskLease(taskId);
+    if (leaseRequired && !ownsTaskLease(taskId)) {
+      abortTaskSessionsAfterLeaseLoss([taskId]);
+      return "";
+    }
+    return appendThinkingLevelChange(thinkingLevel);
+  };
+  const appendCustomMessageEntry = session.sessionManager.appendCustomMessageEntry.bind(
+    session.sessionManager,
+  );
+  session.sessionManager.appendCustomMessageEntry = (customType, content, display, details) => {
+    if (live.leaseLost) return "";
+    const leaseRequired =
+      live.promptActive || session.isStreaming || hasActiveTaskLease(taskId);
+    if (leaseRequired && !ownsTaskLease(taskId)) {
+      abortTaskSessionsAfterLeaseLoss([taskId]);
+      return "";
+    }
+    return appendCustomMessageEntry(customType, content, display, details);
+  };
+  const appendCustomEntry = session.sessionManager.appendCustomEntry.bind(
+    session.sessionManager,
+  );
+  session.sessionManager.appendCustomEntry = (customType, data) => {
+    if (live.leaseLost) return "";
+    const leaseRequired =
+      live.promptActive || session.isStreaming || hasActiveTaskLease(taskId);
+    if (leaseRequired && !ownsTaskLease(taskId)) {
+      abortTaskSessionsAfterLeaseLoss([taskId]);
+      return "";
+    }
+    return appendCustomEntry(customType, data);
+  };
+  const appendCompaction = session.sessionManager.appendCompaction.bind(
+    session.sessionManager,
+  );
+  session.sessionManager.appendCompaction = (...args) => {
+    if (live.leaseLost) return "";
+    const leaseRequired =
+      live.promptActive || session.isStreaming || hasActiveTaskLease(taskId);
+    if (leaseRequired && !ownsTaskLease(taskId)) {
+      abortTaskSessionsAfterLeaseLoss([taskId]);
+      return "";
+    }
+    return appendCompaction(...args);
+  };
+  const appendContextEdit = session.sessionManager.appendContextEdit.bind(
+    session.sessionManager,
+  );
+  session.sessionManager.appendContextEdit = (...args) => {
+    if (live.leaseLost) return "";
+    const leaseRequired =
+      live.promptActive || session.isStreaming || hasActiveTaskLease(taskId);
+    if (leaseRequired && !ownsTaskLease(taskId)) {
+      abortTaskSessionsAfterLeaseLoss([taskId]);
+      return "";
+    }
+    return appendContextEdit(...args);
+  };
+  const appendSessionInfo = session.sessionManager.appendSessionInfo.bind(
+    session.sessionManager,
+  );
+  session.sessionManager.appendSessionInfo = (...args) => {
+    if (live.leaseLost) return "";
+    const leaseRequired =
+      live.promptActive || session.isStreaming || hasActiveTaskLease(taskId);
+    if (leaseRequired && !ownsTaskLease(taskId)) {
+      abortTaskSessionsAfterLeaseLoss([taskId]);
+      return "";
+    }
+    return appendSessionInfo(...args);
+  };
+  const appendLabelChange = session.sessionManager.appendLabelChange.bind(
+    session.sessionManager,
+  );
+  session.sessionManager.appendLabelChange = (...args) => {
+    if (live.leaseLost) return "";
+    const leaseRequired =
+      live.promptActive || session.isStreaming || hasActiveTaskLease(taskId);
+    if (leaseRequired && !ownsTaskLease(taskId)) {
+      abortTaskSessionsAfterLeaseLoss([taskId]);
+      return "";
+    }
+    return appendLabelChange(...args);
+  };
+  const branchWithSummary = session.sessionManager.branchWithSummary.bind(
+    session.sessionManager,
+  );
+  session.sessionManager.branchWithSummary = (...args) => {
+    if (live.leaseLost) return "";
+    const leaseRequired =
+      live.promptActive || session.isStreaming || hasActiveTaskLease(taskId);
+    if (leaseRequired && !ownsTaskLease(taskId)) {
+      abortTaskSessionsAfterLeaseLoss([taskId]);
+      return "";
+    }
+    return branchWithSummary(...args);
+  };
+  const createBranchedSession = session.sessionManager.createBranchedSession.bind(
+    session.sessionManager,
+  );
+  session.sessionManager.createBranchedSession = (...args) => {
+    if (live.leaseLost) return undefined;
+    const leaseRequired =
+      live.promptActive || session.isStreaming || hasActiveTaskLease(taskId);
+    if (leaseRequired && !ownsTaskLease(taskId)) {
+      abortTaskSessionsAfterLeaseLoss([taskId]);
+      return undefined;
+    }
+    return createBranchedSession(...args);
+  };
+
+  const leaseGuardedSessionManager = session.sessionManager as typeof session.sessionManager & {
+    assertLeaseOwnership?: () => void;
+  };
+  leaseGuardedSessionManager.assertLeaseOwnership = () => {
+    if (live.leaseLost) throw new Error("Task runtime lease ownership was lost.");
+    const leaseRequired =
+      live.promptActive || session.isStreaming || hasActiveTaskLease(taskId);
+    if (leaseRequired && !ownsTaskLease(taskId)) {
+      abortTaskSessionsAfterLeaseLoss([taskId]);
+      throw new Error("Task runtime lease ownership changed.");
+    }
+  };
+
+  const setupWriteGuard = sessionManagerWriteGuards.get(session.sessionManager);
+  if (setupWriteGuard) {
+    setupWriteGuard.attach(live);
+  } else {
+    // Fallback for session managers created outside createSession.
+    const sessionWriteManager = session.sessionManager as unknown as {
+      _appendEntry?: (entry: unknown) => void;
+      _persist?: (entry: unknown) => void;
+      _rewriteFile?: () => void;
+    };
+    let sessionWriteGuardDepth = 0;
+    const runGuardedSessionWrite = <T>(write: () => T): T => {
+      if (live.leaseLost) throw new Error("Task runtime lease ownership was lost.");
+      const task = getTask(taskId);
+      if (!task || task.status === "archived") throw new Error("Task is no longer writable.");
+      if (sessionWriteGuardDepth > 0) return write();
+      const alreadyOwned = ownsTaskLease(taskId);
+      const temporaryLease = !alreadyOwned && acquireTaskLease(taskId);
+      if (!alreadyOwned && !temporaryLease) {
+        abortTaskSessionsAfterLeaseLoss([taskId]);
+        throw new Error("Task runtime lease ownership changed.");
+      }
+      try {
+        const guarded = runWithTaskLeaseOwnership(taskId, () => {
+          sessionWriteGuardDepth += 1;
+          try {
+            return write();
+          } finally {
+            sessionWriteGuardDepth -= 1;
+          }
+        });
+        if (!guarded.acquired) {
+          abortTaskSessionsAfterLeaseLoss([taskId]);
+          throw new Error("Task runtime lease ownership changed.");
+        }
+        return guarded.value;
+      } finally {
+        if (temporaryLease) releaseTaskLease(taskId);
+      }
+    };
+    const appendSessionEntry = sessionWriteManager._appendEntry?.bind(session.sessionManager);
+    if (appendSessionEntry) {
+      sessionWriteManager._appendEntry = (entry) => runGuardedSessionWrite(() => appendSessionEntry(entry));
+    }
+    const persistSessionEntry = sessionWriteManager._persist?.bind(session.sessionManager);
+    if (persistSessionEntry) {
+      sessionWriteManager._persist = (entry) => runGuardedSessionWrite(() => persistSessionEntry(entry));
+    }
+    const rewriteSessionFile = sessionWriteManager._rewriteFile?.bind(session.sessionManager);
+    if (rewriteSessionFile) {
+      sessionWriteManager._rewriteFile = () => runGuardedSessionWrite(() => rewriteSessionFile());
+    }
+  }
+
+  // appendUsage returns an entry object, not an id. Reject stale writes instead
+  // of fabricating a successful entry; the SDK cache warmer catches this error.
+  const appendUsage = session.sessionManager.appendUsage.bind(session.sessionManager);
+  const assertUsageLeaseOwnership = leaseGuardedSessionManager.assertLeaseOwnership;
+  session.sessionManager.appendUsage = (...args) => {
+    assertUsageLeaseOwnership();
+    return appendUsage(...args);
+  };
+
+  const unsubscribe = session.subscribe((event) => {
+    if (live.leaseLost) return;
+    if (
+      (event.type === "agent_start" || event.type === "tool_execution_start") &&
+      !ownsTaskLease(taskId)
+    ) {
+      abortTaskSessionsAfterLeaseLoss([taskId]);
+      return;
+    }
+    // The ordered effect sequence lives in backend core; every step below is the
+    // harness-owned implementation of one step in that sequence.
+    runSessionEventEffects(event, {
+      trackTurnLifecycleFlags: () => trackTurnLifecycleFlags(live, session, event),
+      trackProviderLimit: () => trackProviderLimit(live, session, event),
+      noteWebSocketTransportFailure: () => noteWebSocketTransportFailure(live, session, event),
+      isHarnessAutoCompactionError: () => isHarnessAutoCompactionError(event, live),
+      shouldSyncTaskFromSessionEvent: (owned) => shouldSyncTaskFromSessionEvent(event, owned),
+      getTask: () => getTask(taskId),
+      shouldSkipEventForMissingTask,
+      trackThroughputEvent: () =>
+        trackThroughputEvent(live, event as { type: string; [key: string]: unknown }),
+      runAgentStartTaskSync: () =>
+        runAgentStartTaskSync(taskId, {
+          acquireLease: (id) => acquireTaskLease(id),
+          setStatus: (id, status, error) => setTaskStatus(id, status, error),
+          busyMessage: TASK_LEASE_BUSY_ERROR,
+        }),
+      shouldApplySettledStatus: () => shouldApplySettledStatus(event, live.pendingTransportRecovery),
+      applySettledStatus: () => applySettledTaskStatus(live, session, taskId),
+      finishSettledTurn: () => finishSettledTurn(live, session, taskId),
+      compactionFailureMessage: (owned) => compactionFailureMessage(event, owned),
+      setTaskStatusError: (message) => setTaskStatus(taskId, "error", message),
+      patchIdentity: (task) => {
+        const ids = modelId(session.model);
+        // Which identity the session may report (and whether it changed) is decided in backend core.
+        const identityPatch = sessionIdentityPatch(
+          task as TaskSummary,
+          sessionIdentitySource({
+            preserveTaskModel: live.preserveTaskModel === true,
+            sessionId: session.sessionId,
+            sessionFile: session.sessionFile,
+            providerID: ids.providerID,
+            modelID: ids.modelID,
+          }),
+        );
+        const summaryTask = task as TaskSummary;
+        const responseModel = taskResponseModel(summaryTask, session.messages, event.type === "agent_start" ? ids : undefined);
+        const responseChanged = responseModel?.providerID !== summaryTask.responseModel?.providerID ||
+          responseModel?.modelID !== summaryTask.responseModel?.modelID;
+        if (hasIdentityChanges(identityPatch) || responseChanged) {
+          patchTask(taskId, { ...identityPatch, ...(responseChanged ? { responseModel } : {}) });
+        }
+      },
+      scheduleSnapshot: () =>
+        scheduleTaskSnapshot(
+          live,
+          event.type,
+          event.type === "compaction_end" && event.errorMessage
+            ? { error: event.errorMessage }
+            : undefined,
+        ),
+    });
+  });
+  const stopLive = () => {
+    // Cancelling the timer, clearing the slots and emitting what was queued is
+    // ordered in backend core; the emit sinks stay here.
+    flushPendingSnapshotOnUnsubscribe(
+      {
+        timer: live.snapshotTimer,
+        eventType: live.pendingSnapshotEventType,
+        extra: live.pendingSnapshotExtra,
+        isDelta: live.pendingSnapshotIsDelta === true,
+      },
+      {
+        clearTimer: (timer) => clearTimeout(timer as ReturnType<typeof setTimeout>),
+        clearPending: () => {
+          live.snapshotTimer = null;
+          live.pendingSnapshotEventType = null;
+          live.pendingSnapshotExtra = undefined;
+          live.pendingSnapshotIsDelta = false;
+        },
+        emitDelta: (eventType) => emitTaskDelta(live, eventType),
+        emitSnapshot: (eventType, extra) => emitTaskSnapshot(live, eventType, extra),
+      },
+    );
+    unsubscribe();
+  };
+  // Wiring the stop hook, stamping activity, registering, then promoting the
+  // mailbox is one ordered sequence owned by backend core.
+  publishAttachedLive({
+    // Stop hook first: nothing else observes this live until it can be stopped.
+    setUnsubscribe: () => { live.unsubscribe = stopLive; },
+    markActivity: () => { live.lastActivityAt = Date.now(); },
+    register: () => { current.live.set(taskId, live); },
+    promoteMailbox: () =>
+      // Offline→resident: 1:1 Bot live attach promotes queued mailbox rows.
+      // Room attach must NOT flush here — Room may still be idle before prompt,
+      // and wake would steal into 1:1; Room settle/abort flushes instead.
+      promoteMailboxOnAttach(taskId, {
+        flushMailbox: (botId) => flushQueuedBotIntercom(botId),
+        warn: (message, error) => console.warn(message, error),
+      }),
+  });
+  return live;
+}
+
+const liveShutdownInflight = new Map<string, Promise<void>>();
+
+/**
+ * Idle sessions get extension cleanup on dispose. Busy sessions and Goal Loop
+ * owners keep the old immediate dispose: Goal Loop pauses on session_shutdown
+ * and must survive routine session replacement.
+ */
+function shouldShutdownOnDispose(live: LiveRuntime, taskId: string): boolean {
+  return coreShouldShutdownOnDispose({
+    shutdownEmitted: live.shutdownEmitted,
+    hasShutdownHandler: () => live.session.extensionRunner.hasHandlers("session_shutdown"),
+    isBusyOrGoalLoopActive: () => isLiveBusyForReplace(live) || isActiveGoalLoopSession(live.session),
+    isGoalLoopOwned: () => {
+      const task = getTask(taskId);
+      const loop = task
+        ? readGoalLoopState(task.directory, live.session.sessionId ?? task.sessionId)
+        : null;
+      return isGoalLoopSessionOwned(loop);
+    },
+  });
+}
+
+/** live セッションを破棄し、保持していたアカウントランタイムの参照を解放する。 */
+function disposeLive(
+  taskId: string,
+  options?: { skipRoomFlush?: boolean; skipExtensionShutdown?: boolean },
+): void {
+  ensureLiveEpoch.set(taskId, (ensureLiveEpoch.get(taskId) ?? 0) + 1);
+  disarmTaskHangWatch(taskId);
+  clearPendingAttentionForTask(taskId);
+  const live = state().live.get(taskId);
+  if (!live) return;
+  // Room live を map から消す前に flush（消すと resident=false になり queued が永久放置される）。
+  const roomBotId = roomBotIdFromTaskId(taskId);
+  if (roomBotId && !options?.skipRoomFlush) {
+    live.promptActive = false;
+    const otherRoomBusy = hasOtherBusyRoomLive(taskId, roomBotId, state().live);
+    try {
+      flushQueuedBotIntercom(roomBotId, { ignoreRoomBusy: !otherRoomBusy });
+    } catch (error) {
+      console.warn("[bot-intercom] flush before Room live dispose failed", error);
+    }
+  }
+  live.unsubscribe();
+  state().live.delete(taskId);
+  if (!options?.skipExtensionShutdown && shouldShutdownOnDispose(live, taskId)) {
+    // Extensions (intercom presence/timers, memory SQLite, MCP) only release
+    // resources in session_shutdown, which AgentSession.dispose() never emits.
+    // ensureLive waits for this before recreating the same task's session.
+    // The shutdown/dispose sequence and the in-flight registry live in backend core.
+    void runCoalescedLiveShutdown(taskId, {
+      inflight: liveShutdownInflight,
+      runShutdown: () => runExtensionShutdown(live, "dispose"),
+      disposeSession: () => {
+        try {
+          live.session.dispose();
+        } catch (error) {
+          console.warn("[dispose] session dispose failed:", error instanceof Error ? error.message : String(error));
+        }
+      },
+    });
+  } else {
+    live.session.dispose();
+  }
+  if (live.accountId) {
+    const manager = accountRuntimeManager();
+    manager.release(live.accountId);
+    manager.evictIdle();
+  }
+}
+
+function botCodeRelay(): ReturnType<typeof createBotCodeRelay> {
+  const globalRef = globalThis as typeof globalThis & { __leafcodeBotCodeRelay?: ReturnType<typeof createBotCodeRelay> };
+  return globalRef.__leafcodeBotCodeRelay ??= createBotCodeRelay({
+    create: createTask,
+    prompt: (id, prompt, codeRequestId, options) => {
+      const { images, ...promptOptions } = options ?? {};
+      return promptTask(id, prompt, images, {
+        ...promptOptions,
+        ...(!options ? { permissionMode: "ask" as const } : {}),
+        codeRequestId,
+      });
+    },
+    abort: abortTask,
+    approve: (sessionId, message) => {
+      ensurePermissionPromptService();
+      return requestWebUiPermission({ sessionId, command: BOT_CODE_TOOL, labels: ["Code delegation"], message });
+    },
+    ownsTaskLease,
+    linkSupervisor: (taskId, botId) => {
+      const task = getTask(taskId);
+      if (!task || (task.kind ?? "code") !== "code" || task.botId || (botId && task.supervisorBotId && task.supervisorBotId !== botId)) return undefined;
+      return patchTask(taskId, { supervisorBotId: botId });
+    },
+    isBusy: (id) => {
+      reconcileOrphanedWorkingTasks();
+      const live = state().live.get(id);
+      const task = getTask(id);
+      // A Goal Loop task idles between turns (cooldown, verification). Reporting there would deliver a
+      // half-finished run as the result, so keep it busy until the loop itself stops.
+      if (
+        task?.status === "working" ||
+        getTaskHangWatch(id)?.state === "resolving" ||
+        Boolean(
+          live &&
+            (live.promptActive ||
+              live.session.isStreaming ||
+              live.session.isCompacting ||
+              live.autoCompactionPromise ||
+              live.pendingProviderFallback ||
+              isActiveGoalLoopSession(live.session)),
+        )
+      ) {
+        return true;
+      }
+      // After worker restart live may be gone while goals-loop/*.json is still live — do not deliver.
+      // Operator pause (user / manual_send) also stays held until Resume or Stop.
+      if (task) {
+        const loop = readGoalLoopState(task.directory, live?.session.sessionId ?? task.sessionId);
+        if (isGoalLoopLiveStatus(loop?.status) || isGoalLoopOperatorHold(loop)) return true;
+      }
+      return false;
+    },
+    goalLoop: (task) => readGoalLoopState(task.directory, state().live.get(task.id)?.session.sessionId ?? task.sessionId),
+    conversationImages: (originTaskId) => {
+      const task = getTask(originTaskId);
+      const room = roomForCodeOrigin(task);
+      if (room) {
+        return catalogFromRoomUserRequest(room.messages, (messageId) => roomRequestImages(room.id, messageId));
+      }
+      const live = state().live.get(originTaskId);
+      const manager = live?.session.sessionManager as { getBranch?: () => unknown[]; getEntries?: () => unknown[] } | undefined;
+      return catalogFromSessionEntries(manager?.getBranch?.() ?? manager?.getEntries?.() ?? []);
+    },
+    messages: async (task) => {
+      const live = state().live.get(task.id);
+      return live ? snapshotMessages(
+        live.session,
+        live.throughputByStartedAt,
+        live.toolStartedAt,
+        live.toolEndedAt,
+        live.toolPartialOutputByCallId,
+        false,
+        messageContext(live),
+      ) : (await readArchivedTaskSnapshot(task)).messages;
+    },
+    deliver: async (request) => {
+      const live = await ensureLive(request.originTaskId);
+      if (!hasBotCodeReport(live.session.sessionManager.getBranch(), request.id)) {
+        let roomPrefix: string | undefined;
+        if (request.room) {
+          const room = roomForCodeOrigin(getTask(request.originTaskId));
+          const bot = getBot(request.botId);
+          if (!room || !bot) return false;
+          const participants = request.room.conversation.participantIds.flatMap((id) => { const member = getBot(id); return member?.enabled && room.members.includes(id) ? [member] : []; });
+          const turn = request.room.conversation;
+          roomPrefix = roomBotPrompt(room, bot, participants, room.messages.find((message) => message.id === turn.requestId)?.text ?? request.prompt, turn.requestId, { participants, turn: turn.turn, maxTurns: turn.maxTurns });
+        }
+        // Wording and suffix order live in backend core; the Room prefix needs Room state, so it is built here.
+        const content = buildBotCodeReportContent({
+          requestId: request.id,
+          truncatedRequest: truncateCodeReportRequest(request.prompt),
+          result: request.result,
+          codeTaskId: request.codeTaskId,
+          roomPrefix,
+          stoppedByUser: request.stoppedByUser,
+          goalLoop: request.goalLoop,
+        });
+        await queuePrompt(live, content, undefined, { codeResult: request });
+      }
+      const current = state().live.get(request.originTaskId) ?? live;
+      const text = botCodeReportText(current.session.sessionManager.getBranch(), request.id);
+      if (!text) return false;
+      return request.room ? (await import("@/lib/room-runtime")).deliverRoomCodeReport(request, text) : true;
+    },
+    afterDelivery: async (request) => {
+      if (request.room) await (await import("@/lib/room-runtime")).resumeRoomAfterCode(request);
+    },
+    onCodeSessionSettled: emitCodeSessionChanged,
+  });
+}
+
+export function startBotCodeRelay(): void { botCodeRelay().start(); }
+
+/** Active Code task ids linked to a Bot/Room origin (for SSE attention fan-in). */
+export function linkedCodeTaskIdsForOrigin(originTaskId: string): string[] {
+  return botCodeRelay().codeTasksForOrigin(originTaskId);
+}
+
+/** Capture a stopped request immediately after its Code task has been aborted. */
+export async function completeBotCodeRequest(requestId: string): Promise<void> {
+  await botCodeRelay().complete(requestId);
+}
+
+/**
+ * Code session started from the Bot screen. It is registered in the same outbox as a delegated
+ * request, so the Bot reports the outcome in its own conversation and the UI can stop it by request.
+ */
+export async function createBotCodeTask(
+  botId: string,
+  input: Omit<Parameters<typeof createTask>[0], "botId" | "codeRequestId" | "beforePrompt">,
+): Promise<TaskSummary> {
+  startBotCodeRelay();
+  return runUserBotCodeRequest(
+    botId,
+    { prompt: input.prompt, projectId: input.projectId, ...(input.goalLoop ? { goalLoop: input.goalLoop } : {}) },
+    (codeRequestId, link) => createTask({
+      ...input,
+      model: input.model ?? AUTO_MODEL_VALUE,
+      botId,
+      codeRequestId,
+      beforePrompt: (task) => link(task.id),
+    }),
+    emitCodeSessionChanged,
+  );
+}
+
+/**
+ * Hand an in-progress user Code task to a Bot. The durable relay captures the final result and
+ * delivers it into the Bot conversation, while the Bot prompt provides the current request context.
+ */
+export async function handoffTaskToBot(botId: string, taskId: string): Promise<TaskSummary> {
+  const id = botId.trim();
+  if (!id) throw Object.assign(new Error("Botを選択してください"), { status: 400 });
+  const task = getTask(taskId);
+  if (!task) throw Object.assign(new Error("タスクが見つかりません"), { status: 404 });
+  if ((task.kind ?? "code") !== "code" || task.botId || roomForCodeOrigin(task)) {
+    throw Object.assign(new Error("ユーザーが開始したCodeタスクだけを引き継げます"), { status: 409 });
+  }
+  if (task.supervisorBotId && task.supervisorBotId !== id) {
+    throw Object.assign(new Error("このCodeタスクは別のBotが監督中です"), { status: 409 });
+  }
+  const bot = getBot(id);
+  if (!bot) throw Object.assign(new Error("Botが見つかりません"), { status: 404 });
+  if (!bot.enabled) throw Object.assign(new Error("無効なBotには引き継げません"), { status: 403 });
+  if (bot.permissionMode === "deny") {
+    throw Object.assign(new Error("ツール権限が「すべて拒否」のBotには引き継げません"), { status: 403 });
+  }
+  startBotCodeRelay();
+  const adopted = await botCodeRelay().adoptUserCodeTask(id, taskId);
+  if (adopted.created) {
+    const notice = [
+      "ユーザー起点のCodeタスクの監督を引き継ぎました。",
+      `Codeタスク: ${taskId}`,
+      `ユーザーの依頼: ${adopted.request.prompt}`,
+      "実行中は code_session の status で進捗を確認し、追加作業や新しいCode依頼は開始せず、完了通知を待ってください。結果を受け取ったら、実際の変更・検証結果・未解決事項をユーザーへ報告してください。",
+    ].join("\n\n");
+    try {
+      await promptTask(botTaskId(id), notice);
+    } catch (error) {
+      // The outbox still owns result delivery when the Bot session is busy elsewhere.
+      console.warn("[bot-code-relay] supervisor notice deferred:", error instanceof Error ? error.message : String(error));
+    }
+  }
+  emitTaskChanged(taskId, "supervisor_handoff");
+  return toSummary(getTask(taskId) ?? task);
+}
+
+/** Return a delegated user Code task to user ownership without interrupting its current run. */
+export async function releaseTaskFromBot(taskId: string): Promise<TaskSummary> {
+  const task = await botCodeRelay().releaseUserCodeTask(taskId);
+  emitTaskChanged(taskId, "supervisor_released");
+  return toSummary(task);
+}
+
+/**
+ * Follow-up prompt on a Code session the user controls from the Bot screen. It is registered in the
+ * same outbox as a launch, so its result also reports back into the conversation.
+ */
+export async function continueBotCodeTask(botId: string, taskId: string, prompt: string): Promise<TaskSummary> {
+  startBotCodeRelay();
+  const task = getTask(taskId);
+  if (!task || (task.botId !== botId && task.supervisorBotId !== botId) || task.status === "archived") {
+    throw Object.assign(new Error("Codeセッションが見つかりません"), { status: 404 });
+  }
+  const baseline = (await getTaskDetail(taskId)).messages.at(-1)?.id ?? null;
+  return runUserBotCodeRequest(
+    botId,
+    { prompt, projectId: task.projectId ?? null, followUp: { codeTaskId: taskId, baseline } },
+    (codeRequestId, link) => {
+      // The session already exists: link it before prompting so the outbox owns the run from the start.
+      link(taskId);
+      return promptTask(taskId, prompt, undefined, { codeRequestId, fromBot: true });
+    },
+    emitCodeSessionChanged,
+  );
+}
+
+/**
+ * User stop for a Bot-owned Code task. The owning request is marked before the abort, so the captured
+ * result is reported as a stop and the Bot cannot continue it on its own.
+ */
+export async function stopBotCodeTask(botId: string, taskId: string): Promise<TaskSummary> {
+  invalidateTaskPreparations(taskId);
+  const relay = botCodeRelay();
+  const requestId = relay.requestIdForCode(taskId);
+  await stopBotCodeRequestForTask(botId, taskId);
+  // Cold Goal Loop files survive a bare abort when live was disposed (worker restart / turn gap).
+  const task = await abortTaskIncludingColdGoalLoop(taskId);
+  if (!task) throw Object.assign(new Error("タスクが見つかりません"), { status: 404 });
+  // Capture immediately after an explicit stop instead of waiting for the relay scan.
+  if (requestId) await relay.complete(requestId);
+  return task;
+}
+
+function botAttentionSource(taskId: string, kind: "permission" | "question", requestId?: string): string {
+  const service = kind === "permission" ? ensurePermissionPromptService() : ensureQuestionPromptService();
+  // Snapshot emits run this constantly; stay in memory unless something is actually waiting.
+  if (!taskId.startsWith("bot:") || service.pendingTaskIds().size === 0) return taskId;
+  // Which key owns this request (the Bot itself or the delegated session that owns it) lives in
+  // backend core; the lookups stay here.
+  return resolveAttentionSource({
+    taskId,
+    isBotTask: true,
+    requestId,
+    ownRequestId: service.pendingForTask(taskId)?.id,
+    delegated: botCodeRelay().codeTasksForOrigin(taskId).map((linked) => ({
+      taskId: linked,
+      requestId: service.pendingForTask(linked)?.id,
+    })),
+  });
+}
+
+/** Mark every live session for a Bot so its next turn reloads SOUL.md. */
+export function requestBotSoulReload(botId: string): void {
+  for (const live of state().live.values()) {
+    const task = getTask(live.taskId);
+    if (task?.kind === "bot" && task.botId === botId) {
+      live.soulReloadPending = true;
+    }
+  }
+}
+
+/** Recreate a non-Bot session so edited prompt sources are applied on the next reply. */
+export function resetTaskSession(taskId: string): void {
+  disposeLive(taskId);
+  patchTask(taskId, { status: "idle", error: null });
+}
+
+/**
+ * Stop a bot task and remove its persisted conversation before the next reply.
+ * Only the Bot's own turn is stopped: an outstanding Code request keeps running and reports into the
+ * fresh conversation (its payload carries the original request text), so a reset is not a cancel.
+ */
+export async function resetTaskConversation(taskId: string): Promise<TaskSummary> {
+  const task = getTask(taskId);
+  if (!task) throw Object.assign(new Error("タスクが見つかりません"), { status: 404 });
+  const sessionFile = state().live.get(taskId)?.session.sessionFile ?? task.sessionFile;
+  await abortThenDispose(taskId, "conversation-reset");
+  if (sessionFile) await rm(sessionFile, { force: true });
+  const reset = patchTask(taskId, {
+    status: "idle",
+    sessionId: null,
+    sessionFile: null,
+    revertLeafId: null,
+    manualAbortedAssistantId: null,
+    hangRetryCount: undefined,
+    responseModel: undefined,
+    error: null,
+  });
+  if (!reset) throw Object.assign(new Error("タスクが見つかりません"), { status: 404 });
+  emit(taskId, {
+    type: "snapshot",
+    task: toSummary(reset),
+    messages: [],
+    isStreaming: false,
+    isCompacting: false,
+    goalLoop: null,
+    permissionRequest: null,
+    questionRequest: null,
+    compactionSuggested: false,
+    eventType: "conversation_reset",
+  });
+  return toSummary(reset);
+}
+
+export function syncSessionName(
+  sessionManager: {
+    getSessionName(): string | undefined;
+    appendSessionInfo(name: string): unknown;
+  },
+  sessionName: string | undefined,
+): void {
+  if (sessionName && sessionManager.getSessionName() !== sessionName)
+    sessionManager.appendSessionInfo(sessionName);
+}
+
+/** Keep cold SessionManager opens and their synchronous writes fenced during initialization. */
+function withTaskSessionWriteLease<T>(
+  taskId: string,
+  write: () => T,
+  onOwnershipLost?: () => void,
+): T {
+  const task = getTask(taskId);
+  if (!task || task.status === "archived") throw new Error("Task is no longer writable.");
+  const alreadyOwned = ownsTaskLease(taskId);
+  const temporaryLease = !alreadyOwned && acquireTaskLease(taskId);
+  if (!alreadyOwned && !temporaryLease) {
+    onOwnershipLost?.();
+    throw Object.assign(new Error(TASK_LEASE_BUSY_ERROR), { status: 409 });
+  }
+  try {
+    const guarded = runWithTaskLeaseOwnership(taskId, write);
+    if (!guarded.acquired) {
+      onOwnershipLost?.();
+      throw Object.assign(new Error(TASK_LEASE_BUSY_ERROR), { status: 409 });
+    }
+    return guarded.value;
+  } finally {
+    if (temporaryLease) releaseTaskLease(taskId);
+  }
+}
+
+function guardTaskSessionManagerWrites(sessionManager: object, taskId: string): SessionManagerWriteGuard {
+  const manager = sessionManager as {
+    _appendEntry?: (entry: unknown) => void;
+    _persist?: (entry: unknown) => void;
+    _rewriteFile?: () => void;
+  };
+  let depth = 0;
+  let live: LiveRuntime | null = null;
+  let invalidated = false;
+  const guard = <T>(write: () => T): T => {
+    if (invalidated || live?.leaseLost) throw new Error("Task runtime lease ownership was lost.");
+    if (depth > 0) return write();
+    return withTaskSessionWriteLease(taskId, () => {
+      depth += 1;
+      try {
+        return write();
+      } finally {
+        depth -= 1;
+      }
+    }, () => {
+      if (live) abortTaskSessionsAfterLeaseLoss([taskId]);
+      throw Object.assign(new Error("Task runtime lease ownership changed."), { status: 409 });
+    });
+  };
+  const originalAppend = manager._appendEntry;
+  const append = originalAppend?.bind(sessionManager);
+  const guardedAppend = append ? (entry: unknown) => guard(() => append(entry)) : undefined;
+  if (guardedAppend) manager._appendEntry = guardedAppend;
+  const originalPersist = manager._persist;
+  const persist = originalPersist?.bind(sessionManager);
+  const guardedPersist = persist ? (entry: unknown) => guard(() => persist(entry)) : undefined;
+  if (guardedPersist) manager._persist = guardedPersist;
+  const originalRewrite = manager._rewriteFile;
+  const rewrite = originalRewrite?.bind(sessionManager);
+  const guardedRewrite = rewrite ? () => guard(() => rewrite()) : undefined;
+  if (guardedRewrite) manager._rewriteFile = guardedRewrite;
+
+  const guardObject: SessionManagerWriteGuard = {
+    attach: (attachedLive) => { live = attachedLive; },
+    invalidate: () => { invalidated = true; },
+  };
+  sessionManagerWriteGuards.set(sessionManager, guardObject);
+  return guardObject;
+}
+
+type PersistableSessionManager = {
+  getSessionFile: () => string | undefined;
+  getHeader: () => unknown;
+  getEntries: () => unknown[];
+  setSessionFile: (file: string) => void;
+};
+
+/**
+ * Pi defers creating a new session file until its first assistant message.
+ * Goal Loop state exists before that message, so persist the header now or a
+ * cold route handler can reopen the empty path with a different session ID.
+ */
+function ensureSessionFilePersisted(sessionManager: PersistableSessionManager): void {
+  const file = sessionManager.getSessionFile();
+  if (!file || existsSync(file)) return;
+  const header = sessionManager.getHeader();
+  if (!header) return;
+  mkdirSync(dirname(file), { recursive: true });
+  const content = [header, ...sessionManager.getEntries()]
+    .map((entry) => JSON.stringify(entry) ?? "")
+    .join("\n") + "\n";
+  try {
+    writeFileSync(file, content, { encoding: "utf8", flag: "wx" });
+  } catch (error) {
+    if (!existsSync(file)) throw error;
+  }
+  sessionManager.setSessionFile(file);
+}
+
+type GoalLoopTurnRoutingContext = {
+  prepareGoalLoopTurn?: (prompt: string) => Promise<boolean | "retry">;
+  releaseGoalLoopTurn?: () => void;
+  canRetryGoalLoopProviderLimit?: () => Promise<boolean>;
+  isGoalLoopHangAbort?: () => boolean;
+};
+
+/** Re-resolve Auto for the next Goal turn. Failures keep the current model; the loop must not stall. */
+async function resolveGoalLoopAutoModelForTurn(taskId: string, live: LiveRuntime): Promise<void> {
+  try {
+    const task = getTask(taskId);
+    if (!task) return;
+    const loop = readGoalLoopState(
+      live.session.sessionManager.getCwd(),
+      live.session.sessionId,
+    );
+    if (!loop || !isGoalLoopLiveStatus(loop.status) || !isGoalLoopAutoModel(taskId, loop)) return;
+    const { mode, config } = configuredAutoRoute();
+    const sessionFile = live.session.sessionFile ?? task.sessionFile;
+    if (!sessionFile) return;
+    const decision = await resolveAutoModel({
+      prompt: loop.goal,
+      // Initial images leave the loop file after delivery but stay in SDK
+      // request context. Compaction may remove them, so do not scan raw history.
+      hasImages: Boolean(loop.initialImages?.length) || live.session.messages.some((message) =>
+        "content" in message && Array.isArray(message.content) &&
+        message.content.some((part) => part?.type === "image")),
+      historyMessageCount: readSessionConversation(sessionFile).length,
+      recentFailure: task.status === "error" || Boolean(task.error),
+      mode,
+      config,
+    });
+    if (!decision) return;
+    // Auto resolution may outlive this runtime/loop, a Pause/Stop, or a concrete
+    // model choice. A new loop's Auto marker must not authorize the old decision.
+    const latestLoop = readGoalLoopState(live.session.sessionManager.getCwd(), live.session.sessionId);
+    if (
+      state().live.get(taskId) !== live ||
+      !latestLoop || !isGoalLoopLiveStatus(latestLoop.status) ||
+      latestLoop.id !== loop.id || latestLoop.createdAt !== loop.createdAt ||
+      !isGoalLoopAutoModel(taskId, latestLoop)
+    ) return;
+    await setTaskModel(taskId, autoModelValue(decision), { accountIdExplicit: false });
+    const thinkingLevel = autoVariantToThinkingLevel(decision.variant);
+    if (thinkingLevel) await setTaskThinkingLevel(taskId, thinkingLevel);
+  } catch {
+    // Keep the model chosen so far.
+  }
+}
+
+function registerGoalLoopTurnRouting(taskId: string): (pi: ExtensionAPI) => void {
+  return (pi) => {
+    // Path extensions register session_start first. Announce synchronously now so
+    // Goal Loop can wait for this inline factory's routing hooks before sending.
+    try {
+      pi.events.emit(GOAL_LOOP_HOST_ROUTING_CHANNEL, { taskId });
+    } catch {
+      // Hosts without an event bus keep the extension's standalone behavior.
+    }
+    pi.on("session_start", (_event, ctx) => {
+      const routingContext = ctx as GoalLoopTurnRoutingContext;
+      const manager = ctx.sessionManager as object;
+      const owner = Symbol(taskId);
+      goalLoopRoutingOwners.set(manager, owner);
+      let preparedTurn = false;
+      const ownsRouting = () => goalLoopRoutingOwners.get(manager) === owner;
+      const releaseIdleReservation = (candidate?: LiveRuntime) => {
+        const live = candidate ?? state().live.get(taskId);
+        const task = getTask(taskId);
+        if (
+          ownsTaskLease(taskId) &&
+          task?.status !== "working" &&
+          live &&
+          !live.promptActive &&
+          !isLiveBusyForReplace(live)
+        ) releaseTaskLease(taskId);
+      };
+      routingContext.prepareGoalLoopTurn = async (prompt) => {
+        preparedTurn = false;
+        if (!ownsRouting()) return false;
+        const before = state().live.get(taskId);
+        // A replacement session emits session_start before attachSession(). Let
+        // its Goal Loop retry after the harness has subscribed to the session.
+        if (!before || before.session.sessionManager !== manager) {
+          return "retry";
+        }
+        // Do not route/replace while another prompt is already accepted or streaming.
+        if (isLiveBusyForReplace(before)) return "retry";
+        // A prior start-path prepare or abandoned send can leave working+lease while
+        // the durable loop is still queued (送信待ち). Clear that reservation so this
+        // turn can commit cleanly instead of spinning forever.
+        const stranded = getTask(taskId);
+        if (stranded?.status === "working" && ownsTaskLease(taskId)) {
+          const loop = readGoalLoopState(
+            before.session.sessionManager.getCwd(),
+            before.session.sessionId,
+          );
+          if (loop && (loop.status === "queued" || loop.status === "verifying_completed")) {
+            disarmTaskHangWatch(taskId);
+            setTaskStatus(taskId, "idle");
+            // Idle must not keep a lease that other workers see as active; the commit below
+            // re-acquires it (and fails with 409 if another worker took it meanwhile).
+            releaseTaskLease(taskId);
+            emitTaskSnapshot(before, "goal_turn_reservation_recovered");
+          }
+        }
+        await waitForSessionReload(before.session);
+        if (!ownsRouting()) return false;
+        const latestBefore = state().live.get(taskId);
+        if (!latestBefore || latestBefore.session.sessionManager !== manager) return false;
+        if (isLiveBusyForReplace(latestBefore)) return "retry";
+        // Composer was switched to Auto during the loop: choose the model for this turn now.
+        // The change is deferred into pendingSettings, which prepareLiveForPrompt applies below.
+        await resolveGoalLoopAutoModelForTurn(taskId, latestBefore);
+        if (!ownsRouting()) return false;
+        const autoLatest = state().live.get(taskId);
+        if (!autoLatest || autoLatest.session.sessionManager !== manager) return false;
+        if (isLiveBusyForReplace(autoLatest)) return "retry";
+        const after = await prepareLiveForPrompt(
+          autoLatest,
+          true,
+          copyPendingLiveSettings(autoLatest.pendingSettings),
+          { deferWorking: true },
+        );
+        // session.reload() emits session_start on a fresh extension instance.
+        // The old prepare must not commit working state or arm a hang watch.
+        if (!ownsRouting() || after.session !== latestBefore.session) {
+          releaseIdleReservation(after);
+          return false;
+        }
+        if (isLiveBusyForReplace(after)) return "retry";
+        const commitTurn = () => {
+          if (!ownsRouting() || isLiveBusyForReplace(after)) {
+            releaseIdleReservation(after);
+            return false;
+          }
+          requireTaskLease(taskId);
+          setTaskStatus(taskId, "working");
+          preparedTurn = true;
+          return true;
+        };
+        const armHangWatchForGoalTurn = () => {
+          const task = getTask(taskId);
+          const permissionMode =
+            after.pendingSettings?.permissionMode ?? task?.permissionMode;
+          armTaskHangWatch({
+            taskId,
+            prompt,
+            skipResume: true,
+            ...(permissionMode ? { permissionMode } : {}),
+          });
+        };
+        const loop = readGoalLoopState(
+          after.session.sessionManager.getCwd(),
+          after.session.sessionId,
+        );
+        if (loop?.autoAgent !== true) {
+          if (!commitTurn()) return "retry";
+          armHangWatchForGoalTurn();
+          return true;
+        }
+        const task = getTask(taskId);
+        if (!task) {
+          throw Object.assign(new Error("タスクが見つかりません"), { status: 404 });
+        }
+        let routed: LiveRuntime | "retry";
+        try {
+          routed = await prepareAutoAgentForGoalLoop(after, task, prompt, ownsRouting);
+        } catch (error) {
+          releaseIdleReservation(after);
+          throw error;
+        }
+        if (!ownsRouting()) {
+          releaseIdleReservation(after);
+          return false;
+        }
+        if (routed === "retry") return "retry";
+        if (routed.session === after.session) {
+          if (!commitTurn()) return "retry";
+          armHangWatchForGoalTurn();
+          return true;
+        }
+        releaseIdleReservation(routed);
+        emitTaskSnapshot(routed, "agent_routed");
+        return false;
+      };
+      routingContext.releaseGoalLoopTurn = () => {
+        if (!preparedTurn || !ownsRouting()) return;
+        preparedTurn = false;
+        const live = state().live.get(taskId);
+        const task = getTask(taskId);
+        if (
+          !live ||
+          live.session.sessionManager !== manager ||
+          !task ||
+          task.status !== "working" ||
+          !ownsTaskLease(taskId)
+        ) return;
+        // promptActive means the SDK already accepted a turn: settle owns lifecycle.
+        // Do not require !isLiveBusyForReplace — compaction/streaming without our
+        // prompt must not strand working+lease while the loop stays queued.
+        if (live.promptActive) return;
+        disarmTaskHangWatch(taskId);
+        setTaskStatus(taskId, "idle");
+        releaseTaskLease(taskId);
+        emitTaskSnapshot(live, "goal_turn_not_sent");
+      };
+      routingContext.isGoalLoopHangAbort = () => {
+        const watch = getTaskHangWatch(taskId);
+        return watch?.skipResume === true && watch.state === "resolving";
+      };
+      routingContext.canRetryGoalLoopProviderLimit = async () => {
+        const live = state().live.get(taskId);
+        const task = getTask(taskId);
+        if (
+          !live ||
+          live.session.sessionManager !== ctx.sessionManager ||
+          !task
+        ) {
+          return false;
+        }
+        // finishSettledTurn clears pendingProviderFallback before Goal Loop
+        // settles; also accept an in-flight fallback or the settled limit error.
+        const pending =
+          live.pendingProviderFallback ??
+          (providerFallbackInflight.has(taskId) ||
+          isProviderLimitError(live.session.agent.state.errorMessage)
+            ? {
+                providerID: task.providerID ?? "",
+                modelID: task.modelID ?? "",
+              }
+            : null);
+        if (
+          !pending?.modelID ||
+          !pending.providerID ||
+          !canAutoFallbackTask(task, pending.providerID)
+        ) {
+          return false;
+        }
+        const routes = await resolveProviderFallbackRoutes({
+          providerID: pending.providerID,
+          modelID: pending.modelID,
+          ...(live.accountId ? { accountId: live.accountId } : {}),
+        });
+        return routes.length > 0;
+      };
+      // Publish explicit session-scoped hooks. Context properties are retained
+      // for older bundled extensions, but ctx identity is not the transport.
+      pi.events.emit(GOAL_LOOP_HOST_ROUTING_READY_CHANNEL, {
+        sessionManager: manager,
+        prepareGoalLoopTurn: routingContext.prepareGoalLoopTurn,
+        releaseGoalLoopTurn: routingContext.releaseGoalLoopTurn,
+        canRetryGoalLoopProviderLimit: routingContext.canRetryGoalLoopProviderLimit,
+        isGoalLoopHangAbort: routingContext.isGoalLoopHangAbort,
+      });
+    });
+  };
+}
+
+/** Runtime-generated clock context shared by Bot and Code sessions. */
+export function runtimeClockContext(
+  now = new Date(),
+  timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC",
+): string {
+  const local = new Intl.DateTimeFormat("sv-SE", {
+    dateStyle: "short",
+    timeStyle: "medium",
+    hourCycle: "h23",
+    timeZone,
+  }).format(now);
+  return [
+    "<host_clock>",
+    `Host clock (authoritative for \"now\"): ${local} (${timeZone}).`,
+    `UTC: ${now.toISOString()}.`,
+    "For current or relative dates, use this runtime-generated timestamp instead of model memory or web search.",
+    "</host_clock>",
+  ].join("\n");
+}
+
+export function refreshRuntimeClock(
+  session: { agent?: { state?: { systemPrompt?: string } } },
+  now = new Date(),
+): void {
+  const state = session.agent?.state;
+  if (!state) return;
+  const clock = runtimeClockContext(now);
+  // Older SDKs expose a mutable systemPrompt; SDK 1.0 derives it from messages.
+  // Custom turns bypass before_agent_start, so they also carry a fresh clock
+  // in their hidden content (customPromptWithRuntimeClock).
+  const current = typeof state.systemPrompt === "string" ? state.systemPrompt : "";
+  const next = current.includes("<host_clock>")
+    ? current.replace(/<host_clock>[\s\S]*?<\/host_clock>/, clock)
+    : current
+      ? `${current}\n\n${clock}`
+      : clock;
+  // Returns false for getter-only/frozen properties without throwing in strict
+  // mode. Unexpected setter errors still surface instead of being swallowed.
+  Reflect.set(state, "systemPrompt", next);
+}
+
+/** sendCustomMessage(triggerTurn) bypasses before_agent_start in SDK 1.0. */
+export function customPromptWithRuntimeClock(content: string, now = new Date()): string {
+  return `${runtimeClockContext(now)}\n\n${content}`;
+}
+
+export function isOneToOneBotTask(
+  task: Pick<TaskSummary, "id" | "kind" | "botId"> | null | undefined,
+): boolean {
+  return task?.kind === "bot" && typeof task.botId === "string" && task.id === `bot:${task.botId}`;
+}
+
+function botSessionOptions(
+  task: Pick<TaskSummary, "id" | "kind" | "botId">,
+): {
+  appendSystemPrompt?: string[];
+  noContextFiles?: boolean;
+  botSkills?: BotSkillsConfig;
+  botTools?: readonly string[];
+  skillScope?: SkillScope;
+} {
+  if (task.kind !== "bot" || !task.botId) return {};
+  const bot = getBot(task.botId);
+  // The option rules (prompt order, Room prompt, tool filtering) live in backend core.
+  return resolveBotSessionOptions({
+    isBot: true,
+    promptSources: botPromptSources(task.botId),
+    roomOrigin: Boolean(roomForCodeOrigin(task)),
+    roomSystemPrompt: ROOM_SYSTEM_PROMPT,
+    skills: bot?.skills,
+    tools: bot?.tools,
+    defaultToolNames: BOT_DEFAULT_TOOL_NAMES,
+    platform: process.platform,
+  }) as {
+    appendSystemPrompt: string[];
+    noContextFiles: boolean;
+    botSkills: BotSkillsConfig;
+    botTools: readonly string[];
+    skillScope: SkillScope;
+  };
+}
+
+// The matching rule lives in backend core; callers keep passing the replaced set.
+export { isReplacedPackageSource };
+
+/** Exclude replaced packages and disabled package extensions before SDK import. */
+export function settingsManagerExcludingReplacedPackages(
+  pi: PiModule,
+  manager: ReturnType<PiModule["SettingsManager"]["create"]>,
+  replacedPackageNames: Set<string>,
+  agentDir = pi.getAgentDir(),
+): ReturnType<PiModule["SettingsManager"]["create"]> {
+  return new Proxy(manager, {
+    get(target, property) {
+      if (property === "getGlobalSettings" || property === "getProjectSettings") {
+        return () => {
+          const settings = property === "getGlobalSettings" ? target.getGlobalSettings() : target.getProjectSettings();
+          const packages = Array.isArray(settings.packages) ? settings.packages : [];
+          const state = readExtensionsState();
+          return {
+            ...settings,
+            packages: packages
+              .filter((entry: unknown) => !isReplacedPackageSource(entry, replacedPackageNames))
+              .map((entry) => {
+                const source = typeof entry === "string" ? entry : entry.source;
+                const dir = resolvePackageDir(source, agentDir);
+                const name = dir && basename(dir);
+                if (!name || isWebUiRequiredExtension(name) || !isExtensionDisabled(name, state)) return entry;
+                return typeof entry === "string"
+                  ? { source: entry, extensions: [] }
+                  : { ...entry, extensions: [] };
+              }),
+          };
+        };
+      }
+      const value = Reflect.get(target, property, target);
+      return typeof value === "function" ? (value as (...args: unknown[]) => unknown).bind(target) : value;
+    },
+  }) as ReturnType<PiModule["SettingsManager"]["create"]>;
+}
+
+// The fork/upstream table and the dedup rule live in backend core.
+export { keepsLoadedExtension, replacedUpstreamPackages };
+
+/**
+ * Tools registered on a new session. An agent-defined allowlist wins; otherwise
+ * the WebUI defaults apply. Bot sessions register every known Bot tool so the
+ * settings UI can enable one without replacing the live session; applyBotTools
+ * controls which of them are active.
+ */
+export function sessionToolNames(input: {
+  agentTools?: readonly string[];
+  botTools?: readonly string[];
+  subagentPermission?: "allow" | "deny";
+  botSoulTool?: boolean;
+  botCodeTool?: boolean;
+  roomHandoffTool?: boolean;
+  platform?: NodeJS.Platform;
+  env?: Partial<Record<"DISPLAY" | "WAYLAND_DISPLAY", string>>;
+}): string[] {
+  const platform = input.platform ?? process.platform;
+  const env = input.env ?? process.env;
+  // Headless Linux (server/systemd) has no desktop to drive; don't advertise tools that always fail.
+  const hasDesktop = platform === "win32" || (platform === "linux" && Boolean(env.DISPLAY || env.WAYLAND_DISPLAY));
+  const shellTools = platform === "win32" ? ["powershell", "bash"] : ["bash"];
+  const configuredTools = input.agentTools
+    ? [...input.agentTools]
+    : [
+        "read",
+        "write",
+        "edit",
+        ...shellTools,
+        "question",
+        "grep",
+        "find",
+        "ls",
+        "memory_search",
+        "memory_add",
+        "memory_replace",
+        "memory_remove",
+        "session_search",
+        "skill_manage",
+        "web_search",
+        "source_check",
+        "fetch_content",
+        "get_search_content",
+        "intercom",
+        "session_resume",
+        ...(hasDesktop ? COMPUTER_USE_TOOL_NAMES : []),
+        ...(input.subagentPermission === "allow" ? ["subagent"] : []),
+        "todowrite",
+        "show_image",
+        "show_video",
+        "show_audio",
+        "codemode",
+        TOOL_SEARCH_NAME,
+        JEV_TOOL_NAME,
+      ];
+  const registeredTools = input.botTools
+    ? BOT_TOOL_NAMES.filter((tool) => tool !== "powershell" || platform === "win32")
+    : configuredTools;
+  return [...new Set([
+    ...registeredTools,
+    ...(input.botSoulTool ? [BOT_SOUL_TOOL] : []),
+    ...(input.botCodeTool ? [BOT_CODE_TOOL] : []),
+    ...(input.roomHandoffTool ? [ROOM_HANDOFF_TOOL] : []),
+  ])];
+}
+
+export function sessionResourceOptions(input: {
+  systemPrompt?: string;
+  agentAppendSystemPrompt: readonly string[] | undefined;
+  botToolAllowlist: readonly string[] | undefined;
+  agentDir: string;
+  appendSystemPrompt: readonly string[] | undefined;
+  noContextFiles: boolean;
+}): Pick<
+  ResourceLoaderOptions,
+  "systemPrompt" | "appendSystemPrompt" | "appendSystemPromptOverride" | "noContextFiles" | "agentsFilesOverride"
+> {
+  const appended = [...(input.agentAppendSystemPrompt ?? []), ...(input.appendSystemPrompt ?? [])];
+  return {
+    ...(input.systemPrompt ? { systemPrompt: input.systemPrompt } : {}),
+    ...(appended.length ? { appendSystemPrompt: appended } : {}),
+    // Add global Code sources after SDK discovery, not as explicit sources
+    // (those suppress APPEND_SYSTEM.md). Re-discover on every reload.
+    ...(!input.botToolAllowlist ? {
+      appendSystemPromptOverride: (base: string[]) => [
+        ...base,
+        ...codePromptSources(input.agentDir).map((path) => readAgentsMdFile(path).content),
+      ],
+    } : {}),
+    ...(input.noContextFiles ? { noContextFiles: true } : {}),
+    // Project-context opt-out must not remove global Code rules. Bots still
+    // use BOTS.md and never inherit the global AGENTS.md.
+    ...(input.noContextFiles && !input.botToolAllowlist ? {
+      agentsFilesOverride: () => {
+        const file = readAgentsMdFile(join(input.agentDir, AGENTS_MD_FILENAME));
+        return { agentsFiles: file.exists ? [{ path: file.path, content: file.content }] : [] };
+      },
+    } : {}),
+  };
+}
+
+const reportedExtensionErrors = new Set<string>();
+
+/** The SDK keeps load failures only in the loader result; log each one once. */
+function reportExtensionErrors(errors: readonly { path: string; error: string }[]): void {
+  for (const { path, error } of errors) {
+    const message = `[extensions] ${path}: ${error.split(/\r?\n/, 1)[0].slice(0, 500)}`;
+    if (reportedExtensionErrors.has(message)) continue;
+    reportedExtensionErrors.add(message);
+    console.error(message);
+  }
+}
+
+export function sessionExtensionsOverride(
+  bundled: { names: ReadonlySet<string>; paths: ReadonlySet<string> },
+): NonNullable<ResourceLoaderOptions["extensionsOverride"]> {
+  const kept = <T extends { path: string }>(entries: readonly T[]) =>
+    filterExtensionsByState(entries.filter(({ path }) => keepsLoadedExtension(path, bundled)));
+  return (base) => {
+    // Failures of dropped or disabled copies are expected; report only the rest.
+    if (base.errors.length > 0) reportExtensionErrors(kept(base.errors));
+    return { ...base, extensions: kept(base.extensions) };
+  };
+}
+
+function sessionSkillsOverride(input: {
+  noSkills: boolean | undefined;
+  skillPermissionRef: { current: SkillPermission };
+  bundledSkills: ReturnType<typeof bundledSkillPaths>;
+  pi: PiModule;
+  skillScope?: SkillScope;
+  botSkills?: BotSkillsConfig;
+}): SkillsOverride {
+  return (base) => {
+    if (input.noSkills || input.skillPermissionRef.current === "deny") {
+      return { skills: [], diagnostics: base.diagnostics };
+    }
+    const packagedSkills = input.bundledSkills.flatMap((dir) =>
+      input.pi.loadSkillsFromDir({ dir, source: "bundled" }).skills,
+    );
+    const skills = mergeBundledSkills(base.skills, packagedSkills);
+    const enabled = filterSkillsForBot(
+      filterSkillsByState(skills, undefined, input.skillScope ?? "code"),
+      input.botSkills ?? { mode: "inherit", include: [], exclude: [] },
+    );
+    return {
+      skills: compactSkillsForPrompt(enabled),
+      diagnostics: base.diagnostics,
+    };
+  };
+}
+
+type SessionExtensionFactory = (api: ExtensionAPI) => void;
+
+export function sessionExtensionFactories(input: {
+  agentDir: string;
+  botSoulBotId?: string;
+  botToolAllowlist?: readonly string[];
+  getBotToolAllowlist?: () => readonly string[];
+  agentToolAllowlist?: readonly string[];
+  taskId?: string;
+  hasBotSkills: boolean;
+  /** default has no hard allowlist; preserve an explicit subagent disable over SDK reload. */
+  allTools?: boolean;
+  codeToolPolicy?: CodeToolPolicy;
+  botCodeTaskId?: string;
+  roomHandoffTaskId?: string;
+  /** Holds the SDK search (native MCP or standalone), so `tool_search` has one owner. */
+  nativeToolSearch?: NativeToolSearch;
+  getExtensions: () => ResourceExtensions;
+}): SessionExtensionFactory[] {
+  const botSoulBotId = input.botSoulBotId;
+  let subagentActiveBeforeReload: boolean | undefined;
+  return [
+    (api) => {
+      if (input.codeToolPolicy) registerCodeToolPolicy(api, input.codeToolPolicy);
+      if (input.allTools && !input.codeToolPolicy) {
+        api.on("session_shutdown", () => { subagentActiveBeforeReload = api.getActiveTools().includes("subagent"); });
+        api.on("session_start", () => {
+          if (subagentActiveBeforeReload === false) {
+            api.setActiveTools(api.getActiveTools().filter((name) => name !== "subagent"));
+          }
+        });
+      }
+      api.on("before_agent_start", (event) => {
+        // Discover at the next turn, so creating/deleting a reference does not
+        // require a costly session reload. Never grant read permission here.
+        const references = !input.botToolAllowlist && api.getActiveTools().includes("read")
+          ? codeOnDemandPrompt(input.agentDir)
+          : "";
+        return { systemPrompt: [compactSdkDocumentation(event.systemPrompt), references, runtimeClockContext()].filter(Boolean).join("\n\n") };
+      });
+      // 設定は毎リクエスト読み直し、実行中セッションにも切替を反映する。
+      api.on("before_provider_request", (event, ctx) =>
+        applyOpenAiFastMode(
+          event.payload,
+          ctx.model?.provider,
+          isOpenAiFastModeEnabled(getSetting(OPENAI_FAST_MODE_SETTING_KEY)),
+        ),
+      );
+    },
+    ...(botSoulBotId
+      ? [botSoulTool(botSoulBotId, () => requestBotSoulReload(botSoulBotId))]
+      : []),
+    input.botToolAllowlist
+      ? (api: ExtensionAPI) => {
+          const allowedTools = input.getBotToolAllowlist ?? (() => input.botToolAllowlist!);
+          registerDeferredTools(api, allowedTools, input.nativeToolSearch);
+          // SDK reload rebuilds the registry from all registered Bot tools.
+          // Reapply permissions, not just deferred-tool visibility.
+          api.on("session_start", () => {
+            api.setActiveTools(botActiveToolNames(api.getActiveTools(), allowedTools()));
+          });
+        }
+      : input.agentToolAllowlist
+        ? (api: ExtensionAPI) => registerDeferredTools(api, input.agentToolAllowlist, input.nativeToolSearch)
+        : (api: ExtensionAPI) => registerDeferredTools(api, undefined, input.nativeToolSearch),
+    registerJevTool,
+    registerRequestImageCap,
+    ...(input.taskId ? [(api: ExtensionAPI) => {
+      registerShowImage(api, {
+        validate: (path) => validateTaskLocalImage(input.taskId!, path),
+      });
+      registerShowVideo(api, { validate: (path) => validateTaskLocalMedia(input.taskId!, path, "video") });
+      registerShowAudio(api, { validate: (path) => validateTaskLocalMedia(input.taskId!, path, "audio") });
+    }] : []),
+    ...(input.taskId ? [registerGoalLoopTurnRouting(input.taskId)] : []),
+    ...(input.hasBotSkills
+      ? [
+          (api: ExtensionAPI) => {
+            api.on("before_agent_start", (event) => ({
+              systemPrompt: `${event.systemPrompt}\n\n${botRuntimeContext(input.getExtensions())}`,
+            }));
+          },
+        ]
+      : []),
+    ...(input.botCodeTaskId
+      ? [botCodeRelay().register(input.botCodeTaskId)]
+      : []),
+    ...(input.roomHandoffTaskId
+      ? [roomHandoffTool(input.roomHandoffTaskId)]
+      : []),
+    ...(botSoulBotId && input.taskId
+      ? [botIntercomTool(input.taskId)]
+      : []),
+    (api) => registerCompactionController(api, {
+      config: (ctx) => {
+        const live = input.taskId ? state().live.get(input.taskId) : undefined;
+        if (!live || !ctx.model) return undefined;
+        const settings = live.session.settingsManager.getCompactionSettings(ctx.model);
+        const key = JSON.stringify([
+          getTask(input.taskId!)?.accountId, ctx.model.provider, ctx.model.id, settings,
+          getSetting(COMPACTION_MODEL_SETTING_KEY), getSetting(COMPACTION_MODEL_EFFORT_SETTING_KEY),
+          getSetting(COMPACTION_SUMMARY_MAX_TOKENS_SETTING_KEY),
+          getSetting(JEV_COMPACTION_ENABLED_SETTING_KEY), getSetting(JEV_COMPACTION_THRESHOLD_SETTING_KEY),
+        ]);
+        return {
+          enabled: settings.enabled && !live.goalLoopTurnActive && !isActiveGoalLoopSession(live.session) &&
+            parseCompactionAction(getSetting(COMPACTION_ACTION_SETTING_KEY)) === "auto" &&
+            getSetting(COMPACTION_BACKGROUND_SETTING_KEY) !== "0",
+          startPercent: parseBackgroundCompactionThreshold(getSetting(COMPACTION_BACKGROUND_THRESHOLD_SETTING_KEY)),
+          settings,
+          key,
+        };
+      },
+      prepare: async (branch, settings) => prepareBackgroundCompaction(await loadPi(), branch, settings),
+      summarize: (request) => compactWithCompactionModel(request, input.taskId),
+    }),
+  ];
+}
+
+type CreatedSessionSetup = {
+  botTools?: readonly string[];
+  subagentPermission?: "allow" | "deny";
+  permissionMode: "allow" | "ask" | "deny";
+  persistPermission: boolean;
+  goalLoop: boolean;
+};
+
+async function configureCreatedSession(
+  session: AgentSession,
+  setup: CreatedSessionSetup,
+): Promise<void> {
+  // bindExtensions() emits session_start; bundled extensions (goal-loop 等)
+  // create their per-session runtime there. Without it /goal-start silently
+  // no-ops because the extension never sees a runtime.
+  await session.bindExtensions({
+    onError: (error) => {
+      console.error(
+        `[extension] ${error.extensionPath} (${error.event}):`,
+        error.error,
+      );
+    },
+  });
+  // Goal Loop sessions can be replaced between turns. Codex's cached WebSocket
+  // cleanup closes sockets with debug_close, which can surface as a scheduler
+  // error; keep automation on the SSE path while normal chats retain WebSocket.
+  if (setup.goalLoop) session.agent.transport = "sse";
+  // Chains the `afterToolCall` hook AgentSession installs in its constructor
+  // (which dispatches extension `tool_result` handlers) instead of replacing it.
+  installToolResultCap(session.agent);
+  if (setup.botTools) applyBotTools(session, setup.botTools);
+  // Apply after bindExtensions() so an explicit mode wins over persisted state.
+  applyPermissionMode(session, setup.permissionMode, {
+    persist: setup.persistPermission,
+  });
+  // Agent-defined tools may include `subagent`; enforce the user choice after
+  // the full extension registry is ready, including the initial turn.
+  if (!setup.botTools) applySubagentPermission(session, setup.subagentPermission);
+  applySessionCompactionSettings(session, undefined, setup.goalLoop);
+}
+
+function sessionTaskContext(taskId?: string): {
+  botCodeTaskId: string | undefined;
+  roomHandoffTaskId: string | undefined;
+  botSoulBotId: string | undefined;
+} {
+  const sessionTask = taskId ? getTask(taskId) : undefined;
+  return {
+    botCodeTaskId: isBotCodeOriginTask(sessionTask) ? taskId : undefined,
+    roomHandoffTaskId: roomForCodeOrigin(sessionTask) ? taskId : undefined,
+    botSoulBotId:
+      sessionTask?.kind === "bot" && sessionTask.botId
+        ? sessionTask.botId
+        : undefined,
+  };
+}
+
+type ResourceLoaderProbeTarget = Record<string, unknown>;
+
+function instrumentResourceLoaderReload(
+  resourceLoader: ResourceLoader,
+  reporter?: TaskDetailTimingReporter,
+): void {
+  if (!reporter) return;
+  const asTarget = (value: unknown): ResourceLoaderProbeTarget | undefined =>
+    value && typeof value === "object"
+      ? (value as ResourceLoaderProbeTarget)
+      : undefined;
+  const loader = asTarget(resourceLoader);
+  if (!loader) return;
+  const wrap = (
+    target: ResourceLoaderProbeTarget | undefined,
+    method: string,
+    phase: string,
+    isAsync: boolean,
+  ): void => {
+    if (!target) return;
+    const original = target[method];
+    if (typeof original !== "function") return;
+    if (isAsync) {
+      target[method] = async function (
+        this: ResourceLoaderProbeTarget,
+        ...args: unknown[]
+      ) {
+        const startedAt = performance.now();
+        try {
+          return await (original as (...input: unknown[]) => unknown).apply(this, args);
+        } finally {
+          reportTaskDetailPhase(reporter, phase, startedAt);
+        }
+      };
+      return;
+    }
+    target[method] = function (
+      this: ResourceLoaderProbeTarget,
+      ...args: unknown[]
+    ) {
+      const startedAt = performance.now();
+      try {
+        return (original as (...input: unknown[]) => unknown).apply(this, args);
+      } finally {
+        reportTaskDetailPhase(reporter, phase, startedAt);
+      }
+    };
+  };
+
+  wrap(
+    asTarget(loader.settingsManager),
+    "reload",
+    "createSession.resourceLoader.settings",
+    true,
+  );
+  const packageManager = asTarget(loader.packageManager);
+  wrap(
+    packageManager,
+    "resolve",
+    "createSession.resourceLoader.packageResolve",
+    true,
+  );
+  wrap(
+    packageManager,
+    "resolveExtensionSources",
+    "createSession.resourceLoader.packageExtensionSources",
+    true,
+  );
+  wrap(
+    loader,
+    "loadFinalExtensionSet",
+    "createSession.resourceLoader.extensions",
+    true,
+  );
+  wrap(loader, "updateSkillsFromPaths", "createSession.resourceLoader.skills", false);
+  wrap(loader, "updatePromptsFromPaths", "createSession.resourceLoader.prompts", false);
+  wrap(loader, "updateThemesFromPaths", "createSession.resourceLoader.themes", false);
+}
+
+async function createSession(options: {
+  cwd: string;
+  sessionFile?: string | null;
+  sessionName?: string;
+  model?: Model;
+  thinkingLevel?: ThinkingLevel;
+  subagentPermission?: "allow" | "deny";
+  permissionMode?: "allow" | "ask" | "deny";
+  skillPermission?: SkillPermission;
+  /** 利用する認証アカウント（null = 既定）。 */
+  accountId?: string | null;
+  /** pi-subagents agent running as the main session persona. */
+  agentName?: string | null;
+  /** Task id used to prepare the next Goal Loop turn before sending it. */
+  taskId?: string;
+  /** Goal Loop sessions use Pi native compaction instead of WebUI threshold settings. */
+  goalLoop?: boolean;
+  /** Text or file paths appended to the system prompt (paths are re-read on reload). */
+  appendSystemPrompt?: string[];
+  noContextFiles?: boolean;
+  botSkills?: BotSkillsConfig;
+  botTools?: readonly string[];
+  skillScope?: SkillScope;
+  onTiming?: TaskDetailTimingReporter;
+}): Promise<SessionSetup> {
+  const {
+    botCodeTaskId,
+    roomHandoffTaskId,
+    botSoulBotId,
+  } = sessionTaskContext(options.taskId);
+  // The single place a Pi session is created in this process. Guarding it here (not only at the
+  // prompt entry) means no future caller can make this WebUI a second owner of the same runtime.
+  assertLocalRuntimeAllowed();
+  const loadPiStartedAt = options.onTiming ? performance.now() : 0;
+  const pi = await loadPi();
+  reportTaskDetailPhase(options.onTiming, "createSession.loadPi", loadPiStartedAt);
+  const runtimeStartedAt = options.onTiming ? performance.now() : 0;
+  await ensureRuntime({ skipDefaultRuntime: Boolean(options.accountId) });
+  reportTaskDetailPhase(options.onTiming, "createSession.ensureRuntime", runtimeStartedAt);
+  const agentDir = pi.getAgentDir();
+  const sessionManagerStartedAt = options.onTiming ? performance.now() : 0;
+  let sessionManager: ReturnType<typeof pi.SessionManager.create>;
+  const sessionFile = options.sessionFile;
+  const sessionTaskId = options.taskId;
+  const open = () => {
+    if (sessionFile) return openSessionManagerSafely(sessionFile, (path, dir) => pi.SessionManager.open(path, dir));
+    assertSessionLoadAllowed(null);
+    return pi.SessionManager.create(options.cwd);
+  };
+  if (sessionTaskId) {
+    sessionManager = withTaskSessionWriteLease(sessionTaskId, () => {
+      // Opening may rewrite legacy entries, and name sync may append immediately.
+      const created = open();
+      syncSessionName(created, options.sessionName);
+      return created;
+    });
+  } else {
+    sessionManager = open();
+    syncSessionName(sessionManager, options.sessionName);
+  }
+  reportTaskDetailPhase(
+    options.onTiming,
+    "createSession.sessionManager",
+    sessionManagerStartedAt,
+  );
+  // Code sessions follow Settings unless a caller pins a value. Bot sessions
+  // manage skills and tools through their own Bot settings. The rule lives in backend core.
+  const sessionPermissions = resolveSessionPermissionDefaults({
+    pinnedSkillPermission: options.skillPermission,
+    isBotSession: Boolean(options.botTools),
+    pinnedSubagentPermission: options.subagentPermission,
+    settingsSkillPermission: readCodeSkillPermission(),
+    settingsSubagentPermission: readCodeSubagentPermission(),
+  });
+  const skillPermissionRef = { current: sessionPermissions.skillPermission as SkillPermission };
+  const subagentPermission = sessionPermissions.subagentPermission;
+  const codeToolPolicy: CodeToolPolicy | undefined = options.botTools
+    ? undefined
+    : { subagent: subagentPermission ?? "deny" };
+  // Filter disabled skills via state file (skills-state.json), not folder moves.
+  // skillsOverride re-reads state on every resourceLoader.reload() / session.reload().
+  // Also drop any ~/.agents skills Pi loads internally: this harness must not
+  // read C:\Users\Daichi\.agents (skills.ts discovery already excludes it).
+  // Bundled LeafCode extensions and skills load straight from this repository;
+  // production WebUI supplies explicit roots because it runs from a mirror.
+  const bundled = bundledExtensionEntries();
+  const bundledSkills = bundledSkillPaths();
+  // Native MCP (when a Backend provider is installed) replaces the bundled adapter without dual
+  // operation. Names stay complete so the replaced upstream package is still excluded.
+  const nativeMcp = resolveBackendMcpNativeSession(options.cwd);
+  if (nativeMcp.issues.length > 0) {
+    console.error(`[mcp-native] unavailable: ${nativeMcp.issues.map((issue) => issue.code).join(",")}`);
+  }
+  const loadedBundled = bundledPathsForNativeMcp(bundled, nativeMcp.active);
+  const bundledIndex = {
+    names: new Set(bundled.map((entry) => entry.name)),
+    paths: new Set(loadedBundled.map((entry) => entry.filePath)),
+  };
+  const replacedPackageNames = replacedUpstreamPackages(bundledIndex.names);
+  // テスト環境のSDKモックはSettingsManagerを持たないことがあるため、存在時だけ適用する。
+  const settingsManager =
+    typeof pi.SettingsManager?.create === "function"
+      ? settingsManagerExcludingReplacedPackages(
+          pi,
+          pi.SettingsManager.create(options.cwd, agentDir),
+          replacedPackageNames,
+          agentDir,
+        )
+      : undefined;
+  // Selected agent becomes the main persona: its system prompt replaces (or
+  // appends to) the base prompt, and context files / skills follow the agent's
+  // inherit flags — mirroring how pi-subagents launches child sessions.
+  const agentDefinition = options.agentName
+    ? loadAgentDefinition(options.agentName, agentDir)
+    : undefined;
+  const agentOptions = agentDefinition
+    ? buildAgentResourceOptions(agentDefinition)
+    : undefined;
+  const botToolAllowlist = options.botTools;
+  const allTools = options.agentName?.trim() === DEFAULT_AGENT && !botToolAllowlist;
+  const nativeToolSearch: NativeToolSearch = {};
+  let createdSession: AgentSession | undefined = undefined;
+  const resourceLoader: ResourceLoader = new pi.DefaultResourceLoader({
+    cwd: options.cwd,
+    agentDir,
+    ...(settingsManager ? { settingsManager } : {}),
+    additionalExtensionPaths: loadedBundled.map((entry) => entry.filePath),
+    additionalSkillPaths: bundledSkills,
+    // Resolved per loader run: a reload after a config write must pick up the newly published provider
+    // instead of re-running factories bound to a binding that write already retired.
+    // Code always has codemode, even without native MCP. Use one owner per loader run, including
+    // reloads; native MCP supplies its own instance. Strict agent/Bot tool allowlists still apply.
+    extensionFactories: [captureNativeToolSearch(nativeMcpExtensionFactory(
+      options.cwd, (api) => {
+        pi.createCodemodeExtension({ mode: "on", models: false })(api);
+        // The shared search owner must also find deferred extension tools without native MCP.
+        pi.createToolSearchExtension()(api);
+      },
+    ), nativeToolSearch, codeToolPolicy ? (name) => codeToolAllowed(codeToolPolicy, name) : undefined), ...sessionExtensionFactories({
+      nativeToolSearch,
+      codeToolPolicy,
+      agentDir,
+      botSoulBotId,
+      botToolAllowlist,
+      getBotToolAllowlist: () => (createdSession && state().botToolAllowlists?.get(createdSession)) ?? botToolAllowlist ?? [],
+      agentToolAllowlist: agentOptions?.tools,
+      taskId: options.taskId,
+      hasBotSkills: Boolean(options.botSkills),
+      allTools,
+      botCodeTaskId,
+      roomHandoffTaskId,
+      getExtensions: () => resourceLoader.getExtensions().extensions,
+    })],
+    skillsOverride: sessionSkillsOverride({
+      noSkills: agentOptions?.noSkills,
+      skillPermissionRef,
+      bundledSkills,
+      pi,
+      skillScope: options.skillScope,
+      botSkills: options.botSkills,
+    }),
+    extensionsOverride: sessionExtensionsOverride(bundledIndex),
+    ...sessionResourceOptions({
+      systemPrompt: agentOptions?.systemPrompt,
+      agentAppendSystemPrompt: agentOptions?.appendSystemPrompt,
+      botToolAllowlist,
+      agentDir,
+      appendSystemPrompt: options.appendSystemPrompt,
+      noContextFiles: Boolean(
+        agentOptions?.noContextFiles || options.noContextFiles,
+      ),
+    }),
+  });
+  instrumentResourceLoaderReload(resourceLoader, options.onTiming);
+  const resourceLoaderStartedAt = options.onTiming ? performance.now() : 0;
+  await resourceLoader.reload();
+  reportTaskDetailPhase(
+    options.onTiming,
+    "createSession.resourceLoader",
+    resourceLoaderStartedAt,
+  );
+  const permissionMode =
+    options.permissionMode ?? readPermissionGateConfig();
+  const persistPermission = options.permissionMode !== undefined;
+  const tools = sessionToolNames({
+    agentTools: agentOptions?.tools,
+    botTools: options.botTools,
+    subagentPermission,
+    botSoulTool: Boolean(botSoulBotId),
+    botCodeTool: Boolean(botCodeTaskId),
+    roomHandoffTool: Boolean(roomHandoffTaskId),
+  });
+  // SDK `tools` is a hard allowlist and native MCP tools register after connecting, so an
+  // unrestricted session with native MCP excludes what it does not want instead. Agent and Bot
+  // sessions keep their strict allowlist.
+  const dynamicMcpTools = shouldUseDynamicMcpTools({
+    active: nativeMcp.active,
+    factoryCount: nativeMcp.factories.length,
+    hasAgentTools: Boolean(agentOptions?.tools),
+    hasBotTools: Boolean(options.botTools),
+  });
+  const toolSelection = sessionToolSelection({
+    tools,
+    allTools,
+    dynamicMcpTools,
+    registered: dynamicMcpTools
+      ? resourceLoader.getExtensions().extensions.flatMap((extension) => [...extension.tools.keys()])
+      : [],
+  });
+  const modelRuntimeStartedAt = options.onTiming ? performance.now() : 0;
+  const modelRuntime = (await getRuntimeFor(options.accountId)) ?? undefined;
+  reportTaskDetailPhase(
+    options.onTiming,
+    "createSession.modelRuntime",
+    modelRuntimeStartedAt,
+  );
+  const setupWriteGuard = sessionTaskId
+    ? guardTaskSessionManagerWrites(sessionManager, sessionTaskId)
+    : null;
+  try {
+    const agentSessionStartedAt = options.onTiming ? performance.now() : 0;
+    const result = await sdkRuntimeFactory().createAgentSession({
+      cwd: options.cwd,
+      agentDir,
+      model: options.model,
+      thinkingLevel: options.thinkingLevel,
+      sessionManager,
+      resourceLoader,
+      modelRuntime,
+      ...("tools" in toolSelection ? { tools: toolSelection.tools } : { excludeTools: toolSelection.excludeTools }),
+    });
+    reportTaskDetailPhase(
+      options.onTiming,
+      "createSession.agentSession",
+      agentSessionStartedAt,
+    );
+    createdSession = result.session;
+    if (codeToolPolicy) attachCodeToolPolicy(result.session, codeToolPolicy);
+    // Restore the Code base loadout. default also retains newly registered extension defaults.
+    if ("initialActive" in toolSelection) {
+      result.session.setActiveToolsByName(toolSelection.preserveActive
+        ? [...new Set([...result.session.getActiveToolNames(), ...toolSelection.initialActive])]
+        : toolSelection.initialActive);
+    }
+    const configureStartedAt = options.onTiming ? performance.now() : 0;
+    await configureCreatedSession(result.session, {
+      botTools: options.botTools,
+      subagentPermission,
+      permissionMode,
+      persistPermission,
+      goalLoop: options.goalLoop === true,
+    });
+    reportTaskDetailPhase(
+      options.onTiming,
+      "createSession.configure",
+      configureStartedAt,
+    );
+    if (options.goalLoop) {
+      const persistStartedAt = options.onTiming ? performance.now() : 0;
+      if (sessionTaskId) {
+        withTaskSessionWriteLease(sessionTaskId, () => ensureSessionFilePersisted(sessionManager));
+      } else {
+        ensureSessionFilePersisted(sessionManager);
+      }
+      reportTaskDetailPhase(
+        options.onTiming,
+        "createSession.persistSessionFile",
+        persistStartedAt,
+      );
+    }
+    return { session: result.session, skillPermissionRef };
+  } catch (error) {
+    setupWriteGuard?.invalidate();
+    if (createdSession) {
+      try { await disposeSessionBestEffort(createdSession); }
+      catch (cleanupError) { console.warn("[leafcode-pi] failed to dispose partial session:", cleanupError); }
+    }
+    throw error;
+  }
+}
+
+type ConcreteModelRoute = {
+  accountId: string | null;
+  runtime: ModelRuntime;
+  model: Model;
+};
+
+function reservedAccountForRoute(
+  route: ConcreteModelRoute,
+): { providerID: string; accountId: string } | undefined {
+  const routeIds = modelId(route.model);
+  if (
+    !route.accountId ||
+    !routeIds.providerID ||
+    !isAccountRoutingProvider(routeIds.providerID)
+  ) {
+    return undefined;
+  }
+  return { providerID: routeIds.providerID, accountId: route.accountId };
+}
+
+function releaseReservedAccount(
+  reservedAccount: { providerID: string; accountId: string } | undefined,
+): void {
+  if (!reservedAccount) return;
+  releaseRoute(reservedAccount.providerID, reservedAccount.accountId);
+}
+
+export type ProviderFallbackModel = {
+  providerID: string;
+  modelID: string;
+  accountId?: string;
+};
+
+function modelWithContextWindow(
+  model: Model,
+  providerID: string,
+  modelID: string,
+  accountId?: string | null,
+): Model {
+  const contextWindow = contextWindowForModel(providerID, modelID, readProviderModelState(), accountId);
+  return contextWindow === undefined ? model : { ...model, contextWindow, maxTokens: Math.min(model.maxTokens, contextWindow) };
+}
+
+function configuredThinkingLevelForModel(
+  model: Model,
+  accountId?: string | null,
+): ThinkingLevel | undefined {
+  const ids = modelId(model);
+  return ids.providerID && ids.modelID
+    ? storedDefaultThinkingLevelForModel(
+        ids.providerID,
+        ids.modelID,
+        readProviderModelState(),
+        accountId,
+      )
+    : undefined;
+}
+
+/** Resolve a saved model default, falling back to Pi's existing medium-like default. */
+function defaultThinkingLevelForRoute(
+  model: Model,
+  accountId?: string | null,
+): ThinkingLevel {
+  return resolveThinkingLevel(
+    thinkingLevelsForModel(model),
+    configuredThinkingLevelForModel(model, accountId),
+  );
+}
+
+function thinkingLevelForModelSelection(
+  model: Model,
+  accountId: string | null | undefined,
+  current: unknown,
+  modelChanged: boolean,
+): ThinkingLevel {
+  const preferred = modelChanged
+    ? configuredThinkingLevelForModel(model, accountId) ?? current
+    : current;
+  return resolveThinkingLevel(thinkingLevelsForModel(model), preferred);
+}
+
+function routeLimitError(resetAt: string | null): Error {
+  return Object.assign(
+    new Error(
+      resetAt
+        ? `利用可能なアカウントがありません。次回リセット: ${resetAt}`
+        : "利用可能なアカウントがありません",
+    ),
+    { status: 429, ...(resetAt ? { resetAt } : {}) },
+  );
+}
+
+/**
+ * ルーティング判断用の使用量 TTL。標準の 5 分キャッシュが切れていると全候補が
+ * 「使用量不明」になり、使用率ではなく稼働タスク数・アカウント登録順で選ばれて
+ * しまうため、表示側と同じ最大 30 分の last-known スナップショットまで許容する。
+ */
+const ROUTING_USAGE_TTL_MS = 30 * 60 * 1000;
+
+function routingUsageProviders(): readonly CodexBarProvider[] {
+  return getCachedUsage(Date.now(), ROUTING_USAGE_TTL_MS)?.providers ?? [];
+}
+
+function usageForProvider(
+  providerID: string,
+  accountId?: string | null,
+): CodexBarProvider | undefined {
+  return routingUsageProviders().find(
+    (provider) =>
+      provider.id === providerID &&
+      (provider.accountId ?? null) === (accountId ?? null),
+  );
+}
+
+function markRouteLimited(
+  providerID: string,
+  accountId?: string | null,
+): void {
+  const usage = usageForProvider(providerID, accountId);
+  markProviderLimited(
+    providerID,
+    accountId,
+    usage?.maxed && !usage.stale ? usage.resetsAt : null,
+  );
+  invalidateHealthCache();
+}
+
+function clearRouteLimit(
+  providerID: string,
+  accountId?: string | null,
+): void {
+  if (!providerLimitMark(providerID, accountId)) return;
+  clearProviderLimit(providerID, accountId);
+  invalidateHealthCache();
+}
+
+function futureReset(resetAt: string | null | undefined, nowMs = Date.now()): boolean {
+  if (!resetAt) return false;
+  const parsed = Date.parse(resetAt);
+  return Number.isFinite(parsed) && parsed > nowMs;
+}
+
+function providerIsHardLimited(
+  providerID: string,
+  accountId?: string | null,
+): boolean {
+  if (providerLimitMark(providerID, accountId)) return true;
+  const usage = usageForProvider(providerID, accountId);
+  return Boolean(
+    usage?.maxed &&
+      !usage.stale &&
+      (!usage.resetsAt || futureReset(usage.resetsAt)) &&
+      // 枠クレジットが残っているサブスクは、枠100%でも Anthropic 側が継続する。
+      !hasSubscriptionCreditsRemaining(usage),
+  );
+}
+
+function providerResetAt(
+  providerID: string,
+  accountId?: string | null,
+): string | null {
+  return (
+    providerLimitMark(providerID, accountId)?.resetAt ??
+    (providerIsHardLimited(providerID, accountId)
+      ? usageForProvider(providerID, accountId)?.resetsAt ?? null
+      : null)
+  );
+}
+
+function markedUsage(
+  providerID: string,
+  accountId: string,
+  usage: CodexBarProvider | undefined,
+): CodexBarProvider | null {
+  const mark = providerLimitMark(providerID, accountId);
+  if (!mark) return usage ?? null;
+  return {
+    ...(usage ?? {
+      id: providerID,
+      accountId,
+      opencodeId: null,
+      plan: null,
+      planMonthlyUsd: null,
+      limited: true,
+      updatedAt: null,
+      error: null,
+      windows: [],
+      credits: null,
+    }),
+    accountId,
+    usedPercent: Math.max(usage?.usedPercent ?? 100, 100),
+    maxed: true,
+    stale: false,
+    // A new limit response overrides the old snapshot, including its reset.
+    // A past snapshot reset would otherwise immediately revive this mark.
+    resetsAt: mark.resetAt,
+    // 実行時の制限エラーは枠クレジットより優先する（クレジット残でも再選択させない）。
+    credits: null,
+  };
+}
+
+async function resolveIntegratedModelRoute(
+  providerID: string,
+  modelID: string,
+  options?: { excludeAccountId?: string | null; excludeTaskId?: string | null },
+): Promise<ConcreteModelRoute | undefined> {
+  const excluded = options?.excludeAccountId ?? null;
+  const accounts = listAccounts().filter(
+    (account) =>
+      isAccountEnabled(account) &&
+      accountHasProvider(account, providerID) &&
+      account.id !== excluded,
+  );
+  const records = (await collectAccountModelRecords(accounts)).filter(
+    (record) =>
+      record.option.providerID === providerID &&
+      record.option.modelID === modelID,
+  );
+  if (records.length === 0) return undefined;
+
+  // 使用量キャッシュはブラウザのウィジェットしか更新しないため、判断前に取り直す。
+  await ensureFreshRoutingUsage();
+  const usageProviders = routingUsageProviders();
+  const workingCounts = workingTaskCounts(
+    [providerID],
+    options?.excludeTaskId ?? undefined,
+  );
+  const candidates: RoutingCandidate<AccountModelRecord>[] = records.map(
+    (record) => ({
+      accountId: record.accountId,
+      accountIndex: record.accountIndex,
+      value: record,
+      usage: markedUsage(
+        providerID,
+        record.accountId,
+        usageProviders.find(
+          (provider) =>
+            provider.id === providerID &&
+            provider.accountId === record.accountId,
+        ),
+      ),
+      workingTaskCount:
+        workingCounts.get(`${providerID}::${record.accountId}`) ?? 0,
+    }),
+  );
+  const decision = chooseRoutingCandidate(candidates);
+  if (!decision.candidate) {
+    if (decision.allMaxed) throw routeLimitError(decision.resetAt);
+    return undefined;
+  }
+
+  for (const candidate of decision.ranked) {
+    if (candidate.tier >= 3) continue;
+    const model = candidate.value.runtime.getModel(providerID, modelID);
+    if (model) {
+      return {
+        accountId: candidate.accountId,
+        runtime: candidate.value.runtime,
+        model: modelWithContextWindow(model, providerID, modelID, candidate.accountId),
+      };
+    }
+  }
+  return undefined;
+}
+
+function providerOrderRank(
+  providerID: string,
+  providerOrder: readonly string[],
+  usageOrder: readonly string[],
+): number {
+  const scoped = providerOrder
+    .map((key, index) => ({ key, index }))
+    .filter(
+      ({ key }) =>
+        key === providerID ||
+        key.split("::").length === 2 && key.endsWith(`::${providerID}`),
+    )
+    .map(({ index }) => index);
+  if (scoped.length > 0) return Math.min(...scoped);
+  const usageIndex = usageOrder.indexOf(providerID);
+  return usageIndex < 0
+    ? providerOrder.length + usageOrder.length + 1_000_000
+    : providerOrder.length + usageIndex;
+}
+
+function routeModelRef(route: ConcreteModelRoute): ProviderFallbackModel | null {
+  const ids = modelId(route.model);
+  if (!ids.providerID || !ids.modelID) return null;
+  return {
+    providerID: ids.providerID,
+    modelID: ids.modelID,
+    ...(route.accountId ? { accountId: route.accountId } : {}),
+  };
+}
+
+async function resolveProviderFallbackRoutes(
+  source: ProviderFallbackModel,
+): Promise<ConcreteModelRoute[]> {
+  const modelIdsByProvider = new Map<string, string[]>();
+  const addModel = (providerID: string, modelID: string) => {
+    if (!providerID || !modelID) return;
+    const modelIds = modelIdsByProvider.get(providerID) ?? [];
+    if (!modelIds.includes(modelID)) modelIds.push(modelID);
+    modelIdsByProvider.set(providerID, modelIds);
+  };
+  try {
+    for (const record of await collectAccountModelRecords(
+      listAccounts().filter(isAccountEnabled),
+    )) {
+      addModel(record.option.providerID, record.option.modelID);
+    }
+  } catch {
+    // アカウントのモデル収集失敗は、共有候補だけに切り替える。
+  }
+  try {
+    for (const option of await listModels()) {
+      addModel(option.providerID, option.modelID);
+    }
+  } catch {
+    // 共有カタログが未取得でもアカウント候補で続行する。
+  }
+  if (modelIdsByProvider.size === 0) return [];
+
+  const providerOrder = readProviderModelState().providerOrder;
+  const usageOrder = getCachedUsage()?.providerOrder ?? [];
+  const providerIds = [...modelIdsByProvider.keys()].sort(
+    (a, b) =>
+      providerOrderRank(a, providerOrder, usageOrder) -
+        providerOrderRank(b, providerOrder, usageOrder) ||
+      a.localeCompare(b, "en"),
+  );
+  const routes: ConcreteModelRoute[] = [];
+
+  // A limited concrete account should first give another account in the same
+  // provider a chance; only then do we cross the provider boundary. Separate
+  // mode only splits the picker rows, so it still recovers within the provider.
+  if (
+    source.accountId &&
+    isAccountRoutingProvider(source.providerID)
+  ) {
+    try {
+      const route = await resolveIntegratedModelRoute(
+        source.providerID,
+        source.modelID,
+        { excludeAccountId: source.accountId },
+      );
+      if (route) routes.push(route);
+    } catch {
+      // Continue to the next provider when every account in this provider is limited.
+    }
+  }
+
+  for (const providerID of providerIds) {
+    if (providerID === source.providerID) continue;
+    const modelIds = modelIdsByProvider.get(providerID) ?? [];
+    const orderedModelIds = [
+      ...(modelIds.includes(source.modelID) ? [source.modelID] : []),
+      ...modelIds.filter((modelID) => modelID !== source.modelID),
+    ];
+    for (const modelID of orderedModelIds) {
+      try {
+        const route = isAccountRoutingProvider(providerID)
+          ? await resolveIntegratedModelRoute(providerID, modelID)
+          : await resolveConcreteModel(
+              modelValue(providerID, modelID),
+              null,
+              { strictAccountId: false },
+            );
+        if (route) {
+          routes.push(route);
+          break;
+        }
+      } catch {
+        // A limited or unavailable model must not block lower-priority providers.
+      }
+    }
+  }
+  return routes;
+}
+
+/** Resolve concrete fallbacks in provider priority order for direct generation. */
+export async function resolveProviderFallbackModels(
+  source: ProviderFallbackModel,
+): Promise<ProviderFallbackModel[]> {
+  return (await resolveProviderFallbackRoutes(source))
+    .map(routeModelRef)
+    .filter((model): model is ProviderFallbackModel => model !== null);
+}
+
+async function resolveAccountModelRoute(
+  providerID: string,
+  modelID: string,
+  accountId: string,
+  strictAccountId: boolean,
+): Promise<ConcreteModelRoute | undefined> {
+  const account = getAccount(accountId);
+  if (!account) {
+    if (strictAccountId)
+      throw Object.assign(new Error("アカウントが見つかりません"), {
+        status: 404,
+      });
+    return undefined;
+  }
+  if (!isAccountEnabled(account)) {
+    if (strictAccountId) {
+      throw Object.assign(new Error("一時停止中のアカウントです"), {
+        status: 409,
+      });
+    }
+    return undefined;
+  }
+  if (!accountHasProvider(account, providerID)) {
+    if (strictAccountId) {
+      throw Object.assign(
+        new Error("アカウントに紐づかないプロバイダーです"),
+        { status: 400 },
+      );
+    }
+    return undefined;
+  }
+  const record = (await collectAccountModelRecords([account])).find(
+    (entry) =>
+      entry.option.providerID === providerID && entry.option.modelID === modelID,
+  );
+  if (!record) return undefined;
+  const model = record.runtime.getModel(providerID, modelID);
+  return model
+    ? {
+        accountId,
+        runtime: record.runtime,
+        model: modelWithContextWindow(model, providerID, modelID, accountId),
+      }
+    : undefined;
+}
+
+async function resolveConcreteModel(
+  value: string | undefined,
+  requestedAccountId?: string | null,
+  options?: { strictAccountId?: boolean; accountIdExplicit?: boolean },
+): Promise<ConcreteModelRoute | undefined> {
+  const parsed = parseModelValue(value);
+  if (!parsed) return undefined;
+
+  const explicitAccountId = parsed.accountId;
+  const accountIdExplicit =
+    options?.accountIdExplicit ?? Boolean(explicitAccountId);
+  const requested = requestedAccountId?.trim() || explicitAccountId;
+  const strictAccountId = options?.strictAccountId ?? accountIdExplicit;
+  if (requested && isAccountRoutingProvider(parsed.providerID)) {
+    const accountRoute = await resolveAccountModelRoute(
+      parsed.providerID,
+      parsed.modelID,
+      requested,
+      strictAccountId,
+    );
+    if (accountRoute) return accountRoute;
+    // An explicit pin must never fall through to the shared auth runtime when
+    // that account does not expose the requested model.
+    if (strictAccountId) return undefined;
+  }
+
+  if (
+    !accountIdExplicit &&
+    isAccountRoutingProvider(parsed.providerID) &&
+    runsThroughAccounts(parsed.providerID)
+  ) {
+    const accounts = listAccounts();
+    const registered = accounts.filter((account) =>
+      accountHasProvider(account, parsed.providerID),
+    );
+    if (registered.length > 0) {
+      if (registered.some(isAccountEnabled)) {
+        return resolveIntegratedModelRoute(parsed.providerID, parsed.modelID);
+      }
+      throw Object.assign(new Error("一時停止中のアカウントです"), {
+        status: 409,
+      });
+    }
+  }
+  // Shared providers never use an account runtime, even when a caller carries
+  // a task account for a different provider.
+  await ensureRuntime();
+  if (providerIsHardLimited(parsed.providerID)) {
+    throw routeLimitError(providerResetAt(parsed.providerID));
+  }
+  const runtime = await getRuntimeFor();
+  if (!runtime) return undefined;
+  const model = runtime.getModel(parsed.providerID, parsed.modelID);
+  return model
+    ? { accountId: null, runtime, model: modelWithContextWindow(model, parsed.providerID, parsed.modelID) }
+    : undefined;
+}
+
+async function resolveConcreteModelWithFallback(
+  value: string | undefined,
+  requestedAccountId?: string | null,
+  options?: {
+    strictAccountId?: boolean;
+    allowProviderFallback?: boolean;
+    accountIdExplicit?: boolean;
+    excludeProviderIDs?: readonly string[];
+  },
+): Promise<ConcreteModelRoute | undefined> {
+  const parsed = parseModelValue(value);
+  if (!parsed) return undefined;
+  const explicit = options?.accountIdExplicit ?? Boolean(parsed.accountId);
+  let sourceError: unknown;
+  let route: ConcreteModelRoute | undefined;
+  try {
+    route = await resolveConcreteModel(value, requestedAccountId, {
+      strictAccountId: options?.strictAccountId,
+      accountIdExplicit: explicit,
+    });
+    const limitedAccountId = route?.accountId ?? requestedAccountId;
+    if (
+      route &&
+      limitedAccountId &&
+      isAccountRoutingProvider(parsed.providerID) &&
+      providerIsHardLimited(parsed.providerID, limitedAccountId)
+    ) {
+      sourceError = routeLimitError(
+        providerResetAt(parsed.providerID, limitedAccountId),
+      );
+      route = undefined;
+    }
+  } catch (error) {
+    sourceError = error;
+  }
+  if (route) return route;
+  // An explicit account stays strict for ordinary errors, but a usage limit
+  // makes that route unusable, so recovery wins over the pin.
+  if (
+    options?.allowProviderFallback === false ||
+    !sourceError ||
+    !isProviderLimitError(sourceError)
+  ) {
+    if (sourceError) throw sourceError;
+    return undefined;
+  }
+
+  const fallbackRoutes = await resolveProviderFallbackRoutes({
+    providerID: parsed.providerID,
+    modelID: parsed.modelID,
+    ...(requestedAccountId ? { accountId: requestedAccountId } : {}),
+  });
+  const fallbackRoute = fallbackRoutes.find((candidate) => {
+    const providerID = modelId(candidate.model).providerID;
+    return providerID && !options?.excludeProviderIDs?.includes(providerID);
+  });
+  if (fallbackRoute) return fallbackRoute;
+  if (sourceError) throw sourceError;
+  return undefined;
+}
+
+function toGoalLoopSummary(
+  loop: GoalLoopDto | null,
+): GoalLoopSummaryDto | undefined {
+  if (!loop) return undefined;
+  return {
+    status: loop.status,
+    maxTurns: loop.maxTurns,
+    turnCount: loop.turnCount,
+  };
+}
+
+/**
+ * Cheap progress for Code request cards while collapsed. Avoids full
+ * getTaskDetail / message hydration on every Bot code-requests poll.
+ */
+export async function peekCodeRequestProgress(taskId: string): Promise<{
+  todoProgress?: TodoProgressDto;
+  goalLoopSummary?: GoalLoopSummaryDto;
+  activity?: string;
+}> {
+  const task = getTask(taskId);
+  if (!task) return {};
+  const summary = toSummary(task);
+  let goalLoopSummary = summary.goalLoopSummary;
+  if (!goalLoopSummary && task.sessionId) {
+    goalLoopSummary = toGoalLoopSummary(
+      readGoalLoopState(task.directory, task.sessionId),
+    );
+  }
+  let todoProgress = summary.todoProgress;
+  // Latest-only projection keeps Bot list polls off the full transcript path.
+  let activity: string | undefined;
+  const live = state().live.get(taskId);
+  if (live) {
+    const message =
+      snapshotMessages(
+        live.session,
+        live.throughputByStartedAt,
+        live.toolStartedAt,
+        live.toolEndedAt,
+        live.toolPartialOutputByCallId,
+        true,
+        messageContext(live),
+      ).at(-1) ?? null;
+    activity = activeToolLabel(message)?.slice(0, 80);
+  } else if (localRuntimeBlocked()) {
+    // After cutover this process has no live maps. Shared-disk Todo bars stay cheap;
+    // only a working task needs Backend omit for the live tool label (+ freshest Todo).
+    if (!todoProgress) todoProgress = readDiskTodoProgress(task.sessionFile);
+    if (task.status === "working") {
+      const remote = await fetchRemoteCodeProgress(taskId);
+      if (!todoProgress) todoProgress = remote.todoProgress;
+      activity = remote.activity;
+    }
+  } else if (!todoProgress && task.sessionFile) {
+    try {
+      const pi = state().pi ?? (await loadPi());
+      todoProgress = readTodoProgress(pi, summary);
+    } catch {
+      /* Goal loop summary above is enough when Pi cannot open. */
+    }
+  }
+  return {
+    ...(todoProgress ? { todoProgress } : {}),
+    ...(goalLoopSummary ? { goalLoopSummary } : {}),
+    ...(activity ? { activity } : {}),
+  };
+}
+
+function pendingSummaryOverlay(live: LiveRuntime): Partial<TaskSummary> {
+  const pending = live.pendingSettings;
+  const pendingModel = pending?.model?.route;
+  return {
+    ...(pendingModel
+      ? {
+          providerID: modelId(pendingModel.model).providerID,
+          modelID: modelId(pendingModel.model).modelID,
+          ...(pendingModel.accountId
+            ? { accountId: pendingModel.accountId }
+            : { accountId: undefined }),
+          accountIdExplicit: pending.model?.accountIdExplicit ? true : undefined,
+        }
+      : {}),
+    ...(pending?.agentName !== undefined
+      ? { agent: pending.agentName ?? undefined }
+      : {}),
+    ...(pending?.permissionMode !== undefined
+      ? { permissionMode: pending.permissionMode }
+      : {}),
+    ...(pending?.skillPermission !== undefined
+      ? { skillPermission: pending.skillPermission }
+      : {}),
+  };
+}
+
+type StoredTaskSummary = TaskSummary & { orphanedSourceUpdatedAt?: string };
+
+function toSummary(task: StoredTaskSummary): TaskSummary {
+  const { orphanedSourceUpdatedAt: _orphanedSourceUpdatedAt, ...publicTask } = task;
+  void _orphanedSourceUpdatedAt;
+  const limitError =
+    task.status === "error" &&
+    (isProviderLimitError(task.error) || task.error === PROVIDER_FALLBACK_FAILED_MESSAGE)
+      ? { limitError: true }
+      : {};
+  const live = state().live.get(task.id);
+  if (!live) return { ...publicTask, ...limitError };
+  const ids = modelId(live.session.model);
+  const todoProgress = todoProgressFromTodos(
+    todosFromPiMessages(live.session.messages),
+  );
+  const goalLoopSummary = toGoalLoopSummary(
+    readGoalLoopState(
+      live.session.sessionManager.getCwd(),
+      live.session.sessionId,
+    ),
+  );
+  const thinking =
+    live.pendingSettings?.thinkingLevel ??
+    (typeof live.session.thinkingLevel === "string" &&
+    isThinkingLevel(live.session.thinkingLevel)
+      ? live.session.thinkingLevel
+      : task.thinkingLevel);
+  return {
+    ...publicTask,
+    ...pendingSummaryOverlay(live),
+    // After an explicit idle/error/archived write, do not re-promote to working
+    // from a stale session.isStreaming flag (hang abort / Stop races).
+    status: resolveSummaryStatus(task.status, live.session.isStreaming),
+    sessionId: live.session.sessionId ?? task.sessionId,
+    sessionFile: live.session.sessionFile ?? task.sessionFile,
+    responseModel: taskResponseModel(task, live.session.messages, task.status === "working" ? ids : undefined),
+    providerID: live.preserveTaskModel
+      ? task.providerID
+      : ids.providerID ?? task.providerID,
+    modelID: live.preserveTaskModel
+      ? task.modelID
+      : ids.modelID ?? task.modelID,
+    thinkingLevel: thinking,
+    ...limitError,
+    ...(todoProgress ? { todoProgress } : {}),
+    ...(goalLoopSummary ? { goalLoopSummary } : {}),
+  };
+}
+
+/** Prefer persisted terminal statuses over a stale session.isStreaming flag. */
+export function resolveSummaryStatus(
+  taskStatus: TaskSummary["status"],
+  isStreaming: boolean,
+): TaskSummary["status"] {
+  if (
+    taskStatus === "idle" ||
+    taskStatus === "error" ||
+    taskStatus === "archived"
+  ) {
+    return taskStatus;
+  }
+  return isStreaming ? "working" : taskStatus;
+}
+
+function throwIfTaskArchived(taskId: string): void {
+  const task = getTask(taskId);
+  // Wording for the two task-level refusals lives in backend core.
+  if (!task) throw Object.assign(new Error(TASK_NOT_FOUND_MESSAGE), { status: 404 });
+  if (task.status === "archived") {
+    throw Object.assign(new Error(TASK_ARCHIVED_MESSAGE), { status: 409 });
+  }
+}
+
+function resolveLiveSessionAccount(
+  task: TaskSummary,
+  modelRoute: ConcreteModelRoute | undefined,
+  accountIdExplicit: boolean,
+): string | null | undefined {
+  const taskAccount = task.accountId ? getAccount(task.accountId) : undefined;
+  // Refusal and selection rules live in backend core; the lookups stay here.
+  const refusal = resolveSessionAccountRefusal({
+    explicit: accountIdExplicit,
+    hasTaskAccountId: Boolean(task.accountId),
+    hasAccountRecord: Boolean(taskAccount),
+    accountEnabled: taskAccount ? isAccountEnabled(taskAccount) : false,
+  });
+  if (refusal === "account-not-found") {
+    throw Object.assign(new Error("アカウントが見つかりません"), {
+      status: 404,
+    });
+  }
+  if (refusal === "account-paused") {
+    throw Object.assign(new Error("一時停止中のアカウントです"), {
+      status: 409,
+    });
+  }
+  return resolveSessionAccountId({
+    modelRouteAccountId: modelRoute?.accountId,
+    taskAccountId: task.accountId,
+    hasAccountRecord: Boolean(taskAccount),
+    accountEnabled: taskAccount ? isAccountEnabled(taskAccount) : false,
+    hasProviderId: Boolean(task.providerID),
+    routedThroughAccounts: task.providerID ? isAccountRoutingProvider(task.providerID) : false,
+    accountHasProvider: taskAccount && task.providerID ? accountHasProvider(taskAccount, task.providerID) : false,
+  });
+}
+
+type AutoFallbackHints = {
+  /** Real user/routine prompt for Auto classification. Title is not a substitute. */
+  autoPrompt?: string;
+  hasImages?: boolean;
+  attachmentCount?: number;
+};
+
+async function resolveUnavailableModelViaAuto(
+  task: TaskSummary,
+  hints?: AutoFallbackHints,
+): Promise<ConcreteModelRoute | undefined> {
+  // Session-only: keep the unavailable task/bot model so the next cold start
+  // re-checks availability and re-runs Auto instead of silently pinning.
+  try {
+    const autoDecision = await resolveConfiguredAutoModel(
+      (hints?.autoPrompt ?? task.title) || "",
+      hints?.hasImages === true,
+      hints?.attachmentCount ?? 0,
+    );
+    return await resolveConcreteModel(
+      autoModelValue(autoDecision),
+      autoDecision.accountId ?? null,
+      { strictAccountId: false, accountIdExplicit: false },
+    );
+  } catch {
+    return undefined;
+  }
+}
+
+async function resolveLiveSessionSettings(
+  task: TaskSummary,
+  hints?: AutoFallbackHints,
+): Promise<{
+  model: Model | undefined;
+  sessionAccountId: string | null | undefined;
+  sessionThinkingLevel: ThinkingLevel | undefined;
+  accountIdExplicit: boolean;
+  /** True when Auto replaced an unavailable stored model for this session only. */
+  preserveTaskModel: boolean;
+}> {
+  const accountIdExplicit = task.accountIdExplicit === true;
+  let modelRoute = await resolveConcreteModel(
+    task.providerID && task.modelID
+      ? modelValue(task.providerID, task.modelID)
+      : undefined,
+    task.accountId ?? null,
+    {
+      strictAccountId: accountIdExplicit,
+      accountIdExplicit,
+    },
+  );
+  let model = modelRoute?.model;
+  let preserveTaskModel = false;
+  let sessionAccountIdExplicit = accountIdExplicit;
+  const hasStoredModel = Boolean(task.providerID && task.modelID);
+  let storedModelOutcome = resolveStoredModelOutcome({
+    hasStoredModel,
+    resolved: Boolean(model),
+    autoFallback: false,
+  });
+  let autoRoute: ConcreteModelRoute | undefined;
+  if (storedModelOutcome === "unavailable") {
+    autoRoute = await resolveUnavailableModelViaAuto(task, hints);
+    storedModelOutcome = resolveStoredModelOutcome({
+      hasStoredModel,
+      resolved: Boolean(model),
+      autoFallback: Boolean(autoRoute?.model),
+    });
+  }
+  if (storedModelOutcome === "auto-fallback" && autoRoute?.model) {
+    // Session-only replacement: the stored model stays on the task so a later
+    // cold start re-checks availability instead of silently pinning Auto.
+    modelRoute = autoRoute;
+    model = autoRoute.model;
+    preserveTaskModel = true;
+    sessionAccountIdExplicit = false;
+  } else if (storedModelOutcome === "unavailable") {
+    throw Object.assign(
+      new Error(`モデルを利用できません: ${task.providerID}::${task.modelID}`),
+      { status: 503 },
+    );
+  }
+  const sessionAccountId = resolveLiveSessionAccount(
+    task,
+    modelRoute,
+    sessionAccountIdExplicit,
+  );
+  // Where the starting level comes from is decided in backend core.
+  const thinkingSource = resolveSessionThinkingLevelSource({
+    hasStoredLevel: isThinkingLevel(task.thinkingLevel),
+    hasModel: Boolean(model),
+  });
+  const sessionThinkingLevel = thinkingSource === "stored"
+    ? task.thinkingLevel
+    : thinkingSource === "model-default" && model
+      ? defaultThinkingLevelForRoute(model, sessionAccountId)
+      : undefined;
+  return {
+    model,
+    sessionAccountId,
+    sessionThinkingLevel,
+    accountIdExplicit: sessionAccountIdExplicit,
+    preserveTaskModel,
+  };
+}
+
+/**
+ * Dispose a session that was created but never attached. createSession() already
+ * ran bindExtensions() (session_start), so its extensions hold resources, but
+ * session_shutdown is intentionally NOT emitted here: the old live session for
+ * the same task may still be active, and shutting down a duplicate Goal Loop /
+ * intercom runtime would pause the loop or clobber the shared
+ * process.env intercom session id. Failure paths clean session-owned resources without emitting shutdown.
+ */
+function disposeUnattachedSessionNow(session: AgentSession): void {
+  sessionManagerWriteGuards.get(session.sessionManager)?.invalidate();
+  session.dispose();
+}
+
+async function disposeSessionBestEffort(session: AgentSession): Promise<void> {
+  sessionManagerWriteGuards.get(session.sessionManager)?.invalidate();
+  const sessionId = session.sessionId;
+  if (sessionId) {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    let timedOut = false;
+    let nativeMcpCleanupStarted = false;
+    try {
+      const stopShutdownResources = captureSessionShutdownResourceStop(sessionId);
+      const stopCapturedResources = async () => {
+        nativeMcpCleanupStarted = true;
+        const results = await Promise.allSettled([
+          stopShutdownResources(),
+          runBackendMcpNativeSessionShutdownActions(session.sessionManager),
+        ]);
+        const failure = results.find((result) => result.status === "rejected");
+        if (failure?.status === "rejected") throw failure.reason;
+        return results.reduce((count, result) => count + (result.status === "fulfilled" ? result.value : 0), 0);
+      };
+      await Promise.race([
+        stopCapturedResources(),
+        new Promise<number>((resolve) => {
+          timer = setTimeout(() => {
+            timedOut = true;
+            resolve(0);
+          }, LIVE_SHUTDOWN_TIMEOUT_MS);
+        }),
+      ]);
+      if (timedOut) console.warn(`[unattached-session] shutdown resource cleanup timed out after ${LIVE_SHUTDOWN_TIMEOUT_MS}ms`);
+    } catch (error) {
+      const reason = error instanceof Error ? error.message : String(error);
+      console.warn(`[unattached-session] shutdown resource cleanup failed: ${reason}`);
+    } finally {
+      if (timer) clearTimeout(timer);
+      if (!nativeMcpCleanupStarted) {
+        try { await runBackendMcpNativeSessionShutdownActions(session.sessionManager); }
+        catch (error) {
+          const reason = error instanceof Error ? error.message : String(error);
+          console.warn(`[unattached-session] native MCP shutdown actions failed: ${reason}`);
+        }
+      }
+    }
+  }
+  // Keep shared session_shutdown handlers suppressed for an unattached session.
+  disposeUnattachedSession(session);
+}
+
+async function attachCreatedLiveSession(
+  taskId: string,
+  epoch: number,
+  setup: Awaited<ReturnType<typeof createSession>>,
+  sessionThinkingLevel: ThinkingLevel | undefined,
+  sessionAccountId: string | null | undefined,
+  accountIdExplicit: boolean,
+  options?: {
+    allowDuringPromotion?: boolean;
+    onTiming?: TaskDetailTimingReporter;
+    /** Keep the unavailable stored model; Auto is session-only. */
+    preserveTaskModel?: boolean;
+  } & AutoFallbackHints,
+): Promise<LiveRuntime> {
+  // A stale generation wins over a vanished task (see backend core).
+  const createdAction = resolveCreatedSessionAction({
+    staleGeneration: isStaleEnsureEpoch(ensureLiveEpoch.get(taskId), epoch),
+    hasTask: Boolean(getTask(taskId)),
+  });
+  if (createdAction !== "attach") {
+    await disposeSessionBestEffort(setup.session);
+    if (createdAction === "retry") return ensureLive(taskId, options);
+    throw Object.assign(new Error("タスクが見つかりません"), { status: 404 });
+  }
+  const preserveTaskModel = options?.preserveTaskModel === true;
+  patchTask(taskId, {
+    sessionId: setup.session.sessionId,
+    sessionFile: setup.session.sessionFile,
+    ...(preserveTaskModel
+      ? {}
+      : {
+          ...modelId(setup.session.model),
+          ...(sessionThinkingLevel ? { thinkingLevel: sessionThinkingLevel } : {}),
+          accountId: sessionAccountId ?? undefined,
+          accountIdExplicit:
+            sessionAccountId && accountIdExplicit ? true : undefined,
+        }),
+  });
+  const attached = await attachSession(
+    taskId,
+    setup.session,
+    setup.skillPermissionRef,
+    preserveTaskModel
+      ? {
+          preserveTaskModel: true,
+          sessionAccountId,
+        }
+      : {
+          preserveTaskModel: false,
+        },
+  );
+  const attachedAction = resolveAttachedSessionAction({
+    staleGeneration: isStaleEnsureEpoch(ensureLiveEpoch.get(taskId), epoch),
+    isRegistered: isRegisteredLive(() => state().live.get(taskId), attached),
+  });
+  if (attachedAction === "keep") return attached;
+  if (attachedAction === "dispose-and-retry") disposeLive(taskId);
+  return ensureLive(taskId, options);
+}
+
+async function ensureLive(
+  taskId: string,
+  options?: {
+    allowDuringPromotion?: boolean;
+    onTiming?: TaskDetailTimingReporter;
+  } & AutoFallbackHints,
+): Promise<LiveRuntime> {
+  assertAutoUpdateAvailable();
+  // Gate order (attachable → promotion → attachable → retirement) lives in backend core.
+  const gates = await runEnsureLiveGates({
+    isAttachable: () => {
+      const task = getTask(taskId);
+      return Boolean(task) && task?.status !== "archived";
+    },
+    allowDuringPromotion: options?.allowDuringPromotion === true,
+    promotion: promoteInflight.get(taskId),
+    // A replaced session's extension shutdown must finish before its successor
+    // starts (shared process.env / broker presence).
+    retirement: liveShutdownInflight.get(taskId),
+  });
+  if (gates === "not-attachable") throwIfTaskArchived(taskId);
+  const epoch = ensureLiveEpoch.get(taskId) ?? 0;
+  const existingLive = state().live.get(taskId);
+  // Reuse/join ordering lives in backend core; the registry and the epoch map stay here.
+  const attempt = await resolveEnsureLiveAttempt({
+    existing: existingLive,
+    touchExisting: () => {
+      if (existingLive) existingLive.lastActivityAt = Date.now();
+    },
+    inflight: ensureLiveInflight.get(taskId),
+    afterJoin: () => {
+      throwIfTaskArchived(taskId);
+      return state().live.get(taskId);
+    },
+    // A stale generation beats adopting the registered live (see backend core).
+    isStale: () => isStaleEnsureEpoch(ensureLiveEpoch.get(taskId), epoch),
+  });
+  if (attempt.action === "reuse") return attempt.live as LiveRuntime;
+
+  const promise = runTrackedEnsure(taskId, {
+    inflight: ensureLiveInflight,
+    attempt: () => (async () => {
+    throwIfTaskArchived(taskId);
+    const again = state().live.get(taskId);
+    if (again) return again;
+
+    const task = getTask(taskId);
+    const leaseHeldElsewhere = hasActiveTaskLease(taskId) && !ownsTaskLease(taskId);
+    if (!task || task.status === "archived" || leaseHeldElsewhere) {
+      // Refusal precedence (missing → archived → busy lease) lives in backend core.
+      const refusal = preflightLiveSession({
+        hasTask: Boolean(task),
+        status: task?.status ?? "",
+        leaseHeldElsewhere,
+      });
+      const refusalError = liveSessionRefusalError(refusal, {
+        leaseBusyMessage: TASK_LEASE_BUSY_ERROR,
+      });
+      throw Object.assign(new Error(refusalError.message), { status: refusalError.status });
+    }
+    const project = task.projectId ? getProject(task.projectId) : undefined;
+    const isBot = isBotTask(task);
+    const bot = isBot && task.botId ? getBot(task.botId) : undefined;
+    // Code sessions reopen with the current Settings permissions; keep the task
+    // record aligned so later session replacements reuse the same values.
+    const permissionUpdates = isBot ? {} : codePermissionUpdates(task);
+    if (permissionUpdates.permissionMode || permissionUpdates.skillPermission) {
+      patchTask(taskId, permissionUpdates);
+    }
+    const cwd = liveSessionWorkspace({ projectRootPath: project?.rootPath, taskDirectory: task.directory });
+    const persistedGoalLoop = task.sessionId
+      ? readGoalLoopState(cwd, task.sessionId)
+      : null;
+    const resolveSettingsStartedAt = options?.onTiming ? performance.now() : 0;
+    const {
+      model,
+      sessionAccountId,
+      sessionThinkingLevel,
+      accountIdExplicit,
+      preserveTaskModel,
+    } = await resolveLiveSessionSettings(task, {
+      autoPrompt: options?.autoPrompt,
+      hasImages: options?.hasImages,
+      attachmentCount: options?.attachmentCount,
+    });
+    reportTaskDetailPhase(
+      options?.onTiming,
+      "ensureLive.resolveSettings",
+      resolveSettingsStartedAt,
+    );
+    // Keep a short-lived lease through SDK creation and extension startup; SessionManager's
+    // first model/settings appends happen before the attached-session write wrappers are installed.
+    const alreadyOwned = ownsTaskLease(taskId);
+    const initializationLease = !alreadyOwned && acquireTaskLease(taskId);
+    if (!alreadyOwned && !initializationLease) {
+      throw Object.assign(new Error(TASK_LEASE_BUSY_ERROR), { status: 409 });
+    }
+    try {
+      const createSessionStartedAt = options?.onTiming ? performance.now() : 0;
+      const setup = await createSession({
+        cwd,
+        sessionFile: task.sessionFile,
+        sessionName: liveSessionName({ isBot, title: task.title }),
+        ...botSessionOptions(task),
+        accountId: sessionAccountId,
+        model,
+        thinkingLevel: sessionThinkingLevel,
+        skillPermission: resolveSessionSkillPermission({
+          updatedSkillPermission: permissionUpdates.skillPermission,
+          taskSkillPermission: task.skillPermission,
+        }),
+        permissionMode: resolveSessionPermissionMode({
+          isBot,
+          botPermissionMode: bot?.permissionMode,
+          updatedPermissionMode: permissionUpdates.permissionMode,
+          taskPermissionMode: task.permissionMode,
+        }),
+        agentName: task.agent ?? null,
+        taskId,
+        goalLoop: isGoalLoopSessionOwned(persistedGoalLoop),
+        onTiming: options?.onTiming,
+      });
+      reportTaskDetailPhase(
+        options?.onTiming,
+        "ensureLive.createSession",
+        createSessionStartedAt,
+      );
+      const attachSessionStartedAt = options?.onTiming ? performance.now() : 0;
+      const attached = await attachCreatedLiveSession(
+        taskId,
+        epoch,
+        setup,
+        sessionThinkingLevel,
+        sessionAccountId,
+        accountIdExplicit,
+        { ...options, preserveTaskModel },
+      );
+      reportTaskDetailPhase(
+        options?.onTiming,
+        "ensureLive.attachSession",
+        attachSessionStartedAt,
+      );
+      return attached;
+    } finally {
+      if (initializationLease) releaseTaskLease(taskId);
+    }
+    })(),
+  });
+  return promise;
+}
+
+async function withPromotionDestinationLock<T>(
+  destination: string,
+  action: () => Promise<T>,
+): Promise<T> {
+  // Serialization by destination key lives in backend core; the key rule stays here.
+  return runSerializedByKey(promoteDestinationInflight, pathKey(destination), action);
+}
+
+function validateProjectPath(
+  rootPath: string,
+): { ok: true; path: string } | { ok: false; error: string } {
+  if (!isAbsolutePath(rootPath)) {
+    return { ok: false, error: "絶対パスを指定してください" };
+  }
+  const canonical = resolve(rootPath);
+  if (!existsSync(canonical)) {
+    return { ok: false, error: "フォルダが見つかりません" };
+  }
+  try {
+    if (!statSync(canonical).isDirectory()) {
+      return { ok: false, error: "ディレクトリではありません" };
+    }
+  } catch {
+    return { ok: false, error: "フォルダにアクセスできません" };
+  }
+  return { ok: true, path: canonical };
+}
+
+async function syncProvidersBestEffort(
+  runtime: ModelRuntime,
+): Promise<string[]> {
+  const warnings = (
+    await Promise.all([
+      syncLlamaServerProvider(runtime).then(() => null).catch((error) => {
+        const message = error instanceof Error ? error.message : String(error);
+        console.warn("[leafcode-pi] llama-server provider sync failed:", message);
+        return `llama-server: ${message}`;
+      }),
+      syncOllamaCloudProvider(runtime).then(() => null).catch((error) => {
+        const message = error instanceof Error ? error.message : String(error);
+        console.warn("[leafcode-pi] ollama-cloud provider sync failed:", message);
+        return `ollama-cloud: ${message}`;
+      }),
+      syncExperientialLabsProvider(runtime).then(() => null).catch((error) => {
+        const message = error instanceof Error ? error.message : String(error);
+        console.warn("[leafcode-pi] experientiallabs provider sync failed:", message);
+        return `experientiallabs: ${message}`;
+      }),
+      syncRemoteProvider(runtime).then(() => null).catch((error) => {
+        const message = error instanceof Error ? error.message : String(error);
+        console.warn("[leafcode-pi] leafcodecloud provider sync failed:", message);
+        return `leafcodecloud: ${message}`;
+      }),
+      syncOrcaRouterProvider(runtime).then(() => null).catch((error) => {
+        const message = error instanceof Error ? error.message : String(error);
+        console.warn("[leafcode-pi] orcarouter provider sync failed:", message);
+        return `orcarouter: ${message}`;
+      }),
+    ])
+  ).filter((warning): warning is string => warning !== null);
+  state().lastProviderSyncWarnings = warnings;
+  return warnings;
+}
+
+/**
+ * `/api/health` is the most frequently polled endpoint (sidebar: 4s while a task
+ * runs, 12s idle) and the only expensive part is `listModels()`, which re-syncs
+ * llama-server / Ollama Cloud and rebuilds the provider catalog every call
+ * (~250ms measured). A short TTL keeps the poll nearly free.
+ */
+const HEALTH_TTL_MS = 15_000;
+const MODEL_TTL_MS = 15_000;
+/** TTL切れ後もこの範囲内の旧モデル一覧は即返し、裏で更新する（SWR）。一覧自体は頻繁に変わらず、アカウント構成の変更はキーが変わるため再構築される。 */
+const MODEL_STALE_SERVE_MS = 30 * 60_000;
+/** TTL切れ後もこの範囲内の旧ヘルスは即返し、裏で更新する（SWR）。 */
+const HEALTH_STALE_SERVE_MS = 5 * 60_000;
+
+/** Boot stamp so the client can tell a real restart from a blip in its polling. */
+const PROCESS_STARTED_AT = Date.now();
+
+type HealthCacheEntry = { at: number; value: HealthDto };
+type ModelCacheEntry = { at: number; value: ModelOption[] };
+type AccountModelCacheEntry = ModelCacheEntry & { key: string };
+type AccountModelInflight = { key: string; promise: Promise<ModelOption[]> };
+type AccountModelRecordCacheEntry = {
+  at: number;
+  key: string;
+  value: AccountModelRecord[];
+};
+type AccountModelRecordsInflight = { key: string; promise: Promise<AccountModelRecord[]> };
+
+/** Fresh cache entries only; unhealthy snapshots are never cached (see below). */
+export function readHealthCache(
+  entry: HealthCacheEntry | null,
+  now: number,
+  ttlMs = HEALTH_TTL_MS,
+): HealthDto | null {
+  if (!entry) return null;
+  const age = now - entry.at;
+  if (age < 0 || age >= ttlMs) return null;
+  return entry.value;
+}
+
+/**
+ * Never cache a broken engine: HomeView polls every 3s waiting for `engineOk`
+ * to flip true, so caching the failure would delay recovery by up to the TTL.
+ */
+export function nextHealthCache(
+  value: HealthDto,
+  now: number,
+): HealthCacheEntry | null {
+  return value.engineOk ? { at: now, value } : null;
+}
+
+export function readModelCache(
+  entry: ModelCacheEntry | null,
+  now: number,
+  ttlMs = MODEL_TTL_MS,
+): ModelOption[] | null {
+  if (!entry) return null;
+  const age = now - entry.at;
+  if (age < 0 || age >= ttlMs) return null;
+  return entry.value;
+}
+
+export function nextModelCache(
+  value: ModelOption[],
+  now: number,
+): ModelCacheEntry | null {
+  // Do not hide recovery from the model picker while the engine has no models.
+  return value.length > 0 ? { at: now, value } : null;
+}
+
+/** Drop the cached snapshot after anything that can change the model list. */
+export function invalidateHealthCache(): void {
+  const current = state();
+  current.healthCache = null;
+  current.modelCache = null;
+  current.accountModelCache = null;
+  current.accountRecordsCache = null;
+  current.accountRecordsInflight = null;
+}
+
+type AccountInput = Pick<AccountRecord, "id" | "label" | "providers"> & {
+  enabled?: boolean;
+};
+
+function accountModelsKey(accounts: readonly AccountInput[]): string {
+  return JSON.stringify(
+    accounts.map((account) => [
+      account.id,
+      account.label,
+      account.enabled !== false,
+      account.providers,
+    ]),
+  );
+}
+
+async function hasStoredAccountProvider(
+  accounts: readonly Pick<AccountRecord, "id" | "providers">[],
+): Promise<boolean> {
+  if (accounts.length === 0) return false;
+  try {
+    const agentDir = await resolvePiAgentDir();
+    return accounts.some(
+      (account) => storedAccountProviderIds(account, agentDir).length > 0,
+    );
+  } catch {
+    return false;
+  }
+}
+
+/** Credentials that belong to this account, excluding ambient environment auth. */
+function storedAccountProviderIds(
+  account: Pick<AccountRecord, "id" | "providers">,
+  agentDir: string,
+): AccountProviderId[] {
+  const stored = new Set(accountStoredProviders(account.id, agentDir));
+  return account.providers.filter((provider) => stored.has(provider));
+}
+
+/**
+ * このプロバイダーが今アカウント経由で動くか。true なら既定（非アカウント）認証の
+ * モデルを隠し、統合ルーティングの対象にする。マルチアカウント対応プロバイダーは
+ * 常に true とし、既定モデルを新規候補へ出さない。
+ */
+function runsThroughAccounts(providerId: string): boolean {
+  return isAccountOnlyProvider(providerId);
+}
+
+export async function getHealth(): Promise<HealthDto> {
+  const current = state();
+  const now = Date.now();
+  const cached = readHealthCache(current.healthCache, now);
+  if (cached) return cached;
+  // SWR: TTL切れでも一定期間内の旧ステータスは即返し、裏で更新する。サイドバー等の
+  // ポーリングがアイドル後の再構築（秒単位）を毎回待たないようにする。
+  const stale = current.healthCache;
+  if (
+    stale &&
+    now - stale.at >= 0 &&
+    now - stale.at < HEALTH_STALE_SERVE_MS
+  ) {
+    void rebuildHealth().catch(() => undefined);
+    return stale.value;
+  }
+  return rebuildHealth();
+}
+
+async function rebuildHealth(): Promise<HealthDto> {
+  // A client WebUI must not warm the Pi SDK / model catalog on every Sidebar poll:
+  // those sessions and providers live in the Backend after the cutover.
+  if (localRuntimeBlocked()) {
+    const current = state();
+    const value: HealthDto = {
+      ok: true,
+      engine: "pi",
+      engineOk: true,
+      version: packageVersion(),
+      modelCount: current.healthCache?.value.modelCount ?? 0,
+      dataDir: dataDir(),
+      error: null,
+      startedAt: PROCESS_STARTED_AT,
+      platform: process.platform,
+    };
+    current.healthCache = nextHealthCache(value, Date.now());
+    return value;
+  }
+  try {
+    await ensureRuntime();
+  } catch {
+    /* initError is set */
+  }
+  const current = state();
+  const accounts = listAccounts().filter(isAccountEnabled);
+  const accountSnapshot =
+    current.accountModelCache?.key === accountModelsKey(accounts)
+      ? current.accountModelCache.value
+      : null;
+  const sharedModels = accountSnapshot
+    ? []
+    : (await getRuntimeFor())
+      ? (await listModels().catch(() => [])).filter(
+          (model) => !runsThroughAccounts(model.providerID),
+        )
+      : [];
+  // ponytail: cold health reads auth files instead of constructing every account runtime;
+  // /api/models replaces the count with an exact combined snapshot.
+  const accountReady = accountSnapshot
+    ? false
+    : await hasStoredAccountProvider(accounts);
+  const modelCount = accountSnapshot?.length ?? sharedModels.length;
+  const value: HealthDto = {
+    ok: !current.initError,
+    engine: "pi",
+    engineOk: !current.initError && (modelCount > 0 || accountReady),
+    version: packageVersion(),
+    modelCount,
+    dataDir: dataDir(),
+    error: current.initError,
+    startedAt: PROCESS_STARTED_AT,
+    platform: process.platform,
+    ...(current.lastProviderSyncWarnings.length > 0
+      ? { warnings: [...current.lastProviderSyncWarnings] }
+      : {}),
+  };
+  current.healthCache = nextHealthCache(value, Date.now());
+  return value;
+}
+
+/** The same enabled accounts and stored credentials as the ordinary model catalog. */
+export async function listJevModels(refresh = false): Promise<JevCatalogModel[]> {
+  await ensureRuntime();
+  if (refresh) {
+    clearJevDiscoveryCache();
+    jevUsableCache = null;
+  }
+  const runtime = await getRuntimeFor();
+  const shared = runtime ? discoverJevModels(runtime, {
+    providerIds: runtime.getProviders().filter((provider) => !runsThroughAccounts(provider.id)).map((provider) => provider.id),
+  }) : Promise.resolve([]);
+  const accounts = listAccounts().filter(isAccountEnabled);
+  const agentDir = accounts.length ? await resolvePiAgentDir() : null;
+  const groups = await Promise.all(accounts.map(async (account) => {
+    const providerIds = agentDir ? storedAccountProviderIds(account, agentDir) : [];
+    if (!providerIds.length) return [];
+    try {
+      const accountRuntime = await getRuntimeFor(account.id);
+      return accountRuntime ? await discoverJevModels(accountRuntime, {
+        accountId: account.id, accountLabel: account.label, providerIds,
+      }) : [];
+    } catch { return []; }
+  }));
+  const state = readProviderModelState();
+  const routingState = readProviderRouting();
+  const order = new Map(state.providerOrder.map((key, index) => [key, index]));
+  const entries = [...await shared, ...groups.flat()]
+    .map((model, index) => ({
+      model: {
+        ...model,
+        providerEnabled: !isProviderDisabled(model.providerId, state, model.accountId),
+        ...(model.accountId && isAccountRoutingProvider(model.providerId) && accountRoutingMode(model.providerId, routingState) === "integrated"
+          ? { integrated: true } : {}),
+      },
+      index,
+    }));
+  const integratedRank = new Map<string, number>();
+  for (const { model } of entries) {
+    if (!model.integrated) continue;
+    const rank = order.get(accountProviderModelKey(model.providerId, model.accountId));
+    if (rank !== undefined) integratedRank.set(model.providerId, Math.min(integratedRank.get(model.providerId) ?? rank, rank));
+  }
+  const rank = (model: JevCatalogModel) => model.integrated
+    ? order.get(model.providerId) ?? integratedRank.get(model.providerId) ?? Number.MAX_SAFE_INTEGER
+    : order.get(accountProviderModelKey(model.providerId, model.accountId)) ?? order.get(model.providerId) ?? Number.MAX_SAFE_INTEGER;
+  return entries
+    .sort((a, b) => {
+      const providerRank = rank(a.model) - rank(b.model);
+      if (providerRank) return providerRank;
+      if (accountProviderModelKey(a.model.providerId, a.model.accountId) !== accountProviderModelKey(b.model.providerId, b.model.accountId)) return a.index - b.index;
+      const modelRank = (model: JevCatalogModel) => {
+        const ids = state.modelOrder[accountProviderModelKey(model.providerId, model.accountId)] ?? state.modelOrder[model.providerId] ?? [];
+        const index = ids.indexOf(model.modelId);
+        return index < 0 ? Number.MAX_SAFE_INTEGER : index;
+      };
+      return modelRank(a.model) - modelRank(b.model) || a.index - b.index;
+    })
+    .map(({ model }) => model);
+}
+
+const JEV_USABLE_TTL_MS = 60_000;
+let jevUsableCache: { key: string; expiresAt: number; value: Promise<boolean> } | null = null;
+
+/**
+ * False when no Jev model can be called, so callers skip the request entirely.
+ * The result is reused while the Jev settings, provider toggles and enabled accounts are
+ * unchanged; credential changes are picked up after the short TTL or a catalog refresh.
+ * Failures are not cached. A cold catalog read is bounded by the Jev timeout so routing
+ * never waits longer than a Jev call would; the read keeps filling the cache.
+ * Background callers (session labels) pass a longer waitMs instead of skipping Jev.
+ */
+export function hasUsableJevModelConfigured(options: { waitMs?: number } = {}): Promise<boolean> {
+  let timeoutMs: number;
+  try {
+    timeoutMs = Math.max(readJevModelSettings().timeoutMs, options.waitMs ?? 0);
+  } catch {
+    return Promise.resolve(false);
+  }
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const timeout = new Promise<boolean>((resolve) => { timer = setTimeout(() => resolve(false), timeoutMs); });
+  return Promise.race([readJevUsable(), timeout]).finally(() => clearTimeout(timer));
+}
+
+function readJevUsable(): Promise<boolean> {
+  let key: string;
+  try {
+    key = JSON.stringify([
+      getSetting(JEV_MODEL_SETTING_KEY),
+      readProviderModelState(),
+      listAccounts().filter(isAccountEnabled).map((account) => account.id),
+    ]);
+  } catch {
+    return Promise.resolve(false);
+  }
+  if (jevUsableCache?.key === key && jevUsableCache.expiresAt > Date.now()) return jevUsableCache.value;
+  const entry = {
+    key,
+    expiresAt: Date.now() + JEV_USABLE_TTL_MS,
+    value: listJevModels()
+      .then((models) => hasUsableJevModel({ settings: readJevModelSettings(), models }))
+      .catch(() => {
+        if (jevUsableCache === entry) jevUsableCache = null;
+        return false;
+      }),
+  };
+  jevUsableCache = entry;
+  return entry.value;
+}
+
+/** Resolve current credentials, never copy account keys or silently pick another account. */
+export async function resolveRegisteredJevModel(ref: JevModelRef): Promise<JevModelConnection> {
+  if (isProviderDisabled(ref.providerId, readProviderModelState(), ref.accountId)) {
+    throw new Error("選択したJevプロバイダーはモデル設定で無効です");
+  }
+  if (ref.accountId) {
+    const account = listAccounts().find((entry) => entry.id === ref.accountId && isAccountEnabled(entry));
+    if (!account || !accountHasProvider(account, ref.providerId) ||
+      !storedAccountProviderIds(account, await resolvePiAgentDir()).includes(ref.providerId as AccountProviderId)) {
+      throw new Error("選択したJevアカウントは利用できません");
+    }
+  } else if (runsThroughAccounts(ref.providerId)) {
+    throw new Error("Jevモデルにはアカウント指定が必要です");
+  }
+  await ensureRuntime({ skipDefaultRuntime: Boolean(ref.accountId) });
+  const runtime = await getRuntimeFor(ref.accountId);
+  if (!runtime) throw new Error("選択したJevモデルは未検出です");
+  return resolveRegisteredJevConnection(runtime, ref);
+}
+
+/** ランタイムごとの有効モデル一覧を構築する（既定・アカウント共通の処理）。 */
+function providerModelSnapshot(
+  runtime: ModelRuntime,
+  providerIds?: readonly string[],
+): { refs: ProviderModelRef[]; models: ProviderModelSnapshot } {
+  const allowed = providerIds ? new Set(providerIds) : undefined;
+  const refs: ProviderModelRef[] = [];
+  const models = new Map<string, readonly { id: string; name?: string; provider?: string }[]>();
+  for (const provider of runtime.getProviders()) {
+    if (!runtime.hasConfiguredAuth(provider.id)) continue;
+    const providerModels = runtime.getModels(provider.id).filter((model) => !isJevModel(model));
+    models.set(provider.id, providerModels);
+    if (allowed !== undefined && !allowed.has(provider.id)) continue;
+    for (const model of providerModels) {
+      refs.push({ providerID: provider.id, modelID: model.id });
+    }
+  }
+  return { refs, models };
+}
+
+// These providers spend their subscription allowance even when their runtime
+// credential is not represented as subscription OAuth (for example OpenCode Go).
+const SUBSCRIPTION_ALLOWANCE_PROVIDERS = new Set([
+  "openai-codex",
+  "cursor",
+  "opencode-go",
+]);
+
+function usesSubscriptionAllowance(runtime: ModelRuntime, providerID: string): boolean {
+  return runtime.isUsingSubscription?.(providerID) === true ||
+    SUBSCRIPTION_ALLOWANCE_PROVIDERS.has(providerID);
+}
+
+async function buildModelOptions(
+  runtime: ModelRuntime,
+  accountId?: string,
+  providerIds?: readonly string[],
+): Promise<ModelOption[]> {
+  if (!accountId) await syncProvidersBestEffort(runtime);
+  const snapshot = providerModelSnapshot(runtime, providerIds);
+  const state = await ensureProviderModelsKnown(snapshot.refs, accountId);
+  const catalog = buildProviderModelsCatalog(
+    runtime,
+    state,
+    accountId,
+    snapshot.models,
+  );
+  const catalogOptions = enabledModelOptionsFromCatalog(catalog);
+  const enabled = new Set(catalogOptions.map((option) => option.value));
+  const catalogByValue = new Map(catalogOptions.map((option) => [option.value, option]));
+  const available = providerIds
+    ? (
+        await Promise.all(
+          providerIds.map((providerId) => runtime.getAvailable(providerId)),
+        )
+      ).flat()
+    : await runtime.getAvailable();
+  const options: ModelOption[] = [];
+  for (const model of available) {
+    const providerID = String(model.provider);
+    const modelID = model.id;
+    const value = modelValue(providerID, modelID);
+    if (!enabled.has(value)) continue;
+    options.push({
+      value,
+      label: model.name || modelID,
+      providerID,
+      modelID,
+      input: [...model.input],
+      reasoning: Boolean(model.reasoning),
+      thinkingLevels: thinkingLevelsForModel(model),
+      subscription: usesSubscriptionAllowance(runtime, providerID),
+      ...(catalogByValue.get(value)?.defaultThinkingLevel
+        ? { defaultThinkingLevel: catalogByValue.get(value)!.defaultThinkingLevel }
+        : {}),
+    });
+  }
+  // Preserve settings order from the catalog.
+  const order = catalogOptions.map((option) => option.value);
+  const rank = new Map(order.map((value, index) => [value, index]));
+  options.sort(
+    (a, b) => (rank.get(a.value) ?? 1e9) - (rank.get(b.value) ?? 1e9),
+  );
+  return options;
+}
+
+export async function listModels(): Promise<ModelOption[]> {
+  const current = state();
+  const cached = readModelCache(current.modelCache, Date.now());
+  if (cached) return cached;
+  if (current.modelInflight) return current.modelInflight;
+
+  current.modelInflight = (async () => {
+    await ensureRuntime();
+    const runtime = await getRuntimeFor();
+    if (!runtime) return [];
+    const options = await buildModelOptions(runtime);
+    current.modelCache = nextModelCache(options, Date.now());
+    return options;
+  })().finally(() => {
+    current.modelInflight = null;
+  });
+  return current.modelInflight;
+}
+
+type AccountModelRecord = {
+  accountId: string;
+  accountLabel: string;
+  accountIndex: number;
+  modelIndex: number;
+  runtime: ModelRuntime;
+  option: ModelOption;
+};
+
+async function collectAccountModelRecords(
+  accounts: AccountInput[],
+): Promise<AccountModelRecord[]> {
+  accounts = accounts.filter(isAccountEnabled);
+  if (accounts.length === 0) return [];
+  const current = state();
+  const key = accountModelsKey(accounts);
+  const cached = current.accountRecordsCache;
+  if (cached?.key === key) {
+    const age = Date.now() - cached.at;
+    if (age >= 0 && age < MODEL_TTL_MS) {
+      const value = cached.value;
+      // キャッシュ済みランタイムは解放済みの可能性があるため取り直す（ensure は実質Map参照）。
+      const refreshed = await Promise.all(
+        value.map(async (record) => {
+          try {
+            const runtime = await getRuntimeFor(record.accountId);
+            return runtime ? { ...record, runtime } : null;
+          } catch {
+            return null;
+          }
+        }),
+      );
+      return refreshed.filter(
+        (record): record is AccountModelRecord => record !== null,
+      );
+    }
+  }
+  if (current.accountRecordsInflight?.key === key) {
+    return current.accountRecordsInflight.promise;
+  }
+
+  const promise = (async () => {
+    let agentDir: string;
+    try {
+      agentDir = await resolvePiAgentDir();
+    } catch {
+      return [];
+    }
+    const recordsByAccount = await Promise.all(
+      accounts.map(async (account, accountIndex) => {
+        const records: AccountModelRecord[] = [];
+        const providerIds = storedAccountProviderIds(account, agentDir);
+        if (providerIds.length === 0) return records;
+        try {
+          const runtime = await getRuntimeFor(account.id);
+          if (!runtime) return records;
+          const built = await buildModelOptions(
+            runtime,
+            account.id,
+            providerIds,
+          );
+          for (const [modelIndex, option] of built.entries()) {
+            // API キー等で構成された他プロバイダを、この OAuth アカウントの枠へ複製しない。
+            if (!accountHasProvider(account, option.providerID)) continue;
+            records.push({
+              accountId: account.id,
+              accountLabel: account.label,
+              accountIndex,
+              modelIndex,
+              runtime,
+              option,
+            });
+          }
+        } catch {
+          // そのアカウントのランタイム初期化失敗は無視して残りの一覧を返す
+        }
+        return records;
+      }),
+    );
+    return recordsByAccount.flat();
+  })();
+  current.accountRecordsInflight = { key, promise };
+  try {
+    const value = await promise;
+    if (current.accountRecordsInflight?.promise === promise) {
+      current.accountRecordsCache = { key, at: Date.now(), value };
+      current.healthCache = null;
+    }
+    return value;
+  } finally {
+    if (current.accountRecordsInflight?.promise === promise) {
+      current.accountRecordsInflight = null;
+    }
+  }
+}
+
+function intersection<T extends string>(
+  values: readonly (readonly T[] | undefined)[],
+): T[] | undefined {
+  const first = values[0];
+  if (!first) return undefined;
+  return first.filter((value) =>
+    values.every((items) => items?.includes(value)),
+  );
+}
+
+function accountRowRank(
+  providerID: string,
+  accountId: string,
+  accountIndex: number,
+  rowOrder: ReadonlyMap<string, number>,
+): number {
+  return (
+    rowOrder.get(accountProviderModelKey(providerID, accountId)) ??
+    rowOrder.get(providerID) ??
+    1_000_000 + accountIndex
+  );
+}
+
+/** リミット応答で除外中の候補は、モデル一覧・Auto の候補選択でも上限扱いにする。 */
+function applyLimitMark(option: ModelOption): ModelOption {
+  if (!providerLimitMark(option.providerID, option.accountId)) return option;
+  return {
+    ...option,
+    codexbarUsedPercent: 100,
+    codexbarMaxed: true,
+    codexbarStale: false,
+  };
+}
+
+function applyRoutingUsage(
+  option: ModelOption,
+  usageProviders: readonly CodexBarProvider[],
+): ModelOption {
+  const marked = applyLimitMark(option);
+  const unavailable = providerIsHardLimited(option.providerID, option.accountId);
+  if (marked.codexbarMaxed === true && marked.codexbarStale !== true) {
+    return { ...marked, codexbarUnavailable: unavailable };
+  }
+  const usage = usageProviders.find(
+    (provider) =>
+      provider.id === option.providerID &&
+      (provider.accountId ?? null) === (option.accountId ?? null),
+  );
+  if (!usage) return { ...marked, codexbarUnavailable: unavailable };
+  return {
+    ...marked,
+    codexbarUnavailable: unavailable,
+    codexbarUsedPercent: usage.usedPercent,
+    codexbarMaxed: usage.maxed,
+    ...(usage.stale ? { codexbarStale: true } : {}),
+  };
+}
+
+function integratedOption(
+  records: readonly AccountModelRecord[],
+  usageProviders: readonly CodexBarProvider[],
+  workingCounts: ReadonlyMap<string, number>,
+): ModelOption {
+  const first = records[0]!;
+  const providerID = first.option.providerID;
+  const modelID = first.option.modelID;
+  // The picker and Auto must rank the same accounts as execution. Restricting
+  // this snapshot to subscription accounts can mark the model exhausted even
+  // while an API-key account is available and selected for the actual turn.
+  const candidates: RoutingCandidate<AccountModelRecord>[] = records.map(
+    (record) => ({
+      accountId: record.accountId,
+      accountIndex: record.accountIndex,
+      value: record,
+      usage: markedUsage(
+        providerID,
+        record.accountId,
+        usageProviders.find(
+          (provider) =>
+            provider.id === providerID &&
+            provider.accountId === record.accountId,
+        ),
+      ),
+      workingTaskCount:
+        workingCounts.get(`${providerID}::${record.accountId}`) ?? 0,
+    }),
+  );
+  const decision = chooseRoutingCandidate(candidates);
+  const selectedUsage = decision.candidate?.usage;
+  const input = intersection(records.map((record) => record.option.input));
+  const thinkingLevels = intersection(
+    records.map((record) => record.option.thinkingLevels),
+  );
+  const defaultValues = records.map((record) => record.option.defaultThinkingLevel);
+  const defaultThinkingLevel = defaultValues.every(
+    (value) => value === defaultValues[0],
+  )
+    ? defaultValues[0]
+    : undefined;
+  return {
+    value: `${providerID}::${modelID}`,
+    label: first.option.label,
+    providerID,
+    modelID,
+    ...(input ? { input } : {}),
+    reasoning: records.every((record) => record.option.reasoning === true),
+    ...(thinkingLevels ? { thinkingLevels } : {}),
+    ...(defaultThinkingLevel
+      ? { defaultThinkingLevel }
+      : {}),
+    subscription: decision.candidate?.value.option.subscription === true,
+    codexbarUsedPercent:
+      decision.allMaxed ? 100 : selectedUsage?.usedPercent ?? null,
+    codexbarMaxed: decision.allMaxed,
+    codexbarUnavailable: decision.allMaxed,
+    // 表示専用の％（残高から導出した値など）はピッカーの色にだけ使い、ヒントには渡さない。
+    ...(!decision.allMaxed && selectedUsage?.usageDisplayOnly === true
+      ? { codexbarDisplayOnly: true }
+      : {}),
+    routingMode: "integrated",
+    routingCandidateCount: records.length,
+  };
+}
+
+function workingTaskCounts(
+  providerIds: readonly string[],
+  excludeTaskId?: string,
+): Map<string, number> {
+  const counts = new Map<string, number>();
+  const allowed = new Set(providerIds);
+  for (const task of listTasks(false)) {
+    // The task being routed is already marked working before its route is
+    // re-resolved. Counting it against its own account makes every re-route
+    // prefer a different account (and immediately abandons a limit fallback).
+    if (task.id === excludeTaskId) continue;
+    if (
+      task.status !== "working" ||
+      !task.accountId ||
+      !task.providerID ||
+      !allowed.has(task.providerID)
+    )
+      continue;
+    const key = `${task.providerID}::${task.accountId}`;
+    counts.set(key, (counts.get(key) ?? 0) + 1);
+  }
+  for (const [providerID, accounts] of routeReservations) {
+    if (!allowed.has(providerID)) continue;
+    for (const [accountId, count] of accounts) {
+      const key = `${providerID}::${accountId}`;
+      counts.set(key, (counts.get(key) ?? 0) + count);
+    }
+  }
+  return counts;
+}
+
+/**
+ * 既定の非アカウントプロバイダ + 全アカウントのモデルを返す。統合モードの
+ * 統合モードのアカウント対応プロバイダーは provider/model ごとに 1 option へまとめる。
+ */
+async function buildModelsForAccounts(
+  accounts: AccountInput[],
+  usageTtlMs = 30 * 60 * 1000,
+): Promise<ModelOption[]> {
+  accounts = accounts.filter(isAccountEnabled);
+  const usageProviders =
+    getCachedUsage(Date.now(), usageTtlMs)?.providers ?? [];
+  const [sharedOptions, records] = await Promise.all([
+    listModels()
+      .catch(() => [])
+      .then((options) =>
+        options
+          .filter((option) => !runsThroughAccounts(option.providerID))
+          .map((option) => applyRoutingUsage(option, usageProviders)),
+      ),
+    collectAccountModelRecords(accounts),
+  ]);
+  const routingState = readProviderRouting();
+  const rowOrder = new Map(
+    readProviderModelState().providerOrder.map((key, index) => [key, index]),
+  );
+  const integrated = new Map<string, AccountModelRecord[]>();
+  const separate: ModelOption[] = [];
+  for (const record of records) {
+    const { providerID, modelID } = record.option;
+    if (
+      isAccountRoutingProvider(providerID) &&
+      accountRoutingMode(providerID, routingState) === "integrated"
+    ) {
+      const key = `${providerID}::${modelID}`;
+      const group = integrated.get(key) ?? [];
+      group.push(record);
+      integrated.set(key, group);
+    } else {
+      separate.push(
+        applyRoutingUsage(
+          {
+            ...record.option,
+            value: `${record.accountId}::${record.option.value}`,
+            accountId: record.accountId,
+            accountLabel: record.accountLabel,
+          },
+          usageProviders,
+        ),
+      );
+    }
+  }
+
+  // The picker may display the same 30-minute last-good window as /api/models;
+  // resolveAutoModel deliberately supplies the strict 5-minute TTL.
+  const workingCounts = workingTaskCounts([
+    ...new Set(records.map((record) => record.option.providerID)),
+  ]);
+  const integratedOptions = [...integrated.values()]
+    .map((group) =>
+      [...group].sort(
+        (a, b) =>
+          accountRowRank(
+            a.option.providerID,
+            a.accountId,
+            a.accountIndex,
+            rowOrder,
+          ) -
+            accountRowRank(
+              b.option.providerID,
+              b.accountId,
+              b.accountIndex,
+              rowOrder,
+            ) ||
+          a.modelIndex - b.modelIndex ||
+          a.accountIndex - b.accountIndex,
+      ),
+    )
+    .sort((a, b) => {
+      const firstA = a[0]!;
+      const firstB = b[0]!;
+      return (
+        accountRowRank(
+          firstA.option.providerID,
+          firstA.accountId,
+          firstA.accountIndex,
+          rowOrder,
+        ) -
+          accountRowRank(
+            firstB.option.providerID,
+            firstB.accountId,
+            firstB.accountIndex,
+            rowOrder,
+          ) ||
+        firstA.modelIndex - firstB.modelIndex ||
+        firstA.option.modelID.localeCompare(firstB.option.modelID, "en")
+      );
+    })
+    .map((group) => integratedOption(group, usageProviders, workingCounts));
+
+  const providerRank = await resolveProviderDisplayRank();
+  const accountIndex = new Map(
+    accounts.map((account, index) => [account.id, index]),
+  );
+  const all = [...sharedOptions, ...separate, ...integratedOptions];
+  const rowRank = (option: ModelOption): number | undefined => {
+    if (
+      option.routingMode === "integrated" &&
+      isAccountRoutingProvider(option.providerID)
+    ) {
+      // 統合モードの設定行はプロバイダキーで保存される。providerOrder に旧アカウント別
+      // キーが残っていても、表示中の行の順（プロバイダキー）を優先する。
+      const own = rowOrder.get(option.providerID);
+      if (own !== undefined) return own;
+      const ranks = accounts
+        .filter((account) => accountHasProvider(account, option.providerID))
+        .map((account, index) =>
+          accountRowRank(option.providerID, account.id, index, rowOrder),
+        );
+      return ranks.length > 0 ? Math.min(...ranks) : undefined;
+    }
+    return rowOrder.get(
+      option.accountId
+        ? accountProviderModelKey(option.providerID, option.accountId)
+        : option.providerID,
+    );
+  };
+  return all.sort((a, b) => {
+    const aRank = rowRank(a);
+    const bRank = rowRank(b);
+    if (aRank !== undefined || bRank !== undefined) {
+      const rowDiff =
+        (aRank ?? Number.MAX_SAFE_INTEGER) - (bRank ?? Number.MAX_SAFE_INTEGER);
+      if (rowDiff !== 0) return rowDiff;
+    }
+    const providerDiff =
+      providerRank(a.providerID) - providerRank(b.providerID);
+    if (providerDiff !== 0) return providerDiff;
+    const aAccount = a.accountId
+      ? (accountIndex.get(a.accountId) ?? accounts.length)
+      : -1;
+    const bAccount = b.accountId
+      ? (accountIndex.get(b.accountId) ?? accounts.length)
+      : -1;
+    return aAccount - bAccount;
+  });
+}
+
+export async function resolveAutoModel(input: {
+  prompt: string;
+  hasImages: boolean;
+  attachmentCount?: number;
+  historyMessageCount?: number;
+  recentFailure?: boolean;
+  mode: AutoOptimizeMode;
+  config?: AutoRouteConfig;
+}): Promise<AutoDecision | null> {
+  const accounts = listAccounts().map((account) => ({
+    id: account.id,
+    label: account.label,
+    enabled: account.enabled,
+    providers: account.providers,
+  }));
+  // Check Jev availability while the model catalog loads instead of after it.
+  const jevUsable = isAutoJevEnabled(getSetting(AUTO_JEV_ENABLED_SETTING_KEY))
+    ? hasUsableJevModelConfigured()
+    : Promise.resolve(false);
+  const models = await buildModelsForAccounts(accounts, 5 * 60 * 1000);
+  const signals = {
+    hasImages: input.hasImages,
+    attachmentCount: input.attachmentCount ?? 0,
+    historyMessageCount: input.historyMessageCount ?? 0,
+    recentFailure: input.recentFailure === true,
+  };
+  const jevTier = await jevUsable
+    ? await classifyAutoTierWithJev(
+      { prompt: input.prompt, ...signals },
+      {
+        minConfidence: parseAutoJevMinConfidence(
+          getSetting(AUTO_JEV_MIN_CONFIDENCE_SETTING_KEY),
+        ),
+      },
+    )
+    : undefined;
+  const tier = jevTier ?? classifyPrompt(input.prompt, signals);
+  return chooseAutoModel({
+    models,
+    tier,
+    hasImages: input.hasImages,
+    mode: input.mode,
+    usage: autoProviderUsageFromModels(models),
+    config: input.config,
+  });
+}
+
+function configuredAutoRoute(): { mode: AutoOptimizeMode; config?: AutoRouteConfig } {
+  const rawMode = getSetting("auto-optimize");
+  const mode = isAutoOptimizeMode(rawMode)
+    ? rawMode
+    : DEFAULT_AUTO_OPTIMIZE_MODE;
+  const rawConfig = getSetting("auto-route-overrides");
+  if (!rawConfig) return { mode };
+  try {
+    return { mode, config: normalizeAutoRouteConfig(JSON.parse(rawConfig)) };
+  } catch {
+    return { mode };
+  }
+}
+
+async function resolveConfiguredAutoModel(
+  prompt: string,
+  hasImages: boolean,
+  attachmentCount: number,
+): Promise<AutoDecision> {
+  const { mode, config } = configuredAutoRoute();
+  const decision = await resolveAutoModel({
+    prompt,
+    hasImages,
+    attachmentCount,
+    mode,
+    config,
+  });
+  if (!decision) {
+    throw Object.assign(
+      new Error(
+        "Auto で選択可能なモデルがありません。プロバイダ接続とモデル有効化を確認してください。",
+      ),
+      { status: 400 },
+    );
+  }
+  return decision;
+}
+
+export async function listModelsForAccounts(
+  accounts: AccountInput[],
+): Promise<ModelOption[]> {
+  const current = state();
+  const usableAccounts = accounts.filter(isAccountEnabled);
+  const key = accountModelsKey(usableAccounts);
+  const cached = current.accountModelCache;
+  if (cached?.key === key) {
+    const value = readModelCache(cached, Date.now());
+    if (value) return value;
+    // SWR: TTL切れでも一定期間内の旧一覧は即返し、裏で更新する。HomeView の
+    // モデル表示がアイドル後の再構築（秒単位）を待たないための緩和。
+    const age = Date.now() - cached.at;
+    if (age >= 0 && age < MODEL_STALE_SERVE_MS) {
+      void refreshAccountModels(current, usableAccounts, key).catch(() => undefined);
+      return cached.value;
+    }
+  }
+  return refreshAccountModels(current, usableAccounts, key);
+}
+
+/** 新しいモデル一覧を構築してキャッシュへ入れる。inflight重複は合成する。 */
+function refreshAccountModels(
+  current: HarnessState,
+  accounts: AccountInput[],
+  key: string,
+): Promise<ModelOption[]> {
+  if (current.accountModelInflight?.key === key) {
+    return current.accountModelInflight.promise;
+  }
+  const promise = buildModelsForAccounts(accounts);
+  current.accountModelInflight = { key, promise };
+  return promise
+    .then((value) => {
+      current.accountModelCache = { key, at: Date.now(), value };
+      current.healthCache = null;
+      return value;
+    })
+    .finally(() => {
+      if (current.accountModelInflight?.promise === promise) {
+        current.accountModelInflight = null;
+      }
+    });
+}
+
+/** モデル一覧のプロバイダ表示順。providerOrder で未指定のプロバイダは既定カタログ順の末尾。 */
+async function resolveProviderDisplayRank(): Promise<
+  (providerID: string) => number
+> {
+  const rank = new Map<string, number>();
+  const runtime = await getRuntimeFor();
+  if (runtime) {
+    const ordered = sortByPreferredOrder(
+      runtime.getProviders().map((provider) => provider.id),
+      readProviderModelState().providerOrder,
+      (id) => id,
+    );
+    ordered.forEach((id, index) => rank.set(id, index));
+  }
+  return (providerID: string) =>
+    rank.get(providerID) ?? Number.MAX_SAFE_INTEGER;
+}
+
+const DIRECT_MAX_TOKENS = 16_384;
+const DIRECT_DEFAULT_REASONING_BUDGET = 8_192;
+const DIRECT_REASONING_BUDGETS: Record<
+  Exclude<ThinkingLevel, "off">,
+  number
+> = {
+  minimal: 1_024,
+  low: 2_048,
+  medium: 8_192,
+  high: 16_384,
+  xhigh: 16_384,
+  max: 16_384,
+};
+
+function directCompletionMaxTokens(
+  model: Model,
+  requested: number | undefined,
+  reasoning: Exclude<ThinkingLevel, "off"> | undefined,
+): number {
+  const answerTokens = Math.min(
+    1_024,
+    Math.max(1, Math.floor(requested ?? 256)),
+  );
+  if (!model.reasoning && !reasoning) return answerTokens;
+  const modelMaxTokens =
+    typeof model.maxTokens === "number" && Number.isFinite(model.maxTokens)
+      ? Math.max(1, Math.floor(model.maxTokens))
+      : DIRECT_MAX_TOKENS;
+  return Math.min(
+    DIRECT_MAX_TOKENS,
+    modelMaxTokens,
+    answerTokens +
+      (reasoning
+        ? DIRECT_REASONING_BUDGETS[reasoning]
+        : DIRECT_DEFAULT_REASONING_BUDGET),
+  );
+}
+
+/** Complete a short prompt through Pi's registered provider, without tools or an agent session. */
+export async function completeModelText(options: {
+  providerID: string;
+  modelID: string;
+  /** Optional concrete account; ignored for shared providers. */
+  accountId?: string | null;
+  /** Set only when accountId came from an explicit model setting, not task context. */
+  accountIdExplicit?: boolean;
+  system: string;
+  prompt: string;
+  maxTokens?: number;
+  temperature?: number;
+  reasoning?: Exclude<ThinkingLevel, "off">;
+  signal?: AbortSignal;
+  /** Excluded from model-resolution and provider-limit fallback routes. */
+  excludeProviderIDs?: readonly string[];
+}): Promise<string> {
+  const system = options.system.trim();
+  const prompt = options.prompt.trim();
+  if (!system || !prompt) throw new Error("生成プロンプトが空です");
+
+  const sourceRoute = await resolveConcreteModelWithFallback(
+    `${options.providerID}::${options.modelID}`,
+    options.accountId ?? null,
+    {
+      strictAccountId: options.accountIdExplicit === true,
+      accountIdExplicit: options.accountIdExplicit === true,
+      allowProviderFallback: true,
+      excludeProviderIDs: options.excludeProviderIDs,
+    },
+  );
+  if (!sourceRoute)
+    throw new Error(
+      `モデルが見つかりません: ${options.providerID}::${options.modelID}`,
+    );
+
+  const sourceRef = routeModelRef(sourceRoute);
+  const attempted = new Set<string>();
+  let route: ConcreteModelRoute | undefined = sourceRoute;
+  let lastError: unknown;
+  while (route) {
+    const routeRef = routeModelRef(route);
+    const routeKey = routeRef
+      ? `${routeRef.accountId ?? ""}::${routeRef.providerID}::${routeRef.modelID}`
+      : "";
+    if (!routeRef || attempted.has(routeKey)) break;
+    attempted.add(routeKey);
+    try {
+      return await completeModelTextOnRoute(route, options, system, prompt);
+    } catch (error) {
+      lastError = error;
+      if (!isProviderLimitError(error)) throw error;
+      markRouteLimited(routeRef.providerID, routeRef.accountId ?? null);
+      const fallbacks = sourceRef
+        ? await resolveProviderFallbackRoutes(sourceRef)
+        : [];
+      route = fallbacks.find((candidate) => {
+        const candidateRef = routeModelRef(candidate);
+        return (
+          candidateRef !== null &&
+          !options.excludeProviderIDs?.includes(candidateRef.providerID) &&
+          !attempted.has(
+            `${candidateRef.accountId ?? ""}::${candidateRef.providerID}::${candidateRef.modelID}`,
+          )
+        );
+      });
+    }
+  }
+  throw lastError ?? new Error("利用可能なフォールバックモデルがありません");
+}
+
+/** Resolve the compaction-model setting through Pi's runtime for that route's account. */
+async function resolveCompactionModelRoute(value: string, accountId: string | null) {
+  const route = await resolveConcreteModelWithFallback(value, accountId, {
+    allowProviderFallback: true,
+  });
+  if (!route) return undefined;
+  const ids = modelId(route.model);
+  const heldAccountId = route.accountId;
+  const manager = heldAccountId ? accountRuntimeManager() : null;
+  const runtime = manager ? await manager.acquire(heldAccountId!) : route.runtime;
+  const release = () => {
+    if (manager) manager.release(heldAccountId!);
+  };
+  const model = manager
+    ? runtime.getModel(ids.providerID ?? "", ids.modelID ?? "")
+    : route.model;
+  if (!model) {
+    release();
+    return undefined;
+  }
+  const streamFn: NonNullable<Parameters<PiModule["compact"]>[7]> = (requestModel, context, options) =>
+    runtime.streamSimple(requestModel, context, options);
+  return { model, streamFn, release };
+}
+
+/** One pipeline for foreground and background: Jev, configured model, then session model. */
+async function compactWithCompactionModel(
+  request: Parameters<CompactionControllerOptions["summarize"]>[0],
+  taskId: string | undefined,
+) {
+  request.signal.throwIfAborted();
+  if (isJevCompactionEnabled(getSetting(JEV_COMPACTION_ENABLED_SETTING_KEY))) {
+    const result = await compactWithJev(
+      request.preparation,
+      parseJevCompactionThreshold(getSetting(JEV_COMPACTION_THRESHOLD_SETTING_KEY)),
+      request.signal,
+      request.customInstructions,
+    );
+    request.signal.throwIfAborted();
+    if (result) return result;
+  }
+  const sdk = await loadPi();
+  const summarize = (
+    model: Parameters<PiModule["generateSummaryWithUsage"]>[1],
+    streamFn: NonNullable<Parameters<PiModule["generateSummaryWithUsage"]>[9]>,
+    thinkingLevel?: Parameters<PiModule["generateSummaryWithUsage"]>[8],
+  ) => compactSinglePass({
+    generate: sdk.generateSummaryWithUsage,
+    preparation: request.preparation,
+    branch: request.branch,
+    model,
+    streamFn,
+    thinkingLevel,
+    signal: request.signal,
+    customInstructions: request.customInstructions,
+    summaryMaxTokens: parseCompactionSummaryMaxTokens(getSetting(COMPACTION_SUMMARY_MAX_TOKENS_SETTING_KEY)),
+    mode: request.mode,
+  });
+  const configured = await compactWithConfiguredModel({
+    value: getSetting(COMPACTION_MODEL_SETTING_KEY),
+    effort: getSetting(COMPACTION_MODEL_EFFORT_SETTING_KEY),
+    signal: request.signal,
+    resolve: (value) =>
+      resolveCompactionModelRoute(value, (taskId ? getTask(taskId)?.accountId : undefined) ?? null),
+    compact: summarize,
+    onError: (error) => {
+      console.warn("[compaction-model] fallback to session model:", error);
+    },
+  });
+  request.signal.throwIfAborted();
+  if (configured) return configured;
+  if (!request.ctx.model) return undefined;
+  return summarize(request.ctx.model, (model, context, options) =>
+    request.ctx.modelRegistry.streamSimple(model, context, options));
+}
+
+/** OpenCode (Zen/Go) は x-opencode-session 付きのリクエストだけを受け付ける。 */
+function isOpenCodeProvider(providerID: string): boolean {
+  return providerID === "opencode" || providerID === "opencode-go";
+}
+
+async function completeModelTextOnRoute(
+  route: ConcreteModelRoute,
+  options: {
+    maxTokens?: number;
+    temperature?: number;
+    reasoning?: Exclude<ThinkingLevel, "off">;
+    signal?: AbortSignal;
+  },
+  system: string,
+  prompt: string,
+): Promise<string> {
+  const ids = modelId(route.model);
+  const providerID = ids.providerID ?? "";
+  const modelID = ids.modelID ?? "";
+  const heldAccountId = route.accountId;
+  const manager = heldAccountId ? accountRuntimeManager() : null;
+  const runtime = manager
+    ? await manager.acquire(heldAccountId!)
+    : route.runtime;
+  try {
+    const model = manager
+      ? runtime.getModel(providerID, modelID)
+      : route.model;
+    if (!model)
+      throw new Error(
+        `モデルが見つかりません: ${providerID}::${modelID}`,
+      );
+
+    const response = await runtime.completeSimple(
+      model,
+      {
+        systemPrompt: system,
+        messages: [{ role: "user", content: prompt, timestamp: Date.now() }],
+      },
+      {
+        signal: options.signal,
+        maxRetries: 0,
+        maxTokens: directCompletionMaxTokens(
+          model,
+          options.maxTokens,
+          options.reasoning,
+        ),
+        // OpenCode は x-opencode-session の無いリクエストを 400 で拒否する。
+        // 直接生成にはエージェント会話が無いため、Pi の要約処理と同様に
+        // 呼び出しごとの一回限りのルーティングIDを送る。他のプロバイダーでは
+        // キャッシュキーやアフィニティヘッダーが変わるため送らない。
+        ...(isOpenCodeProvider(model.provider) ? { sessionId: uuidv7() } : {}),
+        // Codex rejects temperature regardless of the model catalog API label.
+        ...(model.provider === "openai-codex" || model.api === "openai-codex-responses"
+          ? {}
+          : { temperature: Math.min(2, Math.max(0, options.temperature ?? 0.2)) }),
+        reasoning: options.reasoning,
+      },
+    );
+    if (response.stopReason === "error" || response.stopReason === "aborted") {
+      throw new Error(
+        response.errorMessage ||
+          `生成が${response.stopReason === "aborted" ? "中断" : "失敗"}しました`,
+      );
+    }
+    let text = "";
+    for (const part of response.content) {
+      if (part.type === "text") text += part.text;
+    }
+    text = text.trim();
+    if (!text) throw new Error("プロバイダーの応答にテキストがありません");
+    return text;
+  } finally {
+    if (manager) manager.release(heldAccountId!);
+  }
+}
+
+let providerModelsCatalogInflight: Promise<ProviderModelsRow[]> | null = null;
+
+export function listProviderModelsCatalog(): Promise<ProviderModelsRow[]> {
+  if (providerModelsCatalogInflight) return providerModelsCatalogInflight;
+  const promise = listProviderModelsCatalogUncached();
+  providerModelsCatalogInflight = promise;
+  return promise.finally(() => {
+    if (providerModelsCatalogInflight === promise) {
+      providerModelsCatalogInflight = null;
+    }
+  });
+}
+
+async function listProviderModelsCatalogUncached(): Promise<ProviderModelsRow[]> {
+  await ensureRuntime();
+  let state = readProviderModelState();
+  const routingState = readProviderRouting();
+  const rows: ProviderModelsRow[] = [];
+  const accountRows: ProviderModelsRow[] = [];
+  const accounts = listAccounts().filter(isAccountEnabled);
+  const runtime = await getRuntimeFor();
+  let agentDir: string | null = null;
+  if (accounts.length > 0) {
+    try {
+      agentDir = await resolvePiAgentDir();
+    } catch {
+      // アカウント用認証ディレクトリを解決できない場合は共有行だけ返す
+    }
+  }
+  if (runtime) {
+    // Settings のプロバイダー一覧は /api/models を経由しないため、認証後の
+    // 動的カタログをここで再同期してからスナップショットを作る。
+    await Promise.all([
+      syncOrcaRouterProvider(runtime),
+      syncExperientialLabsProvider(runtime),
+    ]);
+    // マルチアカウント対応プロバイダーはアカウント専用。既定欄には出さない。
+    const snapshot = providerModelSnapshot(runtime);
+    state = await ensureProviderModelsKnown(snapshot.refs);
+    rows.push(
+      ...buildProviderModelsCatalog(runtime, state, undefined, snapshot.models).filter(
+        (row) => !runsThroughAccounts(row.id),
+      ),
+    );
+  }
+
+  if (agentDir) {
+    const accountRowGroups = await Promise.all(
+      accounts.map(async (account) => {
+        const providerIds = storedAccountProviderIds(account, agentDir);
+        if (providerIds.length === 0) return [];
+        try {
+          const accountRuntime = await getRuntimeFor(account.id);
+          if (!accountRuntime) return [];
+          await syncOrcaRouterProvider(accountRuntime);
+          const snapshot = providerModelSnapshot(accountRuntime, providerIds);
+          const accountState = await ensureProviderModelsKnown(
+            snapshot.refs,
+            account.id,
+          );
+          const catalog = buildProviderModelsCatalog(
+            accountRuntime,
+            accountState,
+            account.id,
+            snapshot.models,
+          );
+          return catalog
+            .filter((row) => providerIds.includes(row.id as AccountProviderId))
+            .map((row) => ({
+              ...row,
+              accountId: account.id,
+              accountLabel: account.label,
+            }));
+        } catch {
+          // 認証未完了・ランタイム初期化失敗のアカウントは一覧から省略する
+          return [];
+        }
+      }),
+    );
+    accountRows.push(...accountRowGroups.flat());
+    state = readProviderModelState();
+  }
+
+  const integratedRows = new Map<string, ProviderModelsRow[]>();
+  const accountEntries: Array<
+    { row: ProviderModelsRow } | { providerId: string }
+  > = [];
+  for (const row of accountRows) {
+    if (
+      isAccountRoutingProvider(row.id) &&
+      accountRoutingMode(row.id, routingState) === "integrated"
+    ) {
+      const group = integratedRows.get(row.id) ?? [];
+      if (group.length === 0) accountEntries.push({ providerId: row.id });
+      group.push(row);
+      integratedRows.set(row.id, group);
+    } else {
+      accountEntries.push({ row });
+    }
+  }
+  for (const entry of accountEntries) {
+    if ("row" in entry) {
+      rows.push(entry.row);
+      continue;
+    }
+    const merged = mergeIntegratedProviderRows(
+      integratedRows.get(entry.providerId) ?? [],
+      state,
+    );
+    if (merged) rows.push(merged);
+  }
+
+  const rowKey = (row: ProviderModelsRow) =>
+    row.accountId ? accountProviderModelKey(row.id, row.accountId) : row.id;
+  const hasAccountRowOrder = accountRows.some(
+    (row) => row.accountId && state.providerOrder.includes(rowKey(row)),
+  );
+  const hasIntegratedRowOrder = rows.some(
+    (row) =>
+      !row.accountId &&
+      isAccountRoutingProvider(row.id) &&
+      accountRoutingMode(row.id, routingState) === "integrated" &&
+      state.providerOrder.includes(row.id),
+  );
+  if (!hasAccountRowOrder && !hasIntegratedRowOrder) return rows;
+
+  const orderIndex = new Map(
+    state.providerOrder.map((key, index) => [key, index]),
+  );
+  const integratedRowRank = new Map<string, number>();
+  for (const row of accountRows) {
+    if (!row.accountId) continue;
+    const rank = orderIndex.get(rowKey(row));
+    if (rank === undefined) continue;
+    const current = integratedRowRank.get(row.id);
+    integratedRowRank.set(
+      row.id,
+      current === undefined ? rank : Math.min(current, rank),
+    );
+  }
+  const rank = (row: ProviderModelsRow): number => {
+    if (row.accountId && hasAccountRowOrder) {
+      return orderIndex.get(rowKey(row)) ?? Number.MAX_SAFE_INTEGER;
+    }
+    if (!row.accountId) {
+      return (
+        orderIndex.get(row.id) ??
+        integratedRowRank.get(row.id) ??
+        Number.MAX_SAFE_INTEGER
+      );
+    }
+    return orderIndex.get(row.id) ?? Number.MAX_SAFE_INTEGER;
+  };
+  return rows
+    .map((row, index) => ({ row, index }))
+    .sort((a, b) => rank(a.row) - rank(b.row) || a.index - b.index)
+    .map(({ row }) => row);
+}
+
+export async function setProviderOrModelEnabled(
+  key: string,
+  enabled: boolean,
+  accountId?: string | null,
+  modelIdsToDisableOnEnable?: readonly string[],
+): Promise<void> {
+  if (!key.trim())
+    throw Object.assign(new Error("key が必要です"), { status: 400 });
+  const normalizedAccountId = accountId?.trim() || undefined;
+  const providerId = key.split("::", 1)[0];
+  const childModelIds =
+    enabled && !key.includes("::") ? modelIdsToDisableOnEnable : undefined;
+  if (!normalizedAccountId && runsThroughAccounts(providerId)) {
+    if (accountRoutingMode(providerId) !== "integrated") {
+      throw Object.assign(
+        new Error("このプロバイダーはアカウントIDが必要です"),
+        { status: 400 },
+      );
+    }
+    const registered = listAccounts().filter((account) =>
+      accountHasProvider(account, providerId),
+    );
+    const accounts = registered.filter(isAccountEnabled);
+    if (accounts.length === 0) {
+      if (registered.length > 0) {
+        throw Object.assign(new Error("一時停止中のアカウントです"), {
+          status: 409,
+        });
+      }
+      throw Object.assign(new Error("ログインアカウントが見つかりません"), {
+        status: 404,
+      });
+    }
+    for (const account of accounts) {
+      await setProviderModelDisabled(key, !enabled, account.id, childModelIds);
+    }
+    invalidateHealthCache();
+    return;
+  }
+  if (normalizedAccountId) {
+    const account = getAccount(normalizedAccountId);
+    if (!account)
+      throw Object.assign(new Error("アカウントが見つかりません"), {
+        status: 404,
+      });
+    if (!isAccountEnabled(account)) {
+      throw Object.assign(new Error("一時停止中のアカウントです"), {
+        status: 409,
+      });
+    }
+    if (
+      !isAccountProviderId(providerId) ||
+      !accountHasProvider(account, providerId)
+    ) {
+      throw Object.assign(new Error("アカウントに紐づかないプロバイダーです"), {
+        status: 400,
+      });
+    }
+  }
+  await setProviderModelDisabled(
+    key,
+    !enabled,
+    normalizedAccountId,
+    childModelIds,
+  );
+  invalidateHealthCache();
+}
+
+function expandIntegratedModelOrder(
+  modelOrder: Record<string, string[]>,
+  routingState: ReturnType<typeof readProviderRouting>,
+): void {
+  for (const [providerId, order] of Object.entries(modelOrder)) {
+    if (
+      !isAccountRoutingProvider(providerId) ||
+      accountRoutingMode(providerId, routingState) !== "integrated"
+    ) {
+      continue;
+    }
+    delete modelOrder[providerId];
+    for (const account of listAccounts()) {
+      if (accountHasProvider(account, providerId)) {
+        modelOrder[accountProviderModelKey(providerId, account.id)] = order;
+      }
+    }
+  }
+}
+
+export async function saveProviderModelsOrder(input: {
+  providerOrder?: string[];
+  modelOrder?: Record<string, string[]>;
+  accountModelOrder?: Record<string, Record<string, string[]>>;
+}): Promise<void> {
+  const modelOrder = { ...(input.modelOrder ?? {}) };
+  const routingState = readProviderRouting();
+  expandIntegratedModelOrder(modelOrder, routingState);
+  if (input.accountModelOrder !== undefined) {
+    if (
+      typeof input.accountModelOrder !== "object" ||
+      input.accountModelOrder === null ||
+      Array.isArray(input.accountModelOrder)
+    ) {
+      throw Object.assign(new Error("accountModelOrder が不正です"), {
+        status: 400,
+      });
+    }
+    for (const [accountId, byProvider] of Object.entries(
+      input.accountModelOrder,
+    )) {
+      const account = getAccount(accountId);
+      if (!account)
+        throw Object.assign(new Error("アカウントが見つかりません"), {
+          status: 404,
+        });
+      if (!isAccountEnabled(account)) {
+        throw Object.assign(new Error("一時停止中のアカウントです"), {
+          status: 409,
+        });
+      }
+      if (
+        typeof byProvider !== "object" ||
+        byProvider === null ||
+        Array.isArray(byProvider)
+      ) {
+        throw Object.assign(new Error("accountModelOrder が不正です"), {
+          status: 400,
+        });
+      }
+      for (const [providerId, order] of Object.entries(byProvider)) {
+        if (
+          !isAccountProviderId(providerId) ||
+          !accountHasProvider(account, providerId)
+        ) {
+          throw Object.assign(
+            new Error("アカウントに紐づかないプロバイダーです"),
+            { status: 400 },
+          );
+        }
+        if (
+          !Array.isArray(order) ||
+          order.some((id) => typeof id !== "string")
+        ) {
+          throw Object.assign(new Error("モデルの並び順が不正です"), {
+            status: 400,
+          });
+        }
+        modelOrder[accountProviderModelKey(providerId, accountId)] = order;
+      }
+    }
+  }
+  await setProviderModelOrder({
+    providerOrder: input.providerOrder,
+    modelOrder,
+  });
+  invalidateHealthCache();
+}
+
+export async function listProviderAuth(
+  accountId?: string | null,
+): Promise<ProviderAuthDto[]> {
+  await ensureRuntime();
+  const account = accountId ? getAccount(accountId) : undefined;
+  if (accountId && !account) {
+    throw Object.assign(new Error("アカウントが見つかりません"), {
+      status: 404,
+    });
+  }
+  const runtime = await getRuntimeFor(accountId);
+  if (!runtime) return [];
+  const storedAccountProviders = account
+    ? new Set(
+        storedAccountProviderIds(account, await resolvePiAgentDir()),
+      )
+    : null;
+  const providers = runtime.getProviders().map((provider) => {
+    const status = runtime.getProviderAuthStatus(provider.id);
+    const methods = providerAuthMethods(provider);
+    const accountScoped = Boolean(accountId) && isAccountProviderId(provider.id);
+    const authenticated =
+      status.configured &&
+      (!accountScoped || storedAccountProviders?.has(provider.id) === true);
+    return {
+      id: provider.id,
+      name: providerDisplayName(provider),
+      authenticated,
+      methods,
+      authSource: authenticated ? status.source : undefined,
+      authLabel: authenticated ? status.label : undefined,
+      subscription: authenticated && runtime.isUsingSubscription(provider.id),
+      oauthAvailable: methods.includes("oauth"),
+      highlighted: isHighlightedProvider(provider.id),
+      ...(isAccountRoutingProvider(provider.id)
+        ? { accountRoutingMode: accountRoutingMode(provider.id) }
+        : {}),
+      ...(isEditableBaseUrlProvider(provider.id)
+        ? { baseUrl: effectiveBaseUrl(provider.id) }
+        : {}),
+    } satisfies ProviderAuthDto;
+  });
+  if (!providers.some((provider) => provider.id === "opencode-go")) {
+    // OpenCode Go is usage-only here; its account cookie is managed by the account panel.
+    providers.push({
+      id: "opencode-go",
+      name: "OpenCode Go",
+      authenticated: false,
+      methods: [],
+      authSource: undefined,
+      authLabel: undefined,
+      subscription: false,
+      oauthAvailable: false,
+      highlighted: true,
+      accountRoutingMode: accountRoutingMode("opencode-go"),
+    });
+  }
+  providers.sort((a, b) => {
+    const score = (p: ProviderAuthDto) =>
+      (p.highlighted ? 4 : 0) +
+      (p.oauthAvailable ? 2 : 0) +
+      (p.authenticated ? 1 : 0);
+    return score(b) - score(a) || a.name.localeCompare(b.name, "en");
+  });
+  return providers;
+}
+
+/**
+ * 変更可能なプロバイダーの API URL（base URL）を返す。
+ * 保存値がなければ既定値、変更不可プロバイダーは空文字。
+ * 変更は次回サーバー起動から反映されます。
+ */
+export function getProviderBaseUrl(providerId: string): string {
+  return effectiveBaseUrl(providerId);
+}
+
+/** 変更可能なプロバイダーの API URL（base URL）を保存。次回起動から反映。 */
+export function setProviderBaseUrl(
+  providerId: string,
+  baseUrl: string,
+): void {
+  setProviderBaseUrlFromEndpoints(providerId, baseUrl);
+}
+
+export async function setProviderAccountRoutingMode(
+  providerId: string,
+  mode: AccountRoutingMode,
+): Promise<void> {
+  if (!isAccountRoutingProvider(providerId)) {
+    throw Object.assign(
+      new Error("このプロバイダーはアカウント統合に対応していません"),
+      { status: 400 },
+    );
+  }
+  if (
+    mode === "integrated" &&
+    listAccounts().filter(
+      (account) =>
+        isAccountEnabled(account) && accountHasProvider(account, providerId),
+    ).length < 2
+  ) {
+    throw Object.assign(
+      new Error("アカウント統合には2つ以上のアカウントが必要です"),
+      { status: 400 },
+    );
+  }
+  await setAccountRoutingMode(providerId, mode);
+  invalidateHealthCache();
+}
+
+export async function startProviderLogin(
+  providerId: string,
+  authType: AuthTypeDto,
+  accountId?: string | null,
+): Promise<{ sessionId: string }> {
+  assertConfigurationOwner();
+  await ensureRuntime();
+  if (accountId) {
+    const account = getAccount(accountId);
+    if (!account) {
+      throw Object.assign(new Error("アカウントが見つかりません"), {
+        status: 404,
+      });
+    }
+    if (!accountHasProvider(account, providerId)) {
+      throw Object.assign(new Error("アカウントに紐づかないプロバイダーです"), {
+        status: 400,
+      });
+    }
+  }
+  const current = state();
+  const runtime = await getRuntimeFor(accountId);
+  if (!runtime)
+    throw Object.assign(new Error("Pi runtime が初期化されていません"), {
+      status: 503,
+    });
+  const provider = runtime.getProvider(providerId);
+  if (!provider)
+    throw Object.assign(new Error(`不明なプロバイダー: ${providerId}`), {
+      status: 404,
+    });
+  const methods = providerAuthMethods(provider);
+  if (!methods.includes(authType)) {
+    throw Object.assign(
+      new Error(
+        `${provider.name} は ${authType === "oauth" ? "サブスクログイン" : "API キー"} に対応していません`,
+      ),
+      { status: 400 },
+    );
+  }
+  if (current.loginSession) {
+    current.loginSession.cancel();
+    current.loginSession = null;
+  }
+  const session = new ProviderLoginSession(
+    providerId,
+    authType,
+    accountId ?? null,
+  );
+  current.loginSession = session;
+  // Let the SSE client attach before the OAuth flow emits prompts.
+  queueLoginStart(current, session, () => session.run(runtime, {
+    // New ChatGPT OAuth registers this installation; keep its identity stable
+    // across account logins without copying legacy Codex credentials.
+    getDeviceId: () => openSettingsManager().getOrCreateDeviceId(),
+  })
+    .finally(() => {
+      // A login can change both models and account-scoped usage.
+      invalidateHealthCache();
+      invalidateCachedUsage();
+      clearProviderCache(
+        `${session.accountId ? `account:${session.accountId}` : "default"}:${session.providerId}`,
+      );
+      // Keep the finished session briefly so a late EventSource can replay history.
+      setTimeout(() => {
+        if (current.loginSession === session) current.loginSession = null;
+      }, 15_000);
+    })
+    .catch((error) => {
+      // A broken SSE subscriber can reject run(); the session already records
+      // the failure, so just keep it from becoming an unhandled rejection.
+      console.warn(
+        `[leafcode-pi] provider login failed: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    }));
+  return { sessionId: session.id };
+}
+
+export function answerProviderLogin(
+  promptId: string,
+  value: string,
+  sessionId?: string | null,
+): void {
+  assertConfigurationOwner();
+  const session = state().loginSession;
+  if (!session)
+    throw Object.assign(new Error("ログインセッションがありません"), {
+      status: 409,
+    });
+  const expected = typeof sessionId === "string" ? sessionId.trim() : "";
+  if (expected && session.id !== expected) {
+    throw Object.assign(new Error("ログインセッションが一致しません"), {
+      status: 409,
+    });
+  }
+  session.answer(promptId, value);
+}
+
+export async function completeProviderLoginCallback(
+  providerId: string,
+  sessionId: string,
+  input: string,
+): Promise<void> {
+  assertConfigurationOwner();
+  const session = state().loginSession;
+  if (!session || session.id !== sessionId || session.providerId !== providerId) {
+    throw Object.assign(new Error("ログインセッションが一致しません"), { status: 409 });
+  }
+  await session.completeCallback(input);
+}
+
+export function cancelProviderLogin(sessionId?: string | null): void {
+  assertConfigurationOwner();
+  const current = state();
+  const session = current.loginSession;
+  if (!session) return;
+  const expected = typeof sessionId === "string" ? sessionId.trim() : "";
+  if (!expected) {
+    throw Object.assign(new Error("sessionId が必要です"), { status: 400 });
+  }
+  if (session.id !== expected) {
+    throw Object.assign(new Error("ログインセッションが一致しません"), {
+      status: 409,
+    });
+  }
+  session.cancel();
+  current.loginSession = null;
+}
+
+export function subscribeProviderLogin(
+  listener: (event: LoginSessionEvent) => void,
+): () => void {
+  const session = state().loginSession;
+  if (!session)
+    throw Object.assign(new Error("ログインセッションがありません"), {
+      status: 409,
+    });
+  return session.subscribe(listener);
+}
+
+export function getActiveProviderLogin(): {
+  sessionId: string;
+  providerId: string;
+  authType: AuthTypeDto;
+  accountId: string | null;
+} | null {
+  const session = state().loginSession;
+  if (!session) return null;
+  return {
+    sessionId: session.id,
+    providerId: session.providerId,
+    authType: session.authType,
+    accountId: session.accountId,
+  };
+}
+
+export async function logoutProvider(
+  providerId: string,
+  accountId?: string | null,
+): Promise<void> {
+  assertConfigurationOwner();
+  await ensureRuntime();
+  if (accountId) {
+    const account = getAccount(accountId);
+    if (!account) {
+      throw Object.assign(new Error("アカウントが見つかりません"), {
+        status: 404,
+      });
+    }
+    if (!accountHasProvider(account, providerId)) {
+      throw Object.assign(new Error("アカウントに紐づかないプロバイダーです"), {
+        status: 400,
+      });
+    }
+  }
+  const runtime = await getRuntimeFor(accountId);
+  if (!runtime)
+    throw Object.assign(new Error("Pi runtime が初期化されていません"), {
+      status: 503,
+    });
+  if (!runtime.getProvider(providerId)) {
+    throw Object.assign(new Error(`不明なプロバイダー: ${providerId}`), {
+      status: 404,
+    });
+  }
+  await runtime.logout(providerId);
+  invalidateHealthCache();
+  invalidateCachedUsage();
+  clearProviderCache(
+    `${accountId ? `account:${accountId}` : "default"}:${providerId}`,
+  );
+}
+
+export { patchProject };
+
+export function getProjects(includeArchived = false): ProjectDto[] {
+  return listProjects(includeArchived);
+}
+
+export function addProject(rootPath: string): ProjectDto {
+  const validated = validateProjectPath(rootPath);
+  if (!validated.ok)
+    throw Object.assign(new Error(validated.error), { status: 400 });
+  return upsertProject({
+    name: basename(validated.path) || "Untitled",
+    rootPath: validated.path,
+  });
+}
+
+async function promoteTaskOnce(
+  taskId: string,
+  destinationPath: string,
+): Promise<PromoteTaskResult> {
+  const task = getTask(taskId);
+  if (!task)
+    throw Object.assign(new Error("タスクが見つかりません"), { status: 404 });
+  if (task.projectId !== null)
+    throw Object.assign(new Error("プロジェクトなしタスクのみ昇格できます"), {
+      status: 409,
+    });
+
+  if (isTaskRuntimeBusyForDestructiveEdit(taskId)) {
+    throw Object.assign(new Error("実行中のタスクは停止してから昇格してください"), {
+      status: 409,
+    });
+  }
+
+  const source = resolve(task.directory);
+  const noProjectBase = resolve(noProjectRoot());
+  if (
+    samePath(source, noProjectBase) ||
+    !sameOrDescendantPath(source, noProjectBase)
+  ) {
+    throw Object.assign(new Error("無プロジェクトの作業フォルダーが不正です"), {
+      status: 400,
+    });
+  }
+  const rawDestination = destinationPath.trim();
+  if (!isAbsolutePath(rawDestination))
+    throw Object.assign(new Error("移動先には絶対パスを指定してください"), {
+      status: 400,
+    });
+  const destination = resolve(rawDestination);
+  if (sameOrDescendantPath(destination, source) || sameOrDescendantPath(source, destination)) {
+    throw Object.assign(new Error("移動元と移動先を入れ子にはできません"), {
+      status: 400,
+    });
+  }
+  if (
+    listProjects(true).some((project) => samePath(project.rootPath, destination))
+  ) {
+    throw Object.assign(new Error("移動先は既にプロジェクトとして登録されています"), {
+      status: 409,
+    });
+  }
+  const sessionFile = task.sessionFile;
+  if (!sessionFile || !existsSync(sessionFile)) {
+    throw Object.assign(new Error("保存済みセッションのあるタスクのみ昇格できます"), {
+      status: 409,
+    });
+  }
+
+  return withPromotionDestinationLock(destination, async () => {
+    const hadSubscriber = state().events.listenerCount(taskId) > 0;
+    disposeLive(taskId);
+    let prepared: PreparedWorkspaceMove | undefined;
+    let forkedSessionFile: string | undefined;
+    let project: ProjectDto | undefined;
+    let committed = false;
+    try {
+      prepared = await prepareWorkspaceMove(source, destination);
+      const pi = await loadPi();
+      if (
+        listProjects(true).some((candidate) => samePath(candidate.rootPath, destination))
+      ) {
+        throw Object.assign(new Error("移動先は既にプロジェクトとして登録されています"), {
+          status: 409,
+        });
+      }
+      const forked = pi.SessionManager.forkFrom(sessionFile, destination);
+      const nextSessionFile = forked.getSessionFile();
+      if (!nextSessionFile) throw new Error("新しいセッションを作成できませんでした");
+      if (sameOrDescendantPath(nextSessionFile, source)) {
+        throw new Error("新しいセッションの保存先が不正です");
+      }
+      forkedSessionFile = nextSessionFile;
+
+      project = addProject(destination);
+      const updated = patchTask(taskId, {
+        projectId: project.id,
+        projectName: project.name,
+        directory: destination,
+        sessionId: forked.getSessionId(),
+        sessionFile: forkedSessionFile,
+      });
+      if (!updated) throw Object.assign(new Error("タスクが見つかりません"), { status: 404 });
+      committed = true;
+
+      const warnings: string[] = [];
+      try {
+        await prepared.finalize();
+      } catch {
+        warnings.push("元の作業フォルダーを削除できませんでした");
+      }
+      if (hadSubscriber) {
+        try {
+          const refreshed = await ensureLive(taskId, { allowDuringPromotion: true });
+          emitTaskSnapshot(refreshed, "project_promoted");
+        } catch {
+          warnings.push("セッションの再接続は次回タスク表示時に行います");
+        }
+      }
+      const resultTask = getTask(taskId) ?? updated;
+      return {
+        task: toSummary(resultTask),
+        project,
+        ...(warnings.length > 0 ? { warning: warnings.join("。") } : {}),
+      };
+    } catch (error) {
+      if (!committed) {
+        if (forkedSessionFile) {
+          await rm(forkedSessionFile, { force: true }).catch(() => undefined);
+        }
+        if (project) deleteProjectRecord(project.id);
+        if (prepared) await prepared.rollback().catch(() => undefined);
+      }
+      throw error;
+    }
+  });
+}
+
+export async function promoteTask(
+  taskId: string,
+  destinationPath: string,
+): Promise<PromoteTaskResult> {
+  const existing = promoteInflight.get(taskId);
+  if (existing) return existing;
+  const operation = promoteTaskOnce(taskId, destinationPath).finally(() => {
+    if (promoteInflight.get(taskId) === operation) promoteInflight.delete(taskId);
+  });
+  promoteInflight.set(taskId, operation);
+  return operation;
+}
+
+function movedProjectPath(value: string | null, source: string, destination: string): string | null {
+  if (!value || !sameOrDescendantPath(value, source)) return value;
+  return resolve(destination, relative(source, value));
+}
+
+async function migrateProjectOnce(
+  projectId: string,
+  destinationPath: string,
+): Promise<ProjectMigrationResult> {
+  const project = getProject(projectId);
+  if (!project) throw Object.assign(new Error("プロジェクトが見つかりません"), { status: 404 });
+  const sourceValidation = validateProjectPath(project.rootPath);
+  if (!sourceValidation.ok) throw Object.assign(new Error(`移動元${sourceValidation.error}`), { status: 400 });
+  const source = sourceValidation.path;
+  const rawDestination = destinationPath.trim();
+  if (!isAbsolutePath(rawDestination)) {
+    throw Object.assign(new Error("移動先には絶対パスを指定してください"), { status: 400 });
+  }
+  const destination = resolve(rawDestination);
+  if (sameOrDescendantPath(destination, source) || sameOrDescendantPath(source, destination)) {
+    throw Object.assign(new Error("移動元と移動先を入れ子にはできません"), { status: 400 });
+  }
+  if (listProjects(true).some((candidate) => candidate.id !== projectId && samePath(candidate.rootPath, destination))) {
+    throw Object.assign(new Error("移動先は既にプロジェクトとして登録されています"), { status: 409 });
+  }
+
+  return withPromotionDestinationLock(destination, async () => {
+    if (listProjects(true).some((candidate) => candidate.id !== projectId && samePath(candidate.rootPath, destination))) {
+      throw Object.assign(new Error("移動先は既にプロジェクトとして登録されています"), { status: 409 });
+    }
+    const initialTasks = listTasks(true, "all").filter((task) => task.projectId === projectId);
+    if (initialTasks.some((task) => isTaskRuntimeBusyForDestructiveEdit(task.id))) {
+      throw Object.assign(new Error("実行中のタスクは停止してからプロジェクトを移動してください"), { status: 409 });
+    }
+
+    // Copy before disposing idle sessions so a rejected destination does not disconnect them.
+    const prepared = await prepareWorkspaceMove(source, destination);
+    if (listProjects(true).some((candidate) => candidate.id !== projectId && samePath(candidate.rootPath, destination))) {
+      await prepared.rollback().catch(() => undefined);
+      throw Object.assign(new Error("移動先は既にプロジェクトとして登録されています"), { status: 409 });
+    }
+    const tasks = listTasks(true, "all").filter((task) => task.projectId === projectId);
+    if (tasks.some((task) => isTaskRuntimeBusyForDestructiveEdit(task.id))) {
+      await prepared.rollback().catch(() => undefined);
+      throw Object.assign(new Error("実行中のタスクは停止してからプロジェクトを移動してください"), { status: 409 });
+    }
+    const hadSubscribers = new Set(
+      tasks
+        .filter((task) => state().events.listenerCount(task.id) > 0)
+        .map((task) => task.id),
+    );
+    const before = tasks.map((task) => ({
+      id: task.id,
+      directory: task.directory,
+      sessionFile: task.sessionFile,
+    }));
+    let committed = false;
+    try {
+      for (const task of tasks) disposeLive(task.id);
+      const updatedProject = patchProject(projectId, { rootPath: destination });
+      if (!updatedProject) throw Object.assign(new Error("プロジェクトが見つかりません"), { status: 404 });
+      for (const task of tasks) {
+        const updated = patchTask(task.id, {
+          directory: destination,
+          sessionFile: movedProjectPath(task.sessionFile, source, destination),
+        });
+        if (!updated) throw Object.assign(new Error("タスクが見つかりません"), { status: 404 });
+      }
+      committed = true;
+
+      const warnings: string[] = [];
+      try {
+        await prepared.finalize();
+      } catch {
+        warnings.push("元のプロジェクトフォルダーを削除できませんでした");
+      }
+      for (const task of tasks) {
+        if (state().events.listenerCount(task.id) === 0) continue;
+        try {
+          const refreshed = await ensureLive(task.id);
+          emitTaskSnapshot(refreshed, "project_migrated");
+        } catch {
+          warnings.push(`「${task.title}」のセッションは次回表示時に再接続します`);
+        }
+      }
+      return {
+        project: updatedProject,
+        ...(warnings.length > 0 ? { warning: warnings.join("。") } : {}),
+      };
+    } catch (error) {
+      if (!committed) {
+        patchProject(projectId, { rootPath: source });
+        for (const task of before) {
+          patchTask(task.id, { directory: task.directory, sessionFile: task.sessionFile });
+        }
+        let rollbackSucceeded = true;
+        try {
+          await prepared.rollback();
+        } catch {
+          rollbackSucceeded = false;
+        }
+        if (rollbackSucceeded) {
+          for (const taskId of hadSubscribers) {
+            try {
+              const refreshed = await ensureLive(taskId);
+              emitTaskSnapshot(refreshed, "project_migration_rolled_back");
+            } catch {
+              // The original operation error is more useful to the caller.
+            }
+          }
+        }
+      }
+      throw error;
+    }
+  });
+}
+
+export async function migrateProject(
+  projectId: string,
+  destinationPath: string,
+): Promise<ProjectMigrationResult> {
+  const existing = projectMigrationInflight.get(projectId);
+  if (existing) return existing;
+  const operation = migrateProjectOnce(projectId, destinationPath).finally(() => {
+    if (projectMigrationInflight.get(projectId) === operation) projectMigrationInflight.delete(projectId);
+  });
+  projectMigrationInflight.set(projectId, operation);
+  return operation;
+}
+
+export function archiveProject(id: string): ProjectDto {
+  const project = patchProject(id, { archived: true });
+  if (!project)
+    throw Object.assign(new Error("プロジェクトが見つかりません"), {
+      status: 404,
+    });
+  return project;
+}
+
+/** Archive a project and stop its Code / Goal Loop work (including cold Goal Loop files). */
+export async function archiveProjectAndStopTasks(id: string): Promise<ProjectDto> {
+  const project = getProject(id);
+  if (!project)
+    throw Object.assign(new Error("プロジェクトが見つかりません"), {
+      status: 404,
+    });
+  // Cancel relay outbox first so idle Code cannot deliver into archived work after restore.
+  try {
+    const { stopCodeSessionsForProject } = await import("@/lib/pi/bot-code-relay");
+    await stopCodeSessionsForProject(id);
+  } catch (error) {
+    console.warn(
+      `[archive-project] failed to stop Code sessions for ${id}:`,
+      error instanceof Error ? error.message : String(error),
+    );
+  }
+  for (const task of listTasks(false).filter((entry) => entry.projectId === id)) {
+    try {
+      await abortTaskIncludingColdGoalLoop(task.id);
+    } catch (error) {
+      console.warn(
+        `[archive-project] failed to stop task ${task.id}:`,
+        error instanceof Error ? error.message : String(error),
+      );
+    }
+  }
+  return archiveProject(id);
+}
+
+export function getTaskSummaries(
+  includeArchived = false,
+  kind: TaskKind = "code",
+): TaskSummary[] {
+  reconcileOrphanedWorkingTasks();
+  return listTasks(includeArchived, kind).map(toSummary);
+}
+
+type OfflineSessionSnapshot = {
+  messages: UiMessage[];
+  todos: TodoDto[];
+  sessionResume: SessionResumeDto | null;
+  /**
+   * File identity the projection was built from (`offline:` + dev/ino/size/mtime/ctime). Idle remote
+   * polls compare it like a live `messageRevision`, so an unchanged transcript is not re-paged.
+   * Absent when the file changed while it was being read.
+   */
+  revision?: string;
+};
+/**
+ * LRU of offline transcript projections (at most eight, ~32 MiB of projected JSON in total).
+ * The budget counts the projection, not the JSONL: a compacted 20 MiB session projects to ~1 MiB,
+ * and re-parsing it on every 5s remote poll cost ~150ms CPU plus GC each time.
+ */
+const OFFLINE_SNAPSHOT_MAX_ENTRIES = 8;
+const OFFLINE_SNAPSHOT_MAX_ENTRY_BYTES = 16 * 1024 * 1024;
+const OFFLINE_SNAPSHOT_TOTAL_BYTES = 32 * 1024 * 1024;
+/** Files up to this size are charged their file size; larger ones are measured once by stringify. */
+const OFFLINE_SNAPSHOT_FILE_ESTIMATE_BYTES = 2 * 1024 * 1024;
+const offlineSessionSnapshots = new Map<string, {
+  pi: PiModule;
+  version: string;
+  bytes: number;
+  snapshot: OfflineSessionSnapshot;
+}>();
+
+function offlineSnapshotCachedBytes(): number {
+  let total = 0;
+  for (const entry of offlineSessionSnapshots.values()) total += entry.bytes;
+  return total;
+}
+
+/** Projected size used for the cache budget; small files are charged their (larger) file size. */
+function offlineSnapshotBytes(fileSize: bigint, snapshot: OfflineSessionSnapshot): number {
+  if (fileSize <= BigInt(OFFLINE_SNAPSHOT_FILE_ESTIMATE_BYTES)) return Number(fileSize);
+  try {
+    return JSON.stringify(snapshot.messages).length + JSON.stringify(snapshot.todos).length +
+      JSON.stringify(snapshot.sessionResume).length;
+  } catch {
+    return Number.POSITIVE_INFINITY;
+  }
+}
+
+function rememberOfflineSnapshot(
+  sessionFile: string,
+  entry: { pi: PiModule; version: string; bytes: number; snapshot: OfflineSessionSnapshot },
+): void {
+  if (!(entry.bytes <= OFFLINE_SNAPSHOT_MAX_ENTRY_BYTES)) return;
+  offlineSessionSnapshots.delete(sessionFile);
+  while (
+    offlineSessionSnapshots.size > 0
+    && (offlineSessionSnapshots.size >= OFFLINE_SNAPSHOT_MAX_ENTRIES
+      || offlineSnapshotCachedBytes() + entry.bytes > OFFLINE_SNAPSHOT_TOTAL_BYTES)
+  ) {
+    const oldest = offlineSessionSnapshots.keys().next().value;
+    if (oldest === undefined) break;
+    offlineSessionSnapshots.delete(oldest);
+  }
+  offlineSessionSnapshots.set(sessionFile, entry);
+}
+
+/** Test hook: drop cached offline projections. */
+export function resetOfflineSessionSnapshotsForTests(): void {
+  offlineSessionSnapshots.clear();
+}
+
+function offlineSessionFileVersion(file: string) {
+  const stat = statSync(file, { bigint: true });
+  return { size: stat.size, version: `${stat.dev}:${stat.ino}:${stat.size}:${stat.mtimeNs}:${stat.ctimeNs}` };
+}
+
+function offlineSessionResume(sessionManager: {
+  getBranch?: () => readonly unknown[];
+  getSessionId?: () => string;
+}): SessionResumeDto | null {
+  try {
+    if (typeof sessionManager.getBranch !== "function" || typeof sessionManager.getSessionId !== "function") return null;
+    const reservation = resumeReservationFromBranch(sessionManager.getBranch(), sessionManager.getSessionId());
+    return reservation?.status === "scheduled"
+      ? { id: reservation.id, at: reservation.at, message: reservation.message }
+      : null;
+  } catch {
+    return null;
+  }
+}
+
+function readOfflineSessionSnapshot(sessionFile: string): OfflineSessionSnapshot {
+  const pi = state().pi;
+  if (!pi) {
+    throw Object.assign(new Error("Pi ランタイムが初期化されていません"), {
+      status: 503,
+    });
+  }
+  const before = offlineSessionFileVersion(sessionFile);
+  const cached = offlineSessionSnapshots.get(sessionFile);
+  if (cached?.pi === pi && cached.version === before.version) {
+    // LRU: a hit moves the entry to the newest slot so hot transcripts are not evicted first.
+    offlineSessionSnapshots.delete(sessionFile);
+    offlineSessionSnapshots.set(sessionFile, cached);
+    return cached.snapshot;
+  }
+  offlineSessionSnapshots.delete(sessionFile);
+  const sessionManager = openSessionManagerSafely(sessionFile, (path, dir) => pi.SessionManager.open(path, dir));
+  const context = sessionManager.buildSessionContext?.() ?? { messages: [] };
+  const raw = Array.isArray(context.messages) ? context.messages : [];
+  // 履歴ページもライブ表示と同じ tok/s を出せるよう、永続化済み throughput を反映する。
+  const throughput = loadThroughputFromSession({ sessionManager } as unknown as AgentSession).timings;
+  const messages = snapshotMessages({
+    messages: raw,
+    agent: { state: { streamingMessage: undefined } },
+    sessionManager: {
+      getLeafId: () => {
+        try {
+          return typeof sessionManager.getLeafId === "function"
+            ? sessionManager.getLeafId()
+            : null;
+        } catch {
+          return null;
+        }
+      },
+      getBranch: () => {
+        try {
+          return typeof sessionManager.getBranch === "function"
+            ? sessionManager.getBranch()
+            : [];
+        } catch {
+          return [];
+        }
+      },
+    },
+  } as AgentSession, throughput);
+  // A concurrent append/rewrite must not label an older projection with a newer file version.
+  if (offlineSessionFileVersion(sessionFile).version !== before.version) {
+    return {
+      messages,
+      todos: todosFromPiMessages(raw),
+      sessionResume: offlineSessionResume(sessionManager),
+    };
+  }
+  const snapshot: OfflineSessionSnapshot = {
+    messages,
+    todos: todosFromPiMessages(raw),
+    sessionResume: offlineSessionResume(sessionManager),
+    revision: `offline:${before.version}`,
+  };
+  rememberOfflineSnapshot(sessionFile, {
+    pi,
+    version: before.version,
+    bytes: offlineSnapshotBytes(before.size, snapshot),
+    snapshot,
+  });
+  return snapshot;
+}
+
+async function readArchivedTaskSnapshot(task: TaskSummary): Promise<OfflineSessionSnapshot> {
+  if (!task.sessionFile) return { messages: [], todos: [], sessionResume: null, revision: "offline:none" };
+  try {
+    await loadPi();
+    return readOfflineSessionSnapshot(task.sessionFile);
+  } catch (error) {
+    offlineSessionSnapshots.delete(task.sessionFile);
+    const code = (error as { code?: string } | null)?.code;
+    if (code?.startsWith("SESSION_") || ["ENOSPC", "EIO", "EACCES", "EPERM"].includes(code ?? "")) throw error;
+    return { messages: [], todos: [], sessionResume: null };
+  }
+}
+
+export function readTodoProgress(
+  pi: PiModule,
+  task: TaskSummary,
+): TodoProgressDto | undefined {
+  const sessionFile = task.sessionFile;
+  if (!sessionFile) return undefined;
+  try {
+    const stat = statSync(sessionFile);
+    const cached = todoProgressCache.get(sessionFile);
+    if (
+      cached &&
+      cached.mtimeMs === stat.mtimeMs &&
+      cached.size === stat.size
+    ) {
+      // Touch the entry so eviction reflects least-recent use, not insertion order.
+      todoProgressCache.delete(sessionFile);
+      todoProgressCache.set(sessionFile, cached);
+      return cached.value;
+    }
+    const readProgress = () => {
+      // Under pressure/for oversized history use the existing bounded read-only scanner.
+      try { assertSessionLoadAllowed(sessionFile); }
+      catch { return readDiskTodoProgress(sessionFile); }
+      const sessionManager = pi.SessionManager.open(sessionFile);
+      return todoProgressFromTodos(
+        todosFromPiMessages(sessionManager.buildSessionContext().messages),
+      );
+    };
+    if (!ownsTaskLease(task.id)) return readDiskTodoProgress(sessionFile);
+    const guarded = runWithTaskLeaseOwnership(task.id, readProgress);
+    if (!guarded.acquired) return readDiskTodoProgress(sessionFile);
+    cacheTodoProgress(sessionFile, {
+      mtimeMs: stat.mtimeMs,
+      size: stat.size,
+      value: guarded.value,
+    });
+    return guarded.value;
+  } catch {
+    todoProgressCache.delete(sessionFile);
+    return undefined;
+  }
+}
+
+/** includeArchived/kind ごとに構築を重複実行しない（サイドバーとBotコード一覧の同時呼び出し対策）。 */
+const taskSummariesInflight = new Map<string, Promise<TaskSummary[]>>();
+
+export async function getTaskSummariesWithTodoProgress(
+  includeArchived = false,
+  kind: TaskKind = "code",
+): Promise<TaskSummary[]> {
+  const key = `${kind}:${includeArchived ? "archived" : "active"}`;
+  const inflight = taskSummariesInflight.get(key);
+  if (inflight) return inflight;
+  const promise = buildTaskSummariesWithTodoProgress(includeArchived, kind).finally(() => {
+    if (taskSummariesInflight.get(key) === promise) {
+      taskSummariesInflight.delete(key);
+    }
+  });
+  taskSummariesInflight.set(key, promise);
+  return promise;
+}
+
+async function buildTaskSummariesWithTodoProgress(
+  includeArchived: boolean,
+  kind: TaskKind,
+): Promise<TaskSummary[]> {
+  const summaries = getTaskSummaries(includeArchived, kind);
+  // アーカイブタスクは Sidebar の進捗表示対象外（TodoProgressBar は active のみ）。
+  // 復元時は status が変わり再読込されるため、進捗の欠落は生じない。
+  const coldTasks = summaries.filter(
+    (task) =>
+      task.status !== "archived" &&
+      !state().live.has(task.id) &&
+      task.sessionId,
+  );
+  const goalLoopByTaskId = new Map(
+    coldTasks.flatMap((task) => {
+      const goalLoopSummary = toGoalLoopSummary(
+        readGoalLoopState(task.directory, task.sessionId),
+      );
+      return goalLoopSummary ? [[task.id, goalLoopSummary] as const] : [];
+    }),
+  );
+  const tasksToRead = coldTasks.filter(
+    (task) => !task.todoProgress && task.sessionFile,
+  );
+
+  let progressByTaskId = new Map<string, TodoProgressDto>();
+  // After the cutover this process does not own live sessions: opening every cold
+  // session via Pi SessionManager for sidebar Todo bars re-parses transcripts (seconds)
+  // on each poll. Goal Loop summaries above are disk-only and stay available.
+  // Remote: only working / live-loop tasks need owner freshness. A completed or stopped
+  // loop cannot advance, so its persisted state (plus the shared-disk Todo scan below)
+  // is authoritative — remote-fetching every task that ever ran a loop stampedes omit GETs.
+  if (tasksToRead.length > 0 && localRuntimeBlocked()) {
+    const remoteIds = tasksToRead
+      .filter((task) =>
+        needsRemoteTodoProgress(task.status, goalLoopByTaskId.get(task.id)?.status),
+      )
+      .map((task) => task.id);
+    progressByTaskId = await fetchRemoteTodoProgressMany(remoteIds);
+    for (const task of tasksToRead) {
+      if (progressByTaskId.has(task.id)) continue;
+      const progress = readDiskTodoProgress(task.sessionFile);
+      if (progress) progressByTaskId.set(task.id, progress);
+    }
+  } else if (tasksToRead.length > 0) {
+    try {
+      const pi = await loadPi();
+      progressByTaskId = new Map(
+        tasksToRead.flatMap((task) => {
+          const progress = readTodoProgress(pi, task);
+          return progress ? [[task.id, progress] as const] : [];
+        }),
+      );
+    } catch {
+      // Goal Loop の状態は Pi セッションを開かずに返せるため、ここでは継続する。
+    }
+  }
+
+  return summaries.map((task) => {
+    const todoProgress = progressByTaskId.get(task.id);
+    const goalLoopSummary = goalLoopByTaskId.get(task.id);
+    return todoProgress || goalLoopSummary
+      ? {
+          ...task,
+          ...(todoProgress ? { todoProgress } : {}),
+          ...(goalLoopSummary ? { goalLoopSummary } : {}),
+        }
+      : task;
+  });
+}
+
+/**
+ * Bot Code panel poll payload: filter by bot before enriching cold sessions,
+ * and reuse each Goal Loop DTO for both summary and the `loops` map.
+ */
+export async function getBotCodeSessionPanelState(botId: string): Promise<{
+  tasks: TaskSummary[];
+  loops: Record<string, GoalLoopDto | null>;
+}> {
+  reconcileOrphanedWorkingTasks();
+  const candidates = listTasks(false, "code").filter(
+    (task) =>
+      (task.botId === botId || task.supervisorBotId === botId) &&
+      !isRoomDelegatedCodeTask(task.id),
+  );
+  if (candidates.length === 0) return { tasks: [], loops: {} };
+
+  const summaries = candidates.map(toSummary);
+  const live = state().live;
+  const loops: Record<string, GoalLoopDto | null> = {};
+  const goalLoopByTaskId = new Map<string, NonNullable<ReturnType<typeof toGoalLoopSummary>>>();
+
+  for (const task of summaries) {
+    if (!task.sessionId) continue;
+    // Live tasks already carry goalLoopSummary via toSummary; still expose full DTO.
+    if (task.goalLoopSummary || (!live.has(task.id) && task.status !== "archived")) {
+      const loop = readGoalLoopState(task.directory, task.sessionId);
+      if (loop) {
+        loops[task.id] = loop;
+        const summary = toGoalLoopSummary(loop);
+        if (summary && !task.goalLoopSummary) goalLoopByTaskId.set(task.id, summary);
+      } else if (task.goalLoopSummary) {
+        loops[task.id] = null;
+      }
+    }
+  }
+
+  const coldNeedingTodo = summaries.filter(
+    (task) =>
+      task.status !== "archived" &&
+      !live.has(task.id) &&
+      task.sessionFile &&
+      !task.todoProgress,
+  );
+  let progressByTaskId = new Map<string, TodoProgressDto>();
+  // Same cutover rule as getTaskSummariesWithTodoProgress: only working / live-loop
+  // tasks need the owner's omit read; other loops use the shared-disk Todo scan.
+  if (coldNeedingTodo.length > 0 && localRuntimeBlocked()) {
+    const remoteIds = coldNeedingTodo
+      .filter((task) => {
+        const loop = goalLoopByTaskId.get(task.id) ?? loops[task.id];
+        return needsRemoteTodoProgress(task.status, loop?.status);
+      })
+      .map((task) => task.id);
+    progressByTaskId = await fetchRemoteTodoProgressMany(remoteIds);
+    for (const task of coldNeedingTodo) {
+      if (progressByTaskId.has(task.id)) continue;
+      const progress = readDiskTodoProgress(task.sessionFile);
+      if (progress) progressByTaskId.set(task.id, progress);
+    }
+  } else if (coldNeedingTodo.length > 0) {
+    try {
+      const pi = await loadPi();
+      progressByTaskId = new Map(
+        coldNeedingTodo.flatMap((task) => {
+          const progress = readTodoProgress(pi, task);
+          return progress ? [[task.id, progress] as const] : [];
+        }),
+      );
+    } catch {
+      /* Goal Loop DTOs above are enough for the panel when Pi is unavailable. */
+    }
+  }
+
+  const tasks = summaries.map((task) => {
+    const todoProgress = progressByTaskId.get(task.id);
+    const goalLoopSummary = task.goalLoopSummary ?? goalLoopByTaskId.get(task.id);
+    return todoProgress || goalLoopSummary
+      ? {
+          ...task,
+          ...(todoProgress ? { todoProgress } : {}),
+          ...(goalLoopSummary ? { goalLoopSummary } : {}),
+        }
+      : task;
+  });
+  return { tasks, loops };
+}
+
+/** Build the cheap first packet sent before a cold Pi session is hydrated. */
+export function buildTaskBootstrap(
+  task: TaskSummary,
+  isStreaming = task.status === "working",
+): TaskDetail {
+  return {
+    ...task,
+    messages: [],
+    isStreaming,
+    isCompacting: false,
+  };
+}
+
+export function getTaskBootstrap(id: string): TaskDetail {
+  // Keep the first SSE packet cheap. Active-task reconciliation runs in
+  // ensureRuntime(), which getTaskDetail() reaches before the ready snapshot.
+  const task = getTask(id);
+  if (!task)
+    throw Object.assign(new Error("タスクが見つかりません"), { status: 404 });
+  const live = state().live.get(id);
+  return buildTaskBootstrap(
+    task,
+    live?.session.isStreaming ?? task.status === "working",
+  );
+}
+
+type GetTaskDetailOptions = {
+  includeMessages?: boolean;
+  onTiming?: TaskDetailTimingReporter;
+  /** Read a cross-worker transcript without trying to claim its live runtime lease. */
+  offline?: boolean;
+  /** Use an existing owned live session, or the transcript; never call ensureLive. */
+  readOnly?: boolean;
+};
+
+/** Transcript-only fields shared by the archived and cross-worker (offline) reads. */
+async function offlineDetailParts(
+  task: TaskSummary,
+  onTiming?: TaskDetailTimingReporter,
+): Promise<{
+  messages: UiMessage[];
+  todos: TodoDto[];
+  sessionResume: SessionResumeDto | null;
+  isCompacting: false;
+  compactionSuggested: false;
+  hangRetryCount: number;
+  revertLeafId: string | null;
+  manualAbortedAssistantId: string | null;
+  messageRevision?: string;
+}> {
+  const startedAt = onTiming ? performance.now() : 0;
+  const offline = await readArchivedTaskSnapshot(task);
+  reportTaskDetailPhase(onTiming, "archivedRead", startedAt);
+  return {
+    messages: offline.messages,
+    todos: offline.todos,
+    sessionResume: offline.sessionResume,
+    // Lets idle `messages=omit` polls of a transcript keep their cached page (see backend-event-stream).
+    ...(offline.revision ? { messageRevision: offline.revision } : {}),
+    // The bookkeeping fields of a transcript read live in backend core.
+    ...offlineDetailFlags(task),
+  };
+}
+
+async function liveDetailParts(
+  id: string,
+  task: TaskSummary,
+  includeMessages: boolean,
+  onTiming?: TaskDetailTimingReporter,
+) {
+  const storedFlags = liveDetailFlags({ task, live: undefined });
+  let manualAbortedAssistantId: string | null = storedFlags.manualAbortedAssistantId;
+  let hangRetryCount = storedFlags.hangRetryCount;
+  let revertLeafId: string | null = storedFlags.revertLeafId;
+  try {
+    const ensureLiveStartedAt = onTiming ? performance.now() : 0;
+    const live = await ensureLive(id, { onTiming });
+    reportTaskDetailPhase(onTiming, "ensureLive", ensureLiveStartedAt);
+    const fieldsStartedAt = onTiming ? performance.now() : 0;
+    const fields = liveSnapshotFields(live, includeMessages, onTiming);
+    reportTaskDetailPhase(onTiming, "snapshotFields", fieldsStartedAt);
+    // Session values win, the stored ones fall back (rule lives in backend core).
+    const flags = liveDetailFlags({ task, live });
+    manualAbortedAssistantId = flags.manualAbortedAssistantId;
+    hangRetryCount = flags.hangRetryCount;
+    revertLeafId = flags.revertLeafId;
+    return {
+      ...fields,
+      manualAbortedAssistantId,
+      hangRetryCount,
+      revertLeafId,
+    };
+  } catch (error) {
+    const status = liveDetailErrorStatus(error);
+    if (status === null) throw error;
+    throw Object.assign(error instanceof Error ? error : new Error(String(error)), { status });
+  }
+}
+
+export async function getTaskDetail(
+  id: string,
+  options: GetTaskDetailOptions = {},
+): Promise<TaskDetail> {
+  const includeMessages = detailIncludesMessages(options.includeMessages);
+  const totalStartedAt = options.onTiming ? performance.now() : 0;
+  const task = getTask(id);
+  if (!task)
+    throw Object.assign(new Error("タスクが見つかりません"), { status: 404 });
+  // Which source answers this read (archived → stored transcript, offline/foreign lease →
+  // transcript, else this worker's live session) lives in backend core.
+  const registeredLive = options.readOnly === true ? state().live.get(id) : undefined;
+  const detailSource = resolveTaskDetailSource({
+    isArchived: task.status === "archived",
+    isForeignLease: isTaskRuntimeOwnedElsewhere(task),
+    offline: options.offline === true || (options.readOnly === true && !registeredLive),
+  });
+  if (options.readOnly === true && registeredLive && detailSource === "live") {
+    const detail = {
+      ...toSummary(task),
+      ...liveSnapshotFields(registeredLive, includeMessages, options.onTiming),
+      ...liveDetailFlags({ task, live: registeredLive }),
+      permissionRequest: pendingPermissionForTask(id),
+      questionRequest: pendingQuestionForTask(id),
+    };
+    reportTaskDetailPhase(options.onTiming, "total", totalStartedAt);
+    return detail;
+  }
+  if (detailSource === "archived") {
+    const detail = {
+      ...getTaskBootstrap(id),
+      ...(await offlineDetailParts(task, options.onTiming)),
+      isStreaming: detailStreamingFlag(detailSource, task.status) ?? false,
+      permissionRequest: pendingPermissionForTask(id),
+      questionRequest: pendingQuestionForTask(id),
+      goalLoop: detailIncludesGoalLoop(detailSource) ? readGoalLoopState(task.directory, task.sessionId) : null,
+      sessionResume: null,
+    };
+    reportTaskDetailPhase(options.onTiming, "total", totalStartedAt);
+    return detail;
+  }
+  // A Code task owned by another Next worker cannot be opened as a live SDK session here.
+  // Read its append-only transcript instead; prompts are delivered through the relay outbox
+  // (Bot Code) or rejected with 409 (ordinary Code).
+  if (detailSource === "offline") {
+    const parts = await offlineDetailParts(task, options.onTiming);
+    const detail = {
+      ...toSummary(task),
+      ...parts,
+      messages: includeMessages ? parts.messages : [],
+      isStreaming: detailStreamingFlag(detailSource, task.status) ?? false,
+      goalLoop: detailIncludesGoalLoop(detailSource) ? readGoalLoopState(task.directory, task.sessionId) : null,
+      permissionRequest: null,
+      questionRequest: null,
+    };
+    reportTaskDetailPhase(options.onTiming, "total", totalStartedAt);
+    return detail;
+  }
+  const live = await liveDetailParts(id, task, includeMessages, options.onTiming);
+  const detail = {
+    ...toSummary(getTask(id) ?? task),
+    ...live,
+    permissionRequest: pendingPermissionForTask(id),
+    questionRequest: pendingQuestionForTask(id),
+  };
+  reportTaskDetailPhase(options.onTiming, "total", totalStartedAt);
+  return detail;
+}
+
+/** Optional Backend export: older bundles fall back to their explicit offline reader. */
+export function getTaskDetailReadOnly(
+  id: string,
+  options: { includeMessages?: boolean } = {},
+): Promise<TaskDetail> {
+  return getTaskDetail(id, { readOnly: true, includeMessages: options.includeMessages });
+}
+
+/**
+ * 進捗確認（エージェントを止めずに生成モデルへ質問）用の読み取り専用スナップショット。
+ * このプロセスのライブセッションはメモリ上の会話（生成中の応答を含む）を写すだけで、
+ * ensureLive・プロンプト・キュー・セッションファイルには触れない。ライブでなければ
+ * 保存済みのセッションファイルを読む（別ワーカー所有・再起動後も同じ経路）。
+ */
+export async function readTaskProgressSnapshot(
+  id: string,
+): Promise<TaskProgressSnapshot & { task: TaskSummary }> {
+  const task = getTask(id);
+  if (!task)
+    throw Object.assign(new Error("タスクが見つかりません"), { status: 404 });
+  const live = state().live.get(id);
+  if (live) {
+    const session = live.session;
+    return {
+      task: toSummary(task),
+      messages: snapshotMessages(
+        session,
+        live.throughputByStartedAt,
+        live.toolStartedAt,
+        live.toolEndedAt,
+        live.toolPartialOutputByCallId,
+        false,
+        messageContext(live),
+      ),
+      todos: todosFromPiMessages(session.messages),
+      isStreaming: session.isStreaming,
+      isCompacting: session.isCompacting,
+      goalLoop: readGoalLoopState(session.sessionManager.getCwd(), session.sessionId),
+      pendingPermission: pendingPermissionForTask(id),
+      pendingQuestion: pendingQuestionForTask(id),
+    };
+  }
+  const offline = await readArchivedTaskSnapshot(task);
+  return {
+    task: toSummary(task),
+    messages: offline.messages,
+    todos: offline.todos,
+    isStreaming: task.status === "working",
+    isCompacting: false,
+    goalLoop: readGoalLoopState(task.directory, task.sessionId),
+    pendingPermission: pendingPermissionForTask(id),
+    pendingQuestion: pendingQuestionForTask(id),
+  };
+}
+
+/**
+ * Goal Loops whose live status would be affected by restarting the runtime.
+ * Include persisted tasks without an attached session: queued loops can auto-start
+ * when a session is attached, so a live-state file must not be invisible to the guard.
+ */
+export function activeGoalLoopTaskIds(): string[] {
+  const taskIds = new Set<string>();
+  for (const live of state().live.values()) {
+    if (isLiveGoalLoopSession(live.session)) taskIds.add(live.taskId);
+  }
+  for (const task of listTasks(false, "all")) {
+    if (!task.sessionId || taskIds.has(task.id)) continue;
+    if (isGoalLoopLiveStatus(readGoalLoopState(task.directory, task.sessionId)?.status)) {
+      taskIds.add(task.id);
+    }
+  }
+  return [...taskIds];
+}
+
+/** Strict auto-update snapshot; idle attached conversations are not running sessions. */
+export function readAutoUpdateState(): { supported: true; busy: boolean } {
+  const current = state();
+  const busy = hasActiveTaskOperations() || ensureLiveInflight.size > 0 || promoteInflight.size > 0
+    || liveShutdownInflight.size > 0 || activeGoalLoopTaskIds().length > 0
+    || listTasks(false, "all").some((task) => task.status === "working" || hasActiveTaskLease(task.id))
+    || [...current.live.values()].some((live) => isLiveBusyForReplace(live)
+      || live.manualCompactionInProgress || live.autoCompactionPromise || live.pendingProviderFallback
+      || live.pendingTransportRecovery || providerFallbackInflight.has(live.taskId)
+      || pendingPermissionForTask(live.taskId) || pendingQuestionForTask(live.taskId))
+    || listBackgroundWorkProviders().some((provider) => {
+      const work = provider.listActiveWork();
+      if (!Array.isArray(work)) throw new Error("Background work state unavailable");
+      return work.length > 0;
+    });
+  return { supported: true, busy: Boolean(busy) };
+}
+
+/** Synchronous snapshot + admission gate; no prompt can enter between these two operations. */
+export function prepareAutoUpdate(): { prepared: boolean } {
+  if (readAutoUpdateState().busy) return { prepared: false };
+  setAutoUpdateMaintenance(true);
+  return { prepared: true };
+}
+export function releaseAutoUpdate(): void { setAutoUpdateMaintenance(false); }
+
+export async function goalLoopState(
+  taskId: string,
+  options?: { offline?: boolean },
+): Promise<GoalLoopDto | null> {
+  if (options?.offline) {
+    const task = getTask(taskId);
+    if (!task) {
+      throw Object.assign(new Error("タスクが見つかりません"), { status: 404 });
+    }
+    return readGoalLoopState(task.directory, task.sessionId);
+  }
+  const live = await ensureLive(taskId);
+  return readGoalLoopState(
+    live.session.sessionManager.getCwd(),
+    live.session.sessionId,
+  );
+}
+
+export async function goalLoopCommand(
+  taskId: string,
+  input:
+    | {
+        action: "start";
+        goal: string;
+        acceptance?: string[];
+        maxTurns?: number;
+        cooldownSeconds?: number;
+        forceFullRun?: boolean;
+        autoAgent?: boolean;
+        images?: PromptImage[];
+      }
+    | { action: "pause" | "stop" | "complete" }
+    | { action: "resume"; maxTurns?: number; restartPrompt?: string },
+): Promise<GoalLoopDto | null> {
+  assertLocalRuntimeAllowed();
+  if (isGoalLoopControlAction(input.action)) invalidateTaskPreparations(taskId);
+  if (input.action === "resume" && hasTaskPreparation(taskId)) {
+    throw Object.assign(new Error("送信・設定変更の準備中は Goal Loop を再開できません"), { status: 409 });
+  }
+  const preparation = input.action === "start" || input.action === "resume" ? beginTaskPreparation(taskId) : undefined;
+  try {
+  let live = await ensureLive(taskId);
+  if (live.leaseLost) throw Object.assign(new Error(TASK_LEASE_BUSY_ERROR), { status: 409 });
+  preparation?.assertCurrent();
+  if (input.action === "start") {
+    withTaskSessionWriteLease(taskId, () => {
+      if (live.leaseLost) throw Object.assign(new Error(TASK_LEASE_BUSY_ERROR), { status: 409 });
+      ensureSessionFilePersisted(live.session.sessionManager);
+    });
+  }
+  // start/resume は queuePrompt を通らない直 prompt。通常チャット実行中に投げると
+  // 二重 session.prompt になる。pause/stop/complete はループ中断のため busy でも通す。
+  if (
+    (input.action === "start" || input.action === "resume") &&
+    isLiveBusyForReplace(live) &&
+    !isLiveGoalLoopSession(live.session)
+  ) {
+    throw Object.assign(new Error("タスクが実行中のため Goal Loop を開始できません"), {
+      status: 409,
+    });
+  }
+  let command: string;
+  if (input.action === "start") {
+    const payload = Buffer.from(
+      JSON.stringify({
+        goal: input.goal,
+        acceptance: input.acceptance ?? [],
+        maxTurns: input.maxTurns,
+        cooldownSeconds: input.cooldownSeconds,
+        forceFullRun: input.forceFullRun === true,
+        autoAgent: input.autoAgent === true,
+        images: input.images,
+      }),
+      "utf8",
+    ).toString("base64url");
+    command = `/goal-start ${payload}`;
+  } else if (input.action === "resume") {
+    command = buildGoalLoopResumeCommand(input);
+  } else {
+    command = `/goal-${input.action}`;
+  }
+  // Goal Loop does not go through queuePrompt, so a leftover chat hang watch
+  // would keep the old prompt and resume it mid-loop (aborting Goal as "user").
+  disarmTaskHangWatch(taskId);
+  // Capture epoch before await points so a concurrent abort/disable cannot
+  // race a stale /goal-* command into the session.
+  const startedEpoch = live.promptEpoch;
+  // Apply deferred tools/permission before /goal-start. Use reroute:false so the
+  // first Goal turn's prepareGoalLoopTurn still owns integrated account selection
+  // (avoids double resolvePromptRoute on start/resume). Defer working too: marking
+  // working here leaves 送信待ち stranded when the first sendTurn cannot enqueue yet
+  // (releaseGoalLoopTurn only clears a reservation it prepared).
+  if (input.action === "start" || input.action === "resume") {
+    live = await prepareLiveForPrompt(
+      live,
+      false,
+      copyPendingLiveSettings((state().live.get(live.taskId) ?? live).pendingSettings),
+      { deferWorking: true },
+    );
+  }
+  const current = state().live.get(taskId) ?? live;
+  // The control-action classification and the rollback rule live in backend core.
+  const isControlAction = isGoalLoopControlAction(input.action);
+  const rollbackStaleGoalPrepare = (liveState: typeof current) => {
+    // prepareLiveForPrompt may have set working + lease after abort already idled us.
+    if (shouldRollbackStaleGoalPrepare({
+      isStartOrResume: input.action === "start" || input.action === "resume",
+      ownsLease: ownsTaskLease(taskId),
+      taskStatus: getTask(taskId)?.status,
+      promptActive: liveState.promptActive === true,
+      isStreaming: liveState.session.isStreaming === true,
+      isCompacting: liveState.session.isCompacting === true,
+    })) {
+      setTaskStatus(taskId, "idle");
+      releaseTaskLease(taskId);
+      emitTaskSnapshot(liveState, "goal_command_stale");
+    }
+  };
+  // pause/stop/complete must still reach the session after hang abort bumps epoch;
+  // otherwise disk Goal Loop stays live while the API looks successful.
+  if (!isControlAction && isStaleHarnessPrompt(startedEpoch, current.promptEpoch)) {
+    rollbackStaleGoalPrepare(current);
+    return readGoalLoopState(
+      current.session.sessionManager.getCwd(),
+      current.session.sessionId,
+    );
+  }
+  // Re-check after prepare awaits: abort/disable can bump promptEpoch before session.prompt.
+  const latest = state().live.get(taskId) ?? current;
+  if (!isControlAction && isStaleHarnessPrompt(startedEpoch, latest.promptEpoch)) {
+    rollbackStaleGoalPrepare(latest);
+    return readGoalLoopState(
+      latest.session.sessionManager.getCwd(),
+      latest.session.sessionId,
+    );
+  }
+  // prepareLiveForPrompt may have awaited while a normal chat prompt started.
+  if (
+    (input.action === "start" || input.action === "resume") &&
+    isLiveBusyForReplace(latest) &&
+    !isLiveGoalLoopSession(latest.session)
+  ) {
+    rollbackStaleGoalPrepare(latest);
+    throw Object.assign(new Error("タスクが実行中のため Goal Loop を開始できません"), {
+      status: 409,
+    });
+  }
+  preparation?.assertCurrent();
+  await dispatchGoalLoopCommand(latest.session, command);
+  const outcome = readGoalLoopState(latest.session.sessionManager.getCwd(), latest.session.sessionId);
+  if (outcome && !isGoalLoopCommandApplied(input.action, outcome)) {
+    throw Object.assign(new Error("Goal Loop の操作が反映されませんでした"), { status: 409 });
+  }
+  return outcome;
+  } finally { preparation?.release(); }
+}
+
+/** Validate a browser-selected model before any prompt is sent to a generation model. */
+export async function validateTaskModelSelection(
+  value: string,
+  requestedAccountId?: string | null,
+  options?: { accountIdExplicit?: boolean },
+): Promise<void> {
+  const parsed = parseModelValue(value);
+  if (!parsed) {
+    throw Object.assign(new Error("モデルが見つかりません"), { status: 400 });
+  }
+  const requested = requestedAccountId?.trim() || parsed.accountId;
+  validateModelAccountSelection(parsed, requested, requestedAccountId);
+  // Soft accountId (option only) is a preference, not a pin. Only a model-string
+  // account prefix — or an explicit options flag — sticks the route.
+  const accountIdExplicit =
+    options?.accountIdExplicit ?? Boolean(parsed.accountId);
+  const route = await withRouteLock(
+    `${parsed.providerID}::${parsed.modelID}`,
+    () =>
+      resolveConcreteModelWithFallback(value, requested ?? null, {
+        strictAccountId: accountIdExplicit,
+        accountIdExplicit,
+        allowProviderFallback: true,
+      }),
+  );
+  if (!route) {
+    throw Object.assign(new Error("モデルが見つかりません"), { status: 400 });
+  }
+}
+
+function insertTaskForCreateTask(input: {
+  project: ProjectDto | null;
+  prompt: string;
+  model: Model | undefined;
+  accountId: string | null;
+  accountIdExplicit: boolean;
+  thinkingLevel?: ThinkingLevel;
+  parsed: ReturnType<typeof parseModelValue>;
+  botId?: string;
+  agent?: string;
+  skillPermission?: SkillPermission;
+  permissionMode?: "allow" | "ask" | "deny";
+}): TaskSummary {
+  const labels = resolveSessionLabels(getSetting(SESSION_LABELS_SETTING_KEY));
+  const initialLabel = matchSessionLabelByRule(input.prompt, labels);
+  const selectedIds = modelId(input.model);
+  return insertTask({
+    project: input.project,
+    title: titleFromPrompt(input.prompt),
+    ...(initialLabel ? { label: initialLabel } : {}),
+    thinkingLevel: input.thinkingLevel,
+    providerID: selectedIds.providerID ?? input.parsed?.providerID,
+    modelID: selectedIds.modelID ?? input.parsed?.modelID,
+    ...(input.accountId ? { accountId: input.accountId } : {}),
+    ...(input.accountId && input.accountIdExplicit
+      ? { accountIdExplicit: true }
+      : {}),
+    ...(input.botId ? { botId: input.botId } : {}),
+    ...(input.agent ? { agent: input.agent.trim() } : {}),
+    ...(input.skillPermission
+      ? { skillPermission: input.skillPermission }
+      : {}),
+    ...(input.permissionMode
+      ? { permissionMode: input.permissionMode }
+      : {}),
+  });
+}
+
+/** Label jobs call Jev and the generation model in the background; tests opt in explicitly. */
+function backgroundSessionLabelsEnabled(): boolean {
+  return process.env.NODE_ENV !== "test" || process.env.LEAFCODE_BACKGROUND_SESSION_LABELS === "1";
+}
+
+/** Refine the insert-time rule label (Jev, then the title model) without delaying the first turn. */
+function startInitialSessionLabelClassification(taskId: string, prompt: string): void {
+  if (!prompt.trim() || !backgroundSessionLabelsEnabled()) return;
+  // direct-title imports this module, so load it lazily.
+  void import("@/lib/direct-title")
+    .then(({ refineInitialTaskLabel }) => refineInitialTaskLabel(taskId, prompt))
+    .catch(() => undefined);
+}
+
+/** Every creation-time classifier can miss (offline Jev, busy model); retry after each turn. */
+function ensureSessionLabelAfterTurn(taskId: string): void {
+  if (!backgroundSessionLabelsEnabled()) return;
+  const task = getTask(taskId);
+  if (!task || (task.kind ?? "code") !== "code") return;
+  // A deleted label definition renders as "-" too, so only a known label is final.
+  const labels = resolveSessionLabels(getSetting(SESSION_LABELS_SETTING_KEY));
+  if (labels.length === 0 || labels.some((label) => label.id === task.label)) return;
+  void import("@/lib/direct-title")
+    .then(({ ensureTaskLabelDirect }) => ensureTaskLabelDirect(taskId))
+    .catch(() => undefined);
+}
+
+function markProjectOpened(project: ProjectDto | null): void {
+  if (!project) return;
+  patchProject(project.id, { lastOpenedAt: new Date().toISOString() });
+}
+
+async function resolveAndInsertTaskRoute(input: {
+  routeKey: string;
+  modelValue: string;
+  requestedAccountId: string | null;
+  requestedAccountExplicit: boolean;
+  project: ProjectDto | null;
+  thinkingLevelInput: ThinkingLevel | undefined;
+  insertStoredTask: (
+    model: Model | undefined,
+    accountId: string | null,
+    accountIdExplicit: boolean,
+    thinkingLevel?: ThinkingLevel,
+  ) => TaskSummary;
+}): Promise<{ route: ConcreteModelRoute; task: TaskSummary }> {
+  return withRouteLock(input.routeKey, async () => {
+    const route = await resolveConcreteModelWithFallback(
+      input.modelValue,
+      input.requestedAccountId,
+      {
+        strictAccountId: input.requestedAccountExplicit,
+        accountIdExplicit: input.requestedAccountExplicit,
+        allowProviderFallback: true,
+      },
+    );
+    if (!route)
+      throw Object.assign(new Error("モデルが見つかりません"), {
+        status: 400,
+      });
+    const reservedRoute = reservedAccountForRoute(route);
+    if (reservedRoute) {
+      reserveRoute(reservedRoute.providerID, reservedRoute.accountId);
+    }
+    try {
+      markProjectOpened(input.project);
+      const thinkingLevel = isThinkingLevel(input.thinkingLevelInput)
+        ? input.thinkingLevelInput
+        : defaultThinkingLevelForRoute(route.model, route.accountId);
+      return {
+        route,
+        task: input.insertStoredTask(
+          route.model,
+          route.accountId,
+          input.requestedAccountExplicit,
+          thinkingLevel,
+        ),
+      };
+    } catch (error) {
+      if (reservedRoute) {
+        releaseRoute(reservedRoute.providerID, reservedRoute.accountId);
+      }
+      throw error;
+    }
+  });
+}
+
+async function createTaskSession(
+  options: Parameters<typeof createSession>[0],
+  thinkingLevel: ThinkingLevel,
+): Promise<SessionSetup> {
+  const taskId = options.taskId;
+  const alreadyOwned = taskId ? ownsTaskLease(taskId) : false;
+  const initializationLease = Boolean(taskId && !alreadyOwned && acquireTaskLease(taskId));
+  if (taskId && !alreadyOwned && !initializationLease) {
+    throw Object.assign(new Error(TASK_LEASE_BUSY_ERROR), { status: 409 });
+  }
+  let setup: SessionSetup | undefined;
+  try {
+    const createdSetup = await createSession(options);
+    setup = createdSetup;
+    // createAgentSession may normalize the level from its model metadata. Keep
+    // the user's Auto effort in the session; the provider clamps at request time.
+    if (createdSetup.session.thinkingLevel !== thinkingLevel) {
+      if (taskId) {
+        withTaskSessionWriteLease(taskId, () => createdSetup.session.setThinkingLevel(thinkingLevel));
+      } else {
+        createdSetup.session.setThinkingLevel(thinkingLevel);
+      }
+    }
+    // attachCreatedTaskSession adopts this lease; it is released on attach failure or turn end.
+    return createdSetup;
+  } catch (error) {
+    if (setup) await disposeSessionBestEffort(setup.session);
+    if (initializationLease && taskId) releaseTaskLease(taskId);
+    throw error;
+  }
+}
+
+async function attachCreatedTaskSession(
+  task: TaskSummary,
+  setup: SessionSetup,
+  thinkingLevel: ThinkingLevel,
+): Promise<LiveRuntime> {
+  if (!acquireTaskLease(task.id)) {
+    await disposeSessionBestEffort(setup.session);
+    throw Object.assign(new Error("タスクは別のワーカーで実行中です"), {
+      status: 409,
+    });
+  }
+  try {
+    patchTask(task.id, {
+      sessionId: setup.session.sessionId,
+      sessionFile: setup.session.sessionFile,
+      status: "working",
+      thinkingLevel,
+      ...modelId(setup.session.model),
+    });
+    return await attachSession(
+      task.id,
+      setup.session,
+      setup.skillPermissionRef,
+    );
+  } catch (error) {
+    // Do not leave a fresh task leased when session attachment fails. The
+    // next Bot/Code request would otherwise report another worker forever.
+    releaseTaskLease(task.id);
+    disposeUnattachedSessionNow(setup.session);
+    setTaskStatus(
+      task.id,
+      "error",
+      error instanceof Error ? error.message : String(error),
+    );
+    throw error;
+  }
+}
+
+function currentTaskSummary(taskId: string, fallback: TaskSummary): TaskSummary {
+  return toSummary(getTask(taskId) ?? fallback);
+}
+
+function runBeforePromptWithCleanup(
+  taskId: string,
+  task: TaskSummary,
+  beforePrompt?: (task: TaskSummary) => void,
+): void {
+  try {
+    beforePrompt?.(currentTaskSummary(taskId, task));
+  } catch (error) {
+    releaseTaskLease(taskId);
+    disposeLive(taskId);
+    setTaskStatus(
+      taskId,
+      "error",
+      error instanceof Error ? error.message : String(error),
+    );
+    throw error;
+  }
+}
+
+function startCreatedTaskPrompt(input: {
+  taskId: string;
+  live: LiveRuntime;
+  prompt: string;
+  images?: PromptImage[];
+  files?: PromptFileInput[];
+  agent?: string;
+  subagentPermission?: "allow" | "deny";
+  permissionMode?: "allow" | "ask" | "deny";
+  codeRequestId?: string;
+  /** Bot-started Code session: the prompt is rendered as the Bot's sender, not the operator's. */
+  fromBot?: boolean;
+  goalLoop?: {
+    acceptance?: string[];
+    maxTurns?: number;
+    cooldownSeconds?: number;
+    forceFullRun?: boolean;
+    autoAgent?: boolean;
+  };
+}): Promise<GoalLoopDto | null> | undefined {
+  if (input.goalLoop) {
+    return goalLoopCommand(input.taskId, {
+      action: "start",
+      goal: input.prompt,
+      acceptance: input.goalLoop.acceptance,
+      maxTurns: input.goalLoop.maxTurns,
+      cooldownSeconds: input.goalLoop.cooldownSeconds,
+      forceFullRun: input.goalLoop.forceFullRun,
+      autoAgent: input.goalLoop.autoAgent === true,
+      images: input.images,
+    });
+  }
+  queuePrompt(input.live, input.fromBot ? markBotPrompt(input.prompt) : input.prompt, input.images, {
+    files: input.files,
+    agent: input.agent,
+    subagentPermission: input.subagentPermission,
+    permissionMode: input.permissionMode,
+    codeRequestId: input.codeRequestId,
+  });
+}
+
+type CreateTaskModelInput = {
+  modelValue: string | undefined;
+  thinkingLevelInput: ThinkingLevel | undefined;
+  accountIdInput: string | undefined;
+  accountIdExplicitInput: boolean | undefined;
+};
+
+async function resolveCreateTaskModelInput(input: {
+  modelValue: string | undefined;
+  thinkingLevelInput: ThinkingLevel | undefined;
+  accountIdInput: string | undefined;
+  accountIdExplicitInput: boolean | undefined;
+  prompt: string;
+  hasImages: boolean;
+  attachmentCount: number;
+}): Promise<CreateTaskModelInput> {
+  if (input.modelValue !== AUTO_MODEL_VALUE) {
+    return {
+      modelValue: input.modelValue,
+      thinkingLevelInput: input.thinkingLevelInput,
+      accountIdInput: input.accountIdInput,
+      accountIdExplicitInput: input.accountIdExplicitInput,
+    };
+  }
+  const autoDecision = await resolveConfiguredAutoModel(
+    input.prompt,
+    input.hasImages,
+    input.attachmentCount,
+  );
+  return {
+    modelValue: autoModelValue(autoDecision),
+    thinkingLevelInput: autoVariantToThinkingLevel(autoDecision.variant),
+    accountIdInput: autoDecision.accountId,
+    accountIdExplicitInput: false,
+  };
+}
+
+function resolveCreateTaskModelSelection(input: {
+  modelValue: string | undefined;
+  accountIdInput: string | undefined;
+  accountIdExplicitInput: boolean | undefined;
+}): {
+  parsed: ReturnType<typeof parseModelValue>;
+  requestedAccountId: string | undefined;
+  requestedAccountExplicit: boolean;
+} {
+  const parsed = parseModelValue(input.modelValue);
+  const requestedAccountId =
+    input.accountIdInput?.trim() || parsed?.accountId;
+  // Soft createTask({ accountId }) alone must not become a hard pin — match
+  // generateDirectText / setTaskModel (model-string prefix or explicit flag).
+  const requestedAccountExplicit =
+    input.accountIdExplicitInput ?? Boolean(parsed?.accountId);
+  validateModelAccountSelection(
+    parsed,
+    requestedAccountId,
+    input.accountIdInput,
+  );
+  return { parsed, requestedAccountId, requestedAccountExplicit };
+}
+
+function resolveCreateTaskProject(projectId: string | null): ProjectDto | null {
+  const project = projectId ? getProject(projectId) ?? null : null;
+  if (projectId && !project) {
+    throw Object.assign(new Error("プロジェクトが見つかりません"), {
+      status: 404,
+    });
+  }
+  if (project?.archived) {
+    throw Object.assign(new Error("アーカイブ済みのプロジェクトではタスクを作成できません"), {
+      status: 409,
+    });
+  }
+  return project;
+}
+
+function validateGoalLoopAttachments(
+  goalLoop: boolean,
+  files?: PromptFileInput[],
+): void {
+  if (goalLoop && files?.length) {
+    throw Object.assign(
+      new Error("Goal loop の開始では画像のみ添付できます"),
+      { status: 400 },
+    );
+  }
+}
+
+export async function createTask(input: {
+  projectId: string | null;
+  prompt: string;
+  model?: string;
+  thinkingLevel?: ThinkingLevel;
+  images?: PromptImage[];
+  files?: PromptFileInput[];
+  agent?: string;
+  subagentPermission?: "allow" | "deny";
+  permissionMode?: "allow" | "ask" | "deny";
+  skillPermission?: SkillPermission;
+  /** 利用する認証アカウント（docs/plans/multi-account.md）。未指定 = 既定。 */
+  accountId?: string;
+  accountIdExplicit?: boolean;
+  /** Bot that started this Code session, when the task originated in Bot mode. */
+  botId?: string;
+  /** Internal delegation hook: persist the Bot link/outbox before execution starts. */
+  beforePrompt?: (task: TaskSummary) => void;
+  codeRequestId?: string;
+  goalLoop?: {
+    acceptance?: string[];
+    maxTurns?: number;
+    cooldownSeconds?: number;
+    forceFullRun?: boolean;
+    autoAgent?: boolean;
+  };
+}): Promise<TaskSummary> {
+  assertLocalRuntimeAllowed();
+  validateGoalLoopAttachments(Boolean(input.goalLoop), input.files);
+  const project = resolveCreateTaskProject(input.projectId);
+  // Settings decide Code permissions; internal callers (Bot delegation) may pin
+  // them. Bot-started tasks keep the Bot's approval mode instead of Settings.
+  const permissionMode =
+    input.permissionMode ?? (input.botId ? undefined : readCodePermissionMode());
+  const skillPermission = input.skillPermission ?? readCodeSkillPermission();
+  const subagentPermission =
+    input.subagentPermission ?? readCodeSubagentPermission();
+  const {
+    modelValue,
+    thinkingLevelInput,
+    accountIdInput,
+    accountIdExplicitInput,
+  } = await resolveCreateTaskModelInput({
+    modelValue: input.model,
+    thinkingLevelInput: input.thinkingLevel,
+    accountIdInput: input.accountId,
+    accountIdExplicitInput: input.accountIdExplicit,
+    prompt: input.prompt,
+    hasImages: Boolean(input.images?.length),
+    attachmentCount:
+      (input.images?.length ?? 0) + (input.files?.length ?? 0),
+  });
+  const {
+    parsed,
+    requestedAccountId,
+    requestedAccountExplicit,
+  } = resolveCreateTaskModelSelection({
+    modelValue,
+    accountIdInput,
+    accountIdExplicitInput,
+  });
+  const insertStoredTask = (
+    model: Model | undefined,
+    accountId: string | null,
+    accountIdExplicit: boolean,
+    thinkingLevel?: ThinkingLevel,
+  ): TaskSummary =>
+    insertTaskForCreateTask({
+      project,
+      prompt: input.prompt,
+      model,
+      accountId,
+      accountIdExplicit,
+      thinkingLevel,
+      parsed,
+      botId: input.botId,
+      agent: input.agent,
+      skillPermission,
+      permissionMode,
+    });
+  let modelRoute: ConcreteModelRoute | undefined;
+  let concreteAccountId = requestedAccountId ?? null;
+  let reservedAccount: { providerID: string; accountId: string } | undefined;
+  let task: TaskSummary;
+  if (modelValue) {
+    const routed = await resolveAndInsertTaskRoute({
+      routeKey: `${parsed?.providerID ?? "default"}::${parsed?.modelID ?? "default"}`,
+      modelValue,
+      requestedAccountId: requestedAccountId ?? null,
+      requestedAccountExplicit,
+      project,
+      thinkingLevelInput,
+      insertStoredTask,
+    });
+    modelRoute = routed.route;
+    concreteAccountId = routed.route.accountId;
+    reservedAccount = reservedAccountForRoute(modelRoute);
+    task = routed.task;
+  } else {
+    markProjectOpened(project);
+    task = insertStoredTask(
+      undefined,
+      concreteAccountId,
+      requestedAccountExplicit,
+    );
+  }
+  const model = modelRoute?.model;
+  const requestedThinking = isThinkingLevel(thinkingLevelInput)
+    ? thinkingLevelInput
+    : model
+      ? defaultThinkingLevelForRoute(model, concreteAccountId)
+      : "off";
+  // The provider adapter performs the final model-specific clamping when it
+  // builds the request. Do not clamp from the session-creation model metadata.
+  const thinkingLevel = requestedThinking;
+  try {
+    const setup = await createTaskSession(
+      {
+        cwd: project?.rootPath ?? task.directory,
+        sessionName: task.title,
+        accountId: concreteAccountId,
+        model,
+        thinkingLevel,
+        subagentPermission,
+        permissionMode,
+        skillPermission,
+        // The selected agent talks as the main persona for this whole session.
+        agentName: input.agent ?? null,
+        taskId: task.id,
+        goalLoop: Boolean(input.goalLoop),
+      },
+      thinkingLevel,
+    );
+    const live = await attachCreatedTaskSession(task, setup, thinkingLevel);
+    runBeforePromptWithCleanup(task.id, task, input.beforePrompt);
+    const promptStart = startCreatedTaskPrompt({
+      taskId: task.id,
+      live,
+      prompt: input.prompt,
+      images: input.images,
+      files: input.files,
+      agent: input.agent,
+      subagentPermission: input.subagentPermission,
+      permissionMode: input.permissionMode,
+      codeRequestId: input.codeRequestId,
+      fromBot: Boolean(input.botId),
+      goalLoop: input.goalLoop,
+    });
+    // Label refinement is background-only; start it after the first prompt is accepted so a
+    // local title-model fallback cannot take llama-server before the new agent's first turn.
+    startInitialSessionLabelClassification(task.id, input.prompt);
+    if (promptStart) {
+      const loop = await promptStart;
+      if (input.goalLoop && (!loop || !isGoalLoopLiveStatus(loop.status))) {
+        throw Object.assign(new Error("Goal Loop を開始できませんでした"), {
+          status: 409,
+        });
+      }
+    }
+    return currentTaskSummary(task.id, task);
+  } finally {
+    releaseReservedAccount(reservedAccount);
+  }
+}
+
+/**
+ * Open the same transcript with a newly selected account. Pi binds the model
+ * runtime to AgentSession, so changing accounts between turns requires a
+ * session replacement rather than an in-place model mutation.
+ */
+async function replaceLiveForRoute(
+  live: LiveRuntime,
+  task: TaskSummary,
+  route: ConcreteModelRoute,
+  options?: { accountIdExplicit?: boolean },
+): Promise<LiveRuntime> {
+  const project = task.projectId ? getProject(task.projectId) : undefined;
+  const sessionFile = live.session.sessionFile ?? task.sessionFile;
+  if (!sessionFile) {
+    throw new Error("セッションを別アカウントへ切り替えられません");
+  }
+  const routeIds = modelId(route.model);
+  const modelChanged = routeIds.providerID !== task.providerID || routeIds.modelID !== task.modelID;
+  const requestedThinkingLevel = live.pendingSettings?.thinkingLevel ??
+    (isThinkingLevel(live.session.thinkingLevel) ? live.session.thinkingLevel : task.thinkingLevel);
+  // A new model uses its saved default, just like manual model selection.
+  // Preserve same-model account rotations and explicit pending user changes.
+  const preferredThinkingLevel = modelChanged && live.pendingSettings?.thinkingLevel === undefined
+    ? configuredThinkingLevelForModel(route.model, route.accountId) ?? requestedThinkingLevel
+    : requestedThinkingLevel;
+  const thinkingLevel = preferredThinkingLevel
+    ? clampThinkingLevelForModel(route.model, preferredThinkingLevel)
+    : defaultThinkingLevelForRoute(route.model, route.accountId);
+  const goalLoop = isActiveGoalLoopSession(live.session);
+  const setup = await createSession({
+    cwd: project?.rootPath ?? task.directory,
+    sessionFile,
+    sessionName: task.title,
+    ...botSessionOptions(task),
+    accountId: route.accountId,
+    model: route.model,
+    thinkingLevel,
+    skillPermission: live.skillPermission,
+    permissionMode: task.permissionMode,
+    agentName: task.agent ?? null,
+    taskId: task.id,
+    goalLoop,
+  });
+
+  const nextAccountIdExplicit =
+    options?.accountIdExplicit === undefined
+      ? undefined
+      : options.accountIdExplicit && route.accountId
+        ? true
+        : undefined;
+  return attachReplacementSession({
+    persistIdentity: () =>
+      patchTask(task.id, {
+        accountId: route.accountId ?? undefined,
+        providerID: routeIds.providerID ?? task.providerID,
+        modelID: routeIds.modelID ?? task.modelID,
+        thinkingLevel,
+        ...(options?.accountIdExplicit !== undefined
+          ? { accountIdExplicit: nextAccountIdExplicit }
+          : {}),
+      }),
+    // Intentional route change: stop preserving an unavailable stored model.
+    attach: () =>
+      attachSession(task.id, setup.session, setup.skillPermissionRef, {
+        preserveTaskModel: false,
+      }),
+    disposeSession: () => disposeUnattachedSessionNow(setup.session),
+    // attachSession acquires the new runtime before replacing the old live
+    // session. Restore the persisted identity if acquisition failed.
+    restoreIdentity: () => {
+      patchTask(task.id, {
+        accountId: task.accountId,
+        providerID: task.providerID,
+        modelID: task.modelID,
+        thinkingLevel: task.thinkingLevel,
+        ...(options?.accountIdExplicit !== undefined
+          ? { accountIdExplicit: task.accountIdExplicit }
+          : {}),
+      });
+    },
+  });
+}
+
+/** Record the persona transition in the existing transcript before reopening it. */
+async function recordAgentSwitch(
+  live: LiveRuntime,
+  task: TaskSummary,
+  agentName: string,
+): Promise<void> {
+  if (live.session.messages.length === 0) return;
+  await live.session.sendCustomMessage({
+    customType: AGENT_SWITCH_CUSTOM_TYPE,
+    content: agentSwitchNotice(task.agent?.trim(), agentName),
+    display: false,
+    details: {
+      previousAgent: task.agent?.trim() || null,
+      nextAgent: agentName.trim() || null,
+    },
+  });
+}
+
+/** Reopen the same transcript with a newly selected main persona. */
+async function replaceLiveForAgent(
+  live: LiveRuntime,
+  task: TaskSummary,
+  agentName: string,
+): Promise<LiveRuntime> {
+  const project = task.projectId ? getProject(task.projectId) : undefined;
+  const sessionFile = live.session.sessionFile ?? task.sessionFile;
+  if (!sessionFile) {
+    throw new Error("セッションのエージェントを切り替えられません");
+  }
+  await recordAgentSwitch(live, task, agentName);
+  const thinkingLevel =
+    typeof live.session.thinkingLevel === "string" &&
+    isThinkingLevel(live.session.thinkingLevel)
+      ? live.session.thinkingLevel
+      : task.thinkingLevel;
+  const setup = await createSession({
+    cwd: project?.rootPath ?? task.directory,
+    sessionFile,
+    sessionName: task.title,
+    ...botSessionOptions(task),
+    accountId: live.accountId,
+    model: live.session.model ?? undefined,
+    thinkingLevel,
+    skillPermission: live.pendingSettings?.skillPermission ?? live.skillPermission,
+    permissionMode: live.pendingSettings?.permissionMode ?? task.permissionMode,
+    agentName,
+    taskId: task.id,
+    goalLoop: true,
+  });
+  return attachReplacementSession({
+    persistIdentity: () => patchTask(task.id, { agent: agentName }),
+    attach: () => attachSession(task.id, setup.session, setup.skillPermissionRef),
+    disposeSession: () => disposeUnattachedSessionNow(setup.session),
+    restoreIdentity: () => {
+      patchTask(task.id, { agent: task.agent ?? null });
+    },
+  });
+}
+
+/** Reopen the same transcript after a Bot changed its own SOUL.md. */
+async function replaceLiveForSoul(live: LiveRuntime): Promise<LiveRuntime> {
+  const task = getTask(live.taskId);
+  if (!task) throw Object.assign(new Error("タスクが見つかりません"), { status: 404 });
+  if (state().live.get(task.id) !== live) {
+    return state().live.get(task.id) ?? ensureLive(task.id);
+  }
+  const sessionFile = live.session.sessionFile ?? task.sessionFile;
+  if (!sessionFile) {
+    resetTaskSession(task.id);
+    return ensureLive(task.id);
+  }
+  const project = task.projectId ? getProject(task.projectId) : undefined;
+  const bot = task.kind === "bot" && task.botId ? getBot(task.botId) : undefined;
+  const thinkingLevel =
+    typeof live.session.thinkingLevel === "string" && isThinkingLevel(live.session.thinkingLevel)
+      ? live.session.thinkingLevel
+      : task.thinkingLevel;
+  const setup = await createSession({
+    cwd: project?.rootPath ?? task.directory,
+    sessionFile,
+    sessionName: task.kind === "bot" ? `bot:${task.title}` : task.title,
+    ...botSessionOptions(task),
+    accountId: live.accountId,
+    model: live.session.model ?? undefined,
+    thinkingLevel,
+    skillPermission: live.skillPermission,
+    permissionMode: task.kind === "bot" ? (bot?.permissionMode ?? task.permissionMode) : task.permissionMode,
+    agentName: task.agent ?? null,
+    taskId: task.id,
+    goalLoop: isActiveGoalLoopSession(live.session),
+  });
+  return attachReplacementSession({
+    attach: () => attachSession(task.id, setup.session, setup.skillPermissionRef),
+    disposeSession: () => disposeUnattachedSessionNow(setup.session),
+  });
+}
+
+async function reloadLiveForSoulIfNeeded(live: LiveRuntime): Promise<LiveRuntime> {
+  const current = state().live.get(live.taskId) ?? live;
+  const task = getTask(current.taskId);
+  // The flag and gate rules live in backend core; the revision lookup stays here.
+  if (shouldFlagSoulReload({
+    isBot: task?.kind === "bot",
+    hasBotId: Boolean(task?.botId),
+    revisionChanged: task?.botId ? botSoulRevision(task.botId) !== current.soulRevision : false,
+  })) {
+    // The write may have happened in another Next worker, so the in-memory callback is not enough.
+    current.soulReloadPending = true;
+  }
+  if (!shouldApplyPendingReload({
+    pending: current.soulReloadPending === true,
+    isStreaming: current.session.isStreaming,
+    isCompacting: current.session.isCompacting,
+  })) {
+    return current;
+  }
+  const inflight = soulReloadInflight.get(current.taskId);
+  if (inflight) return inflight;
+  const operation = replaceLiveForSoul(current).finally(() => {
+    if (soulReloadInflight.get(current.taskId) === operation) {
+      soulReloadInflight.delete(current.taskId);
+    }
+  });
+  soulReloadInflight.set(current.taskId, operation);
+  return operation;
+}
+
+/**
+ * Apply a deferred AGENTS/skills/MCP reload at the next prepareLiveForPrompt.
+ * Only skip while streaming/compacting — promptActive is already true during
+ * prepare for normal prompts, so treating it as busy would defer forever.
+ */
+async function reloadLiveContextIfNeeded(live: LiveRuntime): Promise<LiveRuntime> {
+  const current = state().live.get(live.taskId) ?? live;
+  // The gate rule lives in backend core (promptActive deliberately does not block).
+  if (!shouldApplyPendingReload({
+    pending: current.contextReloadPending === true,
+    isStreaming: current.session.isStreaming,
+    isCompacting: current.session.isCompacting,
+  })) return current;
+  // Claim the pending work before awaiting so concurrent prompt preparations
+  // cannot start duplicate reloads. Failure restores it for a later attempt.
+  current.contextReloadPending = false;
+  try {
+    await reloadSession(current.session);
+  } catch (error) {
+    current.contextReloadPending = true;
+    console.warn(
+      `[reload] deferred context reload failed for ${current.taskId}:`,
+      error instanceof Error ? error.message : String(error),
+    );
+  }
+  return current;
+}
+
+/**
+ * Agent frontmatter / tool registry is only read while creating a session;
+ * `session.reload()` cannot replace it. Recreate via attachSession (same as
+ * SOUL reload) so promptActive/promptChain survive — disposeLive+ensureLive
+ * would reset them and briefly clear roomBusyLookup mid-turn.
+ */
+async function reloadLiveAgentDefinitionIfNeeded(live: LiveRuntime): Promise<LiveRuntime> {
+  const current = state().live.get(live.taskId) ?? live;
+  // The need and the gate live in backend core.
+  if (!shouldReloadAgentDefinition({
+    pending: current.agentDefinitionReloadPending === true,
+    missingRegistration: current.jevToolRegistered !== true,
+  })) return current;
+  if (!shouldApplyPendingReload({
+    pending: true,
+    isStreaming: current.session.isStreaming,
+    isCompacting: current.session.isCompacting,
+  })) return current;
+  try {
+    const next = await replaceLiveForSoul(current);
+    next.agentDefinitionReloadPending = false;
+    return next;
+  } catch (error) {
+    console.warn(
+      `[reload] deferred agent-definition recreate failed for ${current.taskId}:`,
+      error instanceof Error ? error.message : String(error),
+    );
+    return current;
+  }
+}
+
+async function prepareAutoAgentForGoalLoop(
+  live: LiveRuntime,
+  task: TaskSummary,
+  prompt: string,
+  isCurrent: () => boolean = () => true,
+): Promise<LiveRuntime | "retry"> {
+  if (isLiveBusyForReplace(live)) return "retry";
+  const ids = modelId(live.session.model);
+  const requestedModel =
+    ids.providerID && ids.modelID
+      ? {
+          providerID: ids.providerID,
+          modelID: ids.modelID,
+          ...(live.accountId ? { accountId: live.accountId } : {}),
+        }
+      : undefined;
+  const { resolveAutoAgent } = await import("@/lib/auto-agent");
+  // The router call is network-bound; a superseded routing owner (session replaced
+  // or released while the call was in flight) must not keep running it.
+  const router = new AbortController();
+  const current = setInterval(() => {
+    if (isCurrent()) return;
+    router.abort();
+  }, 200);
+  let selected: string;
+  try {
+    selected = await resolveAutoAgent({
+      conversation: readSessionConversation(
+        live.session.sessionFile ?? task.sessionFile,
+      ),
+      prompt,
+      signal: router.signal,
+      ...(requestedModel ? { requestedModel } : {}),
+      ...(live.accountId ? { accountId: live.accountId } : {}),
+      ...(task.accountIdExplicit ? { accountIdExplicit: true } : {}),
+    });
+  } finally {
+    clearInterval(current);
+  }
+  if (!isCurrent()) return "retry";
+  if (selected === (task.agent?.trim() ?? "")) return live;
+  return replaceLiveForAgent(live, task, selected);
+}
+
+/** Copy pending settings so changes made after prompt acceptance stay deferred. */
+function copyPendingLiveSettings(
+  pending: PendingLiveSettings | undefined,
+): PendingLiveSettings | undefined {
+  return pending ? { ...pending } : undefined;
+}
+
+function clearAppliedPendingLiveSettings(
+  live: LiveRuntime,
+  applied: PendingLiveSettings,
+): void {
+  // The key contract and the drop rule live in backend core.
+  live.pendingSettings = remainingPendingLiveSettings(
+    live.pendingSettings as Record<string, unknown> | undefined,
+    applied as Record<string, unknown>,
+  ) as PendingLiveSettings | undefined;
+}
+
+function shouldDeferLiveSetting(
+  live: LiveRuntime,
+  task?: {
+    directory: string;
+    sessionId?: string | null;
+    status?: TaskSummary["status"];
+  },
+): boolean {
+  const loop = task
+    ? readGoalLoopState(task.directory, live.session.sessionId ?? task.sessionId)
+    : null;
+  // The deferral rule lives in backend core; the Goal Loop lookup stays here.
+  return coreShouldDeferLiveSetting({
+    busyForReplace: isLiveBusyForReplace(live),
+    taskStatus: task?.status,
+    activeGoalLoopSession: isActiveGoalLoopSession(live.session),
+    goalLoopOwned: isGoalLoopSessionOwned(loop),
+  });
+}
+
+async function applyPendingLiveSettings(
+  live: LiveRuntime,
+  requested: PendingLiveSettings,
+): Promise<LiveRuntime> {
+  let current = state().live.get(live.taskId) ?? live;
+  const applySoftSettings = (): PendingLiveSettings => {
+    const applied: PendingLiveSettings = {};
+    // Which settings a busy session may take, and in which order, lives in backend core.
+    for (const key of SOFT_LIVE_SETTING_KEYS) {
+      const value = requested[key as keyof PendingLiveSettings];
+      if (value === undefined) continue;
+      if (key === "permissionMode") applyPermissionMode(current.session, value as "allow" | "ask" | "deny");
+      else if (key === "subagentPermission") applySubagentPermission(current.session, value as "allow" | "deny");
+      else if (key === "botTools") applyBotTools(current.session, value as readonly string[]);
+      (applied as Record<string, unknown>)[key] = value;
+    }
+    return applied;
+  };
+  // Mid-stream / compact: apply allowlist + permission without session replace.
+  if (current.session.isStreaming || current.session.isCompacting) {
+    clearAppliedPendingLiveSettings(current, applySoftSettings());
+    return current;
+  }
+  const task = getTask(current.taskId);
+  if (!task) throw Object.assign(new Error("タスクが見つかりません"), { status: 404 });
+
+  if (requested.model) {
+    const currentIds = modelId(current.session.model);
+    const requestedIds = modelId(requested.model.route.model);
+    // The route comparison lives in backend core.
+    const sameRoute = isSamePromptRoute({
+      currentAccountId: current.accountId,
+      currentProviderId: currentIds.providerID,
+      currentModelId: currentIds.modelID,
+      requestedAccountId: requested.model.route.accountId,
+      requestedProviderId: requestedIds.providerID,
+      requestedModelId: requestedIds.modelID,
+    });
+    if (!sameRoute) {
+      const routeTask =
+        requested.agentName !== undefined
+          ? { ...task, agent: requested.agentPreviousName ?? null }
+          : task;
+      current = await replaceLiveForRoute(current, routeTask, requested.model.route, {
+        accountIdExplicit: requested.model.accountIdExplicit,
+      });
+    } else {
+      await current.session.setModel(requested.model.route.model);
+      applySessionCompactionSettings(current.session);
+    }
+  }
+
+  if (requested.thinkingLevel !== undefined) {
+    current.session.setThinkingLevel(requested.thinkingLevel);
+  }
+  if (requested.agentName !== undefined) {
+    const latestTask = getTask(current.taskId);
+    if (!latestTask) throw Object.assign(new Error("タスクが見つかりません"), { status: 404 });
+    const previousAgent = requested.agentPreviousName ?? null;
+    current = await replaceLiveForAgent(
+      current,
+      { ...latestTask, agent: previousAgent },
+      requested.agentName ?? "",
+    );
+  } else {
+    if (requested.permissionMode !== undefined) {
+      applyPermissionMode(current.session, requested.permissionMode);
+    }
+    if (requested.skillPermission !== undefined) {
+      await applyLiveSkillPermission(current, requested.skillPermission);
+    }
+  }
+  if (requested.subagentPermission !== undefined) {
+    applySubagentPermission(current.session, requested.subagentPermission);
+  }
+  if (requested.botTools !== undefined) {
+    applyBotTools(current.session, requested.botTools);
+  }
+  if (requested.thinkingLevel !== undefined) {
+    patchTask(current.taskId, { thinkingLevel: requested.thinkingLevel });
+  }
+  clearAppliedPendingLiveSettings(current, requested);
+  return current;
+}
+
+async function resolvePromptRoute(
+  providerID: string,
+  modelID: string,
+  accountId?: string,
+  excludeTaskId?: string,
+): Promise<ConcreteModelRoute> {
+  try {
+    const resolved = await resolveIntegratedModelRoute(providerID, modelID, {
+      excludeTaskId,
+    });
+    if (!resolved) {
+      throw Object.assign(new Error("モデルが見つかりません"), { status: 400 });
+    }
+    return resolved;
+  } catch (error) {
+    if (!isProviderLimitError(error)) throw error;
+    const fallbackRoute = (
+      await resolveProviderFallbackRoutes({
+        providerID,
+        modelID,
+        ...(accountId ? { accountId } : {}),
+      })
+    )[0];
+    if (!fallbackRoute) throw error;
+    return fallbackRoute;
+  }
+}
+
+/** Select a fresh account/provider before a queued user or Goal Loop turn. */
+async function prepareLiveForPrompt(
+  live: LiveRuntime,
+  reroute: boolean,
+  pendingSettings?: PendingLiveSettings,
+  options?: { deferWorking?: boolean },
+): Promise<LiveRuntime> {
+  let currentLive = state().live.get(live.taskId) ?? live;
+  await waitForSessionReload(currentLive.session);
+  currentLive = state().live.get(live.taskId) ?? currentLive;
+  if (pendingSettings) {
+    currentLive = await applyPendingLiveSettings(currentLive, pendingSettings);
+  }
+  currentLive = await reloadLiveForSoulIfNeeded(currentLive);
+  currentLive = await reloadLiveAgentDefinitionIfNeeded(currentLive);
+  currentLive = await reloadLiveContextIfNeeded(currentLive);
+  const task = getTask(currentLive.taskId);
+  const taskAccount = task?.accountId ? getAccount(task.accountId) : undefined;
+  const taskAccountPaused = Boolean(
+    taskAccount && !isAccountEnabled(taskAccount),
+  );
+  const isGoalLoopTurn = isActiveGoalLoopSession(currentLive.session);
+  // The routing eligibility rule lives in backend core; the lookups stay here.
+  const canRoute = canRouteAccountForPrompt({
+    reroute,
+    hasProviderId: Boolean(task?.providerID),
+    hasModelId: Boolean(task?.modelID),
+    isStreaming: currentLive.session.isStreaming,
+    isGoalLoopTurn,
+    hasUserMessage: currentLive.session.messages.some((message) => message.role === "user"),
+    isAccountRoutingProvider: Boolean(task?.providerID && isAccountRoutingProvider(task.providerID)),
+    accountRoutingMode: task?.providerID ? accountRoutingMode(task.providerID) : "",
+    accountIdExplicit: task?.accountIdExplicit === true,
+  });
+  if (!canRoute || !task?.providerID || !task.modelID) {
+    if (taskAccountPaused) {
+      throw Object.assign(new Error("一時停止中のアカウントです"), {
+        status: 409,
+      });
+    }
+    requireTaskLease(currentLive.taskId);
+    if (!options?.deferWorking) setTaskStatus(currentLive.taskId, "working");
+    return currentLive;
+  }
+
+  return withRouteLock(
+    `${task.providerID}::${task.modelID}`,
+    async () => {
+      const latestLive = state().live.get(task.id) ?? currentLive;
+      const latestTask = getTask(task.id);
+      if (!latestTask) {
+        throw Object.assign(new Error("タスクが見つかりません"), { status: 404 });
+      }
+      const latestTaskAccount = latestTask.accountId
+        ? getAccount(latestTask.accountId)
+        : undefined;
+      if (
+        latestTask.accountIdExplicit &&
+        latestTaskAccount &&
+        !isAccountEnabled(latestTaskAccount)
+      ) {
+        throw Object.assign(new Error("一時停止中のアカウントです"), {
+          status: 409,
+        });
+      }
+      // The same eligibility re-checked inside the lock lives in backend core.
+      const stillEligible = stillEligibleForAccountRouting({
+        hasProviderId: Boolean(latestTask.providerID),
+        hasModelId: Boolean(latestTask.modelID),
+        isAccountRoutingProvider: Boolean(latestTask.providerID && isAccountRoutingProvider(latestTask.providerID)),
+        accountRoutingMode: latestTask.providerID ? accountRoutingMode(latestTask.providerID) : "",
+        accountIdExplicit: latestTask.accountIdExplicit === true,
+        isStreaming: latestLive.session.isStreaming,
+        isGoalLoopTurn: isActiveGoalLoopSession(latestLive.session),
+        hasUserMessage: latestLive.session.messages.some((message) => message.role === "user"),
+      });
+      if (!stillEligible) {
+        requireTaskLease(latestTask.id);
+        if (!options?.deferWorking) setTaskStatus(latestTask.id, "working");
+        return latestLive;
+      }
+
+      // 通常は既存の統合アカウント再選択だけを行い、全アカウント上限（429）時だけ
+      // 別プロバイダーへフォールバックする。
+      const route = await resolvePromptRoute(
+        latestTask.providerID!,
+        latestTask.modelID!,
+        latestTask.accountId,
+        latestTask.id,
+      );
+      const ids = modelId(route.model);
+      const sameRoute =
+        ids.providerID === latestTask.providerID &&
+        ids.modelID === latestTask.modelID &&
+        route.accountId === (latestTask.accountId ?? null);
+      requireTaskLease(latestTask.id);
+      const nextLive = sameRoute
+        ? latestLive
+        : await replaceLiveForRoute(latestLive, latestTask, route);
+      if (!options?.deferWorking) setTaskStatus(latestTask.id, "working");
+      if (nextLive !== latestLive) {
+        emitTaskSnapshot(nextLive, "provider_routed");
+      }
+      return nextLive;
+    },
+  );
+}
+
+export function buildPromptOptions(input: {
+  images?: PromptImage[];
+  streamingBehavior?: "steer" | "followUp";
+  isStreaming: boolean;
+  isHangRetry: boolean;
+}): SessionPromptOptions {
+  return corePromptControl.buildPromptOptions(input);
+}
+
+// Prompt ordering/stream-wait rules live in backend core; harness keeps session ownership.
+export const shouldBypassPromptChain = corePromptControl.shouldBypassPromptChain;
+export const resolveStreamingBehaviorForPrompt = corePromptControl.resolveStreamingBehaviorForPrompt;
+export const STEER_STREAM_WAIT_MS = corePromptControl.STEER_STREAM_WAIT_MS;
+export const STEER_STREAM_POLL_MS = corePromptControl.STEER_STREAM_POLL_MS;
+export const shouldWaitForSteerStream = corePromptControl.shouldWaitForSteerStream;
+export const waitForSessionStreaming = corePromptControl.waitForSessionStreaming;
+
+const TASK_LEASE_BUSY_ERROR = "タスクは別のワーカーで実行中です";
+
+/** Settings safe to apply without disposing/recreating the live session. */
+/** The soft subset a mid-stream inject may apply, or undefined when nothing is soft. */
+export function softPendingLiveSettings(
+  pending: PendingLiveSettings | undefined,
+): PendingLiveSettings | undefined {
+  // The key contract lives in backend core; this keeps the public name and its type.
+  return softLiveSettings(pending as Record<string, unknown> | undefined) as PendingLiveSettings | undefined;
+}
+
+export function pendingSettingsForPrompt(
+  streamingBehavior: "steer" | "followUp" | undefined,
+  _hadActivePrompt: boolean,
+  live: LiveRuntime,
+  pendingSettingsAtQueue: PendingLiveSettings | undefined,
+): PendingLiveSettings | undefined {
+  // Prefer settings at run time so model/thinking changes made after queue but
+  // before the turn starts are not dropped for one turn.
+  const full =
+    copyPendingLiveSettings(
+      (state().live.get(live.taskId) ?? live).pendingSettings,
+    ) ?? pendingSettingsAtQueue;
+  // Pass the *resolved* streaming behavior: a followUp that runs after the stream
+  // ends must apply deferred settings. Mid-stream inject only gets soft settings.
+  if (streamingBehavior) return softPendingLiveSettings(full);
+  return full;
+}
+
+function requireTaskLease(taskId: string): void {
+  if (!acquireTaskLease(taskId)) {
+    throw Object.assign(new Error(TASK_LEASE_BUSY_ERROR), { status: 409 });
+  }
+}
+
+/** Accepting a prompt must show as working before compaction / agent_start. */
+export function markTaskWorkingIfIdle(taskId: string): boolean {
+  const task = getTask(taskId);
+  if (!task || task.status === "working") return false;
+  if (!acquireTaskLease(taskId)) return false;
+  setTaskStatus(taskId, "working");
+  return true;
+}
+
+async function sendPromptWithReasoningFallback(
+  activeLive: LiveRuntime,
+  sendPrompt: () => Promise<unknown>,
+  stillQueued: () => boolean,
+  restoreManualAbortIfPromptNeverStarted: () => void,
+): Promise<void> {
+  try {
+    await sendPrompt();
+  } catch (error) {
+    if (!stillQueued()) return;
+    // 一部モデル（o系/gpt-5-pro 等）は思考オフ不可の 400 を返す。
+    // 思考レベルを引き上げて同じプロンプトを一度だけ再試行する。
+    // The retry rule lives in backend core: only a mandatory-reasoning 400, and only once.
+    if (!shouldRetryWithReasoningFallback({
+      isReasoningMandatory: isReasoningMandatoryError(error),
+      alreadyTried: activeLive.reasoningFallbackTried === true,
+    })) {
+      restoreManualAbortIfPromptNeverStarted();
+      throw error;
+    }
+    activeLive.reasoningFallbackTried = true;
+    const level = reasoningFallbackLevel(activeLive.session.model);
+    if (activeLive.session.thinkingLevel !== level)
+      activeLive.session.setThinkingLevel(level);
+    patchTask(activeLive.taskId, { thinkingLevel: level });
+    emitTaskSnapshot(activeLive, "thinking_level_changed", {
+      thinkingLevel: level,
+    });
+    if (!stillQueued()) {
+      restoreManualAbortIfPromptNeverStarted();
+      return;
+    }
+    try {
+      await sendPrompt();
+    } catch (retryError) {
+      restoreManualAbortIfPromptNeverStarted();
+      throw retryError;
+    }
+  }
+}
+
+async function waitForSteerStreamIfNeeded(
+  currentLive: LiveRuntime,
+  live: LiveRuntime,
+  streamingBehavior: "steer" | "followUp" | undefined,
+  stillQueued: () => boolean,
+  demoteInterruptToNormalPrompt: () => void,
+): Promise<LiveRuntime | null> {
+  // The wait rule lives in backend core: only a steer aimed at a not-yet-streaming turn waits.
+  if (!shouldWaitForSteerStreamBeforeSend({
+    hasStreamingBehavior: Boolean(streamingBehavior),
+    isStreaming: currentLive.session.isStreaming,
+  })) return currentLive;
+  if (
+    !shouldWaitForSteerStream({
+      isStreaming: currentLive.session.isStreaming,
+      promptActive: currentLive.promptActive,
+    })
+  ) {
+    demoteInterruptToNormalPrompt();
+    return null;
+  }
+  // prompt_accepted makes working=true before the SDK stream opens; wait
+  // so steer is not serialized onto promptChain as a post-turn prompt.
+  const started = await waitForSessionStreaming(
+    () => (state().live.get(live.taskId) ?? live).session.isStreaming,
+    () =>
+      stillQueued() &&
+      Boolean((state().live.get(live.taskId) ?? live).promptActive),
+  );
+  if (!stillQueued()) return null;
+  if (!started) {
+    demoteInterruptToNormalPrompt();
+    return null;
+  }
+  return state().live.get(live.taskId) ?? live;
+}
+
+async function preparePromptLiveForSend(
+  activeLive: LiveRuntime,
+  meta:
+    | {
+        subagentPermission?: "allow" | "deny";
+        streamingBehavior?: "steer" | "followUp";
+      }
+    | undefined,
+  stillQueued: () => boolean,
+  demoteInterruptToNormalPrompt: () => void,
+): Promise<ReturnType<typeof resolveStreamingBehaviorForPrompt> | null> {
+  const activeCompaction = activeLive.autoCompactionPromise;
+  if (activeCompaction) await activeCompaction;
+  if (!stillQueued()) return null;
+  // The apply/demote rules live in backend core; the session calls stay here.
+  if (shouldApplyPromptSubagentPermission({
+    hasOption: meta?.subagentPermission !== undefined,
+    isBot: getTask(activeLive.taskId)?.kind === "bot",
+  })) {
+    applySubagentPermission(
+      activeLive.session,
+      meta?.subagentPermission ?? readCodeSubagentPermission(),
+    );
+  }
+  applySessionCompactionSettings(activeLive.session);
+  const finalBehavior = resolveStreamingBehaviorForPrompt(
+    meta?.streamingBehavior,
+    activeLive.session.isStreaming,
+  );
+  if (shouldDemoteInterrupt({
+    hasStreamingBehavior: Boolean(meta?.streamingBehavior),
+    finalBehavior,
+  })) {
+    demoteInterruptToNormalPrompt();
+    return null;
+  }
+  return finalBehavior;
+}
+
+function queuePrompt(
+  live: LiveRuntime,
+  prompt: string,
+  images?: PromptImage[],
+  meta?: {
+    files?: PromptFileInput[];
+    agent?: string;
+    subagentPermission?: "allow" | "deny";
+    permissionMode?: "allow" | "ask" | "deny";
+    isHangRetry?: boolean;
+    /** Internal provider-limit resume prompt; persist as a hidden custom message. */
+    isProviderFallback?: boolean;
+    /** Internal WebSocket recovery prompt; persist as a hidden custom message. */
+    isTransportRecovery?: boolean;
+    streamingBehavior?: "steer" | "followUp";
+    codeResult?: CodeRequest;
+    codeRequestId?: string;
+    /** Queue without replacing an in-flight hang-watch resume prompt. */
+    skipHangRearm?: boolean;
+  },
+): Promise<void> {
+  assertAutoUpdateAvailable();
+  const hadActivePrompt = live.promptActive || live.session.isStreaming || live.session.isCompacting;
+  if (!meta?.isTransportRecovery) live.transportRecoveryAttempted = false;
+  const pendingSettingsAtQueue = copyPendingLiveSettings(live.pendingSettings);
+  const isHangRetry =
+    meta?.isHangRetry === true || prompt.startsWith(HANG_RETRY_PREFIX);
+  // Do not clear manualAbortedAssistantId until the turn actually starts.
+  // Clearing at queue time drops the early-abort "" sentinel when this prompt
+  // is later abandoned (stale epoch) or fails before producing history.
+  if (!isHangRetry && !meta?.streamingBehavior) {
+    persistHangRetryCount(live.taskId, 0);
+  }
+  const armHangWatchForPrompt = () => {
+    armTaskHangWatch({
+      taskId: live.taskId,
+      prompt,
+      images,
+      ...(meta?.files?.length ? { files: meta.files } : {}),
+      ...(meta?.agent ? { agent: meta.agent } : {}),
+      ...(meta?.subagentPermission
+        ? { subagentPermission: meta.subagentPermission }
+        : {}),
+      ...(meta?.permissionMode ? { permissionMode: meta.permissionMode } : {}),
+      ...(meta?.isProviderFallback ? { isProviderFallback: true } : {}),
+      ...(meta?.isTransportRecovery ? { isTransportRecovery: true } : {}),
+      isHangRetry,
+    });
+  };
+  // Steer/follow-up must not replace the hang-watch resume prompt, and an internal Code
+  // result is never replayed as user input. The action rule lives in backend core.
+  const hangWatchAction = resolveHangWatchQueueAction({
+    hasStreamingBehavior: Boolean(meta?.streamingBehavior),
+    isCodeResult: Boolean(meta?.codeResult),
+    skipRearm: Boolean(meta?.skipHangRearm),
+  });
+  if (hangWatchAction === "arm") armHangWatchForPrompt();
+  if (hangWatchAction === "disarm") disarmTaskHangWatch(live.taskId);
+  let activeLive = live;
+  const startedEpoch = live.promptEpoch;
+  const stillQueued = () => {
+    const currentLive = state().live.get(live.taskId) ?? live;
+    return !live.leaseLost && !currentLive.leaseLost && !isStaleHarnessPrompt(startedEpoch, currentLive.promptEpoch);
+  };
+  const demoteInterruptToNormalPrompt = () => {
+    // Stream ended (or never opened) while the client still looked "working".
+    // Run as the next serial turn instead of silently dropping the text.
+    // Do not re-arm hang-watch at queue time — that would overwrite the
+    // in-flight turn's resume prompt with this interrupt text.
+    queuePrompt(live, prompt, images, {
+      ...(meta?.files?.length ? { files: meta.files } : {}),
+      ...(meta?.agent ? { agent: meta.agent } : {}),
+      ...(meta?.subagentPermission
+        ? { subagentPermission: meta.subagentPermission }
+        : {}),
+      ...(meta?.permissionMode ? { permissionMode: meta.permissionMode } : {}),
+      ...(meta?.isHangRetry ? { isHangRetry: true } : {}),
+      ...(meta?.isProviderFallback ? { isProviderFallback: true } : {}),
+      ...(meta?.isTransportRecovery ? { isTransportRecovery: true } : {}),
+      skipHangRearm: true,
+    });
+  };
+  const runPrompt = async () => {
+    if (!stillQueued()) return;
+    // A demoted interrupt arms the watch here, once the serial turn actually starts.
+    if (shouldArmHangWatchAtSend({ skipRearm: Boolean(meta?.skipHangRearm) })) armHangWatchForPrompt();
+    const pendingCompaction = live.autoCompactionPromise;
+    if (pendingCompaction) await pendingCompaction;
+    if (!stillQueued()) return;
+    let currentLive = state().live.get(live.taskId) ?? live;
+    const waitedLive = await waitForSteerStreamIfNeeded(
+      currentLive,
+      live,
+      meta?.streamingBehavior,
+      stillQueued,
+      demoteInterruptToNormalPrompt,
+    );
+    if (!waitedLive) return;
+    currentLive = waitedLive;
+    const streamingBehavior = resolveStreamingBehaviorForPrompt(
+      meta?.streamingBehavior,
+      currentLive.session.isStreaming,
+    );
+    const pendingSettings = pendingSettingsForPrompt(
+      streamingBehavior,
+      hadActivePrompt,
+      live,
+      pendingSettingsAtQueue,
+    );
+    activeLive = pendingSettings
+      ? await prepareLiveForPrompt(live, !streamingBehavior, pendingSettings)
+      : await prepareLiveForPrompt(live, !streamingBehavior);
+    if (!stillQueued()) return;
+    const finalBehavior = await preparePromptLiveForSend(
+      activeLive,
+      meta,
+      stillQueued,
+      demoteInterruptToNormalPrompt,
+    );
+    if (finalBehavior === null) return;
+    const options = buildPromptOptions({
+      images,
+      streamingBehavior: finalBehavior,
+      isStreaming: activeLive.session.isStreaming,
+      isHangRetry,
+    });
+    const previousManualAbort =
+      (state().live.get(live.taskId) ?? activeLive).manualAbortedAssistantId ?? null;
+    const previousRevert = getTask(live.taskId)?.revertLeafId ?? null;
+    // Commit the new branch only at send time, not while a queued request can still be cancelled.
+    persistRevertLeafId(live.taskId, null);
+    persistManualAbortedAssistantId(live.taskId, null);
+    const restoreManualAbortIfPromptNeverStarted = () => {
+      // Abort bumped the epoch and wrote its own sentinel — leave it alone.
+      if (!stillQueued()) return;
+      persistManualAbortedAssistantId(live.taskId, previousManualAbort);
+      persistRevertLeafId(live.taskId, previousRevert);
+    };
+    const promptToSend = meta?.files?.length
+      ? formatPromptWithFiles(prompt, meta.files, { storeOversized: storePromptFileContent })
+      : prompt;
+    const sendCustomTurn = (
+      message: Parameters<AgentSession["sendCustomMessage"]>[0],
+    ) => {
+      refreshRuntimeClock(activeLive.session);
+      return activeLive.session.sendCustomMessage({
+        ...message,
+        content: customPromptWithRuntimeClock(promptToSend),
+      }, { triggerTurn: true });
+    };
+    // Which internal kind this turn is (and its hidden custom type) is decided in core.
+    const sendKind = resolvePromptSendKind({
+      isCodeResult: Boolean(meta?.codeResult),
+      isProviderFallback: Boolean(meta?.isProviderFallback),
+      isTransportRecovery: Boolean(meta?.isTransportRecovery),
+    });
+    const sendCustomType = promptSendCustomType(sendKind, {
+      codeResult: BOT_CODE_RESULT,
+      providerFallback: PROVIDER_FALLBACK_CUSTOM_TYPE,
+      transportRecovery: PROVIDER_TRANSPORT_RECOVERY_CUSTOM_TYPE,
+    });
+    const sendPrompt = () => sendCustomType
+      ? sendCustomTurn({
+          customType: sendCustomType,
+          content: promptToSend,
+          display: false,
+          ...(sendKind === "code-result" && meta?.codeResult
+            ? { details: { requestId: meta.codeResult.id, codeTaskId: meta.codeResult.codeTaskId } }
+            : {}),
+        })
+      : activeLive.session.prompt(promptToSend, options);
+    await sendPromptWithReasoningFallback(
+      activeLive,
+      sendPrompt,
+      stillQueued,
+      restoreManualAbortIfPromptNeverStarted,
+    );
+  };
+  const handlePromptError = (error: unknown) => {
+    if (!stillQueued()) return;
+    const message = error instanceof Error ? error.message : String(error);
+    const currentLive = state().live.get(live.taskId) ?? activeLive;
+    // A deliberate abort already recorded its outcome; the rule lives in backend core.
+    if (shouldIgnorePromptError({
+      isAbortMessage: isAbortErrorMessage(message),
+      hasManualAbort: currentLive.manualAbortedAssistantId !== null,
+    })) {
+      return;
+    }
+    setTaskStatus(live.taskId, "error", message);
+    releaseTaskLease(live.taskId);
+    // The task can be deleted while a prompt is failing; there is no snapshot to emit then.
+    const task = getTask(live.taskId);
+    if (!task) return;
+    emit(live.taskId, {
+      type: "snapshot",
+      task: toSummary(task),
+      ...sessionSnapshotFields(
+        currentLive.session,
+        currentLive.throughputByStartedAt,
+        currentLive.toolStartedAt,
+        currentLive.toolEndedAt,
+        currentLive.toolPartialOutputByCallId,
+        { accountId: currentLive.accountId, byMessageId: currentLive.accountByMessageId },
+      ),
+      isStreaming: false,
+      eventType: "error",
+      error: message,
+    });
+  };
+  // A steering request must reach the SDK while the current turn is still
+  // streaming. Bypass the serial chain even before isStreaming flips true —
+  // runPrompt waits for the stream so we do not enqueue a post-turn prompt.
+  if (shouldBypassPromptChain(meta?.streamingBehavior)) {
+    return runPrompt().catch(handlePromptError);
+  }
+  live.promptActive = true;
+  live.promptQueueDepth = (live.promptQueueDepth ?? 0) + 1;
+  if (markTaskWorkingIfIdle(live.taskId)) {
+    emitTaskSnapshot(live, "prompt_accepted");
+  }
+  const promptChain = live.promptChain
+    .then(runPrompt)
+    .catch(handlePromptError)
+    .finally(async () => {
+      live.promptQueueDepth = Math.max(0, (live.promptQueueDepth ?? 1) - 1);
+      if (activeLive !== live) activeLive.promptQueueDepth = live.promptQueueDepth;
+      const codeRequestId = meta?.codeRequestId;
+      if (codeRequestId && shouldCompleteCodeRequestAfterPrompt({
+        hasCodeRequestId: true,
+        hangWatchState: getTaskHangWatch(live.taskId)?.state,
+      })) {
+        try { await botCodeRelay().complete(codeRequestId); }
+        catch (error) { console.warn("[bot-code-relay] result capture deferred", error); }
+      }
+      // A queued prompt or a route switch may replace this live object's
+      // prompt chain while the current promise is running.
+      if (live.promptChain === promptChain) {
+        live.promptActive = false;
+      }
+      if (activeLive !== live && activeLive.promptChain === promptChain) {
+        activeLive.promptActive = false;
+      }
+      // Room turn ended → promote mailbox rows that were queued while Room-busy.
+      const roomBotId = roomBotIdFromTaskId(live.taskId);
+      if (roomBotId) {
+        try {
+          flushQueuedBotIntercom(roomBotId);
+        } catch (error) {
+          console.warn("[bot-intercom] flush after Room turn failed", error);
+        }
+      }
+    });
+  live.promptChain = promptChain;
+  return promptChain;
+}
+
+/** 直前の user プロンプトが Bot 送信だったか。再開（再送）は送信者も引き継ぐ。 */
+function lastPromptWasBotSent(live: LiveRuntime): boolean {
+  const messages = live.session.messages;
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    const text = rawUserMessageText(messages[index]);
+    if (text) return isBotPromptText(text);
+  }
+  return false;
+}
+
+function shouldForwardBotCodePrompt(task: TaskSummary): boolean {
+  const botId = task.botId ?? task.supervisorBotId;
+  // The forwarding rule lives in backend core; the Bot record and lease stay here.
+  return coreShouldForwardBotCodePrompt({
+    isBot: task.kind === "bot",
+    botId,
+    botEnabled: botId ? getBot(botId)?.enabled : undefined,
+    leaseHeldElsewhere: isTaskRuntimeOwnedElsewhere(task),
+  });
+}
+
+/** True when another worker holds the runtime lease for this task (any kind). */
+export function isTaskRuntimeOwnedElsewhere(task: TaskSummary): boolean {
+  return hasActiveTaskLease(task.id) && !ownsTaskLease(task.id);
+}
+
+function promptSelectionOptionsForWorker(
+  options: Parameters<typeof promptTask>[3] | undefined,
+): CodePromptOptions {
+  return {
+    ...(options?.agent !== undefined ? { agent: options.agent } : {}),
+    ...(options?.model !== undefined ? { model: options.model } : {}),
+    ...(options?.thinkingLevel !== undefined ? { thinkingLevel: options.thinkingLevel } : {}),
+    ...(options?.subagentPermission !== undefined ? { subagentPermission: options.subagentPermission } : {}),
+    ...(options?.permissionMode !== undefined ? { permissionMode: options.permissionMode } : {}),
+    ...(options?.skillPermission !== undefined ? { skillPermission: options.skillPermission } : {}),
+    ...(options?.streamingBehavior !== undefined ? { streamingBehavior: options.streamingBehavior } : {}),
+    ...(options?.interruptIfSafe !== undefined ? { interruptIfSafe: options.interruptIfSafe } : {}),
+    ...(options?.accountIdExplicit !== undefined ? { accountIdExplicit: options.accountIdExplicit } : {}),
+    ...(options?.resume !== undefined ? { resume: options.resume } : {}),
+    // 送信者は本文ではなくフラグで引き継ぐ（受け側ワーカーで再度マーカーを付け直す）。
+    ...(options?.fromBot ? { fromBot: true as const } : {}),
+  };
+}
+
+function promptOptionsForWorker(
+  images: PromptImage[] | undefined,
+  options: Parameters<typeof promptTask>[3] | undefined,
+): CodePromptOptions {
+  return {
+    ...(images?.length ? { images } : {}),
+    ...(options?.files?.length ? { files: options.files } : {}),
+    ...promptSelectionOptionsForWorker(options),
+  };
+}
+
+function requireTask(id: string): TaskSummary {
+  const task = getTask(id);
+  if (!task) throw Object.assign(new Error("タスクが見つかりません"), { status: 404 });
+  return task;
+}
+
+/** Settings supply Code permissions unless an internal caller pins them. */
+function withCodePermissionSettings(
+  task: TaskSummary,
+  options: Parameters<typeof promptTask>[3],
+): NonNullable<Parameters<typeof promptTask>[3]> {
+  // Applying to a cold task would open its session before ensureLive receives
+  // the Auto fallback hints; ensureLive applies Settings to new sessions itself.
+  const updates = state().live.has(task.id) ? codePermissionUpdates(task) : {};
+  // The merge rule (pinned option wins, Settings fill the gap only for a live session)
+  // lives in backend core.
+  const filled = resolvePromptPermissionOptions({
+    hasLive: state().live.has(task.id),
+    optionPermissionMode: options?.permissionMode,
+    optionSkillPermission: options?.skillPermission,
+    updatedPermissionMode: updates.permissionMode,
+    updatedSkillPermission: updates.skillPermission,
+  });
+  return {
+    ...options,
+    ...(filled.permissionMode ? { permissionMode: filled.permissionMode as "allow" | "ask" | "deny" } : {}),
+    ...(filled.skillPermission ? { skillPermission: filled.skillPermission as SkillPermission } : {}),
+  };
+}
+
+async function applyPromptPermissions(
+  id: string,
+  options: NonNullable<Parameters<typeof promptTask>[3]> | undefined,
+): Promise<void> {
+  if (options?.permissionMode !== undefined) {
+    await setTaskPermissionMode(id, options.permissionMode);
+  }
+  if (options?.skillPermission !== undefined) {
+    await setTaskSkillPermission(id, options.skillPermission);
+  }
+}
+
+async function applyPromptModelSelection(
+  id: string,
+  task: TaskSummary,
+  options: NonNullable<Parameters<typeof promptTask>[3]> | undefined,
+): Promise<boolean> {
+  let modelChanged = false;
+  if (options?.model) {
+    const requested = parseModelValue(options.model);
+    const requestedAccountExplicit =
+      options.accountIdExplicit ?? Boolean(requested?.accountId);
+    // The rewrite decision lives in backend core; the store write stays here.
+    const needsWrite = shouldApplyPromptModelSelection({
+      hasOption: true,
+      matches: taskMatchesRequestedModel(task, requested, requestedAccountExplicit),
+    });
+    if (needsWrite) {
+      try {
+        await setTaskModel(id, options.model, {
+          accountIdExplicit: options.accountIdExplicit,
+        });
+        modelChanged = true;
+      } catch (error) {
+        if (options.resume !== true || !isRecoverableResumeSelectionError(error)) {
+          throw error;
+        }
+      }
+    }
+  }
+  return modelChanged;
+}
+
+async function applyPromptThinkingLevel(
+  id: string,
+  task: TaskSummary,
+  options: NonNullable<Parameters<typeof promptTask>[3]> | undefined,
+  modelChanged: boolean,
+): Promise<void> {
+  // The rewrite decision lives in backend core; the store write stays here.
+  const level = options?.thinkingLevel;
+  if (shouldApplyPromptThinkingLevel({
+    hasOption: Boolean(level),
+    modelChanged,
+    taskLevel: task.thinkingLevel,
+    optionLevel: level,
+  })) {
+    await setTaskThinkingLevel(id, level as ThinkingLevel);
+  }
+}
+
+/**
+ * Apply the Composer's agent/model/effort selections and the Code permissions
+ * before the turn is queued, and return the task snapshot the caller should keep using.
+ */
+async function applyPromptSelections(
+  id: string,
+  options: NonNullable<Parameters<typeof promptTask>[3]> | undefined,
+): Promise<TaskSummary> {
+  if (options?.agent !== undefined) {
+    const current = requireTask(id);
+    if (options.agent.trim() !== (current.agent?.trim() ?? "")) {
+      await setTaskAgent(id, options.agent);
+    }
+  }
+  const task = requireTask(id);
+  // エージェント定義のmodel/thinkingはサブエージェント起動専用。
+  // メイン対話者として直接選択した場合はComposerのモデル/Effortを使う。
+  const modelChanged = await applyPromptModelSelection(id, task, options);
+  await applyPromptThinkingLevel(id, task, options, modelChanged);
+  await applyPromptPermissions(id, options);
+  return task;
+}
+
+/** Abort only low-impact work. Do not use user Stop: it also cancels queues,
+ * preparations, Goal Loop and background subagents, none of which this action owns. */
+export async function interruptLiveForSteer(live: LiveRuntime): Promise<boolean> {
+  if (live.immediateInterruptInProgress) {
+    throw Object.assign(new Error("割り込み処理中です。完了してから再試行してください"), { status: 409 });
+  }
+  const previousWatch = getTaskHangWatch(live.taskId);
+  if (!canInterruptForSteer({
+    // Session isStreaming also covers retry/settle hooks; only cancel the active
+    // agent loop, not arbitrary post-run extension work.
+    isStreaming: live.session.isStreaming && live.session.agent.state.isStreaming,
+    isCompacting: live.session.isCompacting,
+    blocked: Boolean(live.leaseLost || live.autoCompactionPromise || live.manualCompactionInProgress ||
+      live.goalLoopTurnActive || isLiveGoalLoopSession(live.session) || live.pendingProviderFallback ||
+      live.pendingTransportRecovery || providerFallbackInflight.has(live.taskId) ||
+      pendingPermissionForTask(live.taskId) || pendingQuestionForTask(live.taskId) ||
+      previousWatch?.state === "resolving"),
+    pendingMessageCount: live.session.pendingMessageCount,
+    // Older live entries can survive development hot reload; lack of tracking
+    // is unknown impact, not proof that no tools are running.
+    promptQueueDepth: live.promptQueueDepth ?? 2,
+    activeToolNames: live.activeToolNames ? [...live.activeToolNames.values()] : [""],
+  })) return false;
+  // No await between impact assessment and abort: a write cannot start in that gap.
+  live.immediateInterruptInProgress = true;
+  const previousAbort = live.manualAbortedAssistantId;
+  const previousEpoch = live.promptEpoch;
+  try {
+    persistManualAbortedAssistantId(live.taskId, "");
+    disarmTaskHangWatch(live.taskId);
+    cancelPendingTaskSnapshot(live);
+    await live.session.abort();
+    cancelPendingTaskSnapshot(live);
+    return true;
+  } catch (error) {
+    // A concurrent Stop/lease loss owns its own sentinel and watch teardown.
+    if (!live.leaseLost && live.promptEpoch === previousEpoch) {
+      persistManualAbortedAssistantId(live.taskId, previousAbort);
+      if (live.session.isStreaming) {
+        if (previousWatch) armTaskHangWatch({ ...previousWatch, isHangRetry: true });
+      } else {
+        setTaskStatus(live.taskId, "error", error instanceof Error ? error.message : String(error));
+        releaseTaskLease(live.taskId);
+        emitTaskSnapshot(live, "interrupt_error", { isStreaming: false });
+      }
+    }
+    throw error;
+  } finally {
+    live.immediateInterruptInProgress = false;
+  }
+}
+
+export async function promptTask(
+  id: string,
+  prompt: string,
+  images?: PromptImage[],
+  options?: {
+    files?: PromptFileInput[];
+    agent?: string;
+    model?: string;
+    thinkingLevel?: ThinkingLevel;
+    subagentPermission?: "allow" | "deny";
+    permissionMode?: "allow" | "ask" | "deny";
+    skillPermission?: SkillPermission;
+    streamingBehavior?: "steer" | "followUp";
+    /** User's explicit send-now action: interrupt only proven low-impact work. */
+    interruptIfSafe?: boolean;
+    accountIdExplicit?: boolean;
+    /** Resume may carry a stale model/account from the interrupted message. */
+    resume?: boolean;
+    /** Wait for this normal prompt's queue entry, including preparation and retries. */
+    waitForCompletion?: boolean;
+    /** Internal Bot delegation receipt, never accepted from HTTP request bodies. */
+    codeRequestId?: string;
+    /**
+     * Internal Bot-authored prompt (Bot panel / delegation), never accepted from HTTP request
+     * bodies. The Code timeline renders the sender as the Bot, not as the operator.
+     */
+    fromBot?: boolean;
+  },
+): Promise<TaskSummary> {
+  // A process that does not own the runtime must never start a session: after the cutover the Backend
+  // owns it, and a second owner would double-write the store, leases and sessions.
+  assertLocalRuntimeAllowed();
+  const preparation = beginTaskPreparation(id);
+  try {
+  const taskBeforePrompt = requireTask(id);
+  if (state().live.get(id)?.leaseLost) {
+    throw Object.assign(new Error(TASK_LEASE_BUSY_ERROR), { status: 409 });
+  }
+  // 送信者はサーバー側でだけ決める。HTTP 本文にマーカーが含まれていてもBot送信にはしない。
+  const promptText = options?.fromBot ? markBotPrompt(prompt) : stripBotPromptPrefix(prompt);
+  // Gate precedence (archived project → Bot-code forwarding → foreign lease) lives in
+  // backend core; each lookup stays here and runs only when the ladder reaches it.
+  const promptGate = resolvePromptGate({
+    projectArchived: () => {
+      if (!taskBeforePrompt.projectId) return false;
+      return Boolean(getProject(taskBeforePrompt.projectId)?.archived);
+    },
+    forwardToBotCode: () => shouldForwardBotCodePrompt(taskBeforePrompt),
+    leaseOwnedElsewhere: () => isTaskRuntimeOwnedElsewhere(taskBeforePrompt),
+  });
+  if (promptGate === "archived-project") {
+    throw Object.assign(
+      new Error("アーカイブ済みのプロジェクトではプロンプトを送信できません"),
+      { status: 409 },
+    );
+  }
+  if (promptGate === "forward-bot-code") {
+    startBotCodeRelay();
+    queueBotCodePrompt(
+      taskBeforePrompt.botId ?? taskBeforePrompt.supervisorBotId!,
+      taskBeforePrompt,
+      promptText,
+      promptOptionsForWorker(images, options),
+    );
+    return toSummary(taskBeforePrompt);
+  }
+  if (promptGate === "lease-busy") {
+    throw Object.assign(new Error(TASK_LEASE_BUSY_ERROR), { status: 409 });
+  }
+  // Settings changed in another worker (or while the task was closed) apply
+  // here. Only the selection step sees them: queued/hang-resume metadata keeps
+  // explicit values so a later resume re-reads Settings instead of pinning them.
+  const task = await applyPromptSelections(
+    id,
+    withCodePermissionSettings(taskBeforePrompt, options),
+  );
+  preparation.assertCurrent();
+  const live = await ensureLive(id, {
+    autoPrompt: promptText,
+    hasImages: Boolean(images?.length),
+    attachmentCount: (images?.length ?? 0) + (options?.files?.length ?? 0),
+  });
+  preparation.assertCurrent();
+  if (shouldApplyPromptSubagentPermission({
+    hasOption: options?.subagentPermission !== undefined,
+    isBot: task.kind === "bot",
+  })) {
+    applySubagentPermission(
+      live.session,
+      options?.subagentPermission ?? readCodeSubagentPermission(),
+    );
+  }
+  if (live.immediateInterruptInProgress) {
+    throw Object.assign(new Error("割り込み処理中です。完了してから再試行してください"), { status: 409 });
+  }
+  let streamingBehavior = options?.streamingBehavior;
+  if (streamingBehavior === "steer" && options?.interruptIfSafe === true) {
+    if (await interruptLiveForSteer(live)) streamingBehavior = undefined;
+    // A Stop/delete while abort was settling must not revive this instruction.
+    preparation.assertCurrent();
+  }
+  // 再開は直前プロンプトの再送。Bot送信のターンを操作者の送信に見せ替えない。
+  const resumedPromptText =
+    options?.resume && !options.fromBot && lastPromptWasBotSent(live)
+      ? markBotPrompt(promptText)
+      : promptText;
+  const completion = queuePrompt(live, resumedPromptText, images, {
+    files: options?.files,
+    agent: options?.agent,
+    subagentPermission: options?.subagentPermission,
+    permissionMode: options?.permissionMode,
+    streamingBehavior,
+    codeRequestId: options?.codeRequestId,
+  });
+  if (options?.waitForCompletion) await completion;
+  // The task can be deleted while the prompt runs; report 404 instead of crashing on a missing task.
+  return toSummary(requireTask(id));
+  } finally { preparation.release(); }
+}
+
+async function applyLiveSkillPermission(
+  live: LiveRuntime,
+  permission: SkillPermission,
+): Promise<void> {
+  if (permission === live.skillPermission) return;
+  const previous = live.skillPermissionRef.current;
+  live.skillPermissionRef.current = permission;
+  try {
+    await reloadSession(live.session);
+    live.skillPermission = permission;
+  } catch (error) {
+    live.skillPermissionRef.current = previous;
+    throw error;
+  }
+}
+
+export async function setTaskSkillPermission(
+  id: string,
+  permission: SkillPermission,
+): Promise<TaskSummary> {
+  return withTaskSessionMutation(id, async () => {
+  const live = await ensureLive(id);
+  const task = getTask(id);
+  if (!task)
+    throw Object.assign(new Error("タスクが見つかりません"), { status: 404 });
+  if (shouldDeferLiveSetting(live, task)) {
+    return deferLiveSetting(live, id, { skillPermission: permission }, { skillPermission: permission });
+  }
+  await applyLiveSkillPermission(live, permission);
+  const updated = patchTask(id, { skillPermission: permission });
+  if (!updated)
+    throw Object.assign(new Error("タスクが見つかりません"), { status: 404 });
+  return updated;
+  });
+}
+
+export async function setTaskPermissionMode(
+  id: string,
+  mode: "allow" | "ask" | "deny",
+): Promise<TaskSummary> {
+  return withTaskSessionMutation(id, async () => {
+  const live = await ensureLive(id);
+  const task = getTask(id);
+  if (!task)
+    throw Object.assign(new Error("タスクが見つかりません"), { status: 404 });
+  if (shouldDeferLiveSetting(live, task)) {
+    return deferLiveSetting(live, id, { permissionMode: mode }, { permissionMode: mode });
+  }
+  applyPermissionMode(live.session, mode);
+  const updated = patchTask(id, { permissionMode: mode });
+  if (!updated)
+    throw Object.assign(new Error("タスクが見つかりません"), { status: 404 });
+  return updated;
+  });
+}
+
+/**
+ * Apply the Settings Code permissions to Code sessions open in this worker. A
+ * running turn keeps its tools; the next turn (Goal Loop turns included) uses
+ * the new values. Other workers and closed tasks read Settings on their next prompt.
+ */
+export async function applyCodePermissionSettingsToLiveTasks(): Promise<void> {
+  const subagentPermission = readCodeSubagentPermission();
+  for (const live of [...state().live.values()]) {
+    const task = getTask(live.taskId);
+    if (!task || task.kind === "bot") continue;
+    try {
+      const updates = codePermissionUpdates(task);
+      if (updates.permissionMode) {
+        await setTaskPermissionMode(task.id, updates.permissionMode);
+      }
+      if (updates.skillPermission) {
+        await setTaskSkillPermission(task.id, updates.skillPermission);
+      }
+      const current = state().live.get(task.id);
+      if (!current) continue;
+      if (shouldDeferLiveSetting(current, getTask(task.id) ?? task)) {
+        current.pendingSettings = { ...current.pendingSettings, subagentPermission };
+      } else {
+        applySubagentPermission(current.session, subagentPermission);
+      }
+    } catch (error) {
+      console.warn(
+        `[code-permissions] ${task.id}:`,
+        error instanceof Error ? error.message : String(error),
+      );
+    }
+  }
+}
+
+/** Apply the Bot's persisted tool allowlist to an already-created session. */
+export function applyBotTools(
+  session: AgentSession,
+  tools: readonly string[],
+): void {
+  // The loader must use the last applied permissions, not a stale creation
+  // snapshot or settings that are still pending while the Bot is busy.
+  (state().botToolAllowlists ??= new WeakMap()).set(session, [...tools]);
+  if (
+    typeof session.setActiveToolsByName !== "function" ||
+    typeof session.getActiveToolNames !== "function"
+  ) {
+    return;
+  }
+  session.setActiveToolsByName(botActiveToolNames(session.getActiveToolNames(), tools));
+}
+
+function botActiveToolNames(active: readonly string[], tools: readonly string[]): string[] {
+  const knownBotTools = new Set<string>(BOT_TOOL_NAMES);
+  const requested = [...new Set(
+    tools.filter(
+      (tool) => knownBotTools.has(tool) &&
+        (tool !== "powershell" || process.platform === "win32"),
+    ),
+  )];
+  const preserved = active.filter((tool) => !knownBotTools.has(tool) &&
+    !(COMPUTER_USE_TOOL_NAMES as readonly string[]).includes(tool));
+  return [...new Set([...preserved, ...requested])];
+}
+
+/**
+ * Update every live session belonging to a Bot. Busy sessions defer via
+ * pendingSettings (same as permission/model); cold sessions read Bot config
+ * on next createSession.
+ */
+export function setBotTools(botId: string, tools: readonly string[]): void {
+  const nextTools = [...tools];
+  for (const live of state().live.values()) {
+    const task = getTask(live.taskId);
+    if (task?.kind !== "bot" || task.botId !== botId) continue;
+    if (shouldDeferLiveSetting(live, task)) {
+      live.pendingSettings = { ...live.pendingSettings, botTools: nextTools };
+      emitTaskSnapshot(live, "settings_pending");
+      continue;
+    }
+    applyBotTools(live.session, nextTools);
+  }
+}
+
+/** Apply a setting to the 1:1 Bot task and every live Room conversation for that Bot. */
+async function applyBotSettingToLiveTasks(
+  botId: string,
+  apply: (taskId: string) => Promise<unknown>,
+): Promise<void> {
+  const ids = new Set<string>([botTaskId(botId)]);
+  for (const live of state().live.values()) {
+    const task = getTask(live.taskId);
+    if (task?.kind === "bot" && task.botId === botId) ids.add(live.taskId);
+  }
+  for (const taskId of ids) await apply(taskId);
+}
+
+/** Patch idle Room Bot task records without ensureLive (avoids spinning cold sessions). */
+function patchColdBotSiblingTasks(
+  botId: string,
+  patch: Parameters<typeof patchTask>[1],
+): void {
+  const primaryId = botTaskId(botId);
+  for (const task of listTasks(false, "bot")) {
+    if (task.botId !== botId || task.id === primaryId) continue;
+    if (state().live.get(task.id)) continue;
+    patchTask(task.id, patch);
+  }
+}
+
+export async function setBotPermissionMode(
+  botId: string,
+  mode: "allow" | "ask" | "deny",
+): Promise<void> {
+  await applyBotSettingToLiveTasks(botId, (taskId) => setTaskPermissionMode(taskId, mode));
+  patchColdBotSiblingTasks(botId, { permissionMode: mode });
+}
+
+export async function setBotModel(botId: string, model: string): Promise<TaskSummary> {
+  let primary: TaskSummary | undefined;
+  await applyBotSettingToLiveTasks(botId, async (taskId) => {
+    const updated = await setTaskModel(taskId, model);
+    if (taskId === botTaskId(botId)) primary = updated;
+  });
+  const summary = primary ?? (await setTaskModel(botTaskId(botId), model));
+  patchColdBotSiblingTasks(botId, {
+    providerID: summary.providerID,
+    modelID: summary.modelID,
+    thinkingLevel: summary.thinkingLevel,
+    accountId: summary.accountId,
+    accountIdExplicit: summary.accountIdExplicit,
+  });
+  return summary;
+}
+
+export async function setBotThinkingLevel(botId: string, level: string): Promise<TaskSummary> {
+  let primary: TaskSummary | undefined;
+  await applyBotSettingToLiveTasks(botId, async (taskId) => {
+    const updated = await setTaskThinkingLevel(taskId, level);
+    if (taskId === botTaskId(botId)) primary = updated;
+  });
+  const summary = primary ?? (await setTaskThinkingLevel(botTaskId(botId), level));
+  patchColdBotSiblingTasks(botId, { thinkingLevel: summary.thinkingLevel });
+  return summary;
+}
+
+/**
+ * 既存セッションの active tools を更新し、サブエージェント許可を機械的に強制する。
+ * 禁止時は `subagent` ツールを除外、許可時は追加する。
+ */
+export function applySubagentPermission(
+  session: AgentSession,
+  permission: "allow" | "deny" | undefined,
+): void {
+  const effective = permission ?? "deny";
+  updateCodeSubagentPolicy(session, effective);
+  if (
+    typeof session.setActiveToolsByName !== "function" ||
+    typeof session.getActiveToolNames !== "function"
+  ) {
+    return;
+  }
+  const current = session.getActiveToolNames();
+  const hasSubagent = current.includes("subagent");
+  if (effective === "allow" && !hasSubagent) {
+    session.setActiveToolsByName([...current, "subagent"]);
+  } else if (effective === "deny" && hasSubagent) {
+    // Rewriting the loadout deactivates a tool, which the SDK answers with a pending-name reset.
+    preservingPendingToolNames(session, "subagent", () => {
+      session.setActiveToolsByName(current.filter((tool) => tool !== "subagent"));
+    });
+  }
+}
+
+/** Stop detached async children after requesting the parent Pi turn abort. */
+async function stopSubagentRunsForTask(
+  live: LiveRuntime,
+  messages: UiMessage[],
+): Promise<void> {
+  const command = live.session.extensionRunner.getCommand("subagents-stop");
+  if (!command) return;
+  let sinceMs: number | undefined;
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    const message = messages[index];
+    if (message?.role === "user") {
+      // Artifact mtime and message timestamps can differ slightly on Windows.
+      sinceMs = Math.max(0, message.createdAt - 5_000);
+      break;
+    }
+  }
+  try {
+    const runs = listSubagentRuns({
+      sessionFile: live.session.sessionFile,
+      cwd: live.session.sessionManager.getCwd(),
+      ...(sinceMs !== undefined ? { sinceMs } : {}),
+    });
+    const result = await stopRunningSubagentRuns(runs, async (runId) =>
+      command.handler(
+        runId,
+        live.session.extensionRunner.createCommandContext(),
+      ),
+    );
+    if (result.failed.length > 0) {
+      console.warn(
+        `[subagent] failed to stop runs: ${result.failed.join(", ")}`,
+      );
+    }
+  } catch (error) {
+    // Parent abort must remain available even when an artifact or extension is unavailable.
+    const reason = error instanceof Error ? error.message : String(error);
+    console.warn(`[subagent] failed to enumerate running children: ${reason}`);
+  }
+}
+
+/** Fully stop an active Goal Loop while aborting its current Pi request.
+ *  The main task "停止" button must terminate the loop (not merely pause it),
+ *  so it matches the GoalLoopPanel "停止" action and the button label. */
+async function stopGoalLoopForTask(live: LiveRuntime): Promise<void> {
+  const loop = readGoalLoopState(
+    live.session.sessionManager.getCwd(),
+    live.session.sessionId,
+  );
+  if (!isGoalLoopSessionOwned(loop)) return;
+
+  const command = live.session.extensionRunner.getCommand("goal-stop");
+  if (!command) throw Object.assign(new Error("Goal Loop の停止コマンドが利用できません"), { status: 409 });
+  await command.handler("", live.session.extensionRunner.createCommandContext());
+  const stopped = readGoalLoopState(live.session.sessionManager.getCwd(), live.session.sessionId);
+  if (!isGoalLoopCommandApplied("stop", stopped)) {
+    throw Object.assign(new Error("Goal Loop の停止状態を保存できませんでした"), { status: 409 });
+  }
+}
+
+function cancelHarnessPrompt(live: LiveRuntime): void {
+  live.promptEpoch = nextPromptEpoch(live.promptEpoch);
+  live.promptActive = false;
+  live.pendingTransportRecovery = false;
+}
+
+/** Stop this process's local Pi session without changing the now-foreign task state. */
+export function abortTaskSessionsAfterLeaseLoss(taskIds: string[]): void {
+  for (const taskId of new Set(taskIds)) {
+    const live = state().live.get(taskId);
+    if (!live || live.leaseLost) continue;
+    live.leaseLost = true;
+    releaseTaskLease(taskId);
+    invalidateTaskPreparations(taskId);
+    disarmTaskHangWatch(taskId);
+    clearPendingAttentionForTask(taskId);
+    cancelHarnessPrompt(live);
+    clearSessionQueue(live.session);
+    cancelPendingTaskSnapshot(live);
+    try {
+      live.session.abortBash?.();
+    } catch (error) {
+      console.warn(`[task-runtime-lease] local bash abort failed for ${taskId}`, error);
+    }
+    const detachLostLive = () => {
+      if (state().live.get(taskId) !== live) return;
+      try {
+        // Mailbox flush and extension shutdown can write shared state after ownership was lost.
+        disposeLive(taskId, { skipRoomFlush: true, skipExtensionShutdown: true });
+      } catch (error) {
+        console.warn(`[task-runtime-lease] local session dispose failed for ${taskId}`, error);
+      }
+    };
+    try {
+      void Promise.resolve(live.session.abort()).then(
+        detachLostLive,
+        (error) => {
+          console.warn(`[task-runtime-lease] local session abort failed for ${taskId}`, error);
+          detachLostLive();
+        },
+      );
+    } catch (error) {
+      console.warn(`[task-runtime-lease] local session abort failed for ${taskId}`, error);
+      detachLostLive();
+    }
+  }
+}
+
+/** Pi aborts the running turn with a message like "Request was aborted". */
+function isAbortErrorMessage(message: string): boolean {
+  return /abort/i.test(message);
+}
+
+/** True when this session's Goal Loop was already stopped, so an abort is the user's own stop. */
+function goalLoopIsStopped(live: LiveRuntime): boolean {
+  try {
+    return readGoalLoopState(live.session.sessionManager.getCwd(), live.session.sessionId)?.status === "stopped";
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Drop a throttled snapshot/delta without flushing. Abort already emits a
+ * final idle snapshot; flushing the pending timer afterward can re-send a
+ * pre-abort isStreaming:true delta.
+ */
+export function cancelPendingTaskSnapshot(live: {
+  snapshotTimer: ReturnType<typeof setTimeout> | null;
+  pendingSnapshotEventType: string | null;
+  pendingSnapshotIsDelta: boolean;
+  pendingSnapshotExtra: Record<string, unknown> | undefined;
+}): boolean {
+  if (!live.snapshotTimer) {
+    live.pendingSnapshotEventType = null;
+    live.pendingSnapshotExtra = undefined;
+    live.pendingSnapshotIsDelta = false;
+    return false;
+  }
+  clearTimeout(live.snapshotTimer);
+  live.snapshotTimer = null;
+  live.pendingSnapshotEventType = null;
+  live.pendingSnapshotExtra = undefined;
+  live.pendingSnapshotIsDelta = false;
+  return true;
+}
+
+export const nextPromptEpoch = corePromptControl.nextPromptEpoch;
+export const isStaleHarnessPrompt = corePromptControl.isStaleHarnessPrompt;
+
+export async function abortTask(id: string): Promise<TaskSummary> {
+  invalidateTaskPreparations(id);
+  // Ordering lives in backend core; every side effect stays owned by the harness
+  // and is resolved at call time so module mocks and hot reloads keep working.
+  return runUserAbort(id, {
+    disarmHangWatch: (taskId) => disarmTaskHangWatch(taskId),
+    clearPendingAttention: (taskId) => clearPendingAttentionForTask(taskId),
+    getLive: (taskId) => state().live.get(taskId),
+    clearSessionQueue: (live) => clearSessionQueue(live.session),
+    cancelPrompt: (live) => cancelHarnessPrompt(live),
+    cancelPendingSnapshot: (live) => cancelPendingTaskSnapshot(live),
+    persistManualAbortedAssistantId: (taskId, assistantId) =>
+      persistManualAbortedAssistantId(taskId, assistantId),
+    abortSession: (live) => live.session.abort(),
+    cancelScheduledResume: async (live) => {
+      const runner = live.session.extensionRunner;
+      const cancelResume = runner?.getCommand("session-resume-cancel");
+      if (cancelResume) await cancelResume.handler("", runner.createCommandContext());
+    },
+    snapshotMessages: (live) =>
+      snapshotMessages(
+        live.session,
+        live.throughputByStartedAt,
+        live.toolStartedAt,
+        live.toolEndedAt,
+        live.toolPartialOutputByCallId,
+      ),
+    stopGoalLoop: (live) => stopGoalLoopForTask(live),
+    stopSubagentRuns: (live, messages) => stopSubagentRunsForTask(live, messages),
+    setIdle: (taskId) => setTaskStatus(taskId, "idle"),
+    releaseLease: (taskId) => releaseTaskLease(taskId),
+    // 全購読先へ最終状態を送る。idle 保存前に送ると、停止要求元以外のペインが
+    // working のまま残り、停止ボタンが再表示される。
+    emitAbort: (live) =>
+      emitTaskSnapshot(live, "abort", {
+        isStreaming: false,
+        permissionRequest: null,
+        questionRequest: null,
+      }),
+    flushRoomMailbox: (botId) => flushQueuedBotIntercom(botId),
+    warn: (message, error) => console.warn(message, error),
+    toSummary: (task) => toSummary(task),
+  });
+}
+/**
+ * Like abortTask, but also stops a Goal Loop that exists only on disk after the
+ * live session was disposed (worker restart / turn-gap cooldown).
+ */
+export async function abortTaskIncludingColdGoalLoop(id: string): Promise<TaskSummary | null> {
+  invalidateTaskPreparations(id);
+  const task = getTask(id);
+  if (!task || task.status === "archived") return null;
+  const live = state().live.get(id);
+  if (!live) {
+    const loop = readGoalLoopState(task.directory, task.sessionId);
+    // Session-owned Goal Loop (live, paused including turn_limit, or blocked)
+    // must still receive /goal-stop — operator hold is not the only cold case.
+    if (isGoalLoopSessionOwned(loop)) {
+      try {
+        // ensureLive inside goalLoopCommand so /goal-stop can update goals-loop/*.json.
+        await goalLoopCommand(id, { action: "stop" });
+      } catch (error) {
+        console.warn(
+          `[harness] cold goal-stop failed for ${id}:`,
+          error instanceof Error ? error.message : String(error),
+        );
+      }
+    } else if (task.status !== "working") {
+      return toSummary(task);
+    }
+  }
+  return abortTask(id);
+}
+
+/** abort() leaves steer/follow-up queues; drop them so a later run cannot drain stale work. */
+export function clearSessionQueue(session: { clearQueue?: () => unknown }): void {
+  // Resolve console.warn at call time so tests and log hooks can replace it.
+  corePromptControl.clearSessionQueue(session, (message) => console.warn(message));
+}
+
+/**
+ * Hang watchdog abort: stop the stuck turn without disarming resume or
+ * goal-loop teardown used by a user stop. Still clear SDK queues so a
+ * hang retry cannot also drain leftover steer/follow-up prompts.
+ */
+export async function abortLiveForHangWatchdog(taskId: string): Promise<void> {
+  // Ordering lives in backend core; side effects stay with the harness and are
+  // resolved at call time so module mocks and hot reloads keep working.
+  await runHangWatchdogAbort(taskId, {
+    getHangWatchStartedAt: (id) => getTaskHangWatch(id)?.startedAt,
+    getHangWatch: (id) => getTaskHangWatch(id),
+    getLive: (id) => state().live.get(id),
+    clearPendingAttention: (id) => clearPendingAttentionForTask(id),
+    clearSessionQueue: (live) => clearSessionQueue(live.session),
+    cancelPrompt: (live) => cancelHarnessPrompt(live),
+    cancelPendingSnapshot: (live) => cancelPendingTaskSnapshot(live),
+    persistManualAbortedAssistantId: (id, assistantId) =>
+      persistManualAbortedAssistantId(id, assistantId),
+    abortSession: (live) => live.session.abort(),
+    snapshotMessages: (live) =>
+      snapshotMessages(
+        live.session,
+        live.throughputByStartedAt,
+        live.toolStartedAt,
+        live.toolEndedAt,
+        live.toolPartialOutputByCallId,
+        false,
+        messageContext(live),
+      ),
+    // Force isStreaming false while the SDK abort is settling.
+    emitHangAbort: (live) => emitTaskSnapshot(live, "hang_abort", { isStreaming: false }),
+    stopSubagentRuns: (live, messages) => stopSubagentRunsForTask(live, messages),
+    setIdle: (id) => setTaskStatus(id, "idle"),
+    releaseLease: (id) => releaseTaskLease(id),
+    emitHangIdle: (live) =>
+      emitTaskSnapshot(live, "hang_idle", {
+        isStreaming: false,
+        permissionRequest: null,
+        questionRequest: null,
+      }),
+    flushRoomMailbox: (botId) => flushQueuedBotIntercom(botId),
+    warn: (message, error) => console.warn(message, error),
+  });
+}
+/** Session entry customType for the hidden agent-switch boundary notice. */
+const AGENT_SWITCH_CUSTOM_TYPE = "leafcode-pi.agent-switch";
+
+/**
+ * The next ensureLive() reopens this same transcript with only the system
+ * prompt swapped, so a mid-conversation switch leaves the new persona's
+ * context full of the outgoing persona's prior replies, tool calls, and
+ * self-description. Without an explicit boundary the model can misidentify
+ * which agent it currently is. This text is delivered as a hidden
+ * custom_message: excluded from the WebUI timeline (projectPiMessages
+ * ignores role "custom") but converted to a plain "user" turn for the LLM on
+ * the next session load, the same mechanism compaction/branch summaries use.
+ */
+function agentSwitchNotice(previousAgent: string | undefined, nextAgent: string): string {
+  const previousLabel = previousAgent?.trim() || "the default assistant persona";
+  const nextLabel = nextAgent.trim() || "the default assistant persona";
+  return [
+    `[Session notice] This task's active persona switched from "${previousLabel}" to "${nextLabel}".`,
+    `Messages after the most recent agent-switch notice were produced under "${previousLabel}". Earlier messages may belong to other personas.`,
+    `You are now "${nextLabel}". Follow only the system prompt currently in effect; do not refer to yourself by the previous persona's name or claim its tools or responsibilities.`,
+  ].join("\n");
+}
+
+/** Prompt queued, streaming, or compacting: disposing live would drop in-flight work. */
+export function isLiveBusyForReplace(live: {
+  promptActive?: boolean;
+  session: { isStreaming?: boolean; isCompacting?: boolean };
+}): boolean {
+  return Boolean(live.promptActive || live.session.isStreaming || live.session.isCompacting);
+}
+
+/** Models held by active llama-server agents, including tasks owned by another worker. */
+export function listActiveLlamaAgentModels(): Array<{
+  taskId: string;
+  providerID: string;
+  modelID: string;
+}> {
+  const current = state();
+  const liveTaskIds = new Set(current.live.keys());
+  const models = new Map<string, { taskId: string; providerID: string; modelID: string }>();
+  const add = (taskId: string, providerID: string | undefined, modelID: string | undefined) => {
+    if (!providerID || !modelID) return;
+    if (providerID !== LLAMA_SERVER_PROVIDER_ID) return;
+    models.set(`${taskId}::${providerID}::${modelID}`, { taskId, providerID, modelID });
+  };
+
+  for (const [taskId, live] of current.live) {
+    const active =
+      isLiveBusyForReplace(live) ||
+      Boolean(live.manualCompactionInProgress) ||
+      Boolean(live.autoCompactionPromise) ||
+      Boolean(live.pendingProviderFallback) ||
+      Boolean(live.pendingTransportRecovery) ||
+      providerFallbackInflight.has(taskId) ||
+      isLiveGoalLoopSession(live.session);
+    if (!active) continue;
+    const currentModel = modelId(live.session.model);
+    add(taskId, currentModel.providerID, currentModel.modelID);
+    // Provider-limit recovery may replace a cloud route with llama-server next; its
+    // destination is unresolved here, so conservatively reserve every local model.
+    if (live.pendingProviderFallback || providerFallbackInflight.has(taskId)) {
+      add(taskId, LLAMA_SERVER_PROVIDER_ID, "*");
+    }
+    const pendingModel = live.pendingSettings?.model?.route.model;
+    if (pendingModel) {
+      const pendingIds = modelId(pendingModel);
+      add(taskId, pendingIds.providerID, pendingIds.modelID);
+    }
+  }
+
+  // Persisted status covers sessions resident in a different Next worker. Goal Loop state
+  // covers its short between-turn windows where the persisted task status may already be idle.
+  for (const task of listTasks(false, "all")) {
+    if (liveTaskIds.has(task.id) || !task.providerID || !task.modelID) continue;
+    if (task.providerID !== LLAMA_SERVER_PROVIDER_ID) continue;
+    const loopActive = Boolean(
+      task.sessionId && isGoalLoopLiveStatus(readGoalLoopState(task.directory, task.sessionId)?.status),
+    );
+    if (task.status !== "working" && !loopActive) continue;
+    add(task.id, task.providerID, task.modelID);
+  }
+  return [...models.values()];
+}
+
+/** A Goal Loop can replace its own live or paused run; other busy work still blocks it. */
+export function isTaskRuntimeBusyForGoalLoopStart(taskId: string): boolean {
+  if (isTaskTreeEditing(taskId)) return true;
+  const task = getTask(taskId);
+  const live = state().live.get(taskId);
+  const loop = task
+    ? readGoalLoopState(task.directory, live?.session.sessionId ?? task.sessionId)
+    : null;
+  // Start owns its own preparation token; unrelated preparers are rejected by the selection facade.
+  if (!isGoalLoopSessionOwned(loop)) return isTaskRuntimeBusyForDestructiveEdit(taskId, { allowPreparation: true });
+  return Boolean(live && isLiveBusyForReplace(live) && !isLiveGoalLoopSession(live.session));
+}
+
+/**
+ * True when promote / account disable / tree navigate must wait: leases, fallback,
+ * compaction, Goal loop, or an active prompt/stream.
+ */
+export function isTaskRuntimeBusyForDestructiveEdit(taskId: string, options?: { allowTreeEdit?: boolean; allowPreparation?: boolean }): boolean {
+  if ((!options?.allowTreeEdit && isTaskTreeEditing(taskId)) || (!options?.allowPreparation && hasTaskPreparation(taskId))) return true;
+  const task = getTask(taskId);
+  const live = state().live.get(taskId);
+  const goalLoop = task
+    ? readGoalLoopState(task.directory, live?.session.sessionId ?? task.sessionId)
+    : null;
+  if (task?.status === "working") return true;
+  if (isGoalLoopSessionOwned(goalLoop)) return true;
+  if (getTaskHangWatch(taskId)?.state === "resolving") return true;
+  // Own lease during provider-limit fallback, or a foreign worker's lease.
+  if (hasActiveTaskLease(taskId)) return true;
+  if (!live) return false;
+  return Boolean(
+    live.promptActive ||
+      live.session.isStreaming ||
+      live.session.isCompacting ||
+      live.manualCompactionInProgress ||
+      live.autoCompactionPromise ||
+      live.pendingProviderFallback ||
+      providerFallbackInflight.has(taskId),
+  );
+}
+
+export function throwIfBusyForModelChange(live: {
+  promptActive?: boolean;
+  session: { isStreaming?: boolean; isCompacting?: boolean };
+}): void {
+  throwIfBusyForFieldChange(live, "モデル");
+}
+
+export function throwIfBusyForThinkingChange(live: {
+  promptActive?: boolean;
+  session: { isStreaming?: boolean; isCompacting?: boolean };
+}): void {
+  throwIfBusyForFieldChange(live, "思考レベル");
+}
+
+export function throwIfBusyForPermissionChange(live: {
+  promptActive?: boolean;
+  session: { isStreaming?: boolean; isCompacting?: boolean };
+}): void {
+  throwIfBusyForFieldChange(live, "権限モード");
+}
+
+export function throwIfBusyForSkillPermissionChange(live: {
+  promptActive?: boolean;
+  session: { isStreaming?: boolean; isCompacting?: boolean };
+}): void {
+  throwIfBusyForFieldChange(live, "スキル権限");
+}
+
+function throwIfBusyForFieldChange(
+  live: {
+    promptActive?: boolean;
+    session: { isStreaming?: boolean; isCompacting?: boolean };
+  },
+  fieldLabel: string,
+): void {
+  if (isLiveBusyForReplace(live)) {
+    throw Object.assign(new Error(`実行中タスクの${fieldLabel}は変更できません`), {
+      status: 409,
+    });
+  }
+}
+
+function throwIfGoalLoopBlocksSessionReplace(
+  task: { directory: string; sessionId?: string | null },
+  sessionId?: string | null,
+): void {
+  const goalLoop = readGoalLoopState(task.directory, sessionId ?? task.sessionId);
+  if (isGoalLoopSessionOwned(goalLoop)) {
+    throw Object.assign(
+      new Error("Goal loop の実行中はセッションを切り替えできません"),
+      { status: 409 },
+    );
+  }
+}
+
+function deferLiveSetting(
+  live: LiveRuntime,
+  taskId: string,
+  settings: PendingLiveSettings,
+  patch: Parameters<typeof patchTask>[1],
+): TaskSummary {
+  live.pendingSettings = { ...live.pendingSettings, ...settings };
+  const task = patchTask(taskId, patch);
+  if (!task) throw Object.assign(new Error("タスクが見つかりません"), { status: 404 });
+  emitTaskSnapshot(live, "settings_pending");
+  return task;
+}
+
+export async function setTaskAgent(
+  id: string,
+  agentName: string,
+): Promise<TaskSummary> {
+  return withTaskSessionMutation(id, async () => {
+  const task = getTask(id);
+  if (!task)
+    throw Object.assign(new Error("タスクが見つかりません"), { status: 404 });
+
+  const normalized = agentName.trim();
+  if (normalized && !loadAgentDefinition(normalized)) {
+    throw Object.assign(new Error("エージェントが見つかりません"), {
+      status: 400,
+    });
+  }
+  if (normalized === (task.agent?.trim() ?? "")) return toSummary(task);
+
+  const live = await ensureLive(id);
+  if (shouldDeferLiveSetting(live, task)) {
+    const previousAgent = live.pendingSettings?.agentName !== undefined
+      ? live.pendingSettings.agentPreviousName
+      : task.agent ?? null;
+    return deferLiveSetting(
+      live,
+      id,
+      {
+        agentName: normalized || null,
+        agentPreviousName: previousAgent,
+      },
+      { agent: normalized || null },
+    );
+  }
+  throwIfGoalLoopBlocksSessionReplace(task, live.session.sessionId);
+
+  // An empty transcript has no stale persona history to disambiguate.
+  if (live.session.messages.length > 0) {
+    await live.session.sendCustomMessage({
+      customType: AGENT_SWITCH_CUSTOM_TYPE,
+      content: agentSwitchNotice(task.agent?.trim(), normalized),
+      display: false,
+      details: {
+        previousAgent: task.agent?.trim() || null,
+        nextAgent: normalized || null,
+      },
+    });
+  }
+
+  // Agent resource options are fixed when a session is created. Reopen the
+  // same transcript with the new persona on the next prompt.
+  disposeLive(id);
+  const updatedTask = patchTask(id, { agent: normalized || null });
+  if (!updatedTask)
+    throw Object.assign(new Error("タスクが見つかりません"), { status: 404 });
+  const summary = toSummary(updatedTask);
+  emit(id, { type: "snapshot", task: summary, eventType: "agent_changed" });
+  return summary;
+  });
+}
+
+async function applyLiveModel(
+  id: string,
+  live: LiveRuntime,
+  model: Model,
+  fallbackProviderID: string,
+  fallbackModelID: string,
+  thinkingLevel: ThinkingLevel,
+  accountIdExplicit: boolean,
+): Promise<TaskSummary> {
+  await live.session.setModel(model);
+  applySessionCompactionSettings(live.session);
+  const ids = modelId(live.session.model ?? model);
+  if (live.session.thinkingLevel !== thinkingLevel) {
+    live.session.setThinkingLevel(thinkingLevel);
+  }
+  const updatedTask = patchTask(id, {
+    responseModel: taskResponseModel(getTask(id) ?? {}, live.session.messages),
+    providerID: ids.providerID ?? fallbackProviderID,
+    modelID: ids.modelID ?? fallbackModelID,
+    thinkingLevel,
+    accountIdExplicit:
+      live.accountId && accountIdExplicit ? true : undefined,
+  });
+  if (!updatedTask)
+    throw Object.assign(new Error("タスクが見つかりません"), { status: 404 });
+  const summary = toSummary(updatedTask);
+  emit(id, {
+    type: "snapshot",
+    task: summary,
+    ...liveSnapshotFields(live),
+  });
+  return summary;
+}
+
+export async function setTaskModel(
+  id: string,
+  modelValueRaw: string,
+  options?: { accountIdExplicit?: boolean },
+): Promise<TaskSummary> {
+  return withTaskSessionMutation(id, async () => {
+  const task = getTask(id);
+  const parsed = parseModelValue(modelValueRaw);
+  if (!task || !parsed) {
+    throw Object.assign(new Error("モデルが見つかりません"), { status: 400 });
+  }
+  // An unprefixed selection comes from the Composer's integrated row. It must
+  // resolve the selected provider instead of inheriting a previous task pin.
+  const accountIdExplicit =
+    options?.accountIdExplicit ?? Boolean(parsed.accountId);
+  const requestedAccountId =
+    parsed.accountId ??
+    (accountIdExplicit ? task.accountId ?? null : null);
+  const modelRoute = await withRouteLock(
+    `${parsed.providerID}::${parsed.modelID}`,
+    () =>
+      resolveConcreteModelWithFallback(modelValueRaw, requestedAccountId, {
+        accountIdExplicit,
+        allowProviderFallback: true,
+      }),
+  );
+  if (!modelRoute)
+    throw Object.assign(new Error("モデルが見つかりません"), { status: 400 });
+  const targetAccountId = modelRoute.accountId;
+  const model = modelRoute.model;
+  const targetIds = modelId(model);
+  const sameModel =
+    targetIds.providerID === task.providerID &&
+    targetIds.modelID === task.modelID &&
+    targetAccountId === (task.accountId ?? null);
+  const routePatch = (thinkingLevel: ThinkingLevel) => ({
+    providerID: targetIds.providerID ?? parsed.providerID,
+    modelID: targetIds.modelID ?? parsed.modelID,
+    thinkingLevel,
+    accountId: targetAccountId ?? undefined,
+    accountIdExplicit: targetAccountId && accountIdExplicit ? true : undefined,
+  });
+  const persistRoute = (
+    patch: Parameters<typeof patchTask>[1],
+    eventType?: string,
+  ): TaskSummary => {
+    const updatedTask = patchTask(id, { responseModel: taskResponseModel(task), ...patch });
+    if (!updatedTask)
+      throw Object.assign(new Error("タスクが見つかりません"), { status: 404 });
+    const summary = toSummary(updatedTask);
+    emit(id, { type: "snapshot", task: summary, ...(eventType ? { eventType } : {}) });
+    return summary;
+  };
+  const persistColdTaskModel = (thinkingLevel: ThinkingLevel): TaskSummary | null => {
+    if (state().live.get(id)) return null;
+    // A failed cold session may still be in ensureLiveInflight. Advance its epoch
+    // before replacing the persisted route so it cannot restore the old model.
+    disposeLive(id);
+    return persistRoute(routePatch(thinkingLevel), "model_changed");
+  };
+
+  // アカウント切替はセッションの再作成が必要なため、実行中は次ターンへ保留する。
+  // 先に ensureLive を待って作成中セッションとの競合をなくす。
+  if (targetAccountId !== (task.accountId ?? null)) {
+    const thinkingLevel = thinkingLevelForModelSelection(
+      model,
+      targetAccountId,
+      task.thinkingLevel,
+      true,
+    );
+    const coldSummary = persistColdTaskModel(thinkingLevel);
+    if (coldSummary) return coldSummary;
+    const live = await ensureLive(id);
+    const pendingModel = {
+      route: modelRoute,
+      accountIdExplicit,
+    };
+    if (shouldDeferLiveSetting(live, task)) {
+      return deferLiveSetting(
+        live,
+        id,
+        { model: pendingModel, thinkingLevel },
+        routePatch(thinkingLevel),
+      );
+    }
+    throwIfGoalLoopBlocksSessionReplace(task, live.session.sessionId);
+    disposeLive(id);
+    return persistRoute(routePatch(thinkingLevel));
+  }
+
+  const thinkingLevel = thinkingLevelForModelSelection(
+    model,
+    targetAccountId,
+    task.thinkingLevel,
+    !sameModel,
+  );
+  const coldSummary = persistColdTaskModel(thinkingLevel);
+  if (coldSummary) return coldSummary;
+  const live = await ensureLive(id);
+  if (shouldDeferLiveSetting(live, task)) {
+    const updated = deferLiveSetting(
+      live,
+      id,
+      {
+        model: { route: modelRoute, accountIdExplicit },
+        thinkingLevel,
+      },
+      {
+        providerID: targetIds.providerID ?? parsed.providerID,
+        modelID: targetIds.modelID ?? parsed.modelID,
+        thinkingLevel,
+        accountIdExplicit:
+          live.accountId && accountIdExplicit ? true : undefined,
+      },
+    );
+    return updated;
+  }
+  // 保存済みモデル既定値（未設定時は従来の既定値）を新モデルへ適用する。
+  return applyLiveModel(
+    id,
+    live,
+    model,
+    parsed.providerID,
+    parsed.modelID,
+    thinkingLevel,
+    accountIdExplicit,
+  );
+  });
+}
+
+export async function setTaskThinkingLevel(
+  id: string,
+  levelRaw: string,
+): Promise<TaskSummary> {
+  return withTaskSessionMutation(id, async () => {
+  if (!isThinkingLevel(levelRaw)) {
+    throw Object.assign(new Error("thinkingLevel が不正です"), { status: 400 });
+  }
+  const live = await ensureLive(id);
+  const currentTask = getTask(id);
+  if (!currentTask)
+    throw Object.assign(new Error("タスクが見つかりません"), { status: 404 });
+  if (shouldDeferLiveSetting(live, currentTask)) {
+    return deferLiveSetting(live, id, { thinkingLevel: levelRaw }, { thinkingLevel: levelRaw });
+  }
+  live.session.setThinkingLevel(levelRaw);
+  const thinkingLevel = isThinkingLevel(live.session.thinkingLevel)
+    ? live.session.thinkingLevel
+    : levelRaw;
+  const task = patchTask(id, { thinkingLevel });
+  if (!task)
+    throw Object.assign(new Error("タスクが見つかりません"), { status: 404 });
+  const summary = toSummary(task);
+  emit(id, {
+    type: "snapshot",
+    task: summary,
+    ...liveSnapshotFields(live),
+  });
+  return summary;
+  });
+}
+
+export async function compactTask(
+  id: string,
+  customInstructions?: string,
+): Promise<TaskDetail> {
+  return withTaskSessionMutation(id, async () => {
+  const live = await ensureLive(id);
+  if (
+    live.session.isCompacting ||
+    live.autoCompactionPromise ||
+    live.manualCompactionInProgress
+  ) {
+    throw Object.assign(new Error("コンテキスト圧縮は既に実行中です"), {
+      status: 409,
+    });
+  }
+  // Manual compaction aborts the current operation by design. Do not let the
+  // hang watchdog replay that operation after compaction succeeds or fails.
+  disarmTaskHangWatch(id);
+  const instructions = customInstructions?.trim();
+  live.manualCompactionInProgress = true;
+  try {
+    await live.session.compact(instructions || undefined);
+  } catch (error) {
+    throw mapCompactionError(error);
+  } finally {
+    live.manualCompactionInProgress = false;
+  }
+  return getTaskDetail(id);
+  });
+}
+
+export async function abortTaskCompaction(id: string): Promise<TaskDetail> {
+  const live = state().live.get(id);
+  if (!live)
+    throw Object.assign(new Error("タスクが見つかりません"), { status: 404 });
+  disarmTaskHangWatch(id);
+  live.session.abortCompaction();
+  return getTaskDetail(id);
+}
+
+/**
+ * 巻き戻し: 指定ユーザーメッセージ（UI のメッセージ id）以降を破棄し、その
+ * 内容を text / images / files として返す（本家 LeafCode の「入力欄に戻す」と同じ）。
+ * Pi コアの navigateTree は user メッセージをターゲットにすると leaf を親へ
+ * 移し、破棄した分の入力を editorText として返す。
+ */
+/** Tree edits already own a live session; share one projection between HTTP and SSE. */
+function emitTreeEditSnapshot(
+  id: string,
+  detail: TaskDetail & { messageRevision?: string },
+  eventType: "revert" | "unrevert",
+): void {
+  emit(id, {
+    type: "snapshot",
+    task: toSummary(getTask(id)!),
+    messages: detail.messages,
+    isStreaming: detail.isStreaming,
+    isCompacting: detail.isCompacting,
+    contextUsage: detail.contextUsage,
+    compactionSuggested: detail.compactionSuggested,
+    goalLoop: detail.goalLoop,
+    todos: detail.todos,
+    sessionResume: detail.sessionResume ?? null,
+    messageRevision: detail.messageRevision,
+    ...(detail.activity ? { activity: detail.activity } : {}),
+    revertLeafId: detail.revertLeafId,
+    eventType,
+  });
+}
+
+function assertIdleForSessionTreeEdit(id: string): void {
+  if (isTaskRuntimeBusyForDestructiveEdit(id, { allowTreeEdit: true })) {
+    throw Object.assign(
+      new Error("応答中は巻き戻せません。停止してからお試しください"),
+      { status: 409 },
+    );
+  }
+}
+
+export async function revertTask(
+  id: string,
+  messageId: string,
+): Promise<{
+  task: TaskDetail;
+  text: string;
+  images: { uri: string; mime: string; name?: string }[];
+  files: { uri: string; mime: string; name?: string }[];
+}> {
+  assertLocalRuntimeAllowed();
+  return withTaskTreeEdit(id, async () => {
+  const live = await ensureLive(id);
+  // Validate before stopping: a stale/invalid request must not end an autonomous run.
+  const entry = messageEntryById(live.session, messageId);
+  if (!entry) {
+    throw Object.assign(new Error("対象メッセージが見つかりません"), {
+      status: 404,
+    });
+  }
+  if (entry.message.role !== "user") {
+    throw Object.assign(new Error("ユーザーメッセージのみ入力欄に戻せます"), {
+      status: 400,
+    });
+  }
+  // Goal Loop ownership alone blocks tree edits even between turns (task looks idle).
+  await stopGoalLoopForTask(live);
+  assertIdleForSessionTreeEdit(id);
+  const previousLeafId = live.session.sessionManager.getLeafId();
+  const result = await live.session.navigateTree(entry.id);
+  if (result.cancelled || result.aborted) {
+    throw Object.assign(new Error("巻き戻しがキャンセルされました"), {
+      status: 400,
+    });
+  }
+  live.revertLeafId = live.revertLeafId ?? getTask(id)?.revertLeafId ?? captureRevertLeafId(previousLeafId);
+  persistRevertLeafId(id, live.revertLeafId);
+  // Revert drops the conversational context that raised the prompt; keep abort/reset parity.
+  clearPendingAttentionForTask(id);
+  const taskDetail = await getTaskDetail(id, { readOnly: true });
+  emitTreeEditSnapshot(id, taskDetail, "revert");
+  const restoredPrompt = parsePromptFileMarkers(
+    entry.editorText ?? (typeof result.editorText === "string"
+      ? result.editorText
+      : rawUserMessageText(entry.message)),
+    { readStored: readStoredPromptFileContent },
+  );
+  return {
+    task: taskDetail,
+    text: restoredPrompt.text,
+    images: imagesFromEntry(entry),
+    files: restoredPrompt.files.map((file) => ({
+      uri: `data:${file.mimeType};base64,${file.data}`,
+      mime: file.mimeType,
+      name: file.name,
+    })),
+  };
+  });
+}
+
+/** UI のメッセージ id からセッションエントリを取り出す。 */
+export function messageEntryById(
+  session: AgentSession,
+  messageId: string,
+): { id: string; message: { role: string; content: unknown }; editorText?: string } | null {
+  try {
+    const manager = session.sessionManager;
+    // SDK getEntry uses its id index; getEntries copies the entire append-only history.
+    const indexed = typeof manager.getEntry === "function";
+    const directEntry = indexed ? manager.getEntry(messageId) : undefined;
+    const entries = indexed ? (directEntry ? [directEntry] : []) : manager.getEntries();
+    // 通常経路: snapshotMessages が UiMessage.id へ設定したエントリ id
+    for (const entry of entries) {
+      if (entry.id !== messageId) continue;
+      if (entry.type === "custom_message") {
+        // Only the initial Goal Loop prompt is a visible user input. Other custom entries stay hidden.
+        const prompt = goalLoopUiPrompt(entry as unknown as Record<string, unknown>);
+        if (prompt === null) continue;
+        const content = Array.isArray(entry.content)
+          ? [{ type: "text", text: prompt }, ...entry.content.filter((block) => block.type === "image")]
+          : prompt;
+        // navigateTree returns the full scheduler prompt; never restore it into the user's composer.
+        return { id: entry.id, message: { role: "user", content }, editorText: prompt };
+      }
+      if (entry.type !== "message") continue;
+      const message = (entry as { message?: unknown }).message;
+      if (!message || typeof message !== "object") continue;
+      return {
+        id: entry.id,
+        message: message as { role: string; content: unknown },
+      };
+    }
+    // フォールバック: 旧スナップショットの仮 id `msg-N`（ブランチ上のメッセージ順）
+    const fallback = /^msg-(\d+)$/.exec(messageId);
+    if (fallback) {
+      const activeBranch = typeof manager.getBranch === "function"
+        ? manager.getBranch() : indexed ? manager.getEntries() : entries;
+      const branch = activeBranch.filter((entry) => entry.type === "message");
+      const entry = branch[Number(fallback[1])];
+      const message = entry
+        ? (entry as { message?: unknown }).message
+        : undefined;
+      if (entry && message && typeof message === "object") {
+        return {
+          id: entry.id,
+          message: message as { role: string; content: unknown },
+        };
+      }
+    }
+  } catch {
+    /* session may not expose entries yet */
+  }
+  return null;
+}
+
+/** user エントリの image ブロックを Composer 添付相当に変換する。 */
+export function imagesFromEntry(entry: {
+  message: { role: string; content: unknown };
+}): { uri: string; mime: string; name?: string }[] {
+  const content = Array.isArray(entry.message.content)
+    ? entry.message.content
+    : [];
+  const images: { uri: string; mime: string; name?: string }[] = [];
+  content.forEach((block, index) => {
+    if (!block || typeof block !== "object") return;
+    const record = block as {
+      type?: unknown;
+      mimeType?: unknown;
+      data?: unknown;
+      filename?: unknown;
+    };
+    if (record.type !== "image") return;
+    const data = typeof record.data === "string" ? record.data : "";
+    if (!data) return;
+    const mime =
+      typeof record.mimeType === "string" && record.mimeType
+        ? record.mimeType
+        : "image/png";
+    images.push({
+      uri: `data:${mime};base64,${data}`,
+      mime,
+      ...(typeof record.filename === "string" && record.filename
+        ? { name: record.filename }
+        : { name: `image-${index + 1}` }),
+    });
+  });
+  return images;
+}
+
+/** user エントリの transport marker を Composer 添付相当に変換する。 */
+export function filesFromEntry(entry: {
+  message: { role: string; content: unknown };
+}): { uri: string; mime: string; name?: string }[] {
+  return parsePromptFileMarkers(rawUserMessageText(entry.message), { readStored: readStoredPromptFileContent }).files.map((file) => ({
+    uri: `data:${file.mimeType};base64,${file.data}`,
+    mime: file.mimeType,
+    name: file.name,
+  }));
+}
+
+/** Persist the pre-revert leaf so restore survives reload and session replace. */
+export function persistRevertLeafId(
+  taskId: string,
+  revertLeafId: string | null,
+): void {
+  const live = state().live.get(taskId);
+  if (live) live.revertLeafId = revertLeafId;
+  patchTask(taskId, { revertLeafId });
+}
+
+/** Persist the abort sentinel so resume survives reload and session replace. */
+export function persistManualAbortedAssistantId(
+  taskId: string,
+  manualAbortedAssistantId: string | null,
+): void {
+  const live = state().live.get(taskId);
+  if (live) live.manualAbortedAssistantId = manualAbortedAssistantId;
+  patchTask(taskId, { manualAbortedAssistantId });
+}
+
+/** Persist hang retries so the notice survives reload and session replace. */
+export function persistHangRetryCount(taskId: string, hangRetryCount: number): void {
+  const live = state().live.get(taskId);
+  if (live) live.hangRetryCount = hangRetryCount;
+  patchTask(taskId, { hangRetryCount });
+}
+
+/** unrevert 用: navigateTree の前に leaf id を保存する（後だと巻き戻し後の位置になる）。 */
+export function captureRevertLeafId(
+  leafIdBeforeNavigate: string | null,
+): string | null {
+  return leafIdBeforeNavigate;
+}
+
+/**
+ * Restore the exact original leaf after navigateTree's editor-oriented user
+ * target handling, then rebuild the public agent transcript from the session tree.
+ */
+export function restoreExactSessionLeaf(
+  session: Pick<AgentSession, "sessionManager" | "agent">,
+  targetId: string,
+): void {
+  if (session.sessionManager.getLeafId() === targetId) return;
+  if (!session.sessionManager.getEntry(targetId)) {
+    throw new Error(`Entry ${targetId} not found`);
+  }
+  session.sessionManager.branch(targetId);
+  session.agent.state.messages = session.sessionManager.buildSessionContext().messages;
+  if (session.sessionManager.getLeafId() !== targetId) {
+    throw new Error(`Failed to restore entry ${targetId}`);
+  }
+}
+
+/** 巻き戻し取消: revert 前の leaf へ戻す。 */
+export async function unrevertTask(id: string): Promise<TaskDetail> {
+  assertLocalRuntimeAllowed();
+  return withTaskTreeEdit(id, async () => {
+  const live = await ensureLive(id);
+  const target = live.revertLeafId ?? getTask(id)?.revertLeafId ?? null;
+  if (!target) {
+    throw Object.assign(new Error("巻き戻しの対象がありません"), {
+      status: 400,
+    });
+  }
+  if (typeof live.session.sessionManager.getEntry === "function" && !live.session.sessionManager.getEntry(target)) {
+    throw Object.assign(new Error("復元対象のメッセージが見つかりません"), { status: 404 });
+  }
+  // Do not stop autonomous work for a request that cannot restore anything.
+  await stopGoalLoopForTask(live);
+  assertIdleForSessionTreeEdit(id);
+  const result = await live.session.navigateTree(target);
+  if (result.cancelled || result.aborted) {
+    throw Object.assign(new Error("巻き戻しの復元がキャンセルされました"), {
+      status: 400,
+    });
+  }
+  restoreExactSessionLeaf(live.session, target);
+  persistRevertLeafId(id, null);
+  const taskDetail = await getTaskDetail(id, { readOnly: true });
+  emitTreeEditSnapshot(id, taskDetail, "unrevert");
+  return taskDetail;
+  });
+}
+
+export async function getCompactionSettings(): Promise<CompactionSettingsDto> {
+  await ensureRuntime();
+  return openSettingsManager().getCompactionSettings();
+}
+
+export async function setCompactionEnabled(
+  enabled: boolean,
+): Promise<CompactionSettingsDto> {
+  await ensureRuntime();
+  const settings = openSettingsManager();
+  settings.setCompactionEnabled(enabled);
+  settings.applyOverrides({ compaction: { enabled } });
+  await settings.flush();
+  for (const live of state().live.values()) {
+    live.session.setAutoCompactionEnabled(enabled);
+    applySessionCompactionSettings(live.session, enabled);
+  }
+  return settings.getCompactionSettings();
+}
+
+export async function getCacheWarmingMode(): Promise<CacheWarmingMode> {
+  await ensureRuntime();
+  return openSettingsManager().getCacheWarmingMode();
+}
+
+export async function setCacheWarmingMode(
+  mode: CacheWarmingMode,
+): Promise<CacheWarmingMode> {
+  await ensureRuntime();
+  const settings = openSettingsManager();
+  settings.setCacheWarmingMode(mode);
+  await settings.flush();
+  for (const live of state().live.values()) {
+    live.session.setCacheWarmingMode(mode);
+  }
+  return settings.getCacheWarmingMode();
+}
+
+const LIVE_SHUTDOWN_TIMEOUT_MS = 5_000;
+
+/** A viewed task keeps a full AgentSession (history + extensions) in memory; release it once abandoned. */
+const LIVE_IDLE_EVICT_MS = 60 * 60_000;
+const LIVE_REAPER_INTERVAL_MS = 30_000;
+const LIVE_PRESSURE_IDLE_EVICT_MS = 60_000;
+const BACKGROUND_WORK_REGISTRY_KEY = "pi-subagents.background-work.v1";
+
+/**
+ * Active background work (async subagents etc.) owned by this Pi session.
+ * Returns null when the registry cannot be read reliably, which callers treat as busy.
+ */
+function backgroundWorkForSession(sessionId: string): number | null {
+  try {
+    const registry = (globalThis as Record<PropertyKey, unknown>)[Symbol.for(BACKGROUND_WORK_REGISTRY_KEY)] as
+      | { providers?: Map<string, { listActiveWork?: () => readonly { sessionId?: string }[] }> }
+      | undefined;
+    if (!registry) return 0;
+    if (!(registry.providers instanceof Map)) return null;
+    let count = 0;
+    for (const provider of registry.providers.values()) {
+      if (typeof provider.listActiveWork !== "function") return null;
+      for (const item of provider.listActiveWork()) if (item?.sessionId === sessionId) count += 1;
+    }
+    return count;
+  } catch {
+    return null;
+  }
+}
+
+function isLiveEvictable(live: LiveRuntime, nowMs: number, idleMs: number): boolean {
+  const task = getTask(live.taskId);
+  // Bot sessions stay resident: Bot intercom treats them as reachable.
+  if (!task || task.kind === "bot" || task.status === "working") return false;
+  // The store can say idle while the SDK is still running (a stop that failed to persist idle, or a
+  // status patch written first). Never dispose a session that is actually streaming or compacting.
+  if (live.promptActive || live.session.isStreaming || live.session.isCompacting) return false;
+  // Between turns a Goal Loop is queued/verifying with a cooldown and no store `working` status. Evicting
+  // it would run session_shutdown and rewrite a loop that nobody stopped as paused.
+  if (isLiveGoalLoopSession(live.session)) return false;
+  if (nowMs - (live.lastActivityAt ?? nowMs) < idleMs) return false;
+  if (state().events.listenerCount(live.taskId) > 0) return false;
+  if (isTaskRuntimeBusyForDestructiveEdit(live.taskId)) return false;
+  if (pendingPermissionForTask(live.taskId) || pendingQuestionForTask(live.taskId)) return false;
+  if (botCodeRelay().originForCode(live.taskId)) return false;
+  // Native providers may key by UUID, while subagents key by the full session file.
+  const identities = [live.session.sessionId, live.session.sessionFile];
+  for (const identity of identities) {
+    if (identity && backgroundWorkForSession(identity) !== 0) return false;
+  }
+  // Self-resume owns a timer in the live extension; evicting this session would lose its wakeup.
+  try {
+    if (resumeReservationFromBranch(live.session.sessionManager.getBranch(), live.session.sessionId)?.status === "scheduled") return false;
+  } catch {
+    // An unreadable branch cannot prove that the session has no pending wakeup.
+    return false;
+  }
+  return true;
+}
+
+/** Dispose live sessions nobody has touched for `idleMs`. Returns the evicted task ids. */
+export async function evictIdleLiveSessions(
+  nowMs = Date.now(),
+  idleMs = LIVE_IDLE_EVICT_MS,
+): Promise<string[]> {
+  const evicted: string[] = [];
+  for (const live of [...state().live.values()]) {
+    if (state().live.get(live.taskId) !== live || !isLiveEvictable(live, nowMs, idleMs)) continue;
+    await emitLiveSessionShutdown(live.taskId, "idle-evict");
+    // The session may have been replaced or picked up again while shutdown ran.
+    if (state().live.get(live.taskId) !== live || !isLiveEvictable(live, Date.now(), 0)) continue;
+    disposeLive(live.taskId);
+    evicted.push(live.taskId);
+  }
+  return evicted;
+}
+
+let liveReaperTimer: ReturnType<typeof setInterval> | undefined;
+let liveReaperRunning = false;
+let lastMemoryPressureLogAt = 0;
+
+/** Shed reconstructible caches and only safely idle sessions; never interrupt active work. */
+export async function relieveRuntimeMemoryPressure(nowMs = Date.now()): Promise<string[]> {
+  const memory = readRuntimeMemory();
+  if (!isRuntimeMemoryPressure(memory)) return [];
+  const cachedSnapshots = offlineSessionSnapshots.size;
+  offlineSessionSnapshots.clear();
+  todoProgressCache.clear();
+  if (nowMs - lastMemoryPressureLogAt >= 60_000) {
+    lastMemoryPressureLogAt = nowMs;
+    // Numeric counters only: no prompts, tokens, session paths or environment variables.
+    console.warn("[backend-memory] pressure", JSON.stringify({ ...memory, liveSessions: state().live.size, cachedSnapshots }));
+  }
+  return evictIdleLiveSessions(nowMs, LIVE_PRESSURE_IDLE_EVICT_MS);
+}
+
+function startLiveIdleReaper(): void {
+  if (liveReaperTimer) return;
+  liveReaperTimer = setInterval(() => {
+    if (liveReaperRunning) return;
+    liveReaperRunning = true;
+    void relieveRuntimeMemoryPressure()
+      .then(() => evictIdleLiveSessions())
+      .catch((error) => {
+        console.warn("[live-reaper] idle eviction failed:", error instanceof Error ? error.message : String(error));
+      })
+      .finally(() => {
+        liveReaperRunning = false;
+      });
+  }, LIVE_REAPER_INTERVAL_MS);
+  liveReaperTimer.unref?.();
+}
+
+/**
+ * Pi's AgentSession.dispose() does not emit session_shutdown, so extensions that
+ * own external resources (MCP stdio servers, intercom sockets/timers, memory
+ * SQLite, web-access fetches) never release them. Destroy/archive/eviction run
+ * it explicitly here; disposeLive() runs it for idle non-Goal-Loop sessions.
+ */
+async function emitLiveSessionShutdown(id: string, logLabel: string): Promise<void> {
+  const live = state().live.get(id);
+  if (!live) return;
+  await runExtensionShutdown(live, logLabel);
+}
+
+async function runExtensionShutdown(live: LiveRuntime, logLabel: string): Promise<void> {
+  if (live.shutdownEmitted) return;
+  live.shutdownEmitted = true;
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    const runner = live.session.extensionRunner;
+    if (!runner.hasHandlers("session_shutdown")) return;
+    let stopCapturedBackgroundWork: (() => Promise<number>) | undefined;
+    if (live.session.sessionId) {
+      try { stopCapturedBackgroundWork = captureSessionBackgroundWorkStop(live.session.sessionId); }
+      catch (error) {
+        const reason = error instanceof Error ? error.message : String(error);
+        console.warn(`[${logLabel}] failed to capture session background work: ${reason}`);
+      }
+    }
+    const shutdownCompleted = await Promise.race([
+      runner.emit({ type: "session_shutdown", reason: "quit" }).then(() => true),
+      new Promise<boolean>((resolve) => {
+        timer = setTimeout(() => resolve(false), LIVE_SHUTDOWN_TIMEOUT_MS);
+      }),
+    ]);
+    if (!shutdownCompleted) {
+      console.warn(`[${logLabel}] extension shutdown timed out after ${LIVE_SHUTDOWN_TIMEOUT_MS}ms`);
+      // The SDK cannot cancel emit(); stale retained contexts before forcing captured cleanup.
+      try {
+        runner.invalidate(`session_shutdown timed out after ${LIVE_SHUTDOWN_TIMEOUT_MS}ms`);
+      } catch (error) {
+        const reason = error instanceof Error ? error.message : String(error);
+        console.warn(`[${logLabel}] failed to invalidate timed-out extension context: ${reason}`);
+      }
+      if (stopCapturedBackgroundWork) {
+        try { await stopCapturedBackgroundWork(); }
+        catch (error) {
+          const reason = error instanceof Error ? error.message : String(error);
+          console.warn(`[${logLabel}] timed-out session background work stop failed: ${reason}`);
+        }
+      }
+    }
+  } catch (error) {
+    const reason = error instanceof Error ? error.message : String(error);
+    console.warn(`[${logLabel}] extension shutdown failed: ${reason}`);
+  } finally {
+    if (timer) clearTimeout(timer);
+    const sessionId = live.session.sessionId;
+    if (sessionId) {
+      try { await runBackendMcpNativeSessionShutdownActions(live.session.sessionManager); }
+      catch (error) {
+        const reason = error instanceof Error ? error.message : String(error);
+        console.warn(`[${logLabel}] native MCP shutdown actions failed: ${reason}`);
+      }
+    }
+  }
+}
+
+async function abortThenDispose(id: string, logLabel: string): Promise<void> {
+  try {
+    await abortTaskIncludingColdGoalLoop(id);
+  } catch (error) {
+    const reason = error instanceof Error ? error.message : String(error);
+    console.warn(`[${logLabel}] abort before teardown failed: ${reason}`);
+  }
+  if (logLabel === "destroy" || logLabel === "archive") {
+    await emitLiveSessionShutdown(id, logLabel);
+  }
+  disposeLive(id);
+}
+
+export async function archiveTask(id: string): Promise<TaskSummary> {
+  const task = getTask(id);
+  if (!task)
+    throw Object.assign(new Error("タスクが見つかりません"), { status: 404 });
+  if (task.status === "archived") return toSummary(task);
+  await abortThenDispose(id, "archive");
+  clearBotCodeSessionLinks(id);
+  const archived = setTaskStatus(id, "archived");
+  if (!archived)
+    throw Object.assign(new Error("タスクが見つかりません"), { status: 404 });
+  // live 破棄後も購読中の TaskView が idle のまま残ると Composer が送れてしまう。
+  emit(id, {
+    type: "snapshot",
+    task: toSummary(archived),
+    isStreaming: false,
+    isCompacting: false,
+    goalLoop: null,
+    permissionRequest: null,
+    questionRequest: null,
+    eventType: "archived",
+  });
+  return archived;
+}
+
+export function restoreTask(id: string): TaskSummary {
+  const task = getTask(id);
+  if (!task)
+    throw Object.assign(new Error("タスクが見つかりません"), { status: 404 });
+  if (task.status !== "archived")
+    throw Object.assign(new Error("アーカイブされたタスクのみ復元できます"), {
+      status: 400,
+    });
+  // Mirror promptTask: restoring under an archived project yields a dead UI (prompt 409).
+  if (task.projectId) {
+    const project = getProject(task.projectId);
+    if (project?.archived) {
+      throw Object.assign(
+        new Error("アーカイブ済みのプロジェクトではタスクを復元できません"),
+        { status: 409 },
+      );
+    }
+  }
+  const restored = patchTask(id, { status: "idle" });
+  if (!restored)
+    throw Object.assign(new Error("タスクが見つかりません"), { status: 404 });
+  // 開いたままの履歴タブが archived のまま残ると Composer が読み取り専用のまま。
+  emit(id, {
+    type: "snapshot",
+    task: toSummary(restored),
+    isStreaming: false,
+    isCompacting: false,
+    goalLoop: null,
+    permissionRequest: null,
+    questionRequest: null,
+    eventType: "restored",
+  });
+  return restored;
+}
+
+function clearBotCodeSessionLinks(taskId: string): void {
+  for (const bot of listBots()) {
+    if (bot.codeSessionTaskId === taskId) {
+      patchBot(bot.id, { codeSessionTaskId: null });
+    }
+  }
+}
+
+const AUTO_ARCHIVE_DAY_MS = 24 * 60 * 60 * 1000;
+let autoArchiveInflight: Promise<number> | null = null;
+
+export function autoArchiveOldTasks(now = Date.now()): Promise<number> {
+  if (autoArchiveInflight) return autoArchiveInflight;
+  const promise = (async () => {
+    const days = parseAutoArchiveDays(getSetting(AUTO_ARCHIVE_DAYS_SETTING_KEY));
+    if (days === null) return 0;
+    const eligible = (task: TaskSummary, cutoff: number) => {
+      const updatedAt = Date.parse(task.updatedAt);
+      return (task.status === "idle" || task.status === "error") &&
+        Number.isFinite(updatedAt) && updatedAt <= cutoff;
+    };
+    let archivedCount = 0;
+    // Bot and Room tasks are not restorable from the archived Code task list.
+    for (const candidate of listTasks(false)) {
+      if (!eligible(candidate, now - days * AUTO_ARCHIVE_DAY_MS)) continue;
+      // A previous archive may have yielded while these settings changed.
+      const currentDays = parseAutoArchiveDays(getSetting(AUTO_ARCHIVE_DAYS_SETTING_KEY));
+      if (currentDays === null) break;
+      const pinnedIds = parsePinnedTaskIds(getSetting(PINNED_TASKS_SETTING_KEY));
+      if (pinnedIds === null) break; // Wait for legacy pins to migrate; never guess protected IDs.
+      const task = getTask(candidate.id);
+      if (!task || !eligible(task, now - currentDays * AUTO_ARCHIVE_DAY_MS) || pinnedIds.includes(task.id) || state().live.has(task.id) || isTaskRuntimeBusyForDestructiveEdit(task.id)) continue;
+      try {
+        await archiveTask(task.id);
+        archivedCount += 1;
+      } catch (error) {
+        const reason = error instanceof Error ? error.message : String(error);
+        console.warn(`[auto-archive] task ${task.id} failed: ${reason}`);
+      }
+    }
+    return archivedCount;
+  })().finally(() => {
+    if (autoArchiveInflight === promise) autoArchiveInflight = null;
+  });
+  autoArchiveInflight = promise;
+  return promise;
+}
+
+export async function destroyTask(id: string): Promise<{ ok: true }> {
+  const task = getTask(id);
+  if (!task)
+    throw Object.assign(new Error("タスクが見つかりません"), { status: 404 });
+  await abortThenDispose(id, "destroy");
+  clearBotCodeSessionLinks(id);
+  // A concurrent ensureLive may have started createSession after disposeLive.
+  // Bump epoch, drain inflight, then delete — and bump again so late attach fails.
+  ensureLiveEpoch.set(id, (ensureLiveEpoch.get(id) ?? 0) + 1);
+  const inflight = ensureLiveInflight.get(id);
+  if (inflight) await inflight.catch(() => undefined);
+  if (state().live.has(id)) disposeLive(id);
+  deleteTask(id);
+  ensureLiveEpoch.set(id, (ensureLiveEpoch.get(id) ?? 0) + 1);
+  if (state().live.has(id)) disposeLive(id);
+  return { ok: true };
+}
+
+export async function destroyArchivedTasksByProject(projectId: string | null): Promise<{
+  ok: true;
+  removed: number;
+}> {
+  const tasks = listTasks(true).filter(
+    (task) => task.projectId === projectId && task.status === "archived",
+  );
+  for (const task of tasks) {
+    await abortThenDispose(task.id, "destroy");
+    clearBotCodeSessionLinks(task.id);
+    deleteTask(task.id);
+  }
+  return { ok: true, removed: tasks.length };
+}
+
+export function restoreProject(id: string): ProjectDto {
+  const project = patchProject(id, { archived: false });
+  if (!project)
+    throw Object.assign(new Error("プロジェクトが見つかりません"), {
+      status: 404,
+    });
+  return project;
+}
+
+export async function destroyProject(id: string): Promise<{ ok: true }> {
+  const project = getProject(id);
+  if (!project)
+    throw Object.assign(new Error("プロジェクトが見つかりません"), {
+      status: 404,
+    });
+  const tasks = listTasks(true).filter((task) => task.projectId === id);
+  for (const task of tasks) {
+    await abortThenDispose(task.id, "destroy");
+    clearBotCodeSessionLinks(task.id);
+    deleteTask(task.id);
+  }
+  deleteProjectRecord(id);
+  return { ok: true };
+}
+
+/**
+ * Reload AGENTS.md / skills / extensions into every in-memory AgentSession
+ * (Pi's `/reload`). Next prompt uses the updated system prompt.
+ * Busy sessions are skipped so a settings toggle cannot interrupt streaming /
+ * Goal Loop / compaction. Bot conversations get soulReloadPending; Code gets
+ * contextReloadPending and reloads on the next idle prepareLiveForPrompt.
+ */
+/**
+ * Recreate sessions using an edited agent definition. `session.reload()` cannot
+ * update the tool registry assembled from that definition at creation time.
+ */
+export function refreshLiveSessionsForAgentDefinition(agentName: string): { refreshed: number; deferred: number } {
+  const normalized = agentName.trim();
+  let refreshed = 0;
+  let deferred = 0;
+  for (const live of [...state().live.values()]) {
+    const task = getTask(live.taskId);
+    if (!task || task.agent?.trim() !== normalized) continue;
+    if (shouldDeferLiveSetting(live, task)) {
+      live.agentDefinitionReloadPending = true;
+      deferred += 1;
+      continue;
+    }
+    disposeLive(live.taskId);
+    refreshed += 1;
+  }
+  return { refreshed, deferred };
+}
+
+export async function reloadLiveSessionsContext(): Promise<{
+  reloaded: number;
+  deferred: number;
+  failed: number;
+  errors: string[];
+}> {
+  const lives = [...state().live.values()];
+  let reloaded = 0;
+  let deferred = 0;
+  let failed = 0;
+  const errors: string[] = [];
+  for (const live of lives) {
+    const task = getTask(live.taskId);
+    if (
+      shouldDeferLiveSetting(live, task ?? undefined) ||
+      isTaskRuntimeBusyForDestructiveEdit(live.taskId)
+    ) {
+      if (task?.kind === "bot" && task.botId) live.soulReloadPending = true;
+      else live.contextReloadPending = true;
+      deferred += 1;
+      continue;
+    }
+    try {
+      await reloadSession(live.session);
+      live.contextReloadPending = false;
+      reloaded += 1;
+    } catch (error) {
+      failed += 1;
+      const message = error instanceof Error ? error.message : String(error);
+      errors.push(`${live.taskId}: ${message}`);
+    }
+  }
+  return { reloaded, deferred, failed, errors };
+}
+
+export function subscribeTask(
+  id: string,
+  listener: (payload: Record<string, unknown>) => void,
+): () => void {
+  const handler = (payload: Record<string, unknown>) => listener(payload);
+  state().events.on(id, handler);
+  return () => {
+    state().events.off(id, handler);
+  };
+}
+
+export function pendingPermissionForTask(
+  taskId: string,
+): PermissionRequestDto | null {
+  const source = botAttentionSource(taskId, "permission");
+  return ensurePermissionPromptService().pendingForTask(source);
+}
+
+export function clearPendingAttentionForTask(
+  taskId: string,
+  options?: { includeDelegatedCode?: boolean },
+): void {
+  // Which keys a teardown clears (own prompts first, delegated Code only when asked) is decided
+  // in backend core; the services and the relay stay here.
+  const targets = attentionClearTargets({
+    taskId,
+    isBotTask: taskId.startsWith("bot:"),
+    includeDelegatedCode: options?.includeDelegatedCode === true,
+    delegatedTaskIds: botCodeRelay().codeTasksForOrigin(taskId),
+  });
+  for (const target of targets) {
+    ensurePermissionPromptService().clearPendingForTask(target);
+    ensureQuestionPromptService().clearPendingForTask(target);
+  }
+}
+
+export function respondToPermissionPrompt(
+  taskId: string,
+  requestId: string,
+  approved: boolean,
+): boolean {
+  return ensurePermissionPromptService().respond(botAttentionSource(taskId, "permission", requestId), requestId, approved);
+}
+
+export function pendingQuestionForTask(
+  taskId: string,
+): QuestionRequestDto | null {
+  return ensureQuestionPromptService().pendingForTask(botAttentionSource(taskId, "question"));
+}
+
+export function respondToQuestionPrompt(
+  taskId: string,
+  requestId: string,
+  answer: QuestionAnswer | null,
+): boolean {
+  return ensureQuestionPromptService().respond(botAttentionSource(taskId, "question", requestId), requestId, answer);
+}
+
+/** 注意喚起が必要なタスク一覧（GlobalAttentionProvider のポーリング応答）。 */
+export function listPendingAttention(): AttentionItemDto[] {
+  const items: AttentionItemDto[] = [];
+  // 待機中タスクはサービスが保持するキーのみで判別できる。全タスク走査は不要。
+  const permissionIds = ensurePermissionPromptService().pendingTaskIds();
+  const questionIds = ensureQuestionPromptService().pendingTaskIds();
+  const candidateIds = new Set<string>();
+  for (const id of permissionIds) candidateIds.add(id);
+  for (const id of questionIds) candidateIds.add(id);
+  if (candidateIds.size === 0) return items;
+  // Bot / Room tasks are kind=bot; listTasks(false) defaults to code-only and would drop them.
+  // Look up each pending id directly (title only — avoid toSummary on the poll path).
+  for (const taskId of candidateIds) {
+    const task = getTask(taskId);
+    if (!task || task.status === "archived") continue;
+    // Delegated Code pending ids stay as taskId (respond API), but surface on Bot/Room via origin.
+    // The item shape (kinds order, optional origin) lives in backend core.
+    const item = attentionItemForTask({
+      taskId,
+      title: task.title,
+      hasPermission: permissionIds.has(taskId),
+      hasQuestion: questionIds.has(taskId),
+      originTaskId: botCodeRelay().originForCode(taskId) ?? undefined,
+    });
+    if (item) items.push(item as AttentionItemDto);
+  }
+  return items;
+}
+
+// The recoverable-resume rule lives in backend core; this stays as the public entry point.
+export { isRecoverableResumeSelectionError };
+
+export function jsonError(
+  error: unknown,
+  fallbackStatus = 500,
+): { error: string; status: number } {
+  const status =
+    typeof error === "object" &&
+    error &&
+    "status" in error &&
+    typeof error.status === "number"
+      ? error.status
+      : fallbackStatus;
+  return {
+    error: error instanceof Error ? error.message : String(error),
+    status,
+  };
+}

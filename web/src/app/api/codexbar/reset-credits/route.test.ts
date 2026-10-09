@@ -1,6 +1,6 @@
 import { NextRequest } from "next/server";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { GET, POST } from "./route";
+import { GET, POST } from "@backend-runtime/json-business/handlers/codexbar/reset-credits/route";
 
 const {
   withOpenaiCodexWhamAuth,

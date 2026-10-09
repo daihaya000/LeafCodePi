@@ -1,6 +1,7 @@
 import { hostname } from "node:os";
 import type { Metadata, Viewport } from "next";
 import { ThemeProvider } from "next-themes";
+import { AutoUpdateActivity } from "@/components/shell/AutoUpdateActivity";
 import { HostnameProvider } from "@/components/shell/HostnameContext";
 import "./globals.css";
 
@@ -34,6 +35,7 @@ export default function RootLayout({
     <html lang="ja" suppressHydrationWarning>
       <body className="min-h-dvh antialiased">
         <ThemeProvider attribute="class" defaultTheme="light" enableSystem themes={["light", "dark", "oyster", "system"]}>
+          <AutoUpdateActivity />
           <HostnameProvider hostname={hostname()}>{children}</HostnameProvider>
         </ThemeProvider>
       </body>

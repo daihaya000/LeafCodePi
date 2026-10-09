@@ -305,11 +305,11 @@ describe("resolveCommandCodeExtensionEntry", () => {
     for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true });
   });
 
-  it("finds the repository web dependency from the Backend bundle and repository cwd", () => {
+  it("finds the Backend dependency from the bundle and repository cwd", () => {
     const root = mkdtempSync(join(tmpdir(), "commandcode-backend-entry-"));
     roots.push(root);
-    const entry = join(root, "web", "node_modules", "pi-commandcode-provider", "index.ts");
-    mkdirSync(join(root, "web", "node_modules", "pi-commandcode-provider"), { recursive: true });
+    const entry = join(root, "backend", "node_modules", "pi-commandcode-provider", "index.ts");
+    mkdirSync(join(root, "backend", "node_modules", "pi-commandcode-provider"), { recursive: true });
     writeFileSync(entry, "export default () => {};\n", "utf8");
     const bundleUrl = pathToFileURL(join(root, "backend", "runtime", "runtime.bundle.mjs")).href;
     assert.equal(resolveCommandCodeExtensionEntry(root, bundleUrl), entry);

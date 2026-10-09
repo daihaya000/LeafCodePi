@@ -11,7 +11,7 @@ vi.mock("@/lib/pi/transfer-access", () => ({
   transferNoStore: { "Cache-Control": "no-store, private" },
 }));
 
-import { GET, PUT } from "./route";
+import { GET, PUT } from "@backend-runtime/configuration/handlers/notifications/route";
 
 const getRequest = () => new NextRequest("http://localhost/api/notifications");
 const putRequest = (body: unknown) => new NextRequest("http://localhost/api/notifications", {

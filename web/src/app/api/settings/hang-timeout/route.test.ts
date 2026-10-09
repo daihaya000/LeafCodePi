@@ -10,7 +10,7 @@ const settings = vi.hoisted(() => ({
 
 vi.mock("@/lib/pi/hang-settings", () => settings);
 
-import { GET, PATCH } from "./route";
+import { GET, PATCH } from "@backend-runtime/configuration/handlers/settings/hang-timeout/route";
 
 function request(body: unknown): NextRequest {
   return new NextRequest("http://127.0.0.1:3010/api/settings/hang-timeout", {

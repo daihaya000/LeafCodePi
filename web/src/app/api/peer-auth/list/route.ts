@@ -1,11 +1,9 @@
-import { peerAuthService } from "@/lib/peer-auth/runtime";
-import { toNextResponse } from "@/lib/peer-auth/http";
+import type { NextRequest } from "next/server";
+import { relayJsonBusiness } from "@/lib/json-business-relay";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-/** Peer-facing metadata list. Public to the WebUI cookie layer; the bearer peer token is checked here. */
-export async function GET(request: Request) {
-  const result = await peerAuthService().list({ authorization: request.headers.get("authorization") });
-  return toNextResponse(result);
+export async function GET(req: NextRequest) {
+  return relayJsonBusiness(req, "peer-auth/list");
 }

@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { NextRequest } from "next/server";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { DELETE, GET, PUT } from "./route";
+import { DELETE, GET, PUT } from "@backend-runtime/json-business/handlers/tasks/[id]/bookmarks/route";
 
 const TASK = "0f0f0f0f-aaaa-bbbb-cccc-000000000001";
 const mocks = vi.hoisted(() => ({

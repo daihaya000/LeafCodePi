@@ -4,8 +4,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, it } from "vitest";
 import { NextRequest } from "next/server";
-import { GET, PATCH as PATCH_ACCOUNTS, POST } from "./route";
-import { DELETE, PATCH } from "./[id]/route";
+import { GET, PATCH as PATCH_ACCOUNTS, POST } from "@backend-runtime/json-business/handlers/accounts/route";
+import { DELETE, PATCH } from "@backend-runtime/json-business/handlers/accounts/[id]/route";
 import { insertTask, patchTask, upsertProject } from "@/lib/store";
 import type { TaskSummary } from "@/lib/types";
 

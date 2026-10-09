@@ -1,7 +1,7 @@
 import { configDefaults, defineConfig } from "vitest/config";
 import { existsSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, isAbsolute, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 // Tests change process.env to select their own temp directories. Keep every
@@ -10,10 +10,31 @@ import { fileURLToPath } from "node:url";
 const testDataRoot = join(tmpdir(), `leafcode-pi-vitest-${process.pid}`);
 
 export default defineConfig({
+  plugins: [{
+    name: "backend-runtime-test-identity",
+    enforce: "pre",
+    resolveId(id, importer) {
+      // Old imports and mocks must resolve to the same canonical module as moved relative imports.
+      const webSource = fileURLToPath(new URL("./src", import.meta.url));
+      const runtimeSource = fileURLToPath(new URL("../backend/runtime-src", import.meta.url));
+      const absolute = id.startsWith("@/") ? resolve(webSource, id.slice(2))
+        : isAbsolute(id) ? id : id.startsWith(".") && importer ? resolve(dirname(importer), id) : null;
+      if (!absolute) return null;
+      const normalized = absolute.replaceAll("\\", "/");
+      const prefix = webSource.replaceAll("\\", "/") + "/";
+      if (!normalized.startsWith(prefix) || /\.test\.[jt]sx?$/.test(normalized)) return null;
+      const suffix = normalized.slice(prefix.length);
+      // This Web transport remains remote; the Backend has a distinct local adapter.
+      if (suffix === "lib/runtime-settings" || suffix === "lib/runtime-settings.ts") return null;
+      const target = join(runtimeSource, suffix.endsWith(".ts") ? suffix : `${suffix}.ts`);
+      return existsSync(target) ? target : null;
+    },
+  }],
   resolve: {
-    // Extension tests live outside web/, but consume the same SDK peer dependencies as the runner.
-    dedupe: ["typebox", "@earendil-works/pi-ai", "@earendil-works/pi-tui"],
+    // Moved runtime/extension modules must share SDK and mocked package identity with Web tests.
+    dedupe: ["typebox", "undici", "jiti", "mdast-util-from-markdown", "@earendil-works/pi-coding-agent", "@earendil-works/pi-ai", "@earendil-works/pi-tui"],
     alias: {
+      "@backend-runtime": fileURLToPath(new URL("../backend/runtime-src", import.meta.url)),
       "@": fileURLToPath(new URL("./src", import.meta.url)),
       "@extensions": fileURLToPath(new URL("../extensions", import.meta.url)),
       "@shared": fileURLToPath(new URL(existsSync(fileURLToPath(new URL("./shared", import.meta.url))) ? "./shared" : "../shared", import.meta.url)),

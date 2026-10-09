@@ -15,8 +15,9 @@ import {
   type ModelRegistry,
 } from "@earendil-works/pi-coding-agent";
 import type { AssistantMessage } from "@earendil-works/pi-ai";
-import goalLoopExtension, { HOST_ROUTING_CHANNEL, goalLoopTestSeams } from "../../../../extensions/leafcode-goal-loop/index";
+import goalLoopExtension, { HOST_ROUTING_CHANNEL, HOST_ROUTING_READY_CHANNEL, goalLoopTestSeams } from "../../../../extensions/leafcode-goal-loop/index";
 import { isGoalLoopCommandApplied } from "./goal-loop-command";
+import { shouldApplySettledStatus } from "@backend-core/session-event-decisions.mjs";
 
 it.each(["provider-abort", "timeout-abort"])("automatically retries an aborted Goal Loop turn through the real SDK without consuming its budget (%s)", async (cause) => {
   const cwd = mkdtempSync(join(tmpdir(), "leafcode-goal-loop-abort-sdk-"));
@@ -67,6 +68,122 @@ it.each(["provider-abort", "timeout-abort"])("automatically retries an aborted G
     await session?.extensionRunner.emit({ type: "session_shutdown", reason: "quit" });
     session?.dispose();
     goalLoopTestSeams.setTurnTimeoutMs();
+    vi.unstubAllEnvs();
+    rmSync(cwd, { recursive: true, force: true });
+  }
+});
+
+it.each([
+  { promptActive: false, checkpoint: true, continuation: "none" },
+  { promptActive: true, checkpoint: false, continuation: "none" },
+  { promptActive: false, checkpoint: true, continuation: "goal" },
+  { promptActive: true, checkpoint: false, continuation: "verification" },
+])("keeps the run lease through settlement (promptActive=$promptActive, continuation=$continuation)", async ({ promptActive, checkpoint, continuation }) => {
+  const cwd = mkdtempSync(join(tmpdir(), "leafcode-goal-loop-settlement-lease-"));
+  vi.stubEnv("LEAFCODE_PI_DATA_DIR", cwd);
+  const manager = SessionManager.inMemory(cwd);
+  const faux = fauxProvider();
+  const responses = [
+    fauxAssistantMessage(JSON.stringify({ status: "completed", summary: "done" })),
+    fauxAssistantMessage(JSON.stringify({ status: "verified_completed", summary: "verified" })),
+  ];
+  if (continuation !== "none") responses.splice(continuation === "goal" ? 0 : 1, 0,
+    fauxAssistantMessage(JSON.stringify({ status: continuation === "goal" ? "completed" : "verified_completed", summary: "superseded claim" })));
+  faux.setResponses(responses);
+  let boundaryPending = false;
+  let continued = false;
+  let releaseBoundary!: () => void;
+  const boundaryGate = new Promise<void>((resolve) => { releaseBoundary = resolve; });
+  const state = () => JSON.parse(readFileSync(join(cwd, "goals-loop", `${manager.getSessionId()}.json`), "utf8"));
+  const modelRuntime = await ModelRuntime.create({ authPath: join(cwd, "auth.json"), modelsPath: null, refreshOnCreate: false });
+  modelRuntime.registerNativeProvider(faux.provider);
+  const settingsManager = SettingsManager.inMemory({ retry: { enabled: false } });
+  const loader = new DefaultResourceLoader({
+    cwd, agentDir: cwd, settingsManager,
+    noExtensions: true, noSkills: true, noPromptTemplates: true, noThemes: true, noContextFiles: true,
+    extensionFactories: [goalLoopExtension as unknown as ExtensionFactory, (api) => {
+      api.events.emit(HOST_ROUTING_CHANNEL, {});
+      api.on("session_start", (_event, ctx) => {
+        api.events.emit(HOST_ROUTING_READY_CHANNEL, {
+          sessionManager: ctx.sessionManager,
+          prepareGoalLoopTurn: async () => { ownsLease = true; return true; },
+        });
+      });
+      // Extensions can still persist checkpoints or request continuation after agent_end.
+      api.on("agent_before_settle", async () => {
+        if (checkpoint) api.appendEntry("settle-checkpoint", {});
+        if (continued || continuation === "none" || state().turnKind !== continuation) return;
+        continued = true;
+        boundaryPending = true;
+        await boundaryGate;
+        return {
+          continue: true,
+          entries: [{ type: "custom_message", customType: "lease-check-continue", content: "Recheck the claim", display: false }],
+        };
+      });
+    }],
+  });
+  let session: Awaited<ReturnType<typeof createAgentSession>>["session"] | undefined;
+  let ownsLease = false;
+  const lostLeaseWrites: string[] = [];
+  const endLeases: boolean[] = [];
+  const snapshots: string[] = [];
+  const errors: string[] = [];
+  try {
+    await loader.reload();
+    ({ session } = await createAgentSession({
+      cwd, agentDir: cwd, resourceLoader: loader, settingsManager, sessionManager: manager,
+      modelRuntime, model: faux.getModel(), tools: [],
+    }));
+    // Mirror attachSession's write fence: an in-flight run without its lease is
+    // aborted/disposed. The decision below is the production harness decision.
+    const append = manager.appendCustomEntry.bind(manager);
+    manager.appendCustomEntry = (type, data) => {
+      if ((promptActive || session!.isStreaming) && !ownsLease) {
+        lostLeaseWrites.push(type);
+        session!.dispose();
+        return "";
+      }
+      if (type === "leafcode-goal-loop") snapshots.push((data as { snapshot: { status: string } }).snapshot.status);
+      return append(type, data);
+    };
+    session.subscribe((event) => {
+      if (event.type === "agent_start") ownsLease = true;
+      if (shouldApplySettledStatus(event, false)) ownsLease = false;
+      if (event.type === "agent_end") endLeases.push(ownsLease);
+    });
+    // Start commands and host preparation own their lease before writing.
+    ownsLease = true;
+    await session.bindExtensions({ onError: (error) => { errors.push(error.error); } });
+    await session.prompt(`/goal-start ${Buffer.from(JSON.stringify({ goal: "Verify completion", maxTurns: 1 })).toString("base64url")}`);
+    await vi.waitFor(() => expect(endLeases.length).toBeGreaterThan(0), { timeout: 3_000, interval: 10 });
+    expect(lostLeaseWrites).toEqual([]);
+    expect(endLeases[0]).toBe(true);
+    if (continuation !== "none") {
+      await vi.waitFor(() => expect(boundaryPending).toBe(true), { timeout: 3_000, interval: 10 });
+      expect(ownsLease).toBe(true);
+      expect(state()).toMatchObject({ status: "running", turnCount: 1, turnKind: continuation });
+      expect(session.isStreaming).toBe(true);
+      releaseBoundary();
+    }
+    await vi.waitFor(() => expect(state()).toMatchObject({ status: "completed", turnCount: 1 }), { timeout: 3_000, interval: 10 });
+    await session.waitForIdle();
+    expect(lostLeaseWrites).toEqual([]);
+    expect(endLeases).toEqual(responses.map(() => true));
+    expect(snapshots).toContain("verifying_completed");
+    expect(snapshots).toContain("completed");
+    expect(state().progress.map((item: { summary: string }) => item.summary)).toEqual(["done", "verified"]);
+    expect(manager.getBranch().filter((entry) => entry.type === "custom_message" && entry.customType === "leafcode-goal-turn")).toHaveLength(1);
+    expect(manager.getBranch().filter((entry) => entry.type === "custom_message" && entry.customType === "leafcode-goal-verification")).toHaveLength(1);
+    expect(faux.state.callCount).toBe(responses.length);
+    expect(ownsLease).toBe(false);
+    expect(errors).toEqual([]);
+  } finally {
+    releaseBoundary();
+    ownsLease = true;
+    await session?.abort();
+    await session?.extensionRunner.emit({ type: "session_shutdown", reason: "quit" });
+    session?.dispose();
     vi.unstubAllEnvs();
     rmSync(cwd, { recursive: true, force: true });
   }

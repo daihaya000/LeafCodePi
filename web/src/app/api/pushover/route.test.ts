@@ -16,7 +16,7 @@ vi.mock("@/lib/pi/transfer-access", () => ({
 }));
 
 import { PushoverEnvManagedError } from "@/lib/pushover-config";
-import { GET, POST, PUT } from "./route";
+import { GET, POST, PUT } from "@backend-runtime/configuration/handlers/pushover/route";
 
 const dto = {
   hasToken: true, hasUser: true, device: "iphone", enabled: true,

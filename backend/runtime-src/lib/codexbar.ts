@@ -1,0 +1,698 @@
+/**
+ * Pure parsing + display helpers for the CodexBar usage snapshot
+ * (`%APPDATA%\CodexBar\usage-snapshot.json`, schema `codexbar.usage-snapshot/v1`).
+ *
+ * Shared by the BFF route (server) and the widget (client): no Node/DOM deps.
+ */
+
+import { providerIconSrc as piProviderIconSrc } from "@/lib/provider-icons";
+import type { ProviderTokenUsage } from "@/lib/codexbar/token-usage-types";
+
+export const CODEXBAR_SCHEMA = "codexbar.usage-snapshot/v1";
+
+/** A single rate-limit window (e.g. 5時間 / 週間 / 月間) for a provider. */
+export type CodexBarWindow = {
+  /** False for breakdown rows that do not represent the provider allowance. */
+  countsTowardLimit?: boolean;
+  id: string;
+  title: string;
+  usedPercent: number | null;
+  resetsAt: string | null;
+  /** Window length in minutes (e.g. 300 = 5h, 10080 = weekly), or null. */
+  windowMinutes: number | null;
+};
+
+export type CodexBarCredits = {
+  title: string | null;
+  used: number | null;
+  limit: number | null;
+  balance: number | null;
+};
+
+/** accounts.ts の AccountProviderId と同期。client bundle へ node 依存を持ち込まないため別定義。 */
+export type CodexBarAccountProviderId =
+  | "openai"
+  | "openai-codex"
+  | "anthropic"
+  | "ollama-cloud"
+  | "openrouter"
+  | "commandcode"
+  | "cursor"
+  | "opencode"
+  | "opencode-go"
+  | "orcarouter";
+
+export type CodexBarAccountSummary = {
+  id: string;
+  label: string;
+  providers: CodexBarAccountProviderId[];
+  configuredProviders: CodexBarAccountProviderId[];
+};
+
+export type CodexBarScope = {
+  kind: "all" | "default" | "account";
+  accountId: string | null;
+};
+
+export type CodexBarProvider = {
+  /** Local finalized-response telemetry, attached outside the upstream usage cache. */
+  tokenUsage?: ProviderTokenUsage;
+  /** codexBarProviderId (codex/claude/cursor/opencode-go/ollama/synthetic), falls back to opencode id. */
+  id: string;
+  /** Stable instance key. Optional only for old snapshots supplied by callers. */
+  instanceId?: string;
+  /** LeafCode account metadata; null/undefined means default or shared. */
+  accountId?: string | null;
+  accountLabel?: string | null;
+  opencodeId: string | null;
+  /** Subscription/plan label (e.g. Pro/Max/Go), or null when unknown. */
+  plan: string | null;
+  /** Approximate public list price USD/month for the plan, when known. */
+  planMonthlyUsd: number | null;
+  /** Max usage percent across windows (0..100+), or null if unknown. */
+  usedPercent: number | null;
+  limited: boolean;
+  maxed: boolean;
+  /** ISO-8601 timestamp of the earliest window reset, or null. */
+  resetsAt: string | null;
+  /** ISO-8601 timestamp this provider was fetched, or null. */
+  updatedAt: string | null;
+  /** True when the displayed value is a last-good snapshot. */
+  stale?: boolean;
+  /** Present only when the fetch failed. */
+  error: string | null;
+  /** Per-window detail (5時間/週間/…). Empty for older snapshots. */
+  windows: CodexBarWindow[];
+  /** Optional monetary credit allowance, separate from rate-limit windows. */
+  credits: CodexBarCredits | null;
+  /**
+   * Banked rate-limit resets still available (openai-codex / anthropic).
+   * anthropic requires a claude.ai sessionKey cookie.
+   * Null/undefined when unknown or not applicable.
+   */
+  resetCreditsAvailable?: number | null;
+  /**
+   * True のとき使用率は表示専用（手入力の基準残高から導出した残高％など）。
+   * 集計（親行の平均・統合ピッカー）とルーティングの使用率比較に使わない。
+   */
+  usageDisplayOnly?: boolean;
+};
+
+export type CodexBarUsage = {
+  available: boolean;
+  /** Human-readable reason when `available` is false. */
+  reason: string | null;
+  schema: string | null;
+  generatedAt: string | null;
+  /** Sum of known planMonthlyUsd across providers (from CodexBar export). */
+  subscriptionTotalMonthlyUsd: number | null;
+  /** Usage request scope. Old snapshots omit this field. */
+  scope?: CodexBarScope;
+  /** Account labels/status without credentials. Old snapshots omit this field. */
+  accounts?: CodexBarAccountSummary[];
+  /** Enabled provider order used to keep parent rows stable. */
+  providerOrder?: string[];
+  providers: CodexBarProvider[];
+};
+
+export function emptyUsage(reason: string): CodexBarUsage {
+  return {
+    available: false,
+    reason,
+    schema: null,
+    generatedAt: null,
+    subscriptionTotalMonthlyUsd: null,
+    scope: { kind: "all", accountId: null },
+    accounts: [],
+    providerOrder: [],
+    providers: [],
+  };
+}
+
+function asString(v: unknown): string | null {
+  return typeof v === "string" && v.length > 0 ? v : null;
+}
+
+function asNumber(v: unknown): number | null {
+  return typeof v === "number" && Number.isFinite(v) ? v : null;
+}
+
+/**
+ * Defensively normalize an arbitrary parsed snapshot into `CodexBarUsage`.
+ * Never throws; unknown shapes yield `available: false`.
+ */
+export function parseCodexBarSnapshot(raw: unknown): CodexBarUsage {
+  if (!raw || typeof raw !== "object") {
+    return emptyUsage("スナップショットの形式が不正です");
+  }
+  const obj = raw as Record<string, unknown>;
+  const list = obj.providers;
+  if (!Array.isArray(list)) {
+    return emptyUsage("providers 配列がありません");
+  }
+
+  const rawScope = obj.scope;
+  const scopeObject =
+    rawScope && typeof rawScope === "object" && !Array.isArray(rawScope)
+      ? (rawScope as Record<string, unknown>)
+      : null;
+  const scopeKind =
+    scopeObject?.kind === "default" || scopeObject?.kind === "account"
+      ? scopeObject.kind
+      : "all";
+  const scope: CodexBarScope = {
+    kind: scopeKind,
+    accountId: asString(scopeObject?.accountId),
+  };
+  const providerOrder = Array.isArray(obj.providerOrder)
+    ? obj.providerOrder.filter(
+        (id): id is string => typeof id === "string" && id.length > 0,
+      )
+    : [];
+  const accounts: CodexBarAccountSummary[] = Array.isArray(obj.accounts)
+    ? obj.accounts.flatMap((raw) => {
+        if (!raw || typeof raw !== "object" || Array.isArray(raw)) return [];
+        const account = raw as Record<string, unknown>;
+        const id = asString(account.id);
+        const label = asString(account.label);
+        if (!id || !label) return [];
+        const providers = Array.isArray(account.providers)
+          ? account.providers.filter(
+              (provider): provider is CodexBarAccountProviderId =>
+                provider === "openai" ||
+                provider === "openai-codex" ||
+                provider === "anthropic" ||
+                provider === "ollama-cloud" ||
+                provider === "openrouter" ||
+                provider === "commandcode" ||
+                provider === "cursor" ||
+                provider === "opencode" ||
+                provider === "opencode-go" ||
+                provider === "orcarouter",
+            )
+          : [];
+        const configuredProviders = Array.isArray(account.configuredProviders)
+          ? account.configuredProviders.filter(
+              (provider): provider is CodexBarAccountProviderId =>
+                provider === "openai" ||
+                provider === "openai-codex" ||
+                provider === "anthropic" ||
+                provider === "ollama-cloud" ||
+                provider === "openrouter" ||
+                provider === "commandcode" ||
+                provider === "cursor" ||
+                provider === "opencode" ||
+                provider === "opencode-go" ||
+                provider === "orcarouter",
+            )
+          : [];
+        return [{ id, label, providers, configuredProviders }];
+      })
+    : [];
+
+  const providers: CodexBarProvider[] = list
+    .filter(
+      (p): p is Record<string, unknown> =>
+        !!p && typeof p === "object" && !Array.isArray(p),
+    )
+    .map((p) => {
+      const id =
+        asString(p.codexBarProviderId) ??
+        asString(p.opencodeProviderId) ??
+        "unknown";
+      const rawUsedPercent = asNumber(p.usedPercent);
+      const windows: CodexBarWindow[] = Array.isArray(p.windows)
+        ? p.windows
+            .filter(
+              (w): w is Record<string, unknown> =>
+                !!w && typeof w === "object" && !Array.isArray(w),
+            )
+            .map((w) => ({
+              id: asString(w.id) ?? "",
+              title: asString(w.title) ?? "",
+              usedPercent: asNumber(w.usedPercent),
+              resetsAt: asString(w.resetsAt),
+              windowMinutes: asNumber(w.windowMinutes),
+              ...(typeof w.countsTowardLimit === "boolean" ? { countsTowardLimit: w.countsTowardLimit } : {}),
+            }))
+        : [];
+      const creditValue = p.credits;
+      const credits: CodexBarCredits | null =
+        creditValue &&
+        typeof creditValue === "object" &&
+        !Array.isArray(creditValue)
+          ? {
+              title: asString((creditValue as Record<string, unknown>).title),
+              used: asNumber((creditValue as Record<string, unknown>).used),
+              limit: asNumber((creditValue as Record<string, unknown>).limit),
+              balance: asNumber(
+                (creditValue as Record<string, unknown>).balance,
+              ),
+            }
+          : null;
+      const creditPercent =
+        credits !== null &&
+        credits.used !== null &&
+        credits.limit !== null &&
+        credits.limit > 0
+          ? (credits.used / credits.limit) * 100
+          : null;
+      const usedPercent =
+        id === "openrouter" &&
+        windows.length === 0 &&
+        credits !== null &&
+        credits.used !== null &&
+        credits.limit === null
+          ? null
+          : rawUsedPercent;
+      const representative =
+        usedPercent === null
+          ? creditPercent
+          : creditPercent === null
+            ? usedPercent
+            : Math.max(usedPercent, creditPercent);
+      const accountId = asString(p.accountId);
+      return {
+        id,
+        instanceId:
+          asString(p.instanceId) ??
+          (accountId ? `account:${accountId}:${id}` : `default:${id}`),
+        accountId,
+        accountLabel: asString(p.accountLabel),
+        opencodeId: asString(p.opencodeProviderId),
+        plan: asString(p.plan),
+        planMonthlyUsd: asNumber(p.planMonthlyUsd),
+        usedPercent: representative,
+        limited:
+          p.limited === true ||
+          (representative !== null && representative >= 90),
+        maxed:
+          p.maxed === true ||
+          (representative !== null && representative >= 99.5),
+        resetsAt: asString(p.resetsAt),
+        updatedAt: asString(p.updatedAt),
+        stale: p.stale === true,
+        error: asString(p.error),
+        windows,
+        credits,
+        ...(p.usageDisplayOnly === true ? { usageDisplayOnly: true } : {}),
+        resetCreditsAvailable: asNumber(p.resetCreditsAvailable),
+      };
+    });
+
+  let subscriptionTotalMonthlyUsd = asNumber(obj.subscriptionTotalMonthlyUsd);
+  if (subscriptionTotalMonthlyUsd === null) {
+    const prices = providers
+      .map((p) => p.planMonthlyUsd)
+      .filter((v): v is number => v !== null);
+    if (prices.length > 0) {
+      subscriptionTotalMonthlyUsd = prices.reduce((a, b) => a + b, 0);
+    }
+  }
+
+  return {
+    available: true,
+    reason: null,
+    schema: asString(obj.schema),
+    generatedAt: asString(obj.generatedAt),
+    subscriptionTotalMonthlyUsd,
+    scope,
+    accounts,
+    providerOrder,
+    providers,
+  };
+}
+
+const ACCOUNT_MANAGED_PROVIDER_IDS = new Set([
+  "openai",
+  "openai-codex",
+  "anthropic",
+  "ollama-cloud",
+  "openrouter",
+  "commandcode",
+  "cursor",
+  "opencode",
+  "opencode-go",
+  "orcarouter",
+]);
+
+export type CodexBarProviderGroupAccount = {
+  id: string;
+  label: string;
+  provider: CodexBarProvider | null;
+  configured: boolean;
+};
+
+export type CodexBarProviderGroup = {
+  id: string;
+  provider: CodexBarProvider;
+  accountRows: CodexBarProviderGroupAccount[];
+  limitedCount: number;
+  maxedCount: number;
+};
+
+function emptyProvider(id: string): CodexBarProvider {
+  return {
+    id,
+    instanceId: `default:${id}`,
+    accountId: null,
+    accountLabel: null,
+    opencodeId: null,
+    plan: null,
+    planMonthlyUsd: null,
+    usedPercent: null,
+    limited: false,
+    maxed: false,
+    resetsAt: null,
+    updatedAt: null,
+    stale: false,
+    error: null,
+    windows: [],
+    credits: null,
+    usageDisplayOnly: false,
+    resetCreditsAvailable: null,
+  };
+}
+
+function accountProviderKey(accountId: string, providerId: string): string {
+  return `${accountId}::${providerId}`;
+}
+
+/** Group flat usage rows into provider parents and account children. */
+export function groupCodexBarProviders(
+  usage: CodexBarUsage,
+): CodexBarProviderGroup[] {
+  const groups = new Map<
+    string,
+    { rows: CodexBarProvider[]; representative: CodexBarProvider | null }
+  >();
+  const ensureGroup = (id: string) => {
+    let group = groups.get(id);
+    if (!group) {
+      group = { rows: [], representative: null };
+      groups.set(id, group);
+    }
+    return group;
+  };
+
+  for (const row of usage.providers) {
+    const group = ensureGroup(row.id);
+    group.rows.push(row);
+    if (!row.accountId && !group.representative) group.representative = row;
+  }
+  for (const account of usage.accounts ?? []) {
+    for (const providerId of account.providers) ensureGroup(providerId);
+  }
+
+  const summaries = usage.accounts ?? [];
+  const orderedIds = [
+    ...(usage.providerOrder ?? []).filter((id) => groups.has(id)),
+    ...[...groups.keys()].filter(
+      (id) => !(usage.providerOrder ?? []).includes(id),
+    ),
+  ];
+  const result: CodexBarProviderGroup[] = [];
+  for (const id of orderedIds) {
+    const group = groups.get(id)!;
+    const isAccountManaged = ACCOUNT_MANAGED_PROVIDER_IDS.has(id);
+    const usageByAccount = new Map(
+      group.rows
+        .filter((row) => row.accountId)
+        .map((row) => [row.accountId!, row] as const),
+    );
+    const accountRows: CodexBarProviderGroupAccount[] = [];
+    const seen = new Set<string>();
+
+    if (isAccountManaged) {
+      for (const account of summaries) {
+        if (!account.providers.includes(id as CodexBarAccountProviderId))
+          continue;
+        const key = accountProviderKey(account.id, id);
+        accountRows.push({
+          id: key,
+          label: account.label,
+          provider: usageByAccount.get(account.id) ?? null,
+          configured: account.configuredProviders.includes(
+            id as CodexBarAccountProviderId,
+          ),
+        });
+        seen.add(key);
+      }
+      for (const row of group.rows) {
+        if (!row.accountId) continue;
+        const key = accountProviderKey(row.accountId, id);
+        if (seen.has(key)) continue;
+        accountRows.push({
+          id: key,
+          label: row.accountLabel ?? row.accountId,
+          provider: row,
+          configured: true,
+        });
+      }
+    }
+
+    if (id === "openrouter" && accountRows.length > 0 && group.representative) {
+      accountRows.push({
+        id: "default::openrouter",
+        label: "全体",
+        provider: { ...group.representative, usageDisplayOnly: true },
+        configured: true,
+      });
+    }
+
+    const base = group.representative ?? group.rows[0] ?? emptyProvider(id);
+    const rowProviders =
+      isAccountManaged && accountRows.length > 0
+        ? accountRows.flatMap((entry) =>
+            entry.provider ? [entry.provider] : [],
+          )
+        : [base];
+    // ％が表示専用の行（API キー口座の残高から導出した％など）は親行の集計に入れない。
+    const aggregateRows = rowProviders.filter(
+      (provider) => provider.usageDisplayOnly !== true,
+    );
+    const validRows = aggregateRows.filter(
+      (provider) => hasLastGoodUsage(provider) && provider.usedPercent !== null,
+    );
+    const usedPercent =
+      isAccountManaged && accountRows.length > 0
+        ? validRows.length > 0
+          ? validRows.reduce(
+              (sum, provider) => sum + provider.usedPercent!,
+              0,
+            ) / validRows.length
+          : null
+        : base.usedPercent;
+    const limitedCount = aggregateRows.filter(
+      (provider) => provider.limited || provider.maxed,
+    ).length;
+    const maxedCount = aggregateRows.filter((provider) => provider.maxed).length;
+
+    result.push({
+      id,
+      provider: {
+        ...base,
+        instanceId: `default:${id}`,
+        accountId: null,
+        accountLabel: null,
+        usedPercent,
+        // Account children expose individual limits; the parent summarizes usage only.
+        limited: isAccountManaged && accountRows.length > 0 ? false : limitedCount > 0,
+        maxed: isAccountManaged && accountRows.length > 0 ? false : maxedCount > 0,
+        stale: aggregateRows.some((provider) => provider.stale === true),
+        tokenUsage: isAccountManaged && accountRows.length > 0 ? undefined : base.tokenUsage,
+        windows: isAccountManaged && accountRows.length > 0 ? [] : base.windows,
+        credits:
+          isAccountManaged && accountRows.length > 0 ? null : base.credits,
+        error: null,
+      },
+      accountRows,
+      limitedCount,
+      maxedCount,
+    });
+  }
+
+  return result;
+}
+
+const PROVIDER_LABELS: Record<string, string> = {
+  openai: "OpenAI",
+  "openai-codex": "Codex",
+  anthropic: "Claude",
+  commandcode: "CommandCode",
+  "command-code": "CommandCode",
+  cursor: "Cursor",
+  "opencode-go": "OpenCode",
+  opencode: "OpenCode Zen",
+  "ollama-cloud": "Ollama",
+  synthetic: "Synthetic",
+  "qwen-cloud": "Qwen Cloud",
+  qwen: "Qwen Cloud",
+  openrouter: "OpenRouter",
+  orcarouter: "OrcaRouter",
+  typesafe: "TypeSafe",
+  lmstudio: "LM Studio",
+  "llama-server": "llama-server",
+};
+
+export function providerLabel(id: string): string {
+  const known = PROVIDER_LABELS[id];
+  if (known) return known;
+  if (!id) return "Unknown";
+  return id.charAt(0).toUpperCase() + id.slice(1);
+}
+
+/** Public path of a provider's icon, or null when there is no bundled icon. */
+export function providerIconSrc(id: string): string | null {
+  return piProviderIconSrc(id);
+}
+
+/** Public path of a brand icon for an OpenCode/Pi provider id, or null. */
+export function providerIconSrcForOpencodeId(
+  opencodeId: string,
+): string | null {
+  return piProviderIconSrc(opencodeId);
+}
+
+/** Format a whole-dollar monthly price like CodexBar (`$20` / `$100/月`). */
+export function formatMonthlyUsd(usd: number): string {
+  if (Math.abs(usd - Math.round(usd)) < 0.001) {
+    return `$${Math.round(usd)}`;
+  }
+  return `$${usd.toFixed(2)}`;
+}
+
+export function formatMonthlyTotal(usd: number): string {
+  return `${formatMonthlyUsd(usd)}/月`;
+}
+
+/** クレジット残高/利用額の表示（常に 2 桁固定、CodexBar ウィジェットと同じ形式）。 */
+export function formatCreditAmount(value: number): string {
+  return `$${value.toFixed(2)}`;
+}
+
+/**
+ * 利用額・上限の表記（`利用額` または `利用額 / 上限`）を組み立てる。
+ * `limit <= 0` は「上限未設定」（Anthropic の extra_usage が未設定を 0 で返す等）
+ * として扱い、`$37.88 / $0.00` のような誤解を招く表示にしない。
+ */
+export function creditUsageParts(credits: CodexBarCredits): string[] {
+  const limit = credits.limit !== null && credits.limit > 0 ? credits.limit : null;
+  if (credits.used !== null) {
+    return [
+      limit !== null
+        ? `${formatCreditAmount(credits.used)} / ${formatCreditAmount(limit)}`
+        : formatCreditAmount(credits.used),
+    ];
+  }
+  return limit !== null ? [`上限 ${formatCreditAmount(limit)}`] : [];
+}
+
+/** Plan badge text: `Pro · $20` when a price is known. */
+export function formatPlanBadge(
+  plan: string | null,
+  planMonthlyUsd: number | null,
+): string | null {
+  if (!plan) return null;
+  if (planMonthlyUsd !== null && planMonthlyUsd > 0) {
+    return `${plan} · ${formatMonthlyUsd(planMonthlyUsd)}`;
+  }
+  return plan;
+}
+
+export type UsageTone = "ok" | "warn" | "danger";
+
+export function hasLastGoodUsage(
+  p: Pick<CodexBarProvider, "usedPercent" | "error" | "windows" | "credits">,
+): boolean {
+  if ((p.windows?.length ?? 0) > 0) return true;
+  if (
+    p.credits !== null &&
+    (p.credits.title !== null ||
+      p.credits.used !== null ||
+      p.credits.limit !== null ||
+      p.credits.balance !== null)
+  ) {
+    return true;
+  }
+  if (p.usedPercent === null) return false;
+  if (p.error && p.usedPercent === 0) return false;
+  return true;
+}
+
+export function usageTone(
+  p: Pick<
+    CodexBarProvider,
+    "usedPercent" | "limited" | "maxed" | "error" | "windows" | "credits"
+  >,
+): UsageTone {
+  if (p.error && !hasLastGoodUsage(p)) return "danger";
+  if (p.maxed || p.limited) return "danger";
+  return percentTone(p.usedPercent);
+}
+
+export function percentTone(usedPercent: number | null): UsageTone {
+  const u = usedPercent ?? 0;
+  if (u >= 90) return "danger";
+  if (u >= 75) return "warn";
+  return "ok";
+}
+
+export function overallUsedPercent(usage: CodexBarUsage): number | null {
+  const vals = usage.providers
+    .filter((p) => p.usageDisplayOnly !== true && hasLastGoodUsage(p) && p.usedPercent !== null)
+    .map((p) => p.usedPercent as number);
+  if (vals.length === 0) return null;
+  return vals.reduce((a, b) => a + b, 0) / vals.length;
+}
+
+export function limitedCount(usage: CodexBarUsage): number {
+  return usage.providers.filter((p) => p.usageDisplayOnly !== true && (p.limited || p.maxed)).length;
+}
+
+export function clampPercent(v: number | null): number {
+  if (v === null || Number.isNaN(v)) return 0;
+  if (v < 0) return 0;
+  if (v > 100) return 100;
+  return v;
+}
+
+export function formatResetsIn(
+  iso: string | null,
+  nowMs: number,
+): string | null {
+  if (!iso) return null;
+  const t = Date.parse(iso);
+  if (Number.isNaN(t)) return null;
+  const diff = t - nowMs;
+  if (diff <= 0) return "まもなく";
+  const mins = Math.floor(diff / 60_000);
+  if (mins < 60) return `${mins}分後`;
+  const hours = Math.floor(mins / 60);
+  if (hours < 24) return `${hours}時間後`;
+  const days = Math.floor(hours / 24);
+  const remHours = hours % 24;
+  return remHours > 0 ? `${days}日${remHours}時間後` : `${days}日後`;
+}
+
+export const STALE_AFTER_MS = 15 * 60 * 1000;
+
+export function isStale(
+  generatedAt: string | null,
+  nowMs: number,
+  thresholdMs: number = STALE_AFTER_MS,
+): boolean {
+  if (!generatedAt) return false;
+  const t = Date.parse(generatedAt);
+  if (Number.isNaN(t)) return false;
+  return nowMs - t > thresholdMs;
+}
+
+export function worstProvider(usage: CodexBarUsage): CodexBarProvider | null {
+  let worst: CodexBarProvider | null = null;
+  for (const p of usage.providers) {
+    if (p.error && !hasLastGoodUsage(p)) return p;
+    if (!worst || (p.usedPercent ?? -1) > (worst.usedPercent ?? -1)) worst = p;
+  }
+  return worst;
+}

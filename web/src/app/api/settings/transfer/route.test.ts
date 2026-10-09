@@ -12,7 +12,7 @@ import { writeAccountOpenCodeGoWorkspace } from "@/lib/codexbar/providers/openco
 import { getSetting, setSetting } from "@/lib/pi/web-settings";
 import { exportSettingsBackup, importSettingsBackup } from "@/lib/pi/settings-transfer";
 import { TransferRecoveryError, withTransferRecovery } from "@/lib/pi/transfer-recovery";
-import { DELETE, GET, POST } from "./route";
+import { DELETE, GET, POST } from "@backend-runtime/configuration/handlers/settings/transfer/route";
 
 const saved = {
   data: process.env.LEAFCODE_PI_DATA_DIR,

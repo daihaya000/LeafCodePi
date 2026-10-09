@@ -1,8 +1,17 @@
+import { mcpBusinessTarget } from "../../shared/mcp-business-contract.mjs";
+import { createMcpJsonBusiness } from "./mcp-json-business.mjs";
 import { createHash, randomUUID, timingSafeEqual } from "node:crypto";
 import { createServer } from "node:http";
 import { once } from "node:events";
 import { streamRuntimeEvents } from "./runtime-events.mjs";
 import { readJsonBody, JsonBodyReadError } from "./json-body.mjs";
+import { streamProviderLoginEvents } from "./provider-login-events.mjs";
+import { PROVIDER_AUTH_EVENTS_PATH } from "../../shared/provider-auth-contract.mjs";
+import { readConfigurationBody } from "./configuration-body.mjs";
+import { JSON_BUSINESS_PATH, JSON_BUSINESS_ROUTES, JSON_BUSINESS_HEADERS, jsonBusinessTarget, jsonBusinessBodyLimit, JSON_BUSINESS_RESPONSE_LIMIT, jsonBusinessMutates, jsonBusinessCommand, publicJsonBusinessResult } from "../../shared/json-business-contract.mjs";
+import { taskAssistanceCancelsOnDisconnect } from "../../shared/task-assistance-contract.mjs";
+import { peerFacing, PEER_AUTHORIZATION_HEADER } from "../../shared/peer-contract.mjs";
+import { CONFIGURATION_PATH, CONFIGURATION_ROUTES, CONFIGURATION_HEADERS, configurationTarget, configurationBodyLimit } from "../../shared/configuration-contract.mjs";
 export { BACKEND_PROMPT_BODY_LIMIT_BYTES } from "./json-body.mjs";
 import { parseMcpPresetRequest } from "../../shared/mcp-preset-request.mjs";
 import { publicMcpAuthSnapshot } from "../../shared/mcp-auth-snapshot.mjs";
@@ -211,6 +220,9 @@ export function createBackendServer({
   setTaskModelAction = null,
   setTaskThinkingLevelAction = null,
   setTaskAgentAction = null,
+  configurationRequestAction = null,
+  jsonBusinessRequestAction = null,
+  providerLoginEventsAction = null,
 } = {}) {
   if (
     typeof token !== "string" ||
@@ -244,6 +256,9 @@ export function createBackendServer({
     respondToPermission,
     readRuntimeState,
     runtimeControlAction,
+    configurationRequestAction,
+    jsonBusinessRequestAction,
+    providerLoginEventsAction,
     subscribeRuntimeEvents,
     createTask,
     respondToQuestion,
@@ -284,10 +299,14 @@ export function createBackendServer({
       throw new Error(`${name} must be a function or null`);
     }
   }
+  const mcpBusinessRequest = createMcpJsonBusiness({ readMcpServerList, setMcpServerEnabledAction, createMcpPresetAction, readMcpAuthStatus, saveMcpBearerAuthAction, saveMcpHeadersAuthAction, removeMcpAuthAction, startMcpOAuthAuthAction, completeMcpOAuthAuthAction });
   const expectedDigest = tokenDigest(token);
   const instanceId = randomUUID();
   const startedAt = new Date().toISOString();
 
+  let autoUpdateUntil = 0;
+  let activeRequests = 0;
+  const trackedRequests = new WeakSet();
   // Async so the runtime-backed reads can await; every await is inside a try/catch.
   const handleRequest = async (request, response) => {
     const authorization = request.headers.authorization;
@@ -308,6 +327,14 @@ export function createBackendServer({
     }
     // Match the request target, not the untrusted Host header. No CORS is enabled.
     const target = new URL(request.url ?? "/", "http://backend.internal");
+    if (![BACKEND_RUNTIME_CONTROL_PATH, BACKEND_HEALTH_PATH, BACKEND_RUNTIME_EVENTS_PATH].includes(target.pathname)) {
+      if (Date.now() < autoUpdateUntil) {
+        sendJson(response, 503, { error: "LCP auto-update in progress", code: BACKEND_ERROR_CODES.runtimeUnavailable });
+        return;
+      }
+      activeRequests++;
+      trackedRequests.add(request);
+    }
     const taskSuffix = target.pathname.startsWith(`${BACKEND_TASKS_PATH}/`)
       ? target.pathname.slice(BACKEND_TASKS_PATH.length + 1)
       : null;
@@ -384,7 +411,11 @@ export function createBackendServer({
     const projectActionPath = projectSuffix?.endsWith(BACKEND_PROJECT_TEARDOWN_SUFFIX)
       ? decodeURIComponent(projectSuffix.slice(0, -BACKEND_PROJECT_TEARDOWN_SUFFIX.length))
       : undefined;
-    const knownPath = target.pathname === BACKEND_HEALTH_PATH
+    const configurationPath = target.pathname.startsWith(`${CONFIGURATION_PATH}/`)
+      ? target.pathname.slice(CONFIGURATION_PATH.length + 1) : null;
+    const businessPath = target.pathname.startsWith(`${JSON_BUSINESS_PATH}/`) ? target.pathname.slice(JSON_BUSINESS_PATH.length + 1) : null;
+    const authEventsMatch = new RegExp(`^${PROVIDER_AUTH_EVENTS_PATH}/([^/]+)$`).exec(target.pathname);
+    const knownPath = authEventsMatch !== null || businessPath !== null || configurationPath !== null || target.pathname === BACKEND_HEALTH_PATH
       || target.pathname === BACKEND_RUNTIME_CONTROL_PATH
       || target.pathname === BACKEND_RUNTIME_EVENTS_PATH
       || target.pathname === BACKEND_LIVE_SESSIONS_RELOAD_PATH
@@ -407,6 +438,113 @@ export function createBackendServer({
       || actionPath !== undefined;
     if (!knownPath) {
       sendJson(response, 404, { error: "Not found", code: BACKEND_ERROR_CODES.notFound });
+      return;
+    }
+    if (authEventsMatch) {
+      if (request.method !== "GET") { sendJson(response, 405, { error: "Method not allowed", code: BACKEND_ERROR_CODES.methodNotAllowed }); return; }
+      if (!providerLoginEventsAction || !isReady()) { sendJson(response, 503, { error: "Login event owner unavailable", code: BACKEND_ERROR_CODES.runtimeUnavailable }); return; }
+      const origin = request.headers[JSON_BUSINESS_HEADERS.origin], host = request.headers[JSON_BUSINESS_HEADERS.host], access = request.headers[JSON_BUSINESS_HEADERS.authorized];
+      let providerId;
+      try {
+        const url = new URL(origin); providerId = decodeURIComponent(authEventsMatch[1]);
+        if (!["http:", "https:"].includes(url.protocol) || url.origin !== origin || typeof host !== "string" || !["0", "1"].includes(access)) throw new Error();
+      } catch { sendJson(response, 400, { error: "Invalid business context", code: BACKEND_ERROR_CODES.badRequest }); return; }
+      if (process.env.LEAFCODE_PI_WEBUI_AUTH === "required" && access !== "1") { sendJson(response, 403, { error: "WebUI access required", code: BACKEND_ERROR_CODES.unauthorized }); return; }
+      const controller = new AbortController(), disconnect = () => controller.abort();
+      response.once("close", disconnect); request.socket.once("end", disconnect);
+      try {
+        const source = await providerLoginEventsAction({ route: providerId, method: "GET", url: `${origin}/api/providers/${authEventsMatch[1]}/login/events${target.search}`, headers: { host }, authorized: access === "1", signal: controller.signal });
+        if (!controller.signal.aborted) await streamProviderLoginEvents(response, source, controller.signal);
+      } catch { if (!response.headersSent && !response.destroyed) sendJson(response, 503, { error: "Login events unavailable", code: BACKEND_ERROR_CODES.internal }); else response.destroy(); }
+      finally { response.off("close", disconnect); request.socket.off("end", disconnect); controller.abort(); }
+      return;
+    }
+    if (businessPath !== null) {
+      const businessTarget = jsonBusinessTarget(businessPath);
+      if (!businessTarget) { sendJson(response, 404, { error: "Unknown business route", code: BACKEND_ERROR_CODES.notFound }); return; }
+      if (!JSON_BUSINESS_ROUTES[businessTarget.route].includes(request.method)) { sendJson(response, 405, { error: "Method not allowed", code: BACKEND_ERROR_CODES.methodNotAllowed }); return; }
+      const businessAction = mcpBusinessTarget(businessPath) ? mcpBusinessRequest : jsonBusinessRequestAction;
+      if (!businessAction || !isReady()) { sendJson(response, 503, { error: "Business owner unavailable", code: BACKEND_ERROR_CODES.runtimeUnavailable }); return; }
+      const origin = request.headers[JSON_BUSINESS_HEADERS.origin], host = request.headers[JSON_BUSINESS_HEADERS.host], access = request.headers[JSON_BUSINESS_HEADERS.authorized];
+      try {
+        const url = new URL(origin);
+        if (!["http:", "https:"].includes(url.protocol) || url.origin !== origin || typeof host !== "string" || !["0", "1"].includes(access)) throw new Error();
+      } catch { sendJson(response, 400, { error: "Invalid business context", code: BACKEND_ERROR_CODES.badRequest }); return; }
+      if (((!peerFacing(businessPath) && process.env.LEAFCODE_PI_WEBUI_AUTH === "required") || businessPath === "peer-auth/import") && access !== "1") { sendJson(response, 403, { error: "WebUI access required", code: BACKEND_ERROR_CODES.unauthorized }); return; }
+      const command = jsonBusinessCommand(businessPath, request.method);
+      const operationId = request.headers[JSON_BUSINESS_HEADERS.operation];
+      if (command && (typeof operationId !== "string" || !/^[0-9a-f-]{36}$/.test(operationId))) { sendJson(response, 400, { error: "Invalid operation ID", code: BACKEND_ERROR_CODES.badRequest }); return; }
+      if (businessTarget.route === "prompts/transfer" && access !== "1") {
+        const loopback = ["127.0.0.1", "localhost", "::1", "[::1]"];
+        let headerHost = ""; try { headerHost = new URL(`http://${host}`).hostname; } catch { /* fail closed */ }
+        if (!loopback.includes(process.env.LEAFCODE_PI_BIND_HOST ?? "") || !loopback.includes(new URL(origin).hostname) || !loopback.includes(headerHost)) { sendJson(response, 403, { error: "Transfer access required", code: BACKEND_ERROR_CODES.unauthorized }); return; }
+      }
+      const headers = { host };
+      for (const key of ["content-type", "origin", "sec-fetch-site", "x-forwarded-host", "if-none-match"]) if (typeof request.headers[key] === "string") headers[key] = request.headers[key];
+      if (peerFacing(businessPath) && typeof request.headers[PEER_AUTHORIZATION_HEADER] === "string" && request.headers[PEER_AUTHORIZATION_HEADER].length <= 512) headers.authorization = request.headers[PEER_AUTHORIZATION_HEADER];
+      const body = request.method === "GET" ? undefined : await readConfigurationBody(request, jsonBusinessBodyLimit(businessPath, request.method));
+      const controller = new AbortController();
+      const disconnect = () => { if (!response.writableEnded) controller.abort(); };
+      response.once("close", disconnect);
+      if (response.destroyed) { response.off("close", disconnect); return; }
+      try {
+        const result = publicJsonBusinessResult(businessPath, await businessAction({ route: businessPath, method: request.method,
+          url: `${origin}/api/${businessPath}${target.search}`, headers, authorized: access === "1", body, operationId,
+          signal: jsonBusinessMutates(businessPath, request.method) && !taskAssistanceCancelsOnDisconnect(businessPath) ? undefined : controller.signal }), request.method);
+        if (!result || Buffer.byteLength(JSON.stringify(result), "utf8") > JSON_BUSINESS_RESPONSE_LIMIT) throw new Error("Invalid business result");
+        sendJson(response, 200, result);
+      } catch { if (!response.destroyed) sendJson(response, 503, { error: "Business request failed", code: BACKEND_ERROR_CODES.internal }); }
+      finally { response.off("close", disconnect); }
+      return;
+    }
+    if (configurationPath !== null) {
+      const selection = configurationTarget(configurationPath);
+      if (!selection) { sendJson(response, 404, { error: "Unknown configuration route", code: BACKEND_ERROR_CODES.notFound }); return; }
+      if (!CONFIGURATION_ROUTES[selection.route].includes(request.method)) {
+        sendJson(response, 405, { error: "Method not allowed", code: BACKEND_ERROR_CODES.methodNotAllowed }); return;
+      }
+      if (!configurationRequestAction || !isReady()) {
+        sendJson(response, 503, { error: "Backend runtime unavailable", code: BACKEND_ERROR_CODES.runtimeUnavailable }); return;
+      }
+      const origin = request.headers[CONFIGURATION_HEADERS.origin];
+      const host = request.headers[CONFIGURATION_HEADERS.host];
+      const access = request.headers[CONFIGURATION_HEADERS.authorized];
+      const operationId = request.headers[CONFIGURATION_HEADERS.operation];
+      let original;
+      try {
+        original = new URL(origin);
+        if (!["http:", "https:"].includes(original.protocol) || original.origin !== origin || typeof host !== "string"
+          || !["0", "1"].includes(access) || (request.method !== "GET" && (typeof operationId !== "string" || !/^[0-9a-f-]{36}$/.test(operationId)))) throw new Error();
+      } catch { sendJson(response, 400, { error: "Invalid configuration context", code: BACKEND_ERROR_CODES.badRequest }); return; }
+      if (process.env.LEAFCODE_PI_WEBUI_AUTH === "required" && access !== "1") {
+        sendJson(response, 403, { error: "WebUI access required", code: BACKEND_ERROR_CODES.unauthorized }); return;
+      }
+      if (["notifications", "pushover", "settings/transfer", "profile"].includes(selection.route) && access !== "1") {
+        const loopback = ["127.0.0.1", "localhost", "::1", "[::1]"];
+        let headerHost = "";
+        try { headerHost = new URL(`http://${host}`).hostname; } catch { /* fail closed */ }
+        if (!loopback.includes(process.env.LEAFCODE_PI_BIND_HOST ?? "") || !loopback.includes(original.hostname) || !loopback.includes(headerHost)) {
+          sendJson(response, 403, { error: "Configuration access required", code: BACKEND_ERROR_CODES.unauthorized }); return;
+        }
+      }
+      const body = request.method === "GET" ? undefined : await readConfigurationBody(request, configurationBodyLimit(selection.route, request.method));
+      const headers = { host };
+      for (const key of ["content-type", "origin", "sec-fetch-site", "x-forwarded-host"]) if (typeof request.headers[key] === "string") headers[key] = request.headers[key];
+      const profileMaintenance = selection.route === "profile";
+      if (profileMaintenance && activeRequests > 1) {
+        sendJson(response, 409, { error: "Other Backend requests are active", code: BACKEND_ERROR_CODES.badRequest }); return;
+      }
+      const previousMaintenance = autoUpdateUntil;
+      if (profileMaintenance) autoUpdateUntil = Date.now() + 5 * 60_000;
+      try {
+        const result = await configurationRequestAction({ route: configurationPath, method: request.method,
+          url: `${original.origin}/api/${configurationPath}${target.search}`, headers, authorized: access === "1", operationId, body });
+        if (!(result instanceof Response)) throw new Error("Invalid configuration result");
+        const publicHeaders = {};
+        for (const key of ["cache-control", "x-content-type-options"]) if (result.headers.has(key)) publicHeaders[key] = result.headers.get(key);
+        sendJson(response, result.status, await result.json(), publicHeaders);
+      } catch { sendJson(response, 503, { error: "Configuration owner unavailable", code: BACKEND_ERROR_CODES.runtimeUnavailable }); }
+      finally { if (profileMaintenance) autoUpdateUntil = previousMaintenance; }
       return;
     }
     if (target.pathname.startsWith(`${BACKEND_MCP_SERVERS_PATH}/`) && target.pathname.endsWith(BACKEND_MCP_AUTH_SUFFIX)) {
@@ -613,7 +751,7 @@ export function createBackendServer({
       }
       const body = await readJsonBody(request, 4096);
       const value = body.value;
-      const actions = new Set(["read-compaction", "set-compaction", "read-cache-warming", "set-cache-warming", "refresh-compaction", "code-permissions"]);
+      const actions = new Set(["read-compaction", "set-compaction", "read-cache-warming", "set-cache-warming", "refresh-compaction", "code-permissions", "prepare-auto-update", "release-auto-update"]);
       if (!body.ok || !value || typeof value !== "object" || Array.isArray(value) || !actions.has(value.action)
         || Object.keys(value).some((key) => key !== "action" && key !== "value")
         || (value.action === "set-compaction" && typeof value.value !== "boolean")
@@ -621,7 +759,24 @@ export function createBackendServer({
         sendJson(response, 400, { error: "Invalid runtime setting", code: BACKEND_ERROR_CODES.badRequest });
         return;
       }
-      try { sendJson(response, 200, { result: await runtimeControlAction(value) }); }
+      try {
+        if (value.action === "prepare-auto-update" && (activeRequests > 0 || !isReady())) {
+          sendJson(response, 200, { result: { prepared: false } });
+          return;
+        }
+        if (!["prepare-auto-update", "release-auto-update"].includes(value.action)) {
+          if (Date.now() < autoUpdateUntil) {
+            sendJson(response, 503, { error: "LCP auto-update in progress", code: BACKEND_ERROR_CODES.runtimeUnavailable });
+            return;
+          }
+          activeRequests++;
+          trackedRequests.add(request);
+        }
+        const result = await runtimeControlAction(value);
+        if (value.action === "prepare-auto-update" && result?.prepared === true) autoUpdateUntil = Date.now() + 5 * 60_000;
+        if (value.action === "release-auto-update") autoUpdateUntil = 0;
+        sendJson(response, 200, { result });
+      }
       catch { sendJson(response, 503, { error: "Backend setting update failed", code: BACKEND_ERROR_CODES.runtimeUnavailable }); }
       return;
     }
@@ -630,7 +785,12 @@ export function createBackendServer({
         sendJson(response, 503, { error: "Backend runtime unavailable", code: BACKEND_ERROR_CODES.runtimeUnavailable });
         return;
       }
-      try { sendJson(response, 200, await readRuntimeState()); }
+      try {
+        const state = await readRuntimeState({ autoUpdate: target.searchParams.get("autoUpdate") === "1" });
+        sendJson(response, 200, { ...state, ...(state.autoUpdate ? {
+          autoUpdate: { ...state.autoUpdate, busy: state.autoUpdate.busy !== false || activeRequests > 0 || !isReady() },
+        } : {}) });
+      }
       catch { sendJson(response, 503, { error: "Backend runtime state unavailable", code: BACKEND_ERROR_CODES.runtimeUnavailable }); }
       return;
     }
@@ -1268,7 +1428,9 @@ export function createBackendServer({
   // A throw outside the per-route try/catch (for example a malformed percent-encoding in the path)
   // would otherwise be an unhandled rejection: the request hangs and Node can terminate the process.
   return createServer({ requestTimeout: 30_000, headersTimeout: 10_000 }, (request, response) => {
-    handleRequest(request, response).catch((error) => {
+    handleRequest(request, response).finally(() => {
+      if (trackedRequests.delete(request)) activeRequests--;
+    }).catch((error) => {
       try {
         if (response.destroyed || response.headersSent || response.writableEnded) {
           response.destroy();

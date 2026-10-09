@@ -38,6 +38,111 @@ beforeEach(() => {
 });
 
 describe("evaluateTypeSafe", () => {
+  describe("per-call provider/model/account selection", () => {
+    const refs = [
+      { providerId: "openrouter", modelId: "jev-a", accountId: "one" },
+      { providerId: "openrouter", modelId: "jev-b", accountId: "one" },
+      { providerId: "openrouter", modelId: "jev-a", accountId: "two" },
+      { providerId: "typesafe", modelId: "jev-a" },
+    ];
+    beforeEach(() => {
+      mocks.readSettings.mockReturnValue({ ...DEFAULT_JEV_MODEL_SETTINGS, provider: "registered", registeredModel: refs[0], enabledModels: refs });
+      mocks.readState.mockReturnValue({ providerOrder: ["one::openrouter", "two::openrouter", "typesafe"], modelOrder: {} });
+      mocks.resolve.mockImplementation(async (settings) => ({
+        baseUrl: `https://${settings.registeredModel.providerId}.example/v1`,
+        model: settings.registeredModel.modelId,
+        apiKey: `${settings.registeredModel.accountId ?? "default"}-key`,
+      }));
+    });
+
+    it.each([
+      [{ provider: "typesafe" }, [refs[3]]],
+      [{ model: "jev-b" }, [refs[1]]],
+      [{ provider: "openrouter", model: "jev-a" }, [refs[0], refs[2]]],
+      [{ provider: "openrouter", model: "jev-a", accountId: "two" }, [refs[2]]],
+    ])("restricts all attempts to the selector %j without changing settings", async (selector, expected) => {
+      const settings = mocks.readSettings();
+      const snapshot = structuredClone(settings);
+      const fetchImpl = vi.fn().mockResolvedValue(new Response(null, { status: 503 }));
+      await expect(evaluateTypeSafe(request, { fetchImpl, selector, apiKey: "unrelated-key" })).rejects.toThrow("Jev API error: 503");
+      expect(mocks.resolve.mock.calls.map(([settings]) => settings.registeredModel)).toEqual(expected);
+      expect(fetchImpl.mock.calls.map(([, init]) => init.headers.Authorization)).toEqual(expected.map((ref) => `Bearer ${ref.accountId ?? "default"}-key`));
+      expect(settings).toEqual(snapshot);
+    });
+
+    it.each([
+      { provider: "unknown" },
+      { model: "unknown" },
+      { provider: "typesafe", model: "jev-b" },
+      { provider: "openrouter", accountId: "missing" },
+    ])("fails before auth or HTTP when no enabled selection matches %j", async (selector) => {
+      const fetchImpl = respond();
+      await expect(evaluateTypeSafe(request, { fetchImpl, selector })).rejects.toThrow("no enabled, available model matches");
+      expect(mocks.resolve).not.toHaveBeenCalled();
+      expect(fetchImpl).not.toHaveBeenCalled();
+    });
+
+    it("does not enable a detected but unselected model", async () => {
+      const unselected = { providerId: "openai", modelId: "gpt-6-luna", accountId: "other" };
+      mocks.list.mockResolvedValue([...refs, unselected]);
+      const fetchImpl = respond();
+      await expect(evaluateTypeSafe(request, { fetchImpl, selector: { provider: "openai", model: "gpt-6-luna" } })).rejects.toThrow("enable it in Jev model settings first");
+      expect(mocks.resolve).not.toHaveBeenCalled();
+      expect(fetchImpl).not.toHaveBeenCalled();
+    });
+
+    it.each(["undetected", "paused-catalog", "disabled-provider"])("cannot select an unavailable account (%s)", async (reason) => {
+      const ref = refs[2];
+      if (reason === "undetected") mocks.list.mockResolvedValue(refs.filter((item) => item !== ref));
+      if (reason === "paused-catalog") mocks.list.mockResolvedValue(refs.map((item) => ({ ...item, providerEnabled: item !== ref })));
+      if (reason === "disabled-provider") mocks.readState.mockReturnValue({ providerOrder: [], modelOrder: {}, disabled: { "two::openrouter": true } });
+      const fetchImpl = respond();
+      await expect(evaluateTypeSafe(request, { fetchImpl, selector: { provider: ref.providerId, model: ref.modelId, accountId: ref.accountId } })).rejects.toThrow("no enabled, available model matches");
+      expect(mocks.resolve).not.toHaveBeenCalled();
+      expect(fetchImpl).not.toHaveBeenCalled();
+    });
+
+    it("uses the Decisions contract for an explicitly selected OpenAI model", async () => {
+      const ref = { providerId: "openai", modelId: "gpt-6-luna", accountId: "one" };
+      mocks.readSettings.mockReturnValue({ ...DEFAULT_JEV_MODEL_SETTINGS, provider: "registered", enabledModels: [...refs, ref] });
+      mocks.resolve.mockResolvedValue({ baseUrl: "https://api.openai.com/v1", model: ref.modelId, api: "decisions", apiKey: "one-key" });
+      const fetchImpl = respond({ model: ref.modelId, answers: [{ type: "predicate", name: "connected", probability: 0.9 }], usage: result.usage });
+      await expect(evaluateTypeSafe(request, { fetchImpl, selector: { provider: "openai", model: ref.modelId } })).resolves.toMatchObject({ model: ref.modelId, answers: result.answers });
+      expect(fetchImpl.mock.calls[0][0]).toBe("https://api.openai.com/v1/decisions");
+      expect(mocks.resolve.mock.calls[0][0].registeredModel).toEqual(ref);
+    });
+  });
+
+  it.each([
+    { provider: "" }, { model: " " }, { provider: " openai" },
+    { model: "a\nb" }, { model: "a".repeat(257) }, { accountId: "one" },
+    { provider: "openai", accountId: "" },
+  ])("rejects malformed selectors before catalog discovery: %j", async (selector) => {
+    const fetchImpl = respond();
+    await expect(evaluateTypeSafe(request, { fetchImpl, selector })).rejects.toThrow("Jev:");
+    expect(mocks.list).not.toHaveBeenCalled();
+    expect(mocks.resolve).not.toHaveBeenCalled();
+    expect(fetchImpl).not.toHaveBeenCalled();
+  });
+
+  it.each(["typesafe", "compatible"] as const)("restricts the legacy %s connection to its saved model", async (provider) => {
+    mocks.readSettings.mockReturnValue({ ...DEFAULT_JEV_MODEL_SETTINGS, provider, compatibleBaseUrl: "http://localhost:8080/v1", compatibleModel: "local-judge" });
+    const model = provider === "typesafe" ? "jev-latest" : "local-judge";
+    const fetchImpl = respond();
+    await evaluateTypeSafe(request, { fetchImpl, selector: { provider, model } });
+    expect(JSON.parse(fetchImpl.mock.calls[0][1].body).model).toBe(model);
+    expect(mocks.list).not.toHaveBeenCalled();
+    mocks.resolve.mockClear();
+    fetchImpl.mockClear();
+    for (const selector of [{ provider, model: "other" }, { provider: "openai" }, { provider, accountId: "one" }]) {
+      await expect(evaluateTypeSafe(request, { fetchImpl, selector })).rejects.toThrow("no enabled, available model matches");
+    }
+    mocks.readState.mockReturnValue({ providerOrder: [], modelOrder: {}, disabled: { [provider]: true } });
+    await expect(evaluateTypeSafe(request, { fetchImpl, selector: { provider, model } })).rejects.toThrow("no enabled, available model matches");
+    expect(mocks.resolve).not.toHaveBeenCalled();
+    expect(fetchImpl).not.toHaveBeenCalled();
+  });
+
   function useOpenAi() {
     const ref = { providerId: "openai", modelId: "gpt-6-luna", accountId: "openai-one" };
     mocks.readSettings.mockReturnValue({ ...DEFAULT_JEV_MODEL_SETTINGS, provider: "registered", registeredModel: ref });

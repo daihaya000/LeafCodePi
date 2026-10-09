@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { linuxDrivePaths, listBrowseDrives, resetBrowseDrivesCache, windowsDrivePaths } from "./browse-drives";
 
 describe("linuxDrivePaths", () => {
@@ -27,11 +27,13 @@ describe("windowsDrivePaths", () => {
 
 describe("listBrowseDrives cache", () => {
   it("shares one enumeration between concurrent and back-to-back calls", async () => {
+    vi.stubEnv("LEAFCODE_BROWSE_POWERSHELL", "__fixture_missing_powershell__");
     resetBrowseDrivesCache();
     const [a, b] = await Promise.all([listBrowseDrives(), listBrowseDrives()]);
     expect(b).toBe(a);
     expect(await listBrowseDrives()).toBe(a);
     resetBrowseDrivesCache();
     expect(await listBrowseDrives()).not.toBe(a);
+    vi.unstubAllEnvs();
   });
 });

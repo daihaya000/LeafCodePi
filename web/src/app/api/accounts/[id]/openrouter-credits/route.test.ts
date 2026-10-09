@@ -10,10 +10,10 @@ import {
   readOpenRouterCreditBaseline,
   readOpenRouterManagementKey,
 } from "@/lib/codexbar/providers/openrouter";
-import { DELETE as deleteBaseline, POST as saveBaseline } from "../openrouter-baseline/route";
-import { GET as getAuthStatus } from "../auth-status/route";
-import { DELETE as deleteAccountRoute } from "../route";
-import { DELETE as deleteKey, POST as saveKey } from "./route";
+import { DELETE as deleteBaseline, POST as saveBaseline } from "@backend-runtime/json-business/handlers/accounts/[id]/openrouter-baseline/route";
+import { GET as getAuthStatus } from "@backend-runtime/json-business/handlers/accounts/[id]/auth-status/route";
+import { DELETE as deleteAccountRoute } from "@backend-runtime/json-business/handlers/accounts/[id]/route";
+import { DELETE as deleteKey, POST as saveKey } from "@backend-runtime/json-business/handlers/accounts/[id]/openrouter-credits/route";
 
 const undiciFetch = vi.hoisted(() => vi.fn());
 vi.mock("undici", async (importOriginal) => ({

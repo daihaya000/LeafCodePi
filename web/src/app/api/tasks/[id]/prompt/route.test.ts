@@ -1,5 +1,5 @@
 import { NextRequest } from "next/server";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   getTask: vi.fn(),
@@ -31,11 +31,6 @@ vi.mock("@/lib/pi/runtime-ownership", () => ({
   localRuntimeBlocked: vi.fn(() => false),
   assertLocalRuntimeAllowed: vi.fn(),
 }));
-vi.mock("@/lib/backend-forward", () => ({
-  forwardTaskPrompt: vi.fn(),
-  needsLocalResolution: vi.fn(() => false),
-  forwardablePromptBody: vi.fn((body) => body),
-}));
 vi.mock("@/lib/pi/harness", () => ({
   isRecoverableResumeSelectionError: mocks.isRecoverableResumeSelectionError,
   jsonError: mocks.jsonError,
@@ -44,11 +39,9 @@ vi.mock("@/lib/pi/harness", () => ({
   validateTaskModelSelection: mocks.validateTaskModelSelection,
 }));
 
-import { localRuntimeBlocked } from "@/lib/pi/runtime-ownership";
-import { forwardTaskPrompt, needsLocalResolution } from "@/lib/backend-forward";
 import { AUTO_AGENT_VALUE } from "@/lib/default-agent";
 import { MAX_PROMPT_IMAGE_BYTES, MAX_PROMPT_TEXT_CHARS } from "@/lib/prompt-images";
-import { POST } from "./route";
+import { POST } from "@backend-runtime/json-business/handlers/tasks/[id]/prompt/route";
 
 function request(body: unknown): NextRequest {
   return new NextRequest("http://localhost/api/tasks/task-1/prompt", {
@@ -59,7 +52,9 @@ function request(body: unknown): NextRequest {
 }
 
 describe("POST /api/tasks/[id]/prompt", () => {
+  afterEach(() => vi.unstubAllEnvs());
   beforeEach(() => {
+    vi.stubEnv("LEAFCODE_PI_PROCESS_ROLE", "backend");
     mocks.getTask.mockReset();
     mocks.readSessionConversation.mockReset();
     mocks.resolveAutoAgent.mockReset();
@@ -90,69 +85,6 @@ describe("POST /api/tasks/[id]/prompt", () => {
     });
     mocks.promptTask.mockResolvedValue({ id: "task-1", agent: "reviewer" });
     mocks.validateTaskModelSelection.mockResolvedValue(undefined);
-    // Ownership and forwarding are per-test: a leftover value would make every later test forward.
-    vi.mocked(localRuntimeBlocked).mockReturnValue(false);
-    vi.mocked(needsLocalResolution).mockReturnValue(false);
-    vi.mocked(forwardTaskPrompt).mockReset();
-  });
-
-  it("forwards the prompt to the owning Backend instead of starting a session", async () => {
-    vi.mocked(localRuntimeBlocked).mockReturnValue(true);
-    vi.mocked(needsLocalResolution).mockReturnValue(false);
-    vi.mocked(forwardTaskPrompt).mockResolvedValue({ ok: true, task: { id: "task-1", status: "working" } });
-    const response = await POST(request({ prompt: "こんにちは" }), { params: Promise.resolve({ id: "task-1" }) });
-    expect(response.status).toBe(200);
-    await expect(response.json()).resolves.toEqual({ task: { id: "task-1", status: "working" } });
-    // Nothing local ran: no task read, no in-process session.
-    expect(mocks.getTask).not.toHaveBeenCalled();
-    expect(mocks.promptTask).not.toHaveBeenCalled();
-    expect(vi.mocked(forwardTaskPrompt).mock.calls[0][0]).toBe("task-1");
-  });
-
-  it("preserves domain rejection statuses rather than turning them into transport errors", async () => {
-    vi.mocked(localRuntimeBlocked).mockReturnValue(true);
-    for (const status of [400, 404, 409, 413, 422, 429]) {
-      vi.mocked(forwardTaskPrompt).mockResolvedValue({ ok: false, reason: "bad-response", status });
-      const response = await POST(request({ prompt: "test" }), { params: Promise.resolve({ id: "task-1" }) });
-      expect(response.status).toBe(status);
-      expect(await response.json()).toMatchObject({ code: "BACKEND_REQUEST_REJECTED" });
-    }
-    expect(mocks.promptTask).not.toHaveBeenCalled();
-  });
-
-  it("never falls back locally when the Backend cannot take the prompt", async () => {
-    vi.mocked(localRuntimeBlocked).mockReturnValue(true);
-    vi.mocked(needsLocalResolution).mockReturnValue(false);
-    vi.mocked(forwardTaskPrompt).mockResolvedValue({ ok: false, reason: "unreachable" });
-    const failed = await POST(request({ prompt: "こんにちは" }), { params: Promise.resolve({ id: "task-1" }) });
-    expect(failed.status).toBe(502);
-    await expect(failed.json()).resolves.toEqual({ error: "Backendへ転送できません", code: "BACKEND_FORWARD_FAILED", reason: "unreachable" });
-    vi.mocked(forwardTaskPrompt).mockResolvedValue({ ok: false, reason: "not-configured" });
-    const unconfigured = await POST(request({ prompt: "こんにちは" }), { params: Promise.resolve({ id: "task-1" }) });
-    expect(unconfigured.status).toBe(409);
-    await expect(unconfigured.json()).resolves.toEqual({ error: "Backendが実行を所有しています", code: "RUNTIME_NOT_OWNED" });
-    expect(mocks.promptTask).not.toHaveBeenCalled();
-  });
-
-  it("forwards Auto to the owner instead of refusing it or resolving locally", async () => {
-    vi.mocked(localRuntimeBlocked).mockReturnValue(true);
-    const body = { task: { id: "task-1" }, autoDecision: { modelID: "selected" } };
-    vi.mocked(forwardTaskPrompt).mockResolvedValue({ ok: true, task: body.task, result: { status: 200, body } });
-    const response = await POST(request({ prompt: "こんにちは", auto: true }), { params: Promise.resolve({ id: "task-1" }) });
-    expect(response.status).toBe(200);
-    await expect(response.json()).resolves.toEqual(body);
-    expect(forwardTaskPrompt).toHaveBeenCalledWith("task-1", expect.objectContaining({ auto: true }));
-    expect(mocks.resolveAutoModel).not.toHaveBeenCalled();
-    expect(mocks.resolveAutoAgent).not.toHaveBeenCalled();
-    expect(mocks.promptTask).not.toHaveBeenCalled();
-  });
-
-  it("replays the owner's original business error and status", async () => {
-    vi.mocked(localRuntimeBlocked).mockReturnValue(true);
-    vi.mocked(forwardTaskPrompt).mockResolvedValue({ ok: true, task: null, result: { status: 409, body: { error: "停止後に再試行してください" } } });
-    const response = await POST(request({ prompt: "test" }), { params: Promise.resolve({ id: "task-1" }) });
-    expect(response.status).toBe(409);
-    expect(await response.json()).toEqual({ error: "停止後に再試行してください" });
   });
 
   it("resolves Auto from the persisted conversation and passes the real agent", async () => {

@@ -4,6 +4,29 @@
 2. Jev モデル設定を更新し、OpenAI の **gpt-6-luna** を有効にする。モデルカタログ未掲載でも、認証済みの OpenAI 接続から検出される。
 3. 既存の `jev_judge`・Auto・圧縮などをそのまま使う。既存選択は自動で変更しない。
 
+## 呼び出しごとのモデル指定
+
+`jev_judge` は任意の `provider`・`model`・`accountId` を受け取る。表示名ではなく、設定のモデルカタログと同じ正確なIDを指定する。
+
+```json
+{
+  "provider": "openai",
+  "model": "gpt-6-luna",
+  "state": "Build and tests passed.",
+  "questions": [{ "id": "ready", "type": "noul", "instructions": "Is the build ready?" }]
+}
+```
+
+- すべて省略: 従来の設定順・フォールバックを維持する。
+- `provider` のみ: そのプロバイダーの有効なJevモデルに限定する。
+- `model` のみ: そのモデルIDを持つ有効な接続に限定する。
+- 両方: そのプロバイダーとモデルだけを使う。複数アカウントが有効なら、その範囲内で既存の順序・フォールバックを維持する。
+- `accountId`: 認証アカウントも固定する。`provider` が必須。
+
+Jev設定で有効化済み、検出済み、かつプロバイダー／アカウントが停止していないモデルだけが対象。未選択のモデルを自動で有効化せず、保存設定も書き換えない。該当なしは送信前にエラー、API失敗時も指定条件外へ再送しない。APIキー・URL・ヘッダーはツール引数ではなく、既存のサーバー側接続と認証を使用する。ツールのキャンセルも判定リクエストへ伝播する。
+
+旧設定の `typesafe` / `compatible` 接続は、保存された接続・モデルIDに一致する指定だけを受け付ける。`compatible` は旧互換接続のIDで、任意のURL指定ではない。
+
 ## 変換
 
 `web/src/lib/pi/openai-decisions.ts` が HTTP 境界で変換する。

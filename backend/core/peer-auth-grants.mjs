@@ -3,6 +3,7 @@ import { mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node
 import { dirname, join } from "node:path";
 import { dataDir } from "./app-paths.mjs";
 import { withDirectoryLock } from "./directory-lock.mjs";
+import { watchConfigurationPath } from "./configuration-command.mjs";
 
 // Grant store for peer auth sharing (docs/plans/peer-auth-share.md).
 // Only the SHA-256 of a peer token is persisted; the token itself is returned once at creation.
@@ -75,6 +76,7 @@ export function createPeerGrantStore(options = {}) {
 
   const locked = (action) => {
     const path = file();
+    watchConfigurationPath(path);
     return withDirectoryLock({
       lockPath: `${path}.lock`, parentDir: dirname(path), staleMs: LOCK_STALE_MS, busyMessage: "peer auth store is busy",
     }, action);

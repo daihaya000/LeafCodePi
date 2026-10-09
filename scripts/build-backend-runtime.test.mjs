@@ -5,15 +5,17 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { test } from "node:test";
 import {
+  assertBackendInputs,
   backendRuntimeBundleIsCurrent,
   backendRuntimeSourceStamp,
+  runtimeAliases,
   publishRuntimeBuild,
 } from "./build-backend-runtime.mjs";
 
 const HERE = fileURLToPath(import.meta.url);
 const ROOT = resolve(dirname(HERE), "..");
-const HARNESS = join(ROOT, "web", "src", "lib", "pi", "harness.ts");
-const ENTRY = join(ROOT, "web", "src", "lib", "pi", "backend-runtime-entry.ts");
+const HARNESS = join(ROOT, "backend", "runtime-src", "lib", "pi", "harness.ts");
+const ENTRY = join(ROOT, "backend", "runtime-src", "lib", "pi", "backend-runtime-entry.ts");
 
 test("publishing errors restore bundle, sourcemap and source stamp", () => {
   const dir = mkdtempSync(join(tmpdir(), "lcp-runtime-publish-"));
@@ -114,7 +116,7 @@ test("default stamp covers harness.ts and is broader than entry-only", () => {
   }
 });
 
-test("default stamp changes when a lockfile or the build script changes", () => {
+test("Backend lockfile and build script invalidate the stamp, Web lockfile does not", () => {
   const root = mkdtempSync(join(tmpdir(), "lcp-runtime-lock-stamp-"));
   try {
     const entry = join(root, "entry.ts");
@@ -139,8 +141,10 @@ test("default stamp changes when a lockfile or the build script changes", () => 
     };
     const first = backendRuntimeSourceStamp(options);
     writeFileSync(webLock, '{"lockfileVersion":1}\n');
-    assert.notEqual(first, backendRuntimeSourceStamp(options), "web lockfile must be stamped");
-    writeFileSync(webLock, "{}\n");
+    assert.equal(first, backendRuntimeSourceStamp(options), "Web lockfile must not be stamped");
+    writeFileSync(backendLock, '{"lockfileVersion":1}\n');
+    assert.notEqual(first, backendRuntimeSourceStamp(options), "Backend lockfile must be stamped");
+    writeFileSync(backendLock, "{}\n");
     writeFileSync(buildScript, "// banner change\n");
     assert.notEqual(first, backendRuntimeSourceStamp(options), "build script must be stamped");
   } finally {

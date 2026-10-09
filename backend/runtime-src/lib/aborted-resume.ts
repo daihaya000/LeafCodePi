@@ -1,0 +1,296 @@
+import type { UiMessage } from "./types";
+
+/**
+ * 途中で終わったターンを再開するための判定ロジック。
+ *
+ * 対象は 2 種類。
+ * - `aborted`: ユーザー停止・ハング watchdog による停止などで中断されたターン。
+ * - `silent`: エージェントが応答本文を返さずターンを終えた場合（無言終了）。
+ *
+ * React/browser API を持ち込まないので、TaskView のレンダリングと単体テストの
+ * どちらからでも同じ判定を使える。
+ */
+
+/** OpenCode 互換の中断 error 名（Pi では文字列 error に含まれる場合もある）。 */
+export const MESSAGE_ABORTED_ERROR = "MessageAbortedError";
+
+/** 再開を提示する理由。UI の文言と aria-label を分けるために使う。 */
+export type ResumeReason = "aborted" | "silent";
+
+export type ResumableTurn = {
+  reason: ResumeReason;
+  /** 中断/無言終了した assistant メッセージ ID。UI の表示位置判定に使う。 */
+  messageId: string;
+  /** 再送するプロンプト本文。 */
+  text: string;
+  /** 元のプロンプトに添付されていたファイル（画像を含む）。 */
+  files: { uri: string; mime: string; name?: string }[];
+  /** そのターンのモデル（あれば同じモデルで再送する）。 */
+  model?: { providerID: string; modelID: string; accountId?: string };
+};
+
+export type FindResumableTurnOptions = {
+  /** POST /abort 直後に harness が記録した assistant メッセージ ID。 */
+  manualAbortedAssistantId?: string | null;
+};
+
+/**
+ * Empty string means abort before any assistant message existed.
+ * Both "" and non-empty ids must block auto-compaction so the turn stays resumable.
+ */
+export function blocksAutoCompactionAfterManualAbort(
+  manualAbortedAssistantId: string | null | undefined,
+): boolean {
+  return manualAbortedAssistantId != null;
+}
+
+/**
+ * After a successful Stop, stopRequested stays true to block silent auto-resume
+ * and queued follow-up drain. Clear only when task.status becomes "working"
+ * (a real new run / prompt_accepted) — not when a stale SSE delta sets
+ * isStreaming while status is still idle (composite `working` would flicker).
+ */
+export function shouldClearStopRequestedOnWorkingTransition(
+  wasStatusWorking: boolean,
+  statusWorking: boolean,
+  stopRequested: boolean,
+): boolean {
+  return !wasStatusWorking && statusWorking && stopRequested;
+}
+
+/**
+ * While Stop is in flight (or the run is still live after Stop), reject submit so
+ * it cannot clear the latch and POST into a concurrent abort. Idle submit after
+ * abort may clear the latch — that is an intentional new run.
+ */
+export function shouldBlockSubmitWhileStopRequested(
+  stopRequested: boolean,
+  working: boolean,
+): boolean {
+  return stopRequested && working;
+}
+
+const ABORT_ERROR_PATTERN =
+  /abort|cancelled|canceled|messageabortederror/i;
+
+/** 中断された assistant メッセージかどうか。 */
+export function isAbortedAssistantMessage(message: UiMessage): boolean {
+  if (message.role !== "assistant") return false;
+  const error = message.error?.trim();
+  if (!error) return false;
+  return error === MESSAGE_ABORTED_ERROR || ABORT_ERROR_PATTERN.test(error);
+}
+
+/** そのメッセージにユーザー可視のターン成果があるか。 */
+function hasTurnOutput(message: UiMessage): boolean {
+  if (message.role !== "assistant") return false;
+  if (message.error) return true;
+  return message.parts.some((part) => {
+    if (part.type === "text") return part.text.trim() !== "";
+    return part.type === "tool" &&
+      part.state.status !== "pending" &&
+      part.state.status !== "running";
+  });
+}
+
+/** まだ動いているツールがある（idle 誤報の隙間）。 */
+function hasPendingTool(message: UiMessage): boolean {
+  return message.parts.some(
+    (part) =>
+      part.type === "tool" &&
+      (part.state.status === "running" || part.state.status === "pending"),
+  );
+}
+
+/** user メッセージの text パートを 1 つのプロンプト本文へまとめる。 */
+function promptTextOf(message: UiMessage): string {
+  return message.parts
+    .filter((part) => part.type === "text")
+    .map((part) => part.text)
+    .join("\n\n")
+    .trim();
+}
+
+/** user メッセージの添付パートを再送形式へ戻す。 */
+function promptFilesOf(
+  message: UiMessage,
+): { uri: string; mime: string; name?: string }[] {
+  return message.parts.flatMap((part) => {
+    if (part.type === "image" && part.url && part.mime) {
+      return [{ uri: part.url, mime: part.mime, ...(part.filename ? { name: part.filename } : {}) }];
+    }
+    if (part.type === "file" && part.mime && part.data) {
+      return [{
+        uri: `data:${part.mime};base64,${part.data}`,
+        mime: part.mime,
+        name: part.name,
+      }];
+    }
+    return [];
+  });
+}
+
+/**
+ * 会話の**現在のターン**（直近の user プロンプト以降）が中断または無言終了で
+ * 終わっているなら、その再開に必要な情報を返す。
+ *
+ * 呼び出し側はセッションが idle であること（`working === false`）を保証すること。
+ */
+export function findResumableTurn(
+  messages: UiMessage[],
+  options?: FindResumableTurnOptions,
+): ResumableTurn | null {
+  let promptIndex = -1;
+  for (let i = messages.length - 1; i >= 0; i -= 1) {
+    if (messages[i]?.role === "user") {
+      promptIndex = i;
+      break;
+    }
+  }
+  if (promptIndex < 0) return null;
+
+  const prompt = messages[promptIndex];
+  const turnStart = promptIndex + 1;
+  const turnLength = messages.length - turnStart;
+  if (!prompt) return null;
+  // Goal Loop turns are driven (and recovered) by the loop itself. Offering chat "再開" after a
+  // loop Stop/Complete would re-send the loop's UI prompt — or, when its marker is hidden, an
+  // older manual prompt — as a plain chat turn. The panel's Resume is the only recovery path.
+  if (isGoalLoopOwnedTurn(messages, promptIndex)) return null;
+
+  const text = promptTextOf(prompt);
+  const files = promptFilesOf(prompt);
+  if (!text && files.length === 0) return null;
+
+  const manualRaw = options?.manualAbortedAssistantId;
+  const manualStopped = blocksAutoCompactionAfterManualAbort(manualRaw);
+  // 手動停止が応答生成開始前だと assistant メッセージが 1 件も無い。harness は
+  // その場合 manualAbortedAssistantId に空文字を入れるので、それを目印に
+  // プロンプト自体を再開対象にする（aborted 扱いで自動再開はしない）。
+  if (manualStopped && turnLength === 0) {
+    return {
+      reason: "aborted",
+      messageId: prompt.id,
+      text,
+      files,
+    };
+  }
+  if (turnLength === 0) return null;
+
+  const build = (
+    source: UiMessage,
+    reason: ResumeReason,
+  ): ResumableTurn => ({
+    reason,
+    messageId: source.id,
+    text,
+    files,
+    ...(source.provider && source.model
+      ? {
+          model: {
+            providerID: source.provider,
+            modelID: source.model,
+            ...(source.accountId ? { accountId: source.accountId } : {}),
+          },
+        }
+      : {}),
+  });
+
+  const manualId = manualRaw?.trim();
+  if (manualId) {
+    let manualIndex = -1;
+    for (let i = turnStart; i < messages.length; i += 1) {
+      if (messages[i]?.id === manualId) {
+        manualIndex = i;
+        break;
+      }
+    }
+    if (manualIndex >= 0) {
+      for (let i = manualIndex + 1; i < messages.length; i += 1) {
+        const message = messages[i];
+        if (message && hasTurnOutput(message)) return null;
+      }
+      return build(messages[manualIndex]!, "aborted");
+    }
+  }
+  // 停止時に記録した assistant id が履歴と一致しないことがある（ストリーミング中の
+  // 仮 id が永続化で差し替わる／停止時点ではまだ応答が無かった）。手動停止の記録が
+  // ある以上、無言終了と誤判定して自動再開（「続けて」の自動送信）をしてはいけない。
+  if (manualStopped) return build(messages[messages.length - 1]!, "aborted");
+
+  let lastAbort = -1;
+  for (let i = messages.length - 1; i >= turnStart; i -= 1) {
+    const message = messages[i];
+    if (message && isAbortedAssistantMessage(message)) {
+      lastAbort = i;
+      break;
+    }
+  }
+  if (lastAbort >= 0) {
+    for (let i = lastAbort + 1; i < messages.length; i += 1) {
+      const message = messages[i];
+      if (message && hasTurnOutput(message)) return null;
+    }
+    return build(messages[lastAbort]!, "aborted");
+  }
+
+  for (let i = turnStart; i < messages.length; i += 1) {
+    const message = messages[i];
+    if (message && (hasTurnOutput(message) || hasPendingTool(message))) return null;
+  }
+  return build(messages[messages.length - 1]!, "silent");
+}
+
+/** True when the current turn's prompt or any of its replies belongs to a Goal Loop turn. */
+export function isGoalLoopOwnedTurn(messages: readonly UiMessage[], promptIndex: number): boolean {
+  for (let i = Math.max(0, promptIndex); i < messages.length; i += 1) {
+    if (messages[i]?.goalLoopTurn) return true;
+  }
+  return false;
+}
+
+/** Attachment-only turns still need attachments on resume, even in continue mode. */
+export function shouldAttachResumeImages(
+  mode: "same" | "continue",
+  text: string,
+  fileCount: number,
+): boolean {
+  if (fileCount <= 0) return false;
+  if (mode === "same") return true;
+  return !text.trim();
+}
+
+/** ターンにユーザー可視の応答があるか（watchdog 用）。 */
+export function turnHasAssistantResponse(messages: UiMessage[], startedAtMs: number): boolean {
+  let promptIndex = -1;
+  for (let i = messages.length - 1; i >= 0; i -= 1) {
+    const message = messages[i];
+    if (message?.role === "user" && message.createdAt >= startedAtMs) {
+      promptIndex = i;
+      break;
+    }
+  }
+  if (promptIndex < 0) {
+    for (let i = messages.length - 1; i >= 0; i -= 1) {
+      if (messages[i]?.role === "user") {
+        promptIndex = i;
+        break;
+      }
+    }
+  }
+  if (promptIndex < 0) return false;
+  return messages.slice(promptIndex + 1).some(hasTurnOutput);
+}
+
+/** 走行中ツールがあるか（watchdog 用）。 */
+export function turnHasActiveTool(messages: UiMessage[], startedAtMs: number): boolean {
+  let from = 0;
+  for (let i = messages.length - 1; i >= 0; i -= 1) {
+    const message = messages[i];
+    if (message?.role === "user" && message.createdAt >= startedAtMs) {
+      from = i + 1;
+      break;
+    }
+  }
+  return messages.slice(from).some(hasPendingTool);
+}

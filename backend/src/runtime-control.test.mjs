@@ -17,6 +17,19 @@ test("runtime state is authenticated and reads the owner's live loops", async (t
   assert.equal(response.status, 200);
   assert.deepEqual(await response.json(), { taskIds: ["owner-loop"] });
 });
+test("only an explicit auto-update query requests the expensive runtime snapshot", async (t) => {
+  const calls = [];
+  const { url, headers } = await fixture(t, {
+    isReady: () => true,
+    readRuntimeState: (options) => {
+      calls.push(options);
+      return options.autoUpdate ? { autoUpdate: { supported: true, busy: false } } : { taskIds: [] };
+    },
+  });
+  assert.deepEqual(await (await fetch(url, { headers })).json(), { taskIds: [] });
+  assert.deepEqual(await (await fetch(url + "?autoUpdate=1", { headers })).json(), { autoUpdate: { supported: true, busy: false } });
+  assert.deepEqual(calls, [{ autoUpdate: false }, { autoUpdate: true }]);
+});
 test("validated setting changes execute in the runtime owner", async (t) => {
   const calls = [];
   const { url, headers } = await fixture(t, { runtimeControlAction: (body) => { calls.push(body); return "saved"; } });
@@ -39,6 +52,44 @@ test("prompt selection metadata and domain errors retain the owner's envelope", 
   assert.deepEqual(await response.json(), { result: answer });
   assert.deepEqual(received, request);
 });
+test("auto-update admission refuses in-flight requests, gates new work and releases", async (t) => {
+  let finish;
+  let entered;
+  const arrived = new Promise((resolve) => { entered = resolve; });
+  const pendingRead = new Promise((resolve) => { finish = resolve; });
+  const { url, headers } = await fixture(t, {
+    isReady: () => true,
+    readTask: () => ({ id: "task" }),
+    promptTask: async () => { entered(); await pendingRead; return { status: 200, body: {} }; },
+    readRuntimeState: () => ({ taskIds: [], autoUpdate: { supported: true, busy: false } }),
+    runtimeControlAction: ({ action }) => action === "prepare-auto-update" ? { prepared: true } : { released: true },
+  });
+  const action = (name) => fetch(url, { method: "POST", headers, body: JSON.stringify({ action: name }) });
+  const read = fetch(url.replace("/runtime/control", "/tasks/task/prompt"), {
+    method: "POST", headers, body: JSON.stringify({ prompt: "test" }),
+  });
+  await arrived;
+  assert.equal((await (await fetch(url, { headers })).json()).autoUpdate.busy, true);
+  assert.deepEqual(await (await action("prepare-auto-update")).json(), { result: { prepared: false } });
+  finish(); await read;
+  assert.deepEqual(await (await action("prepare-auto-update")).json(), { result: { prepared: true } });
+  assert.equal((await fetch(url.replace("/runtime/control", "/tasks/task"), { headers })).status, 503);
+  assert.equal((await (await fetch(url, { headers })).json()).autoUpdate.busy, false);
+  await action("release-auto-update");
+  assert.equal((await fetch(url.replace("/runtime/control", "/tasks/task"), { headers })).status, 200);
+});
+
+test("not-ready runtime cannot be prepared or reported idle", async (t) => {
+  const { url, headers } = await fixture(t, {
+    isReady: () => false,
+    readRuntimeState: () => ({ taskIds: [], autoUpdate: { supported: true, busy: false } }),
+    runtimeControlAction: () => assert.fail("must not prepare"),
+  });
+  assert.equal((await (await fetch(url, { headers })).json()).autoUpdate.busy, true);
+  const response = await fetch(url, { method: "POST", headers, body: JSON.stringify({ action: "prepare-auto-update" }) });
+  assert.deepEqual(await response.json(), { result: { prepared: false } });
+});
+
 test("an unavailable owner never answers that no loops exist", async (t) => {
   const { url, headers } = await fixture(t);
   assert.equal((await fetch(url, { headers })).status, 503);

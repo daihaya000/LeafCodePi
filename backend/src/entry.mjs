@@ -1,3 +1,4 @@
+import { markMcpBusinessEffect } from "../core/mcp-business-effects.mjs";
 import { dataDir } from "../core/app-paths.mjs";
 import { runtimeGenerationStatus } from "../../shared/backend-generation.mjs";
 import { DEFAULT_BACKEND_PORT } from "../../shared/backend-protocol.mjs";
@@ -11,6 +12,7 @@ import { parseMcpAuthRemoveRequest } from "../../shared/mcp-auth-remove-request.
 import { publicMcpAuthSnapshot } from "../../shared/mcp-auth-snapshot.mjs";
 import { publicMcpReload } from "../../shared/mcp-preset-request.mjs";
 import { createRuntimeHost } from "./runtime-host.mjs";
+import { readRuntimeControlState } from "./runtime-state.mjs";
 import { createResumePrompt } from "./restart-resume-prompt.mjs";
 import { DEFAULT_RUNTIME_BUNDLE, loadBackendRuntime } from "./runtime-loader.mjs";
 import { closeBackend, createBackendServer, listenBackend } from "./server.mjs";
@@ -67,6 +69,7 @@ export function isRuntimeRequested(env = process.env) {
 }
 
 let releaseRuntimeOwner;
+process.env.LEAFCODE_PI_PROCESS_ROLE = "backend";
 try {
   const rawPort = process.env.LEAFCODE_PI_BACKEND_PORT;
   if (rawPort !== undefined && !/^\d{1,5}$/.test(rawPort)) {
@@ -89,6 +92,7 @@ try {
     let before;
     try { before = nativeMcp.readAuthStatus(name); }
     catch { throw Object.assign(new Error("Backend MCP auth target not found"), { status: 404 }); }
+    markMcpBusinessEffect();
     try { await write(); }
     catch { throw Object.assign(new Error("Backend MCP auth write failed"), { status: 409 }); }
     const auth = publicMcpAuthSnapshot(nativeMcp.readAuthStatus(name));
@@ -143,8 +147,10 @@ try {
         };
         // Native MCP runs the write in the owner's writer scope and republishes the snapshot for
         // later sessions; the adapter path keeps its own executor. A republish failure is surfaced.
+        if (nativeMcp) markMcpBusinessEffect();
         const result = nativeMcp ? await nativeMcp.runConfigWrite(write) : write();
         // Persist and respond first; the owner alone rebuilds its live sessions.
+        markMcpBusinessEffect();
         setImmediate(() => {
           void Promise.resolve().then(() => runtime.reloadLiveSessionsContext()).catch(() => {
             console.warn("[mcp] Backend live session context reload failed");
@@ -242,6 +248,7 @@ try {
       try {
         // Adding a preset writes the same config file the native loader reads, so a native runtime
         // republishes through the owner writer scope before responding.
+        if (nativeMcp) markMcpBusinessEffect();
         return nativeMcp ? await nativeMcp.runConfigWrite(() => runtime.createMcpPreset(input)) : await runtime.createMcpPreset(input);
       }
       catch (error) {
@@ -276,10 +283,33 @@ try {
         unsubscribeStream();
       };
     },
+    providerLoginEventsAction: async (input) => {
+      const runtime = started.runtime();
+      if (!runtime || typeof runtime.openProviderLoginEvents !== "function") throw new Error("Login event owner unavailable");
+      return runtime.openProviderLoginEvents(input);
+    },
+    jsonBusinessRequestAction: async (input) => {
+      const runtime = started.runtime();
+      if (!runtime || typeof runtime.dispatchJsonBusinessRequest !== "function") throw new Error("business owner unavailable");
+      return runtime.dispatchJsonBusinessRequest(input);
+    },
+    configurationRequestAction: async (input) => {
+      const runtime = started.runtime();
+      if (!runtime || typeof runtime.dispatchConfigurationRequest !== "function") throw new Error("configuration owner unavailable");
+      const profileChange = input.route === "profile" && (["POST", "PUT", "DELETE"].includes(input.method)
+        || (input.method === "PATCH" && JSON.parse(Buffer.from(input.body ?? []).toString("utf8") || "{}").action === "restore-packages"));
+      return runtime.dispatchConfigurationRequest(input, profileChange ? async (write) => {
+        if (runtime.prepareAutoUpdate().prepared !== true) return Response.json({ error: "実行中のセッションがあるため設定を置換できません" }, { status: 409 });
+        try { return nativeMcp && input.method !== "PATCH" ? await nativeMcp.runConfigWrite(write) : await write(); }
+        finally { runtime.releaseAutoUpdate(); }
+      } : undefined);
+    },
     runtimeControlAction: async ({ action, value }) => {
       const runtime = started.runtime();
       if (!runtime) throw new Error("runtime unavailable");
       switch (action) {
+        case "prepare-auto-update": return runtime.prepareAutoUpdate();
+        case "release-auto-update": runtime.releaseAutoUpdate(); return { released: true };
         case "read-compaction": return runtime.getCompactionSettings();
         case "set-compaction": return runtime.setCompactionEnabled(value);
         case "read-cache-warming": return runtime.getCacheWarmingMode();
@@ -289,11 +319,7 @@ try {
         default: throw new Error("unknown runtime setting");
       }
     },
-    readRuntimeState: () => {
-      const runtime = started.runtime();
-      if (!runtime) throw new Error("runtime unavailable");
-      return { taskIds: runtime.activeGoalLoopTaskIds() };
-    },
+    readRuntimeState: (options) => readRuntimeControlState(started.runtime(), options),
     readAttention: () => {
       const runtime = started.runtime();
       return runtime && typeof runtime.listPendingAttention === "function"

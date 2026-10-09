@@ -2,6 +2,7 @@ import { copyFileSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync,
 import { dirname, join } from "node:path";
 import { randomUUID } from "node:crypto";
 import { withFileLock } from "./file-lock.mjs";
+import { assertConfigurationOwner } from "./configuration-command.mjs";
 
 const STORE_BACKUP_DAYS = 7;
 const STORE_BACKUP_GENERATIONS_PER_DAY = 4;
@@ -164,7 +165,7 @@ export class AppStore {
 
   getProject(id) { return cloneForCaller(this.#readStore().projects.find((project) => project.id === id)); }
 
-  upsertProject(input) { return this.#mutate(() => this.#upsertProject(input)); }
+  upsertProject(input) { assertConfigurationOwner(); return this.#mutate(() => this.#upsertProject(input)); }
 
   #upsertProject(input) {
     const store = this.#readStore();
@@ -186,7 +187,7 @@ export class AppStore {
     return project;
   }
 
-  patchProject(id, patch) { return this.#mutate(() => this.#patchProject(id, patch)); }
+  patchProject(id, patch) { assertConfigurationOwner(); return this.#mutate(() => this.#patchProject(id, patch)); }
 
   #patchProject(id, patch) {
     const store = this.#readStore();
@@ -294,7 +295,7 @@ export class AppStore {
     return before - store.tasks.length;
   }
 
-  deleteProjectRecord(id) { return this.#mutate(() => this.#deleteProjectRecord(id)); }
+  deleteProjectRecord(id) { assertConfigurationOwner(); return this.#mutate(() => this.#deleteProjectRecord(id)); }
 
   #deleteProjectRecord(id) {
     const store = this.#readStore();

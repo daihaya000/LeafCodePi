@@ -8,6 +8,7 @@ import SysTrayImport from "systray2";
 import { bindHost, dataDir, DEFAULT_HOST_CONTROL_PORT, DEFAULT_LLAMA_SERVER_PORT, DEFAULT_WEBUI_PORT, readPort, shouldOpenBrowser as envAllowsBrowser, shouldRebindWebUi, shouldUseTray, webUiUrl, withQuietExperimentalWarnings } from "./config.js";
 import { readBrowserConfig, writeBrowserConfig } from "./browser-config.js";
 import { isThisModuleEntrypoint } from "./entry.js";
+import { selectProjectFolder } from "./select-folder.js";
 import { createLlamaControlServer, closeControlServer, listenControlServer } from "./llama-control-server.js";
 import { createLoopbackWebUiProxy, listenLoopbackWebUiProxy, closeLoopbackWebUiProxy } from "./loopback-webui-proxy.js";
 import { createLlamaServerService } from "./llama-server-service.js";
@@ -25,6 +26,7 @@ import {
   waitForHostRestartChildSpawn,
 } from "./host-restart.js";
 import { serviceRestartBusyReason } from "./runtime-restart-guard.js";
+import { autoUpdateRuntimeRequest, createAutoUpdater, createUpdateRepository } from "./auto-update.js";
 import { readHostRestartEstimate } from "./host-restart-estimate.js";
 import { DEFAULT_BACKEND_PORT } from "../../shared/backend-protocol.mjs";
 import { createBackendService, shouldRunBackend } from "./backend-service.js";
@@ -181,6 +183,8 @@ let webRestarts = 0;
 let trayRestarts = 0;
 let trayCopyDir = true;
 let restarting = false;
+let autoUpdater = null;
+let autoUpdateClaimed = false;
 let backendHangStrikes = 0;
 
 /** Claim the single-flight restart lock; clears hang-watch strikes so a manual restart cannot be followed by an immediate hang re-restart. */
@@ -833,14 +837,15 @@ async function restartWeb() {
  * Spawn a replacement host outside any Kill-On-Job-Close job, wait for our
  * lock to clear, then quit so the new host can take over.
  */
-async function restartHost() {
-  if (!claimServiceRestart()) return;
+async function restartHost({ autoUpdate = false } = {}) {
+  if (autoUpdate ? !autoUpdateClaimed : !claimServiceRestart()) return;
   let logFd = null;
   let launcherPath = null;
   let replacementLaunched = false;
   try {
     log("Host restart requested; spawning replacement…");
-    await pullLatestSourcesAsync({ repoRoot: REPO_ROOT, log, error });
+    // Auto-update already fast-forwarded a checked, exact commit under the idle guard.
+    if (!autoUpdate) await pullLatestSourcesAsync({ repoRoot: REPO_ROOT, log, error });
     if (process.platform !== "win32") {
       const waitProgram = buildHostRestartWaitProgram();
       const logFile = hostStdoutLogFile();
@@ -1152,6 +1157,7 @@ async function startControlServer() {
     onRestartHostBlocked: async () => (await backendRestartBlockReason()) ?? (await webUiRestartBlockReason()),
     onRestartHost: () => restartHost(),
     onRestartHostEstimate: () => readHostRestartEstimate(DATA_DIR),
+    onUserActivity: () => autoUpdater?.activity(),
     onPiUpdateRead: () => ({
       defaultVersion: DEFAULT_PI_VERSION,
       current: installedPiVersion(WEB_DIR),
@@ -1188,6 +1194,7 @@ async function startControlServer() {
     },
     isLocalClientOrigin,
     onOpenExplorer: openProjectInExplorer,
+    onSelectFolder: selectProjectFolder,
     onTranslationStatus: () => translationService.status(),
     onTranslationStart: () => {
       void translationService.start().catch((err) => {
@@ -1327,6 +1334,7 @@ function onHostExit() {
 }
 
 async function main() {
+  process.env.LEAFCODE_PI_PROCESS_ROLE = "host";
   acquireLock();
   try {
     logWriter = createLogFileWriter(DATA_DIR);
@@ -1446,6 +1454,26 @@ async function main() {
     log("Headless mode (no tray). Ctrl+C to quit.");
   }
 
+  if (process.env.LEAFCODE_PI_LCP_AUTO_UPDATE !== "0" && process.env.LEAFCODE_PI_MODE !== "dev" && backendService) {
+    const runtimeRequest = (action) => {
+      const env = backendService.clientEnv();
+      return autoUpdateRuntimeRequest({ baseUrl: env.LEAFCODE_PI_BACKEND_URL, token: env.LEAFCODE_PI_BACKEND_TOKEN, action });
+    };
+    autoUpdater = createAutoUpdater({
+      repository: createUpdateRepository(REPO_ROOT),
+      available: () => !quitting && (!restarting || autoUpdateClaimed)
+        && !bindingReconcileInProgress && !procRunning(webBuildProc)
+        && backendService.status().state === "running" && procRunning(webProc),
+      claim: () => { autoUpdateClaimed = claimServiceRestart(); return autoUpdateClaimed; },
+      release: () => { autoUpdateClaimed = false; if (!quitting) restarting = false; },
+      readRuntime: () => runtimeRequest(),
+      prepareRuntime: () => runtimeRequest("prepare-auto-update"),
+      releaseRuntime: () => runtimeRequest("release-auto-update"),
+      restart: () => restartHost({ autoUpdate: true }),
+      log, error,
+    });
+  }
+
   // The 5 s maintenance tick must not fail silently: a tray menu that no longer matches the real
   // processes is otherwise invisible until a restart. Failures go to the host log, rate-limited.
   const maintenanceFailures = createRateLimitedReporter({ report: (line) => error(line) });
@@ -1456,6 +1484,7 @@ async function main() {
   let backendHangProbeInFlight = false;
   setInterval(() => {
     maintenanceTick += 1;
+    void autoUpdater?.tick();
     reconcileWebUiBinding().then(
       () => maintenanceFailures.success("WebUI binding reconcile"),
       (err) => maintenanceFailures.failure("WebUI binding reconcile", err),

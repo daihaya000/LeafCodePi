@@ -10,7 +10,7 @@ import {
   resolveEnabledProviderIds,
   versionOf,
 } from "@/lib/codexbar/provider-catalog";
-import { GET, PUT } from "./route";
+import { GET, PUT } from "@backend-runtime/json-business/handlers/codexbar/providers/route";
 
 function request(body: unknown): Request {
   return new Request("http://localhost/api/codexbar/providers", {

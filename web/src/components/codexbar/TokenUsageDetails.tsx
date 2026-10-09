@@ -1,4 +1,4 @@
-import type { ProviderTokenUsage } from "@/lib/codexbar/token-usage-types";
+import type { ProviderTokenUsage, TokenUsageEstimate } from "@/lib/codexbar/token-usage-types";
 
 const numberFormat = new Intl.NumberFormat("ja-JP", { maximumFractionDigits: 0 });
 const rateFormat = new Intl.NumberFormat("ja-JP", { maximumFractionDigits: 2 });
@@ -6,9 +6,8 @@ const compactFormat = new Intl.NumberFormat("en-US", { notation: "compact", maxi
 function tokens(value: number): string {
   return numberFormat.format(Math.round(value));
 }
-function compactTokens(value: number, fractional = false): string {
-  if (fractional && value < 1) return rateFormat.format(value);
-  return compactFormat.format(fractional ? value : Math.round(value));
+function compactTokens(value: number): string {
+  return compactFormat.format(Math.round(value));
 }
 
 const unavailableLabel = {
@@ -19,51 +18,61 @@ const unavailableLabel = {
   unsupported: "この利用枠は推定対象外",
   invalid: "使用率・日時を取得できない",
 };
+type Combined = { measuredAccounts: number; totalAccounts: number };
 
-export function TokenUsageDetails({ usage, now = Date.now(), combined }: {
+function estimateState(window: TokenUsageEstimate, now: number, combined?: Combined) {
+  const stale = !!window.validUntil && Date.parse(window.validUntil) <= now;
+  const available = !stale && (window.status === undefined || window.status === "ready") &&
+    (combined !== undefined || window.tokensPerPercent !== null) && window.estimatedRemainingTokens !== null;
+  return { available, status: stale ? "stale" as const : window.status ?? "calibrating" };
+}
+
+/** One compact remaining estimate; the conversion rate and caveats stay in its tooltip. */
+export function TokenEstimateInline({ estimate, now, combined, showTitle = false }: {
+  estimate?: TokenUsageEstimate;
+  now: number;
+  combined?: Combined;
+  showTitle?: boolean;
+}) {
+  if (!estimate || !estimateState(estimate, now, combined).available) return null;
+  const title = combined
+    ? `推定残合計 ${tokens(estimate.estimatedRemainingTokens!)} tok。各アカウントの推定残の合計。平均使用率からの再校正・tok/1%の合算は行わない。保証された残量ではない。`
+    : `推定残 ${tokens(estimate.estimatedRemainingTokens!)} tok / ${rateFormat.format(estimate.tokensPerPercent!)} tok/1% / 使用率差 ${rateFormat.format(estimate.sampledPercent)}% / 実測 ${tokens(estimate.sampledTokens)} tok。入力・出力・キャッシュ込み。保証された残量ではない。古い値・リセット後・計測不足は推定を保留する。`;
+  const label = estimate.title.replace("5時間", "5h").replace("週間", "週").replace("利用クレジット", "クレジット");
+  return (
+    <span className="inline-flex min-w-0 shrink-0 items-baseline gap-1 whitespace-nowrap text-[10px] text-muted" title={title}>
+      {showTitle && <span className="max-w-16 truncate">{label}</span>}
+      <span>{showTitle ? "≈" : "残≈"}{compactTokens(estimate.estimatedRemainingTokens!)}{!showTitle && " tok"}</span>
+    </span>
+  );
+}
+
+export function TokenUsageDetails({ usage, now = Date.now(), combined, hiddenWindowIds = [] }: {
   usage: ProviderTokenUsage;
   now?: number;
-  combined?: { measuredAccounts: number; totalAccounts: number };
+  combined?: Combined;
+  hiddenWindowIds?: readonly string[];
 }) {
-  const windows = usage.windows.map((window) => {
-    const stale = !!window.validUntil && Date.parse(window.validUntil) <= now;
-    const available = !stale && (window.status === undefined || window.status === "ready") &&
-      (combined !== undefined || window.tokensPerPercent !== null) && window.estimatedRemainingTokens !== null;
-    const status = stale ? "stale" : window.status ?? "calibrating";
-    return { window, available, status };
-  });
+  const windows = usage.windows.map((window) => ({ window, ...estimateState(window, now, combined) }));
   const unavailable = windows.filter((entry) => !entry.available);
   const waiting = unavailable.some((entry) => entry.status === "calibrating");
-
   return (
-    <div className="flex min-w-0 flex-col gap-1 border-t border-border pt-1.5 text-xs text-muted">
-      <div className="flex min-w-0 flex-wrap items-baseline gap-x-1">
-        <span
-          className="whitespace-nowrap"
-          title={`${combined ? `対象 ${combined.measuredAccounts}/${combined.totalAccounts}行の実測合計 / ` : ""}実測 ${tokens(usage.totalTokens)} tok / 計測開始: ${usage.startedAt ?? "未計測"} / ${usage.responses}完了応答。入力 ${tokens(usage.input)} / 出力 ${tokens(usage.output)} / キャッシュ読取 ${tokens(usage.cacheRead)} / 書込 ${tokens(usage.cacheWrite)} tok。LeafCodePiの完了応答のみ。外部CLI・補助呼出・中断応答は含まない。`}
+    <div className="flex min-w-0 flex-wrap items-baseline gap-x-2 gap-y-0.5 text-[10px] text-muted">
+      <span
+        className="whitespace-nowrap"
+        title={`${combined ? `対象 ${combined.measuredAccounts}/${combined.totalAccounts}行の実測合計 / ` : ""}実測 ${tokens(usage.totalTokens)} tok / 計測開始: ${usage.startedAt ?? "未計測"} / ${usage.responses}完了応答。入力 ${tokens(usage.input)} / 出力 ${tokens(usage.output)} / キャッシュ読取 ${tokens(usage.cacheRead)} / 書込 ${tokens(usage.cacheWrite)} tok。LeafCodePiの完了応答のみ。外部CLI・補助呼出・中断応答は含まない。`}
+      >
+        {combined ? "合計" : "実測"}{combined && combined.measuredAccounts < combined.totalAccounts ? "（一部）" : ""} <span>{compactTokens(usage.totalTokens)} tok</span>
+      </span>
+      {unavailable.length > 0 && (
+        <span className="whitespace-nowrap text-faint"
+          title={unavailable.map(({ window, status }) => `${window.title}: ${unavailableLabel[status]}`).join("\n")}
         >
-          {combined ? "実測合計" : "実測"}{combined && combined.measuredAccounts < combined.totalAccounts ? "（一部）" : ""} <span className="text-text">{compactTokens(usage.totalTokens)} tok</span>
+          · {waiting ? "推定待ち" : "推定なし"}
         </span>
-        {unavailable.length > 0 && (
-          <span
-            className="whitespace-nowrap text-faint"
-            title={unavailable.map(({ window, status }) => `${window.title}: ${unavailableLabel[status]}`).join("\n")}
-          >
-            · {waiting ? "推定待ち" : "推定なし"}
-          </span>
-        )}
-      </div>
-      {windows.filter((entry) => entry.available).map(({ window }) => (
-        <div
-          key={window.id}
-          className="flex min-w-0 flex-wrap gap-x-1"
-          title={combined
-            ? `推定残合計 ${tokens(window.estimatedRemainingTokens!)} tok。各アカウントの推定残の合計。平均使用率からの再校正・tok/1%の合算は行わない。保証された残量ではない。`
-            : `推定残 ${tokens(window.estimatedRemainingTokens!)} tok / ${rateFormat.format(window.tokensPerPercent!)} tok/1% / 使用率差 ${rateFormat.format(window.sampledPercent)}% / 実測 ${tokens(window.sampledTokens)} tok。入力・出力・キャッシュ込み。モデル構成・外部消費・使用率の反映遅延で変動する実績推定であり、保証された残量ではない。古い値・リセット後・計測不足は推定を保留する。`}
-        >
-          <span>{window.title}: <span>推定残 {compactTokens(window.estimatedRemainingTokens!)} tok</span></span>
-          {!combined && <span className="whitespace-nowrap">· {compactTokens(window.tokensPerPercent!, true)} tok/1%</span>}
-        </div>
+      )}
+      {windows.filter((entry) => entry.available && !hiddenWindowIds.includes(entry.window.id)).map(({ window }) => (
+        <TokenEstimateInline key={window.id} estimate={window} now={now} combined={combined} showTitle />
       ))}
     </div>
   );

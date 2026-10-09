@@ -41,7 +41,8 @@ vi.mock("@/lib/backend-forward", () => ({
   forwardablePromptBody: vi.fn((body) => body),
 }));
 
-import { GET, POST } from "./route";
+import { GET, POST } from "@backend-runtime/json-business/handlers/bots/[id]/code-requests/route";
+beforeEach(()=>{vi.stubEnv("LEAFCODE_PI_PROCESS_ROLE","backend");vi.stubEnv("LEAFCODE_PI_BACKEND_RUNTIME","attach");});
 
 function request(body: unknown): NextRequest {
   return new NextRequest("http://localhost/api/bots/bot-1/code-requests", {
@@ -56,13 +57,13 @@ const params = { params: Promise.resolve({ id: "bot-1" }) };
 describe("GET /api/bots/[id]/code-requests", () => {
   it("returns 304 with no body when the polled request list is unchanged", async () => {
     mocks.listBotCodeRequests.mockReturnValue([
-      { id: "req-1", codeTaskId: null, state: "running", prompt: "run" },
+      { id: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", codeTaskId: null, state: "running", prompt: "run" },
     ]);
     const url = "http://localhost/api/bots/bot-1/code-requests";
     const first = await GET(new NextRequest(url), params);
     expect(first.status).toBe(200);
     expect(await first.json()).toEqual({
-      requests: [{ id: "req-1", codeTaskId: null, state: "running", prompt: "run" }],
+      requests: [{ id: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", codeTaskId: null, state: "running", prompt: "run" }],
     });
     const etag = first.headers.get("etag");
     expect(etag?.startsWith("W/")).toBe(true);
@@ -87,34 +88,11 @@ describe("POST /api/bots/[id]/code-requests", () => {
   });
 
   it("stops the request in this process while it owns the outbox", async () => {
-    const response = await POST(request({ action: "abort", requestId: "req-1" }), params);
+    const response = await POST(request({ action: "abort", requestId: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" }), params);
     expect(response.status).toBe(200);
-    expect(mocks.stopBotCodeRequest).toHaveBeenCalledWith("bot-1", "req-1");
+    expect(mocks.stopBotCodeRequest).toHaveBeenCalledWith("bot-1", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
     expect(mocks.forwardBotCodeRequestAbort).not.toHaveBeenCalled();
   });
 
-  it("forwards the stop to the owning Backend after the cutover", async () => {
-    mocks.localRuntimeBlocked.mockReturnValue(true);
-    mocks.forwardBotCodeRequestAbort.mockResolvedValue({
-      ok: true,
-      result: { requestId: "req-1", state: "cancelled", task: { id: "task-1" } },
-    });
-    const response = await POST(request({ action: "abort", requestId: "req-1" }), params);
-    expect(response.status).toBe(200);
-    await expect(response.json()).resolves.toEqual({ requestId: "req-1", state: "cancelled", task: { id: "task-1" } });
-    expect(mocks.forwardBotCodeRequestAbort).toHaveBeenCalledWith("bot-1", "req-1");
-    expect(mocks.stopBotCodeRequest).not.toHaveBeenCalled();
-    expect(mocks.completeBotCodeRequest).not.toHaveBeenCalled();
-  });
-
-  it("never stops the request locally when the Backend cannot take it", async () => {
-    mocks.localRuntimeBlocked.mockReturnValue(true);
-    mocks.forwardBotCodeRequestAbort.mockResolvedValue({ ok: false, reason: "not-found", status: 404 });
-    expect((await POST(request({ action: "abort", requestId: "req-1" }), params)).status).toBe(404);
-    mocks.forwardBotCodeRequestAbort.mockResolvedValue({ ok: false, reason: "unreachable" });
-    const failed = await POST(request({ action: "abort", requestId: "req-1" }), params);
-    expect(failed.status).toBe(502);
-    await expect(failed.json()).resolves.toEqual({ error: "Backendを停止できません", code: "BACKEND_FORWARD_FAILED", reason: "unreachable" });
-    expect(mocks.stopBotCodeRequest).not.toHaveBeenCalled();
-  });
+  it("rejects unsafe request IDs without touching outbox",async()=>{mocks.stopBotCodeRequest.mockClear();for(const requestId of ["../x","bad",null])expect((await POST(request({action:"abort",requestId}),params)).status).toBe(400);expect(mocks.stopBotCodeRequest).not.toHaveBeenCalled();});
 });

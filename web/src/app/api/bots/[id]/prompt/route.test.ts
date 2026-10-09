@@ -16,7 +16,7 @@ vi.mock("../../../../../lib/pi/harness", () => ({
   promptTask: state.promptTask,
   goalLoopCommand: state.goalLoopCommand,
   isTaskRuntimeBusyForGoalLoopStart: state.isTaskRuntimeBusyForGoalLoopStart,
-  jsonError: (error: Error) => ({ error: error.message, status: 500 }),
+  jsonError: (error: Error & { status?: number }) => ({ error: error.message, status: error.status ?? 500 }),
 }));
 vi.mock("../../../../../lib/pi/runtime-ownership", () => ({
   localRuntimeBlocked: state.localRuntimeBlocked,
@@ -35,7 +35,7 @@ vi.mock("../../../../../lib/backend-forward", () => ({
 
 import { createBot, patchBot } from "../../../../../lib/bots";
 import { MAX_PROMPT_IMAGE_BYTES, MAX_PROMPT_IMAGE_TOTAL_BYTES, MAX_PROMPT_TEXT_CHARS } from "../../../../../lib/prompt-images";
-import { POST } from "./route";
+import { POST } from "@backend-runtime/json-business/handlers/bots/[id]/prompt/route";
 
 function request(prompt: unknown, goalLoop?: unknown, images?: unknown): NextRequest {
   return new NextRequest("http://localhost", {
@@ -50,6 +50,8 @@ describe("POST /api/bots/[id]/prompt", () => {
   beforeEach(() => {
     root = mkdtempSync(join(tmpdir(), "leafcode-api-bot-prompt-"));
     vi.stubEnv("LEAFCODE_PI_DATA_DIR", root);
+    vi.stubEnv("LEAFCODE_PI_PROCESS_ROLE", "backend");
+    vi.stubEnv("LEAFCODE_PI_BACKEND_RUNTIME", "attach");
     state.promptTask.mockResolvedValue({ status: "working" });
     state.goalLoopCommand.mockResolvedValue({ id: "loop-1", status: "queued" });
   });
@@ -65,83 +67,6 @@ describe("POST /api/bots/[id]/prompt", () => {
     state.forwardGoalLoopStart.mockReset();
     vi.unstubAllEnvs();
     rmSync(root, { recursive: true, force: true });
-  });
-
-  it("forwards an ordinary Bot prompt to the owning Backend", async () => {
-    const bot = createBot({ name: "Forwarded bot" });
-    state.localRuntimeBlocked.mockReturnValue(true);
-    state.forwardTaskPrompt.mockResolvedValue({ ok: true, task: { id: `bot:${bot.id}`, status: "working" } });
-    const response = await POST(request("調べて"), { params: Promise.resolve({ id: bot.id }) });
-    expect(response.status).toBe(200);
-    await expect(response.json()).resolves.toEqual({ task: { id: `bot:${bot.id}`, status: "working" } });
-    expect(state.forwardTaskPrompt).toHaveBeenCalledWith(`bot:${bot.id}`, { prompt: "調べて" });
-    expect(state.promptTask).not.toHaveBeenCalled();
-  });
-
-    it("replays Backend business errors from the result envelope", async () => {
-    const bot = createBot({ name: "Result bot" });
-    state.localRuntimeBlocked.mockReturnValue(true);
-    state.forwardTaskPrompt.mockResolvedValue({
-      ok: true,
-      task: null,
-      result: { status: 409, body: { error: "a turn is already active" } },
-    });
-    const response = await POST(request("check"), { params: Promise.resolve({ id: bot.id }) });
-    expect(response.status).toBe(409);
-    await expect(response.json()).resolves.toEqual({ error: "a turn is already active" });
-    expect(state.promptTask).not.toHaveBeenCalled();
-  });
-
-  it("preserves Backend 4xx refusals for ordinary Bot prompts", async () => {
-    const bot = createBot({ name: "Rejected bot" });
-    state.localRuntimeBlocked.mockReturnValue(true);
-    state.forwardTaskPrompt.mockResolvedValue({ ok: false, reason: "bad-response", status: 409 });
-    const response = await POST(request("check"), { params: Promise.resolve({ id: bot.id }) });
-    expect(response.status).toBe(409);
-    await expect(response.json()).resolves.toEqual({ error: "Backendで送信を実行できません", code: "BACKEND_REQUEST_REJECTED" });
-    expect(state.promptTask).not.toHaveBeenCalled();
-  });
-
-it("forwards a Bot Goal Loop start and never runs it locally", async () => {
-    const bot = createBot({ name: "Loop bot 2" });
-    const images = [{ mimeType: "image/png", data: "aW1hZ2U=" }];
-    state.localRuntimeBlocked.mockReturnValue(true);
-    state.forwardGoalLoopStart.mockResolvedValue({ ok: true, loop: { id: "loop-1", status: "queued" }, agent: null });
-    const loop = await POST(
-      request("調査して修正する", { acceptance: ["テストが通る"], maxTurns: 1000, cooldownSeconds: 999999 }, images),
-      { params: Promise.resolve({ id: bot.id }) },
-    );
-    expect(loop.status).toBe(200);
-    await expect(loop.json()).resolves.toEqual({ task: null, loop: { id: "loop-1", status: "queued" } });
-    expect(state.forwardGoalLoopStart).toHaveBeenCalledWith(`bot:${bot.id}`, {
-      botId: bot.id, goal: "調査して修正する", acceptance: ["テストが通る"],
-      maxTurns: 100, cooldownSeconds: 86400, forceFullRun: false, images,
-    });
-    expect(state.goalLoopCommand).not.toHaveBeenCalled();
-    expect(state.isTaskRuntimeBusyForGoalLoopStart).not.toHaveBeenCalled();
-    state.forwardTaskPrompt.mockResolvedValue({ ok: false, reason: "unreachable" });
-    const failed = await POST(request("調べて"), { params: Promise.resolve({ id: bot.id }) });
-    expect(failed.status).toBe(502);
-    await expect(failed.json()).resolves.toEqual({ error: "Backendへ転送できません", code: "BACKEND_FORWARD_FAILED", reason: "unreachable" });
-    expect(state.promptTask).not.toHaveBeenCalled();
-  });
-
-  it.each([
-    { ok: false, reason: "not-configured", expectedStatus: 409 },
-    { ok: false, reason: "not-found", status: 404, expectedStatus: 404 },
-    { ok: false, reason: "unreachable", expectedStatus: 502 },
-    { ok: false, reason: "bad-status", status: 400, expectedStatus: 400 },
-    { ok: false, reason: "incompatible", status: 409, expectedStatus: 409 },
-    { ok: false, reason: "bad-status", status: 413, expectedStatus: 413 },
-    { ok: true, loop: { status: "stopped" }, expectedStatus: 409 },
-  ])("does not fall back on Backend refusal: %j", async ({ expectedStatus, ...result }) => {
-    const bot = createBot({ name: "Loop bot" });
-    state.localRuntimeBlocked.mockReturnValue(true);
-    state.forwardGoalLoopStart.mockResolvedValue(result);
-    const response = await POST(request("調べる", { acceptance: [] }), { params: Promise.resolve({ id: bot.id }) });
-    expect(response.status).toBe(expectedStatus);
-    expect(state.goalLoopCommand).not.toHaveBeenCalled();
-    expect(state.promptTask).not.toHaveBeenCalled();
   });
 
   it.each([null, [], { acceptance: "invalid" }, { maxTurns: {} }])("rejects invalid options before forwarding: %j", async (goalLoop) => {

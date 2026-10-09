@@ -5,9 +5,23 @@ import { beforeEach, expect, it, vi } from "vitest";
 const mocks = vi.hoisted(() => ({ spawn: vi.fn() }));
 vi.mock("node:child_process", () => ({ spawn: mocks.spawn }));
 
-import { GIT_MAX_CONCURRENT_OUTPUT_CAPTURES, GIT_MAX_OUTPUT_CHARS, gitBranchRefs, gitCommitFileDiff, gitCommitFiles, gitDiff, gitLogGraph, runGit } from "./git";
+import { GIT_MAX_CONCURRENT_OUTPUT_CAPTURES, GIT_MAX_OUTPUT_CHARS, gitBranchRefs, gitCommitFileDiff, gitCommitFiles, gitDiff, gitLogGraph, runGit, withGitRequestSignal } from "./git";
 
 beforeEach(() => mocks.spawn.mockReset());
+
+it("cancels read-only Git capture and releases its slot, without affecting an unscoped write", async () => {
+  const child = Object.assign(new EventEmitter(), { stdout: new PassThrough(), stderr: new PassThrough(), kill: vi.fn() });
+  mocks.spawn.mockReturnValue(child);
+  const controller = new AbortController();
+  const result = withGitRequestSignal(controller.signal, () => runGit(".", ["status"]));
+  controller.abort();
+  await expect(result).rejects.toMatchObject({ name: "AbortError" });
+  expect(child.kill).toHaveBeenCalledWith("SIGKILL"); child.emit("close", 0);
+  const write = runGit(".", ["commit"]); child.emit("close", 0);
+  expect((await write).code).toBe(0);
+  await expect(withGitRequestSignal(controller.signal, () => runGit(".", ["status"]))).rejects.toMatchObject({ name: "AbortError" });
+  expect(mocks.spawn).toHaveBeenCalledTimes(2);
+});
 
 it("decodes UTF-8 across stdout and stderr chunk boundaries", async () => {
   const child = Object.assign(new EventEmitter(), {

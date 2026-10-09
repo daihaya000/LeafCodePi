@@ -3,6 +3,7 @@
  * Bound to 127.0.0.1 only; Host header must be loopback (DNS-rebinding guard).
  */
 import http from "node:http";
+import { HOST_FOLDER_PATH, HOST_FOLDER_HEADER, HOST_FOLDER_BODY_LIMIT, publicHostFolderBody } from "../../shared/host-folder-contract.mjs";
 
 const JSON_HEADERS = { "content-type": "application/json; charset=utf-8" };
 const LOCAL_CLIENT_REQUEST_HEADER = "x-leafcode-pi-local-client";
@@ -33,6 +34,17 @@ function localClientCorsHeaders(req, handlers) {
     "cache-control": "no-store",
     vary: "Origin",
   };
+}
+
+// Drain a byte-bounded opaque body without async-iterator destruction on 413.
+async function admitFolderBody(req) {
+ return new Promise(resolve=>{
+  let bytes=0,settled=false;
+  const done=value=>{if(settled)return;settled=true;req.off("data",data);req.off("end",end);req.off("error",error);req.off("aborted",error);req.once("error",()=>{});resolve(value);};
+  const data=chunk=>{bytes+=chunk.length;if(bytes>HOST_FOLDER_BODY_LIMIT){done(false);req.resume();}};
+  const end=()=>done(true),error=()=>done(false);
+  req.on("data",data);req.once("end",end);req.once("error",error);req.once("aborted",error);
+ });
 }
 
 const IPV4_OCTET = "(?:25[0-5]|2[0-4]\\d|1\\d\\d|[1-9]?\\d)";
@@ -87,6 +99,7 @@ async function readJsonBody(req, maxBytes = 16_384) {
  *   onRestartHostBlocked?: () => Promise<string | null> | string | null,
  *   onRestartHost?: () => Promise<unknown> | unknown,
  *   onRestartHostEstimate?: () => Promise<{ estimateMs: number, estimateSamples: number }> | { estimateMs: number, estimateSamples: number },
+ *   onUserActivity?: () => void,
  *   onBrowserConfigRead?: () => { autoOpenBrowser: boolean },
  *   onBrowserConfigWrite?: (patch: { autoOpenBrowser: boolean }) => { autoOpenBrowser: boolean },
  *   onWebUiAuthRead?: () => object,
@@ -95,6 +108,7 @@ async function readJsonBody(req, maxBytes = 16_384) {
  *   onPiUpdateRequest?: (body: { mode: "default" | "latest" }) => Promise<object> | object,
  *   isLocalClientOrigin?: (origin: string) => boolean,
  *   onOpenExplorer?: (path: string) => Promise<object> | object,
+ *   onSelectFolder?: () => Promise<object> | object,
  *   onTranslationStatus?: () => Promise<object> | object,
  *   onTranslationStart?: () => Promise<object> | object,
  *   onTranslationStop?: () => Promise<unknown> | unknown,
@@ -107,6 +121,7 @@ async function readJsonBody(req, maxBytes = 16_384) {
  */
 export function createLlamaControlServer(handlers) {
   const controlPort = handlers.controlPort;
+  let folderSelectionBusy = false;
 
   return http.createServer((req, res) => {
     void (async () => {
@@ -137,6 +152,22 @@ export function createLlamaControlServer(handlers) {
       }
       if (pathname.length > 1 && pathname.endsWith("/")) {
         pathname = pathname.slice(0, -1);
+      }
+
+      if (pathname === HOST_FOLDER_PATH) {
+        const headers = {...JSON_HEADERS,"cache-control":"no-store, private"};
+        const send = (status,body) => { if(!res.destroyed) {res.writeHead(status,headers);res.end(JSON.stringify(body));} };
+        // Private server-to-server ingress only, never a browser CORS/local-client action.
+        if(origin || req.headers[HOST_FOLDER_HEADER]!=="1"){send(403,{error:"Private Host ingress is required"});return;}
+        if(method!=="POST"){send(405,{error:"Method not allowed"});return;}
+        if(!await admitFolderBody(req)){send(413,{error:"Request body is too large"});return;}
+        if(typeof handlers.onSelectFolder!=="function"){send(501,{error:"フォルダ選択にHostが未対応です"});return;}
+        if(folderSelectionBusy){send(409,{error:"フォルダ選択は既に開いています"});return;}
+        folderSelectionBusy=true;
+        try {const body=publicHostFolderBody(await handlers.onSelectFolder(),200);send(body?200:503,body??{error:"フォルダ選択の結果を確認できません",execution:"unknown"});}
+        catch(error){const status=error?.status===400?400:503;send(status,publicHostFolderBody({error:status===400?error.message:"フォルダ選択の結果を確認できません"},status));}
+        finally {folderSelectionBusy=false;}
+        return;
       }
 
       if (pathname.startsWith("/local-client/")) {
@@ -195,6 +226,13 @@ export function createLlamaControlServer(handlers) {
         }
         res.writeHead(405, headers);
         res.end(JSON.stringify({ ok: false, error: "method not allowed" }));
+        return;
+      }
+
+      if (method === "POST" && pathname === "/host/activity") {
+        handlers.onUserActivity?.();
+        res.writeHead(204, { "cache-control": "no-store" });
+        res.end();
         return;
       }
 

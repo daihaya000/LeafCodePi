@@ -1,6 +1,6 @@
 import { NextRequest } from "next/server";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { DELETE, GET } from "./route";
+import { DELETE, GET } from "@backend-runtime/configuration/handlers/jev-model/legacy-credentials/route";
 
 const mocks = vi.hoisted(() => ({ list: vi.fn(), remove: vi.fn() }));
 vi.mock("@/lib/pi/jev-model-config", () => ({
