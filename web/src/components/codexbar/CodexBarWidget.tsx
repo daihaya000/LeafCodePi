@@ -15,7 +15,8 @@ import {
 } from "lucide-react";
 import { cx, timeAgo } from "@/components/ui";
 import { useCodexUsage } from "@/components/codexbar/use-codex-usage";
-import { TokenUsageDetails } from "@/components/codexbar/TokenUsageDetails";
+import { TokenUsageDetails, TokenEstimateInline } from "@/components/codexbar/TokenUsageDetails";
+import type { TokenUsageEstimate } from "@/lib/codexbar/token-usage-types";
 import { aggregateTokenUsage } from "@/lib/codexbar/aggregate-token-usage";
 import {
   useCodexProviders,
@@ -283,18 +284,21 @@ function WindowRow({
   percent,
   resetsAt,
   now,
+  estimate,
 }: {
   title: string;
   percent: number | null;
   resetsAt: string | null;
   now: number;
+  estimate?: TokenUsageEstimate;
 }) {
   const tone = percentTone(percent);
   const resets = formatResetsIn(resetsAt, now);
   return (
     <div className="flex flex-col gap-0.5">
-      <div className="flex items-center justify-between gap-2 text-[11px]">
-        <span className="truncate text-muted">{title}</span>
+      <div className="flex min-w-0 flex-wrap items-center gap-x-1 text-[11px]">
+        <span className="min-w-0 flex-1 truncate text-muted" title={title}>{title}</span>
+        <TokenEstimateInline estimate={estimate} now={now} />
         <span className={cx("shrink-0", textClass[tone])}>
           {percent === null ? "—" : `${Math.round(percent)}%`}
         </span>
@@ -307,7 +311,7 @@ function WindowRow({
   );
 }
 
-function CreditsRow({ credits }: { credits: CodexBarCredits }) {
+function CreditsRow({ credits, estimate, now }: { credits: CodexBarCredits; estimate?: TokenUsageEstimate; now: number }) {
   const percent =
     credits.used !== null && credits.limit !== null && credits.limit > 0
       ? (credits.used / credits.limit) * 100
@@ -318,18 +322,20 @@ function CreditsRow({ credits }: { credits: CodexBarCredits }) {
 
   return (
     <div className="flex flex-col gap-0.5 border-t border-border pt-1.5">
-      <div className="flex items-center justify-between gap-2 text-[11px]">
-        <span className="truncate text-muted">{credits.title ?? "利用クレジット"}</span>
-        {amount && <span className="shrink-0 text-text">{amount}</span>}
+      <div className="flex min-w-0 flex-wrap items-center justify-between gap-x-2 text-[11px]">
+        <span className="min-w-0 truncate text-muted">{credits.title ?? "利用クレジット"}</span>
+        {amount && <span className="min-w-0 text-text" title={amount}>{amount}</span>}
       </div>
       {percent !== null && (
         <>
           <UsageBar tone={tone} percent={percent} />
-          <div className={cx("text-right text-[10px]", textClass[tone])}>
-            {Math.round(percent)}%
+          <div className="flex min-w-0 flex-wrap items-baseline justify-between gap-x-1 text-[10px]">
+            <TokenEstimateInline estimate={estimate} now={now} />
+            <span className={cx("ml-auto", textClass[tone])}>{Math.round(percent)}%</span>
           </div>
         </>
       )}
+      {percent === null && <TokenEstimateInline estimate={estimate} now={now} />}
       {credits.balance !== null && (
         <div className="text-right text-[10px] text-faint">
           残高 {formatCreditAmount(credits.balance)}
@@ -597,6 +603,7 @@ function ProviderRow({
               percent={w.usedPercent}
               resetsAt={w.resetsAt}
               now={now}
+              estimate={p.tokenUsage?.windows.find((estimate) => estimate.id === w.id)}
             />
           ))}
           {!hasWindows && p.usedPercent !== null && (
@@ -607,7 +614,7 @@ function ProviderRow({
               )}
             </div>
           )}
-          {p.credits && <CreditsRow credits={p.credits} />}
+          {p.credits && <CreditsRow credits={p.credits} now={now} estimate={p.tokenUsage?.windows.find((estimate) => estimate.id === "credits")} />}
           {p.id in RESET_CREDIT_PROVIDERS &&
             (p.resetCreditsAvailable ?? 0) > 0 &&
             onRedeemReset && (
@@ -629,7 +636,8 @@ function ProviderRow({
       )}
       {!collapsed && p.tokenUsage && (
         <div className={contentIndent}>
-          <TokenUsageDetails usage={p.tokenUsage} now={now} />
+          <TokenUsageDetails usage={p.tokenUsage} now={now}
+            hiddenWindowIds={showErrorOnly ? [] : [...p.windows.map((window) => window.id), ...(p.credits ? ["credits"] : [])]} />
         </div>
       )}
     </li>
