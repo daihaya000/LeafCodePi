@@ -1,4 +1,6 @@
 import { EventEmitter } from "node:events";
+import { PROVIDER_AUTH_EVENT_LIMIT, PROVIDER_AUTH_STREAM_LIMIT, publicProviderLoginEvent } from "@shared/provider-auth-contract.mjs";
+import { serializeBoundedEvent } from "../../event-stream/bounded-writer";
 import { assertConfigurationOwner } from "@backend-core/configuration-command.mjs";
 import { randomUUID } from "node:crypto";
 import type { ModelRuntime } from "@earendil-works/pi-coding-agent";
@@ -60,7 +62,11 @@ export class ProviderLoginSession {
   private callbackExpiresAt = 0;
   private callbackBusy = false;
   private callbackSubmitted = false;
-  private readonly history: LoginSessionEvent[] = [];
+  private readonly history = new Map<string, { event: LoginSessionEvent; bytes: number }>();
+
+  readDiagnostics() {
+    return { historyEntries: this.history.size, historyBytes: [...this.history.values()].reduce((sum, row) => sum + row.bytes, 0), listeners: this.events.listenerCount("event"), pending: this.pending !== null, finished: this.finished };
+  }
 
   constructor(
     readonly providerId: string,
@@ -68,16 +74,25 @@ export class ProviderLoginSession {
     /** 対象アカウント（null = 既定の ~/.pi/agent/auth.json）。 */
     readonly accountId: string | null = null,
   ) {
-    this.events.setMaxListeners(20);
+    this.events.setMaxListeners(PROVIDER_AUTH_STREAM_LIMIT);
   }
 
   private emit(event: LoginSessionEvent) {
-    this.history.push(event);
-    this.events.emit("event", event);
+    // Retain public recovery state, not an ever-growing SDK event log. Progress/info
+    // coalescing never evicts the pending prompt or current OAuth/device URL.
+    let safe = publicProviderLoginEvent(event) as LoginSessionEvent | null;
+    let json: string;
+    try { if (!safe) throw new Error("Invalid event"); json = serializeBoundedEvent(safe, PROVIDER_AUTH_EVENT_LIMIT - 32); }
+    catch { safe = { type: "notify", event: { type: "info", message: "認証イベントが配信上限を超えました" } }; json = JSON.stringify(safe); }
+    const key = safe.type === "notify" ? `notify:${safe.event.type}` : safe.type;
+    this.history.delete(key);
+    this.history.set(key, { event: safe, bytes: Buffer.byteLength(json) });
+    this.events.emit("event", safe);
   }
 
   subscribe(listener: (event: LoginSessionEvent) => void): () => void {
-    for (const event of this.history) {
+    if (this.events.listenerCount("event") >= PROVIDER_AUTH_STREAM_LIMIT) throw Object.assign(new Error("Login subscription capacity"), { status: 503 });
+    for (const { event } of this.history.values()) {
       // Mobile browsers reconnect after the external login page. Do not revive
       // answered/aborted prompts or a callback that has already been submitted.
       if (event.type === "prompt" && event.id !== this.pending?.id) continue;
@@ -93,7 +108,7 @@ export class ProviderLoginSession {
         listener(event);
       }
     }
-    this.events.on("event", listener);
+    if (!this.finished) this.events.on("event", listener);
     return () => this.events.off("event", listener);
   }
 
@@ -111,7 +126,7 @@ export class ProviderLoginSession {
         prompt: (prompt) => this.handlePrompt(prompt),
         notify: (event) => {
           if (event.type === "auth_url") {
-            this.callbackTarget = this.authType === "oauth" ? getOAuthCallbackTarget(event.url) : null;
+            this.callbackTarget = this.authType === "oauth" && typeof event.url === "string" && event.url.length <= 32768 ? getOAuthCallbackTarget(event.url) : null;
             this.callbackExpiresAt = Date.now() + 10 * 60_000;
             this.callbackSubmitted = false;
             this.emit({ type: "notify", event: {
@@ -154,8 +169,13 @@ export class ProviderLoginSession {
     if (prompt.signal?.aborted) {
       return Promise.reject(new Error("Login cancelled"));
     }
-    const dto = serializePrompt(prompt);
+    // Validate before retaining a pending prompt or mapping an unbounded SDK options array.
     const id = randomUUID();
+    const candidate = publicProviderLoginEvent({ type: "prompt", id, prompt });
+    if (!candidate) return Promise.reject(new Error("Invalid login prompt"));
+    try { serializeBoundedEvent(candidate, PROVIDER_AUTH_EVENT_LIMIT - 32); }
+    catch { return Promise.reject(new Error("Login prompt exceeds limit")); }
+    const dto = (candidate as Extract<LoginSessionEvent, { type: "prompt" }>).prompt;
     return new Promise<string>((resolve, reject) => {
       if (this.pending) {
         this.pending.cleanup();
@@ -164,6 +184,7 @@ export class ProviderLoginSession {
       const onAbort = () => {
         if (this.pending?.id === id) {
           this.pending = null;
+          this.history.delete("prompt");
           cleanup();
           reject(new Error("Login cancelled"));
         }
@@ -171,6 +192,7 @@ export class ProviderLoginSession {
       const onPromptAbort = () => {
         if (this.pending?.id === id) {
           this.pending = null;
+          this.history.delete("prompt");
           cleanup();
           reject(new Error("Login cancelled"));
         }
@@ -194,6 +216,7 @@ export class ProviderLoginSession {
     }
     const pending = this.pending;
     this.pending = null;
+    this.history.delete("prompt");
     pending.cleanup();
     if (pending.prompt.type === "manual_code") this.callbackSubmitted = true;
     pending.resolve(value);
@@ -224,6 +247,7 @@ export class ProviderLoginSession {
     const pending = this.pending;
     if (!pending) return;
     this.pending = null;
+    this.history.delete("prompt");
     pending.cleanup();
     pending.reject(error);
   }
@@ -242,44 +266,6 @@ export class ProviderLoginSession {
     this.callbackTarget = null;
     this.emit({ type: "done", ok: false, error });
   }
-}
-
-function serializePrompt(prompt: {
-  type: string;
-  message: string;
-  placeholder?: string;
-  options?: readonly { id: string; label: string; description?: string }[];
-}): LoginPromptDto {
-  if (prompt.type === "select") {
-    return {
-      type: "select",
-      message: prompt.message,
-      options: (prompt.options ?? []).map((option) => ({
-        id: option.id,
-        label: option.label,
-        description: option.description,
-      })),
-    };
-  }
-  if (prompt.type === "secret") {
-    return {
-      type: "secret",
-      message: prompt.message,
-      placeholder: prompt.placeholder,
-    };
-  }
-  if (prompt.type === "manual_code") {
-    return {
-      type: "manual_code",
-      message: prompt.message,
-      placeholder: prompt.placeholder,
-    };
-  }
-  return {
-    type: "text",
-    message: prompt.message,
-    placeholder: prompt.placeholder,
-  };
 }
 
 /** Providers that expose Claude / ChatGPT / Cursor / Meta Muse subscription OAuth. */

@@ -1,3 +1,5 @@
+import { Agent, fetch as undiciFetch } from "undici";
+const dispatcher = new Agent({ bodyTimeout: 0, headersTimeout: 10000, connect: { timeout: 10000 }, connections: 32 });
 import { PROVIDER_AUTH_EVENTS_PATH } from "@shared/provider-auth-contract.mjs";
 import { JSON_BUSINESS_HEADERS } from "@shared/json-business-contract.mjs";
 import { BACKEND_PROTOCOL_HEADER, BACKEND_PROTOCOL_VERSION } from "@shared/backend-protocol.mjs";
@@ -18,21 +20,22 @@ export async function relayProviderLoginEvents(request: Request, encodedId: stri
   const timeout = setTimeout(abort, 10_000); timeout.unref?.();
   const cleanup = () => { clearTimeout(timeout); request.signal.removeEventListener("abort", abort); controller.abort(); };
   try {
-    const source = await fetch(`${backendBaseUrl()}${PROVIDER_AUTH_EVENTS_PATH}/${encodedId}${original.search}`, {
+    const source = await (undiciFetch as unknown as typeof fetch)(`${backendBaseUrl()}${PROVIDER_AUTH_EVENTS_PATH}/${encodedId}${original.search}`, {
       headers: { authorization: `Bearer ${token}`, [BACKEND_PROTOCOL_HEADER]: String(BACKEND_PROTOCOL_VERSION),
         [JSON_BUSINESS_HEADERS.origin]: original.origin, [JSON_BUSINESS_HEADERS.host]: request.headers.get("host") ?? original.host,
-        [JSON_BUSINESS_HEADERS.authorized]: authorized ? "1" : "0" }, signal: controller.signal,
-    });
+        [JSON_BUSINESS_HEADERS.authorized]: authorized ? "1" : "0", "accept-encoding": "identity" }, signal: controller.signal,
+      redirect: "error", cache: "no-store", dispatcher,
+    } as RequestInit);
     clearTimeout(timeout);
-    if (!source.ok || !source.body || !source.headers.get("content-type")?.startsWith("text/event-stream")) { await source.body?.cancel().catch(() => {}); cleanup(); return fail(source.status >= 400 ? source.status : 503); }
+    if (source.headers.get(BACKEND_PROTOCOL_HEADER) !== String(BACKEND_PROTOCOL_VERSION) || source.headers.has("content-encoding") || source.status !== 200 || !source.body || !source.headers.get("content-type")?.startsWith("text/event-stream")) { await source.body?.cancel().catch(() => {}); cleanup(); return fail(source.status >= 400 ? source.status : 503); }
     const reader = source.body.getReader();
     const stream = new ReadableStream<Uint8Array>({
       async pull(output) {
-        try { const { value, done } = await reader.read(); if (done) { cleanup(); output.close(); } else output.enqueue(value); }
-        catch { cleanup(); output.error(new Error("Login event transport closed")); }
+        try { const { value, done } = await reader.read(); if (done) { cleanup(); reader.releaseLock(); output.close(); } else output.enqueue(value); }
+        catch { cleanup(); await reader.cancel().catch(() => {}); try { reader.releaseLock(); } catch { /* Concurrent cancel. */ } output.error(new Error("Login event transport closed")); }
       },
-      async cancel() { cleanup(); await reader.cancel().catch(() => {}); },
-    });
-    return new Response(stream, { headers: { "content-type": "text/event-stream; charset=utf-8", "cache-control": "no-store, no-cache, no-transform", "x-content-type-options": "nosniff" } });
+      async cancel() { cleanup(); await reader.cancel().catch(() => {}); try { reader.releaseLock(); } catch { /* Concurrent pull. */ } },
+    }, { highWaterMark: 0 });
+    return new Response(stream, { headers: { "content-type": "text/event-stream; charset=utf-8", "cache-control": "private, no-store, no-cache, no-transform", "x-content-type-options": "nosniff" } });
   } catch { cleanup(); return fail(503); }
 }

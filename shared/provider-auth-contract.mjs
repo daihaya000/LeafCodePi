@@ -5,6 +5,7 @@ export const PROVIDER_AUTH_ROUTES = Object.freeze({
 export const PROVIDER_AUTH_EVENTS_PATH = "/internal/provider-login-events";
 export const PROVIDER_AUTH_EVENT_LIMIT = 64 * 1024;
 export const PROVIDER_AUTH_BUFFER_LIMIT = 1024 * 1024;
+export const PROVIDER_AUTH_STREAM_LIMIT = 32;
 const record = value => value && typeof value === "object" && !Array.isArray(value);
 export function providerAuthTarget(path) {
   const match = /^providers\/([^/]+)\/(login(?:\/answer|\/callback)?|logout)$/.exec(path);

@@ -2,6 +2,8 @@ import assert from "node:assert/strict";
 import { randomBytes } from "node:crypto";
 import { setTimeout as delay } from "node:timers/promises";
 import test from "node:test";
+import { EventEmitter } from "node:events";
+import { streamProviderLoginEvents, readProviderLoginTransportDiagnostics } from "./provider-login-events.mjs";
 import { closeBackend, createBackendServer, listenBackend } from "./server.mjs";
 async function fixture(t, options = {}) {
   const token = randomBytes(32).toString("hex"), server = createBackendServer({ token, isReady: () => true, ...options });
@@ -27,6 +29,27 @@ test("login event transport streams owner bytes with trusted identity and no bro
   const response = await fetch(f.base, { headers: { ...f.headers, cookie: "PRIVATE" } });
   assert.equal(response.status, 200); assert.match(response.headers.get("content-type"), /event-stream/); assert.equal(response.headers.get("set-cookie"), null);
   assert.match(await response.text(), /event: started[\s\S]*event: done/);
+});
+test("preaborted and invalid sources release bodies/readers before touching sockets", async () => {
+  for (const preabort of [true, false]) {
+    let cancels = 0; const c = new AbortController(); if (preabort) c.abort();
+    const source = new Response(new ReadableStream({ cancel() { cancels++; } }), { status: preabort ? 200 : 503, headers: { "content-type": "text/event-stream" } });
+    const response = { destroyed: false, writeHead() {}, end() {}, flushHeaders() { assert.fail("No headers before abort"); } };
+    await streamProviderLoginEvents(response, source, c.signal); assert.equal(cancels, 1); assert.equal(source.body.locked, false);
+    assert.deepEqual(readProviderLoginTransportDiagnostics(), { readers: 0, drainWaiters: 0 });
+  }
+});
+test("native drain deadline and overlapping close/abort release exactly one waiter and reader", async () => {
+  for (const close of [false, true]) {
+    const c = new AbortController(), res = new EventEmitter(); let canceled = 0;
+    Object.assign(res, { destroyed: false, writableLength: 0, writeHead() {}, flushHeaders() {}, write() { return false; }, destroy() { this.destroyed = true; }, end() {} });
+    res.on("close", () => c.abort());
+    const source = new Response(new ReadableStream({ start(controller) { controller.enqueue(new Uint8Array(65536)); }, cancel() { canceled++; } }), { headers: { "content-type": "text/event-stream" } });
+    const work = streamProviderLoginEvents(res, source, c.signal, { stallMs: 20 });
+    await delay(5); if (close) res.emit("close"); await work;
+    assert.equal(canceled, 1); assert.equal(source.body.locked, false); assert.equal(res.listenerCount("drain"), 0); assert.equal(res.listenerCount("close"), 1);
+    assert.deepEqual(readProviderLoginTransportDiagnostics(), { readers: 0, drainWaiters: 0 });
+  }
 });
 test("browser disconnect cancels only the owner subscriber, including idle streams", async t => {
   let canceled = 0;

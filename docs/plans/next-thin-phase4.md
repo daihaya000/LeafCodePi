@@ -117,6 +117,19 @@ Phase0のPhase4対象は14経路・15操作。今回の移管は `tasks/[id]/ima
 - 最終RSS増分Backend58,744,832 / relay11,325,440bytes、heap31,087,664 / 583,864、external7,500,248 / 8,432,228。queue peak8,343,011bytes、global16MiB以下。RSS128MiB/heap48MiB/external96MiBの閾値を維持。有限のSDK snapshot＋イベントbus試験で、実モデル生成中・巨大cold履歴・Next production・無期限の証明ではない。
 - 原因: 旧NextはBackend詳細のpoll・前回page/serialized fields・Bot共有mailboxを所有し、配信と業務snapshotが混在していた。ownerの既存local SSE契約を移し、有界writerとready bufferへ接続した。初期fixtureのBot taskをstoreへ登録せずreadyが空になった点、readOnly flag/小frame分割/dedup後の再構成が旧mock期待値と異なった点を修正し再検証した。
 
-## 残り
+## 追加単位: ProviderログインSSE
 
-Provider SSE。既存のProvider SSE中継もPhase4の共通切断・再接続・長時間/停滞検証の対象にする。全対象の所有権と長時間SSEの有界性が確認できるまでPhase4の受入完了とはしない。
+- `providers/[id]/login/events` GETの既存Backend所有権を維持し、Phase4の有界配信・切断・再接続契約へ統合。累計14経路・Phase0掲載15操作（追加HEAD7操作）の配信経路がBackend所有になった。Nextは認証セッション・SDK・FSを持たず、private bearer/protocol/readiness/generationの確認後にopaque query/bytesだけをpull/HWM0で中継する。redirect/error、identity encoding、protocol一致・非圧縮SSE200を必須にし、privateヘッダーを転送しない。接続/header期限10秒、undici bodyTimeout=0。RangeはSSEに適用せず全体200。
+- Backendは最大32stream/32session購読、frame64KiB、consumer queue1MiB、全Provider encoded queue16MiB。serialize前にUTF-8/escaping/complexityを見積り、overflowはその購読だけを閉じる。15秒heartbeat、未消費queue/native drain45秒。producer通知では停滞期限を延ばさない。正常done/replayは残るframeをdrainしてからEOF、abort/overflowは即時drop。同期replay中のdone/overflowでも返されたunsubscribeを解放する。
+- 元のログインhistory配列はnotify数に比例して増えた。現在はpublic projectionだけをtype別最大7件、各encoded event64KiB未満・合計512KiB未満にcoalesceする。最新auth URL/device code/info/progressと現在のprompt/started/doneを残し、回答・abort後のpromptは消す。pending promptも128options/64KiB、OAuth callback対象を解析するURLも32,768文字で制限。巨大/不正notifyはsafe infoへ置換し、原credential/errorを保持・配信しない。数字はencoded予算でありJS stringのheap byte数そのものではない。
+- 接続切断では受理済みログインをcancel/retryしない。同じsessionIdの再接続は最新state・未回答prompt・有効callback URLを復元し、回答済prompt/提出済callbackを復活させない。Last-Event-IDのevent log replayは提供しない。認証完了後は安全なdoneをreplayし、subscriptionは再登録しない。Backend再起動でin-memory login sessionは失われ、旧sessionIdはsafe done(false)で閉じる。認証commandのdurable receiptによる重複拒否は既存のまま。再起動でOAuth処理や入力を自動再実行・永続復元する保証はない。
+- Native reader/drain waiterは必ずfinallyでcancel/releaseし、preabort・不適合source・owner応答待ち中の切断もbodyを解放する。closeとAbortSignalが同時に発火してもwaiter減算は一度だけ。カウンタはprivate実装exportで、public HTTPには公開しない。
+- 関連Web66件、native/server/auth ledger/contract92件、実2段HTTP1件の計159件成功。独立reviewでAPI所有権/Backend build/Webなし起動の15件も実行し、合計174件成功。両source型チェック成功。SDK認証本体は隔離fake interactionだが、実Backend owner/harness/native server＋実Next relay/Node HTTP adapterを独立processで実行。実credential/provider network、ユーザーデータ・ユーザーサービスは操作していない。Next production server全体・実OAuth/無期限接続の計測ではない。
+- 実試験125,009ms・529,769,380bytes、同時2stream・各8heartbeat、32consumer cuts、paused socketのqueue overflow、producer継続、再接続による未回答prompt/callback復旧、同じownerの認証完了/done replayを確認。両process再起動後に旧sessionIdを拒否し、新sessionを取得。終了時active/subscription/reader/drain waiter/queue/heartbeat/stall/listener/relayは全0。意図的なbounded回復historyは4件/33,078encoded bytes。queue peak1,016,645bytes。
+- 最終RSS増分Backend29,945,856 / relay13,500,416bytes、heap33,213,152 / 351,648、external4,243,977 / 8,945,301。RSS128MiB/heap48MiB/external96MiBの閾値を維持。序盤/終盤windowの最低heap差はBackend-28,224 / relay137,536bytes（保持heap増分8MiB未満）。20,000notify後のhistory/prompt回復、未消費global queue、32枠、短縮stall、preabort/重複close、safe projectionもunit testで確認した。
+- 独立reviewでPhase4の既存検証に2件の追随漏れを発見。所有権JSON/Markdownへ互換HEAD7件を登録し、Phase0の歴史的258操作を保持した上で現在の165route/265operationを検証。Webなし独立起動fixtureのTTSを旧JSON/base64からraw binary ingressへ更新し、廃止JSONの404・音声bytes/operation ACK・voice選択・失敗/再起動後のcomplete/unknown重複拒否を再検証した。最終Backend build7,708KiB、15件全成功。実装を旧JSONへ戻したり、検証を削除・skipしたりしていない。
+- 原因: 旧SDK historyの無制限配列、readers数の上限欠如、未消費heartbeat、Nextのglobal fetch/既定prefetchとprotocol未検証、native preabort時のlock解放漏れ。state coalescing・有界queue・専用dispatcher・無条件finallyへ変更した。初回125秒fixtureは16KiB×5msを仮定した配信量assertを満たさなかった。32,700文字へ増やした最終試験の実測8,077notify/125秒（約15.5ms周期）では各264,884,690bytes、errorなしで通過。メモリ閾値は緩めていない。Vitestを誤ってrepo cwdで起動したalias解決失敗もWeb cwdで再実行した。
+
+## 残り: Phase4最終受入
+
+Phase0の14経路・15操作の所有権移管と、対象ごとの大容量/Range/切断/再接続試験は完了。Provider SSEは本単位で検証済み。Task/Botの巨大cold transcriptを含むreadonly getterの解析・cacheメモリ境界は既存SDK依存で、前単位の有限snapshot fixtureだけでは確認できていない。最終受入ではこの境界を実測・必要なら有界化し、Next production adapterを含む統合条件と全対象の証拠を整理する。現時点ではPhase4全体の受入完了を宣言しない。

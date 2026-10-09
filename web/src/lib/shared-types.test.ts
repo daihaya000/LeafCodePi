@@ -6,10 +6,16 @@ import { fileURLToPath } from "node:url";
 import ts from "typescript";
 import * as legacy from "@/lib/types";
 import * as shared from "@shared/types";
+import { PROVIDER_AUTH_EVENT_LIMIT, PROVIDER_AUTH_BUFFER_LIMIT, PROVIDER_AUTH_STREAM_LIMIT } from "@shared/provider-auth-contract.mjs";
 import { BOT_AVATAR_SHAPES, type BotAvatarShape } from "@/lib/bot-avatar";
 import type { TaskDetail, QuestionRequestDto, PermissionRequestDto } from "@/lib/types";
 
 describe("shared wire contracts", () => {
+  it("keeps Provider SSE byte and subscription limits in the shared typed contract", () => {
+    expect(PROVIDER_AUTH_EVENT_LIMIT).toBe(65536);
+    expect(PROVIDER_AUTH_BUFFER_LIMIT).toBe(1024 * 1024);
+    expect(PROVIDER_AUTH_STREAM_LIMIT).toBe(32);
+  });
   it("keeps the existing import entrypoint and constant identities", () => {
     expect(Object.keys(legacy).sort()).toEqual(Object.keys(shared).sort());
     for (const key of Object.keys(shared) as (keyof typeof shared)[]) {

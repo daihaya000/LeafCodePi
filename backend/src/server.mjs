@@ -495,6 +495,7 @@ export function createBackendServer({
       try {
         const source = await providerLoginEventsAction({ route: providerId, method: "GET", url: `${origin}/api/providers/${authEventsMatch[1]}/login/events${target.search}`, headers: { host }, authorized: access === "1", signal: controller.signal });
         if (!controller.signal.aborted) await streamProviderLoginEvents(response, source, controller.signal);
+        else await source.body?.cancel().catch(() => {});
       } catch { if (!response.headersSent && !response.destroyed) sendJson(response, 503, { error: "Login events unavailable", code: BACKEND_ERROR_CODES.internal }); else response.destroy(); }
       finally { response.off("close", disconnect); request.socket.off("end", disconnect); controller.abort(); }
       return;

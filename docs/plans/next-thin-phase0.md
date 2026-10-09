@@ -2,19 +2,19 @@
 
 ## 結論・対象範囲
 
-現行 `web/src/app/api/**/route.ts` **165ルート・258明示HTTP操作**を確認し、全操作の最終所有者を固定した。
+Phase0開始時の `web/src/app/api/**/route.ts` **165ルート・258明示HTTP操作**を確認し、全操作の最終所有者を固定した。Phase4で7件の暗黙HEAD互換を明示exportへ移したため、現在の検証正本は **165ルート・265操作**。以下の操作数・表は追加HEAD込みで、Phase0の歴史的件数は258のまま保持する。
 
 | 最終所有者 | 操作数 | 所有するもの |
 |---|---:|---|
-| Backend | 232 | 業務判断・入力検証・永続化・実行・ファイル認可・外部接続 |
+| Backend | 239 | 業務判断・入力検証・永続化・実行・ファイル認可・外部接続 |
 | Host | 20 | プロセス/本体更新・ローカルUI・llama/翻訳サービスの制御 |
 | Next | 6 | ブラウザ認証・Web識別・診断投影・Explorer遠隔起動拒否 |
 
-**これは移行計画であり、232操作が未移行という意味ではない。** 既存のBackend/Host中継も含む。Phase0では実行コード・公開URL・認証条件・データを変更しない。
+**これは移行計画であり、239操作が未移行という意味ではない。** 既存のBackend/Host中継も含む。Phase0では実行コード・公開URL・認証条件・データを変更しない。
 
 - 正本：[`next-thin-phase0.json`](next-thin-phase0.json)。操作単位のowner・phase・decision・contract・根拠、確認時点の直接importを保持。
 - `owner` は最終的な処理/データの所有者。公開URLは引き続きNextに残し中継する。Nextが入口認証を行うこととBackendが業務を所有することは両立する。
-- `observedImports` は現行コードの直接依存の観測値。既存中継の完全性・全推移依存・本番での実行所有を保証する値ではない。
+- `observedImports` はPhase0時点の直接依存の観測値。既存中継の完全性・全推移依存・本番での実行所有を保証する値ではない。
 - 表のPhaseは当該操作の責務整理を行う予定。Phase0の行は現状維持、Phase1はソース/ビルド基盤、Phase5は旧経路撤去なのでAPI行の追加移管先にはしない。
 - 明示exportのみ計数。Nextによる暗黙HEAD/OPTIONSは別操作として水増しせず、元GET等の契約として検証する。
 - 画面/layout、静的アセット、Host内部API、Backend内部APIは本一覧の列挙対象外。ただし移行先の責務は本書で固定する。
@@ -142,8 +142,8 @@ Next/Backendの独立起動監視・停止再起動、本体更新とPi世代の
 | `/api/bots/events` | GET → Backend / Phase4 | stream |
 | `/api/bots/rooms/[id]/code` | POST → Backend / Phase3 | runtime |
 | `/api/bots/rooms/[id]/events` | GET → Backend / Phase4 | stream |
-| `/api/bots/rooms/[id]/files/[file]` | GET → Backend / Phase4 | stream |
-| `/api/bots/rooms/[id]/images/[file]` | GET → Backend / Phase4 | stream |
+| `/api/bots/rooms/[id]/files/[file]` | HEAD → Backend / Phase4<br>GET → Backend / Phase4 | stream |
+| `/api/bots/rooms/[id]/images/[file]` | HEAD → Backend / Phase4<br>GET → Backend / Phase4 | stream |
 | `/api/bots/rooms/[id]/prompt` | POST → Backend / Phase3 | runtime |
 | `/api/bots/rooms/[id]/revert` | POST → Backend / Phase3 | runtime |
 | `/api/bots/rooms/[id]` | GET → Backend / Phase3<br>PATCH → Backend / Phase3<br>DELETE → Backend / Phase3 | runtime |
@@ -184,7 +184,7 @@ Next/Backendの独立起動監視・停止再起動、本体更新とPi世代の
 | `/api/host-probe` | GET → Next / Phase0<br>OPTIONS → Next / Phase0 | edge |
 | `/api/jev-model/legacy-credentials` | GET → Backend / Phase2<br>DELETE → Backend / Phase2 | settings |
 | `/api/jev-model` | GET → Backend / Phase2<br>PUT → Backend / Phase2 | settings |
-| `/api/link-preview/image` | GET → Backend / Phase4 | stream |
+| `/api/link-preview/image` | HEAD → Backend / Phase4<br>GET → Backend / Phase4 | stream |
 | `/api/link-preview` | POST → Backend / Phase3 | generation |
 | `/api/llama-server/[action]` | GET → Host / Phase3<br>POST → Host / Phase3 | host-control |
 | `/api/llama-server/ensure-loaded` | POST → Host / Phase3 | host-control |
@@ -203,10 +203,10 @@ Next/Backendの独立起動監視・停止再起動、本体更新とPi世代の
 | `/api/peer-auth/usage` | POST → Backend / Phase3 | credentials |
 | `/api/pi/latest-version` | GET → Host / Phase3 | host-control |
 | `/api/pi/update` | GET → Host / Phase3<br>POST → Host / Phase3 | host-control |
-| `/api/profile` | GET → Backend / Phase4<br>POST → Backend / Phase2<br>PATCH → Backend / Phase2<br>PUT → Backend / Phase2<br>DELETE → Backend / Phase2 | profile |
+| `/api/profile` | HEAD → Backend / Phase4<br>GET → Backend / Phase4<br>POST → Backend / Phase2<br>PATCH → Backend / Phase2<br>PUT → Backend / Phase2<br>DELETE → Backend / Phase2 | profile |
 | `/api/projects/[id]/explorer` | GET → Backend / Phase3<br>POST → Next / Phase0 | filesystem |
 | `/api/projects/[id]/files` | GET → Backend / Phase3 | filesystem |
-| `/api/projects/[id]/icon` | GET → Backend / Phase4 | stream |
+| `/api/projects/[id]/icon` | HEAD → Backend / Phase4<br>GET → Backend / Phase4 | stream |
 | `/api/projects/[id]/next-task` | POST → Backend / Phase3 | generation |
 | `/api/projects` | GET → Backend / Phase3<br>POST → Backend / Phase3<br>PATCH → Backend / Phase3<br>DELETE → Backend / Phase3 | runtime |
 | `/api/prompts/transfer` | POST → Backend / Phase3 | definitions |
@@ -246,9 +246,9 @@ Next/Backendの独立起動監視・停止再起動、本体更新とPi世代の
 | `/api/tasks/[id]/fork` | POST → Backend / Phase3 | runtime |
 | `/api/tasks/[id]/goal-loop` | GET → Backend / Phase3<br>POST → Backend / Phase3<br>PATCH → Backend / Phase3 | runtime |
 | `/api/tasks/[id]/goal-loop-auto-model` | PUT → Backend / Phase3 | runtime |
-| `/api/tasks/[id]/image` | GET → Backend / Phase4 | stream |
+| `/api/tasks/[id]/image` | HEAD → Backend / Phase4<br>GET → Backend / Phase4 | stream |
 | `/api/tasks/[id]/media` | GET → Backend / Phase4<br>HEAD → Backend / Phase4 | stream |
-| `/api/tasks/[id]/message-image` | GET → Backend / Phase4 | stream |
+| `/api/tasks/[id]/message-image` | HEAD → Backend / Phase4<br>GET → Backend / Phase4 | stream |
 | `/api/tasks/[id]/messages` | GET → Backend / Phase3 | runtime |
 | `/api/tasks/[id]/model` | POST → Backend / Phase3 | runtime |
 | `/api/tasks/[id]/next-action` | POST → Backend / Phase3 | generation |

@@ -978,6 +978,14 @@
       "group": "stream",
       "operations": [
         {
+          "method": "HEAD",
+          "owner": "Backend",
+          "phase": 4,
+          "decision": "thin-backend-relay",
+          "contract": "empty",
+          "note": "Phase4で従来の暗黙HEAD互換を明示化。Backendで認可・metadata確認後、本文なしで返す。"
+        },
+        {
           "method": "GET",
           "owner": "Backend",
           "phase": 4,
@@ -996,6 +1004,14 @@
       "source": "web/src/app/api/bots/rooms/[id]/images/[file]/route.ts",
       "group": "stream",
       "operations": [
+        {
+          "method": "HEAD",
+          "owner": "Backend",
+          "phase": 4,
+          "decision": "thin-backend-relay",
+          "contract": "empty",
+          "note": "Phase4で従来の暗黙HEAD互換を明示化。Backendで認可・metadata確認後、本文なしで返す。"
+        },
         {
           "method": "GET",
           "owner": "Backend",
@@ -2019,6 +2035,14 @@
       "group": "stream",
       "operations": [
         {
+          "method": "HEAD",
+          "owner": "Backend",
+          "phase": 4,
+          "decision": "thin-backend-relay",
+          "contract": "empty",
+          "note": "Phase4で従来の暗黙HEAD互換を明示化。Backendで認可・metadata確認後、本文なしで返す。"
+        },
+        {
           "method": "GET",
           "owner": "Backend",
           "phase": 4,
@@ -2512,6 +2536,14 @@
       "group": "profile",
       "operations": [
         {
+          "method": "HEAD",
+          "owner": "Backend",
+          "phase": 4,
+          "decision": "thin-backend-relay",
+          "contract": "empty",
+          "note": "Phase4で従来の暗黙HEAD互換を明示化。Backendで認可・metadata確認後、本文なしで返す。"
+        },
+        {
           "method": "GET",
           "owner": "Backend",
           "phase": 4,
@@ -2611,6 +2643,14 @@
       "source": "web/src/app/api/projects/[id]/icon/route.ts",
       "group": "stream",
       "operations": [
+        {
+          "method": "HEAD",
+          "owner": "Backend",
+          "phase": 4,
+          "decision": "thin-backend-relay",
+          "contract": "empty",
+          "note": "Phase4で従来の暗黙HEAD互換を明示化。Backendで認可・metadata確認後、本文なしで返す。"
+        },
         {
           "method": "GET",
           "owner": "Backend",
@@ -3628,6 +3668,14 @@
       "group": "stream",
       "operations": [
         {
+          "method": "HEAD",
+          "owner": "Backend",
+          "phase": 4,
+          "decision": "thin-backend-relay",
+          "contract": "empty",
+          "note": "Phase4で従来の暗黙HEAD互換を明示化。Backendで認可・metadata確認後、本文なしで返す。"
+        },
+        {
           "method": "GET",
           "owner": "Backend",
           "phase": 4,
@@ -3674,6 +3722,14 @@
       "source": "web/src/app/api/tasks/[id]/message-image/route.ts",
       "group": "stream",
       "operations": [
+        {
+          "method": "HEAD",
+          "owner": "Backend",
+          "phase": 4,
+          "decision": "thin-backend-relay",
+          "contract": "empty",
+          "note": "Phase4で従来の暗黙HEAD互換を明示化。Backendで認可・metadata確認後、本文なしで返す。"
+        },
         {
           "method": "GET",
           "owner": "Backend",
