@@ -69,6 +69,7 @@ it("Backend owner serves the inbox, marks it read once, and rejects duplicate ex
   const get = await request(recipient.id, "GET");
   expect(get.status).toBe(200);
   expect(get.body?.inbox).toMatchObject({ unreadCount: 1, messages: [expect.objectContaining({ text: "owner inbox" })] });
+  expect((await request(randomUUID(), "GET")).status).toBe(404);
 
   const markRead = vi.spyOn(intercom, "markBotIntercomInboxRead");
   const operationId = randomUUID();
