@@ -21,7 +21,7 @@ import { stopOrphanedWebUi } from "./stale-webui.js";
 import {
   buildHostRestartScript,
   buildHostRestartWaitProgram,
-  consumeHostRestartBuild,
+  consumeHostRestartOptions,
   hostStdoutLogFile,
   waitForHostRestartChildSpawn,
 } from "./host-restart.js";
@@ -863,7 +863,14 @@ async function restartHost({ autoUpdate = false } = {}) {
         {
           detached: true,
           stdio: ["ignore", output, output],
-          env: { ...process.env, LEAFCODE_PI_NO_BROWSER: "1", LEAFCODE_PI_REBUILD_SERVICES: "1" },
+          env: {
+            ...process.env,
+            LEAFCODE_PI_NO_BROWSER: "1",
+            LEAFCODE_PI_REBUILD_SERVICES: "",
+            LEAFCODE_PI_FORCE_REBUILD_SERVICES: autoUpdate ? "1" : "",
+            LEAFCODE_PI_SKIP_SOURCE_PULL: "1",
+            LEAFCODE_PI_SKIP_STALE_REBUILD: "1",
+          },
         },
       );
       await waitForHostRestartChildSpawn(child);
@@ -879,6 +886,7 @@ async function restartHost({ autoUpdate = false } = {}) {
         lockFile: LOCK_FILE,
         launcherExe: existsSync(launcherExePath) ? launcherExePath : null,
         startBat,
+        forceBuild: autoUpdate,
       });
       writeFileSync(launcherPath, `${lines.join("\r\n")}\r\n`, "utf8");
       const ps =
@@ -1342,7 +1350,7 @@ async function main() {
     removeLock(LOCK_FILE);
     throw err;
   }
-  const rebuildServices = consumeHostRestartBuild(process.env);
+  const restartOptions = consumeHostRestartOptions(process.env);
   log(`LeafCodePi host ${HOST_VERSION} pid=${process.pid}`);
   log(`Binding WebUI on ${WEBUI_HOST}:${WEBUI_PORT} (open ${WEBUI_URL})`);
   if (WEBUI_HOST === "127.0.0.1" && (!process.env.LEAFCODE_PI_HOST || process.env.LEAFCODE_PI_HOST.trim().toLowerCase() === "tailscale")) {
@@ -1410,7 +1418,7 @@ async function main() {
         assertInstalledPiVersions(WEB_MIRROR_DIR, piVersion);
         mirrorMatches = true;
       } catch { /* a legacy or stale build must not serve a different SDK/AI pair */ }
-      if (!mirrorMatches && !rebuildServices) {
+      if (!mirrorMatches && !restartOptions.forceBuild) {
         delete process.env.LEAFCODE_PI_SKIP_STALE_REBUILD;
         await buildWeb("stale", { pull: false });
       }
@@ -1418,8 +1426,8 @@ async function main() {
     // Extension sources load directly from the repo, independently of the Web
     // build. Repair missing dependencies even when a restart reuses that build.
     ensureExtensionDependencies(join(REPO_ROOT, "extensions"));
-    if (backendService) await buildBackendWithFallback({ force: rebuildServices, log, error });
-    await spawnWeb({ forceBuild: rebuildServices, pull: !rebuildServices });
+    if (backendService) await buildBackendWithFallback({ force: restartOptions.forceBuild, log, error });
+    await spawnWeb({ forceBuild: restartOptions.forceBuild, pull: restartOptions.pull });
   } catch (err) {
     removeLock(LOCK_FILE);
     error(err instanceof Error ? err.message : String(err));

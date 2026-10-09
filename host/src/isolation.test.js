@@ -227,7 +227,9 @@ test("host restart relaunches through LeafCodePi.exe when available", () => {
     script.includes(String.raw`start "LeafCodePi" /min "C:\Users\Daichi\LeafCodePi\LeafCodePi.exe"`),
   );
   assert.doesNotMatch(script, /cmd\.exe/);
-  assert.match(script, /LEAFCODE_PI_REBUILD_SERVICES=1/);
+  assert.match(script, /LEAFCODE_PI_SKIP_SOURCE_PULL=1/);
+  assert.match(script, /LEAFCODE_PI_SKIP_STALE_REBUILD=1/);
+  assert.doesNotMatch(script, /LEAFCODE_PI_FORCE_REBUILD_SERVICES=1/);
   // A stale lock (old host killed before removing it) must not wait forever.
   assert.match(script, /set \/a WAIT\+=1/);
   assert.match(script, /if %WAIT% GEQ 120 goto :launch/);
@@ -397,7 +399,7 @@ test("Pi synchronization and matching build gates finish before either runtime s
   assert.doesNotMatch(index, /LEAFCODE_PI_AUTO_UPDATE/);
   assert.match(main, /if \(!synchronized\.safeToStart\) throw/);
   assert.match(main, /assertPiDependencyVersions\(WEB_MIRROR_DIR, join\(REPO_ROOT, "backend"\), \{ requireUnlocked: false \}\)/);
-  assert.match(main, /if \(!mirrorMatches && !rebuildServices\)[\s\S]*await buildWeb\("stale", \{ pull: false \}\)/);
+  assert.match(main, /if \(!mirrorMatches && !restartOptions\.forceBuild\)[\s\S]*await buildWeb\("stale", \{ pull: false \}\)/);
   assert.doesNotMatch(index, /autoUpdatePiInBackground|npm update/);
 });
 
@@ -405,7 +407,7 @@ test("production starts Backend-owned without a hand-over", () => {
   const index = readFileSync(join(repoRoot, "host", "src", "index.js"), "utf8");
   // The Backend owns the runtime in the shipped build, so the Host runs one by default.
   assert.match(index, /const backendService = shouldRunBackend\(process\.env\)/);
-  assert.match(index, /await spawnWeb\(\{ forceBuild: rebuildServices, pull: !rebuildServices \}\)/);
+  assert.match(index, /await spawnWeb\(\{ forceBuild: restartOptions\.forceBuild, pull: restartOptions\.pull \}\)/);
   // A restarted Host brings the Backend back attached before the client WebUI is served.
   assert.match(index, /backendService\.start\(\{ attachRuntime: true \}\)/);
   assert.match(index, /waitForBackendReady\(/);
