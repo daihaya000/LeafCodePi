@@ -44,9 +44,8 @@ export {
   applyCodePermissionSettingsToLiveTasks,
   reloadLiveSessionsContext,
   refreshLiveSessionsForAgentDefinition,
-  handoffTaskToBot,
-  releaseTaskFromBot,
 } from "@/lib/pi/harness";
+export { handoffTaskToBot, releaseTaskFromBot } from "../task-supervision";
 // Stopping a Bot Code request also updates the outbox, which the owning process must do.
 export { cancelBotCodeRequests, isRoomDelegatedCodeTask, stopBotCodeRequest } from "@/lib/pi/bot-code-relay";
 // Clearing a Code session link writes the store and the Bot record: the owner does both.

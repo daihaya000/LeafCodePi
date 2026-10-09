@@ -1,98 +1,27 @@
 import { NextRequest } from "next/server";
-import { beforeEach, describe, expect, it, vi } from "vitest";
-import { POST } from "./route";
-
-const mocks = vi.hoisted(() => ({
-  jsonError: vi.fn((error: unknown) => ({
-    error: error instanceof Error ? error.message : String(error),
-    status: 500,
-  })),
-  handoffTaskToBot: vi.fn(),
-  releaseTaskFromBot: vi.fn(),
-}));
-
-vi.mock("@/lib/pi/harness", () => mocks);
-
-const owner = vi.hoisted(() => ({
-  localRuntimeBlocked: vi.fn(() => false),
-  forwardTaskAdmin: vi.fn(),
-}));
-vi.mock("@/lib/pi/runtime-ownership", () => ({ localRuntimeBlocked: owner.localRuntimeBlocked }));
-vi.mock("@/lib/backend-forward", () => ({ forwardTaskAdmin: owner.forwardTaskAdmin }));
-
-describe("POST /api/tasks/[id]/supervisor", () => {
-  beforeEach(() => {
-    mocks.jsonError.mockClear();
-    mocks.handoffTaskToBot.mockReset();
-    mocks.releaseTaskFromBot.mockReset();
-    owner.localRuntimeBlocked.mockReturnValue(false);
-    owner.forwardTaskAdmin.mockReset();
-  });
-
-  it("hands a hand-off or release to the owning Backend and never rewires locally", async () => {
-    owner.localRuntimeBlocked.mockReturnValue(true);
-    const post = (body: unknown) => POST(
-      new NextRequest("http://localhost/api/tasks/task-1/supervisor", { method: "POST", body: JSON.stringify(body) }),
-      { params: Promise.resolve({ id: "task-1" }) },
-    );
-    owner.forwardTaskAdmin.mockResolvedValueOnce({ ok: true, status: 200, body: { task: { id: "task-1" } } });
-    expect(await (await post({ botId: "bot-1" })).json()).toEqual({ task: { id: "task-1" } });
-    expect(owner.forwardTaskAdmin).toHaveBeenLastCalledWith("task-1", { action: "handoff", botId: "bot-1" });
-    owner.forwardTaskAdmin.mockResolvedValueOnce({ ok: true, status: 200, body: { task: { id: "task-1" } } });
-    await post({ botId: null });
-    expect(owner.forwardTaskAdmin).toHaveBeenLastCalledWith("task-1", { action: "release" });
-    expect((await post({})).status).toBe(400);
-    owner.forwardTaskAdmin.mockResolvedValueOnce({ ok: false, reason: "unreachable" });
-    expect((await post({ botId: "bot-1" })).status).toBe(502);
-    expect(mocks.handoffTaskToBot).not.toHaveBeenCalled();
-    expect(mocks.releaseTaskFromBot).not.toHaveBeenCalled();
-  });
-
-  it("passes the selected Bot and task to the runtime", async () => {
-    const task = { id: "task-1", supervisorBotId: "bot-1" };
-    mocks.handoffTaskToBot.mockResolvedValue(task);
-
-    const response = await POST(
-      new NextRequest("http://localhost/api/tasks/task-1/supervisor", {
-        method: "POST",
-        body: JSON.stringify({ botId: "bot-1" }),
-      }),
-      { params: Promise.resolve({ id: "task-1" }) },
-    );
-
-    expect(response.status).toBe(200);
-    expect(mocks.handoffTaskToBot).toHaveBeenCalledWith("bot-1", "task-1");
-    expect(await response.json()).toEqual({ task });
-  });
-
-  it("releases the task to user ownership when Bot id is null", async () => {
-    const task = { id: "task-1", supervisorBotId: null };
-    mocks.releaseTaskFromBot.mockResolvedValue(task);
-
-    const response = await POST(
-      new NextRequest("http://localhost/api/tasks/task-1/supervisor", {
-        method: "POST",
-        body: JSON.stringify({ botId: null }),
-      }),
-      { params: Promise.resolve({ id: "task-1" }) },
-    );
-
-    expect(response.status).toBe(200);
-    expect(mocks.releaseTaskFromBot).toHaveBeenCalledWith("task-1");
-    expect(mocks.handoffTaskToBot).not.toHaveBeenCalled();
-    expect(await response.json()).toEqual({ task });
-  });
-
-  it("rejects a blank Bot id", async () => {
-    const response = await POST(
-      new NextRequest("http://localhost/api/tasks/task-1/supervisor", {
-        method: "POST",
-        body: JSON.stringify({ botId: "  " }),
-      }),
-      { params: Promise.resolve({ id: "task-1" }) },
-    );
-
-    expect(response.status).toBe(400);
-    expect(mocks.handoffTaskToBot).not.toHaveBeenCalled();
-  });
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { POST } from "@backend-runtime/json-business/handlers/tasks/[id]/supervisor/route";
+const mocks=vi.hoisted(()=>({handoffTaskToBot:vi.fn(),releaseTaskFromBot:vi.fn(),jsonError:(error:any)=>({error:error.message,status:error.status??500})}));
+vi.mock("@/lib/pi/harness",()=>mocks);
+beforeEach(()=>{vi.stubEnv("LEAFCODE_PI_PROCESS_ROLE","backend");vi.stubEnv("LEAFCODE_PI_BACKEND_RUNTIME","attach");mocks.handoffTaskToBot.mockReset();mocks.releaseTaskFromBot.mockReset();});
+afterEach(()=>vi.unstubAllEnvs());
+const post=(body:unknown)=>POST(new NextRequest("http://localhost/api/tasks/task-1/supervisor",{method:"POST",body:JSON.stringify(body)}),{params:Promise.resolve({id:"task-1"})});
+describe("Backend Task supervisor",()=>{
+ it("hands the trimmed selected Bot/task to SDK without caller control flags",async()=>{
+  const task={id:"task-1",status:"working",supervisorBotId:"bot-1"};mocks.handoffTaskToBot.mockResolvedValue(task);
+  expect(await (await post({botId:" bot-1 ",fromBot:true,approved:true})).json()).toEqual({task});
+  expect(mocks.handoffTaskToBot).toHaveBeenCalledExactlyOnceWith("bot-1","task-1");
+ });
+ it("null returns ownership to user and never hands off or stops the Task",async()=>{
+  const task={id:"task-1",supervisorBotId:null};mocks.releaseTaskFromBot.mockResolvedValue(task);
+  expect(await (await post({botId:null,action:"abort"})).json()).toEqual({task});
+  expect(mocks.releaseTaskFromBot).toHaveBeenCalledExactlyOnceWith("task-1");expect(mocks.handoffTaskToBot).not.toHaveBeenCalled();
+ });
+ it("bad body/Bot ID rejects before owner effects",async()=>{
+  for(const body of [null,[],{},2,{botId:2},{botId:" "},{botId:"../escape"},{botId:"x".repeat(129)}])expect((await post(body)).status).toBe(400);
+  expect(mocks.handoffTaskToBot).not.toHaveBeenCalled();expect(mocks.releaseTaskFromBot).not.toHaveBeenCalled();
+ });
+ it("SDK refusals retain status and private 5xx errors are sanitized",async()=>{
+  for(const status of [403,404,409,500]){mocks.handoffTaskToBot.mockRejectedValueOnce(Object.assign(new Error("PRIVATE refusal"),{status}));const result=await post({botId:"one"});expect(result.status).toBe(status);if(status===500)expect(JSON.stringify(await result.json())).not.toContain("PRIVATE");}
+ });
 });

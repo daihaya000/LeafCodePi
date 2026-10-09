@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { spawn, spawnSync } from "node:child_process";
 import { randomBytes } from "node:crypto";
 import { createServer } from "node:http";
-import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -120,6 +120,13 @@ export default function(api) {
     isolation: "current_folder", status: "idle", sessionId: null, sessionFile: null,
     createdAt: "2026-01-01T00:00:00.000Z", updatedAt: new Date().toISOString(),
   }, { id: "task-collection-archived", projectId: null, projectName: "test", title: "Isolated bulk target", directory: fixture, isolation: "current_folder", status: "archived", sessionId: null, sessionFile: null, createdAt: "2026-01-01T00:00:00.000Z", updatedAt: new Date().toISOString() }, { id: "individual-task", projectId: "fixture-project", projectName: "Fixture", title: "Isolated archived transcript", directory: fixture, isolation: "current_folder", status: "archived", sessionId: null, sessionFile: individualSessionFile, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() }] }));
+  // Fixture-only Bot targets the unreachable localhost model; no real identity/credentials or tool execution.
+  const supervisorBotId="11111111-0123-4321-abcd-eeeeeeeeeeee",supervisorRoot=join(data,"bots",supervisorBotId),supervisorWorkspace=join(supervisorRoot,"workspace");
+  mkdirSync(supervisorWorkspace,{recursive:true});writeFileSync(join(supervisorRoot,"config.json"),JSON.stringify({id:supervisorBotId,name:"Fixture supervisor",label:"Fixture",model:"fixture-local::fixture-model",enabled:true,permissionMode:"ask",tools:[],intercomEnabled:false,notificationsEnabled:false,codeAutoApprove:false,createdAt:"fixture",updatedAt:"fixture"}));
+  const seededStore=JSON.parse(readFileSync(join(data,"store.json"),"utf8"));seededStore.tasks.push({id:"bot:"+supervisorBotId,kind:"bot",botId:supervisorBotId,projectId:null,projectName:"",title:"Fixture supervisor",directory:supervisorWorkspace,isolation:"current_folder",status:"idle",sessionId:null,sessionFile:null,providerID:"fixture-local",modelID:"fixture-model",createdAt:new Date().toISOString(),updatedAt:new Date().toISOString()});writeFileSync(join(data,"store.json"),JSON.stringify(seededStore));
+  const childArtifacts=join(fixture,"subagent-artifacts");mkdirSync(childArtifacts);
+  const childTranscript=join(childArtifacts,"fixture-child_coder_transcript.jsonl");
+  writeFileSync(childTranscript,[{recordType:"message",runId:"fixture-child",agent:"coder",childIndex:0,ts:1,message:{role:"user",content:"Fixture child authored 日本語"}},{recordType:"message",runId:"fixture-child",agent:"coder",ts:2,role:"assistant",message:{role:"assistant",content:[{type:"thinking",thinking:"Fixture child thinking"},{type:"text",text:"Fixture child answer"}],model:"fixture-local",provider:"fixture-local",timestamp:2}},{recordType:"tool_start",runId:"fixture-child",agent:"coder",ts:3,toolName:"read",toolCallId:"c"}].map(row=>JSON.stringify(row)).join("\n")+"\n");
   const token = randomBytes(32).toString("hex");
   const launchOptions = {
     cwd: fixture, stdio: ["ignore", "pipe", "pipe"],
@@ -344,6 +351,16 @@ export default function(api) {
   const coldCompactAbort=await business("tasks/compaction-task/compact/abort",{},"",{"x-leafcode-business-operation":compactColdAbortId});assert.equal(coldCompactAbort.status,404);assert.equal(compactRequests,0);
   const compactCancelled=business("tasks/compaction-task/compact",{customInstructions:"FIXTURE-HOLD-COMPACTION"},"",{"x-leafcode-business-operation":compactCancelId});
   const compactWait=Date.now()+3000;while(!compactHoldEntered&&Date.now()<compactWait)await delay(10);assert.ok(compactHoldEntered,"Fixture summarizer was not entered");
+  // Real SDK compaction hold makes this a busy user Code task; delegation/release must not interrupt it.
+  const supervisorHandoffId="aaaaaaaa-2345-4321-abcd-eeeeeeeeeeee",supervisorReleaseId="abababab-2345-4321-abcd-eeeeeeeeeeee";
+  const supervisorHandoff=await business("tasks/compaction-task/supervisor",{botId:supervisorBotId},"",{"x-leafcode-business-operation":supervisorHandoffId});assert.equal(supervisorHandoff.status,200,JSON.stringify(supervisorHandoff));assert.equal(supervisorHandoff.body.task.supervisorBotId,supervisorBotId);assert.equal(supervisorHandoff.body.operation.execution,"complete");
+  const outboxPath=join(data,"bot-code-requests"),supervisionRequestFiles=readdirSync(outboxPath).filter(file=>file.endsWith(".json"));
+  const supervisionRequests=supervisionRequestFiles.map(file=>JSON.parse(readFileSync(join(outboxPath,file),"utf8"))).filter(request=>request.codeTaskId==="compaction-task"&&request.supervision);assert.equal(supervisionRequests.length,1);assert.equal(supervisionRequests[0].state,"running");assert.ok(!compactHoldClosed);
+  const supervisorRelease=await business("tasks/compaction-task/supervisor",{botId:null},"",{"x-leafcode-business-operation":supervisorReleaseId});assert.equal(supervisorRelease.status,200,JSON.stringify(supervisorRelease));assert.equal(supervisorRelease.body.task.supervisorBotId,null);assert.ok(!compactHoldClosed);assert.equal(JSON.parse(readFileSync(join(outboxPath,supervisionRequests[0].id+".json"),"utf8")).state,"cancelled");
+  const supervisionLedger=readFileSync(join(data,"task-supervision-command.json"),"utf8");assert.ok(!supervisionLedger.includes(supervisorBotId));assert.ok(!supervisionLedger.includes("Fixture history"));
+  const childRuns=await business("tasks/compaction-task/subagents",undefined);assert.equal(childRuns.status,200,JSON.stringify(childRuns));const childRun=childRuns.body.runs.find(run=>run.runId==="fixture-child");assert.ok(childRun);assert.equal(childRun.currentTool,"read");assert.ok(JSON.stringify(childRun.messages).includes("Fixture child authored 日本語"));assert.ok(JSON.stringify(childRun.messages).includes("Fixture child thinking"));assert.equal(childRun.truncated,false);
+  const childFiltered=await business("tasks/compaction-task/subagents",undefined,"?since="+(Date.now()+60000));assert.deepEqual(childFiltered.body.runs,[]);
+  assert.ok(!readFileSync(compactSessionFile,"utf8").includes("Fixture child authored"));
   const compactAborted=await business("tasks/compaction-task/compact/abort",{},"",{"x-leafcode-business-operation":compactAbortId});assert.equal(compactAborted.status,200,JSON.stringify(compactAborted));assert.equal(compactAborted.body.operation.execution,"complete");
   const cancelledCompaction=await compactCancelled;assert.equal(cancelledCompaction.status,400,JSON.stringify(cancelledCompaction));assert.equal(cancelledCompaction.body.operation.execution,"complete");
   const closeWait=Date.now()+1000;while(!compactHoldClosed&&Date.now()<closeWait)await delay(10);assert.ok(compactHoldClosed);assert.ok(!readFileSync(compactSessionFile,"utf8").includes('"type":"compaction"'));
@@ -477,6 +494,11 @@ export default function(api) {
     const replay=await fetch(`${restartedBase}/internal/json-business/tasks/individual-task/${action}`,{method,headers:{...businessHeaders,"x-leafcode-business-operation":id},body:"{}",signal:AbortSignal.timeout(3000)});assert.equal(replay.status,200);const result=await replay.json();assert.equal(result.status,409);assert.equal(result.body.operation.execution,id===assistanceCancelId?"unknown":"complete");
   }
   const assistanceRestored=JSON.parse(readFileSync(join(data,"store.json"),"utf8")).tasks.find(task=>task.id==="individual-task");assert.equal(assistanceRestored.title,"Fixture manual title 日本語");assert.equal(assistanceRestored.titleAutoUpdate,false);assert.equal(helperRequests,4);
+  for(const id of [supervisorHandoffId,supervisorReleaseId]){
+    const replay=await fetch(`${restartedBase}/internal/json-business/tasks/compaction-task/supervisor`,{method:"POST",headers:{...businessHeaders,"x-leafcode-business-operation":id},body:JSON.stringify({botId:supervisorBotId}),signal:AbortSignal.timeout(3000)});assert.equal((await replay.json()).status,409);
+  }
+  const supervisorRestored=JSON.parse(readFileSync(join(data,"store.json"),"utf8")).tasks.find(task=>task.id==="compaction-task");assert.equal(supervisorRestored.supervisorBotId,null);assert.equal(JSON.parse(readFileSync(join(outboxPath,supervisionRequests[0].id+".json"),"utf8")).state,"cancelled");
+  const childAfterRestart=await fetch(`${restartedBase}/internal/json-business/tasks/compaction-task/subagents`,{headers:businessHeaders,signal:AbortSignal.timeout(3000)});assert.ok((await childAfterRestart.json()).body.runs.some(run=>run.runId==="fixture-child"));assert.equal(readFileSync(childTranscript,"utf8").split("\n").filter(Boolean).length,3);
   const compactAfterRestart=await fetch(`${restartedBase}/internal/json-business/tasks/compaction-task`,{headers:businessHeaders,signal:AbortSignal.timeout(5000)});const restoredCompaction=(await compactAfterRestart.json()).body.task;assert.ok(JSON.stringify(restoredCompaction.messages).includes(compactSummary));assert.equal(restoredCompaction.isCompacting,false);assert.equal(compactRequests,2);
   for(const [path,id] of [["tasks/individual-task/fork",forkOperation],[`tasks/${forkTaskId}/revert`,revertOperation],[`tasks/${forkTaskId}/unrevert`,unrevertOperation],["tasks/session-promotion-task/promote",promotionOperation]]) {
     const replay=await fetch(`${restartedBase}/internal/json-business/${path}`,{method:"POST",headers:{...businessHeaders,"x-leafcode-business-operation":id},body:JSON.stringify({entryId:"ui0",destinationPath:promotionDestination}),signal:AbortSignal.timeout(5000)});assert.equal((await replay.json()).status,409);

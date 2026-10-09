@@ -11,6 +11,8 @@ import { usageTarget } from "@shared/usage-contract.mjs";
 import { dispatchUsageRequest } from "./usage";
 import { peerTarget } from "@shared/peer-contract.mjs";
 import { dispatchPeerRequest } from "./peer";
+import { taskSupervisionTarget } from "@shared/task-supervision-contract.mjs";
+import { dispatchTaskSupervisionRequest } from "./task-supervision";
 import { taskAssistanceTarget, taskAssistanceCancelsOnDisconnect } from "@shared/task-assistance-contract.mjs";
 import { dispatchTaskAssistanceRequest } from "./task-assistance";
 import { taskCompactionTarget } from "@shared/task-compaction-contract.mjs";
@@ -65,6 +67,8 @@ export async function dispatchJsonBusinessRequest(input: JsonBusinessInput): Pro
   const request = configurationRequest(new Request(input.url, { method: input.method, headers: input.headers,
     signal, ...(input.body?.byteLength ? { body: new Uint8Array(input.body).slice().buffer } : {}) }), input.authorized);
   if (input.method !== "GET" && isCrossOriginRequest(request)) return { status: 403, headers: {}, body: { error: "Cross-origin request refused" } };
+  const supervision = taskSupervisionTarget(input.route);
+  if (supervision) return dispatchTaskSupervisionRequest(input, request, supervision);
   const assistance = taskAssistanceTarget(input.route);
   if (assistance) return dispatchTaskAssistanceRequest(input, request, assistance);
   const compaction = taskCompactionTarget(input.route);

@@ -2,9 +2,10 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { NextRequest } from "next/server";
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import type { SubagentRunDto } from "@/lib/types";
-import { GET } from "./route";
+import { GET } from "@backend-runtime/json-business/handlers/tasks/[id]/subagents/route";
+afterEach(() => vi.unstubAllEnvs());
 
 const originalDataDir = process.env.LEAFCODE_PI_DATA_DIR;
 let root: string;
@@ -58,6 +59,8 @@ beforeAll(() => {
 });
 
 beforeEach(() => {
+  vi.stubEnv("LEAFCODE_PI_PROCESS_ROLE", "backend");
+  vi.stubEnv("LEAFCODE_PI_BACKEND_RUNTIME", "attach");
   process.env.LEAFCODE_PI_DATA_DIR = path.join(root, "data");
 });
 

@@ -24,6 +24,8 @@ import { POST as selectTaskAgent } from "../app/api/tasks/[id]/agent/route";
 import { PUT as selectGoalAuto } from "../app/api/tasks/[id]/goal-loop-auto-model/route";
 import { GET as readTaskGoal, POST as startTaskGoal, PATCH as controlTaskGoal } from "../app/api/tasks/[id]/goal-loop/route";
 import { GET as activeTaskGoals } from "../app/api/goal-loop/active/route";
+import { POST as superviseTask } from "../app/api/tasks/[id]/supervisor/route";
+import { GET as childRuns } from "../app/api/tasks/[id]/subagents/route";
 import { POST as askProgress } from "../app/api/tasks/[id]/progress/route";
 import { POST as suggestNextAction } from "../app/api/tasks/[id]/next-action/route";
 import { POST as generateTitle, PATCH as editTitle } from "../app/api/tasks/[id]/title/route";
@@ -52,6 +54,28 @@ beforeEach(() => {
 });
 afterEach(() => { vi.restoreAllMocks(); vi.unstubAllGlobals(); vi.unstubAllEnvs(); rmSync(root, { recursive: true, force: true }); });
 describe("JSON business ingress", () => {
+  it("supervisor relays opaque handoff/release bytes, encodes legacy IDs and verifies its ACK",async()=>{
+    const context={params:Promise.resolve({id:"bot:fixture"})},task={id:"bot:fixture",status:"working",supervisorBotId:"one",token:"PRIVATE"};
+    for(const body of ['{"botId":"one","fromBot":true}','{"botId":null,"action":"abort"}']){
+      fetcher.mockImplementationOnce(async(_url,init)=>Response.json({status:200,body:{task,operation:{id:new Headers(init.headers).get("x-leafcode-business-operation"),execution:"complete"}}}));
+      const response=await superviseTask(new NextRequest("http://localhost/api/tasks/t/supervisor",{method:"POST",body}),context);expect(response.status).toBe(200);expect(JSON.stringify(await response.json())).not.toContain("PRIVATE");expect(fetcher.mock.calls.at(-1)![0]).toContain("/tasks/bot%3Afixture/supervisor");expect(new TextDecoder().decode(fetcher.mock.calls.at(-1)![1].body)).toBe(body);
+    }
+    for(const operation of [undefined,{id:"aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee",execution:"complete"}]){fetcher.mockResolvedValueOnce(Response.json({status:200,body:{task,operation}}));const result=await superviseTask(new NextRequest("http://localhost/api/tasks/t/supervisor",{method:"POST",body:"{}"}),context);expect(result.status).toBe(503);expect((await result.json()).execution).toBe("unknown");}
+    expect(readdirSync(root)).toEqual([]);
+  });
+  it("subagents GET forwards since unparsed without operation ID and projects only deep run UI",async()=>{
+    const context={params:Promise.resolve({id:"t"})},run={runId:"r",agent:"coder",status:"running",startedAtMs:1,lastActivityAtMs:2,currentTool:null,truncated:false,messages:[{id:"u",role:"user",createdAt:1,parts:[{id:"p",type:"text",text:"authored",token:"PRIVATE"}]}],token:"PRIVATE"};
+    fetcher.mockResolvedValueOnce(Response.json({status:200,body:{runs:[run],token:"PRIVATE"},headers:{"set-cookie":"PRIVATE"}}));
+    const response=await childRuns(new NextRequest("http://localhost/api/tasks/t/subagents?since=not-a-number&cwd=FORGED"),context);expect(response.status).toBe(200);expect(JSON.stringify(await response.json())).not.toContain("PRIVATE");expect(fetcher.mock.calls[0][0]).toContain("?since=not-a-number&cwd=FORGED");expect(new Headers(fetcher.mock.calls[0][1].headers).has("x-leafcode-business-operation")).toBe(false);
+    fetcher.mockResolvedValueOnce(Response.json({status:200,body:{runs:[{}]}}));expect((await childRuns(new NextRequest("http://localhost/api/tasks/t/subagents"),context)).status).toBe(503);expect(readdirSync(root)).toEqual([]);
+  });
+  it("supervision auth/Origin/4KiB checks happen before forwarding and reads never fake backend failure as empty",async()=>{
+    const context={params:Promise.resolve({id:"t"})};
+    expect((await superviseTask(new NextRequest("http://localhost/api/tasks/t/supervisor",{method:"POST",body:"x".repeat(4097)}),context)).status).toBe(413);
+    expect((await superviseTask(new NextRequest("http://localhost/api/tasks/t/supervisor",{method:"POST",body:"{}",headers:{origin:"https://evil.test"}}),context)).status).toBe(403);
+    vi.stubEnv("LEAFCODE_PI_WEBUI_AUTH","required");expect((await childRuns(new NextRequest("http://localhost/api/tasks/t/subagents"),context)).status).toBe(401);expect(fetcher).not.toHaveBeenCalled();
+    vi.stubEnv("LEAFCODE_PI_WEBUI_AUTH","");fetcher.mockRejectedValueOnce(new Error("offline"));const result=await childRuns(new NextRequest("http://localhost/api/tasks/t/subagents"),context);expect(result.status).toBe(503);expect(await result.json()).not.toHaveProperty("runs");
+  });
   it("all five assistance handlers relay opaque bodies and require matching ACK with deep DTO scrubbing",async()=>{
     const context={params:Promise.resolve({id:"bot:fixture"})},task={id:"bot:fixture",status:"idle",title:"日本語",token:"PRIVATE"},model={providerID:"p",modelID:"m",token:"PRIVATE"};
     for(const [action,handler,method] of [["progress",askProgress,"POST"],["next-action",suggestNextAction,"POST"],["title",generateTitle,"POST"],["title",editTitle,"PATCH"],["permission/advice",permissionAdvice,"POST"]] as const){

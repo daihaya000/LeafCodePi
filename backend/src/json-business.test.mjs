@@ -24,6 +24,19 @@ test("business transport enforces auth, protocol, readiness, method, context and
   assert.equal((await request(`${unavailable.base}/git/init`, { method: "POST", headers: unavailable.headers })).status, 503);
   assert.equal(calls, 0);
 });
+test("supervision transport scopes commands versus child reads and rejects malformed success",async t=>{
+ let calls=0;const f=await fixture(t,{jsonBusinessRequestAction:async input=>{
+  calls++;
+  if(input.method==="GET"){assert.ok(input.signal);assert.equal(input.operationId,undefined);assert.ok(input.url.includes("since=bad"));return {status:200,headers:{},body:{runs:[]}};}
+  assert.equal(input.signal,undefined);assert.ok(input.operationId);return {status:200,headers:{},body:{task:{id:"t",status:"working",supervisorBotId:"one",token:"PRIVATE"},operation:{id:input.operationId,execution:"complete"}}};
+ }});
+ const headers={...f.headers,"x-leafcode-business-operation":"aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"};
+ assert.equal((await request(`${f.base}/tasks/t/supervisor`,{method:"POST",headers,body:"x".repeat(4097)})).status,413);
+ assert.equal((await request(`${f.base}/tasks/t/supervisor`,{method:"POST",headers:f.headers,body:"{}"})).status,400);assert.equal(calls,0);
+ const write=await request(`${f.base}/tasks/t/supervisor`,{method:"POST",headers,body:'{"botId":null}'});assert.equal(write.status,200);assert.ok(!JSON.stringify(await write.json()).includes("PRIVATE"));
+ const read=await request(`${f.base}/tasks/t/subagents?since=bad`,{headers:f.headers});assert.equal(read.status,200);assert.deepEqual((await read.json()).body,{runs:[]});assert.equal(calls,2);
+ const malformed=await fixture(t,{jsonBusinessRequestAction:async()=>({status:200,body:{runs:[{}]}})});assert.equal((await request(`${malformed.base}/tasks/t/subagents`,{headers:malformed.headers})).status,503);
+});
 test("session transport enforces 4KiB, authorized context and operation IDs for all four routes",async t=>{
  const previous=process.env.LEAFCODE_PI_WEBUI_AUTH;process.env.LEAFCODE_PI_WEBUI_AUTH="required";
  t.after(()=>{if(previous===undefined)delete process.env.LEAFCODE_PI_WEBUI_AUTH;else process.env.LEAFCODE_PI_WEBUI_AUTH=previous;});

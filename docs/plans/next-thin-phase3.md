@@ -2,9 +2,9 @@
 
 ## 進捗・範囲
 
-Phase3全体は未完了。Phase0のBackend/Phase3/JSON分類は118経路・182操作。Git・Diff・コミット文生成13経路・14操作、定義管理14経路・25操作、Provider/モデル設定7経路・8操作、Provider認証JSON4経路・5操作、アカウント管理/資格情報9経路・19操作、利用量/クレジット3経路・5操作、Peer認証共有5経路・9操作、Workspaceファイル/次タスク提案3経路・3操作、Project lifecycle1経路・4操作、Task collection1経路・3操作、個別Task lifecycle2経路・4操作、Task履歴/検索/bookmark3経路・5操作、Task実行設定4経路・4操作、Task送信/対話応答3経路・3操作、Goal制御2経路・4操作、Task会話編集/昇格4経路・4操作、Task compaction2経路・2操作、Task進行補助4経路・5操作の合計84経路・126操作の境界を移管した。認証に付随するログインSSE 1経路・1操作も同じownerへ移管した（Phase3 JSONの集計には加算しない）。残る34経路・56操作には既存Backend中継も含まれ、受入条件の確認・残存業務処理の移管が必要。
+Phase3全体は未完了。Phase0のBackend/Phase3/JSON分類は118経路・182操作。Git・Diff・コミット文生成13経路・14操作、定義管理14経路・25操作、Provider/モデル設定7経路・8操作、Provider認証JSON4経路・5操作、アカウント管理/資格情報9経路・19操作、利用量/クレジット3経路・5操作、Peer認証共有5経路・9操作、Workspaceファイル/次タスク提案3経路・3操作、Project lifecycle1経路・4操作、Task collection1経路・3操作、個別Task lifecycle2経路・4操作、Task履歴/検索/bookmark3経路・5操作、Task実行設定4経路・4操作、Task送信/対話応答3経路・3操作、Goal制御2経路・4操作、Task会話編集/昇格4経路・4操作、Task compaction2経路・2操作、Task進行補助4経路・5操作、Task監督/子実行2経路・2操作の合計86経路・128操作の境界を移管した。認証に付随するログインSSE 1経路・1操作も同じownerへ移管した（Phase3 JSONの集計には加算しない）。残る32経路・54操作には既存Backend中継も含まれ、受入条件の確認・残存業務処理の移管が必要。
 
-以下は第1区切り（Git・Diff・コミット文生成）の記録。第2区切りの定義管理、第3区切りのProvider/モデル設定、第4区切りのProvider認証、第5区切りのアカウント管理/資格情報、第6区切りの利用量/クレジット、第7区切りのPeer認証共有、第8区切りのWorkspaceファイル/次タスク提案、第9区切りのProject lifecycle、第10区切りのTask collection、第11区切りの個別Task lifecycle、第12区切りのTask履歴/検索/bookmark、第13区切りのTask実行設定、第14区切りのTask送信/対話応答、第15区切りのGoal制御、第16区切りのTask会話編集/昇格、第17区切りのTask compaction、第18区切りのTask進行補助は末尾に記載する。
+以下は第1区切り（Git・Diff・コミット文生成）の記録。第2区切りの定義管理、第3区切りのProvider/モデル設定、第4区切りのProvider認証、第5区切りのアカウント管理/資格情報、第6区切りの利用量/クレジット、第7区切りのPeer認証共有、第8区切りのWorkspaceファイル/次タスク提案、第9区切りのProject lifecycle、第10区切りのTask collection、第11区切りの個別Task lifecycle、第12区切りのTask履歴/検索/bookmark、第13区切りのTask実行設定、第14区切りのTask送信/対話応答、第15区切りのGoal制御、第16区切りのTask会話編集/昇格、第17区切りのTask compaction、第18区切りのTask進行補助、第19区切りのTask監督/子実行は末尾に記載する。
 
 | 経路 | 操作 |
 | --- | --- |
@@ -312,4 +312,17 @@ Phase3全体は未完了。Phase0のBackend/Phase3/JSON分類は118経路・182�
 - owner/4 handler/実BFF 74件、direct-title/generation/text/session/進捗digest/ownership111件、Core/契約/HTTP/AST/bundle121件、独立fixture1件の対象307件が成功。既存handlerの業務テストはBackend handlerへ向け替え、Nextは実BFFとASTで検証した。全体スイートは今回再実行していない。
 - Backend/Web typecheck、強制Backendビルド7,145 KiB成功。Webなし隔離実Backend/SDKと専用ローカルSSE responderで、進捗/次の一手/タイトルの固定日本語生成、label-only、expired permission404、実HTTP切断からprovider socket閉鎖、手動タイトルsanitize/auto-update opt-out保存、会話ファイル非変更、ledgerへの入力/出力非記録、実再起動後のタイトル復元と全操作replay拒否を確認（11.8秒）。取消はunknown、他の完了要求はcompleteを検証する。固定textのみのfixtureで、有料/外部生成・tool実行・稼働ユーザーTask/設定/資格情報/サービスへの操作は行わない。
 - 原因: 新規owner testのfixtureを`never`とした型指定によりobject spreadがWeb typecheckで拒否された。Task record型へ修正し、型チェックと対象74件を再実行した。レビュー後に実fixtureの取消receiptがunknownであることも明示検証した。
-- 並行差分7ファイルと既存SDK routing timeout/selected-leaf永続化制約は保持し、今回解消したとは扱わない。Phase3全体は未完了で、Task supervisor/subagents・Bot業務等34経路・56操作が残る。
+- 並行差分7ファイルと既存SDK routing timeout/selected-leaf永続化制約は保持し、今回解消したとは扱わない。第18区切り時点ではPhase3全体は未完了で、Task supervisor/subagents・Bot業務等34経路・56操作が残る。
+
+## 第19区切り: Task監督/子実行（2経路・2操作）
+
+- `tasks/[id]/supervisor` POSTと`tasks/[id]/subagents` GETをBackendへ移管。Nextは単一relay return/params encodeのみ。委譲/解除の判断・Bot選択/権限・Code起点/既存監督/busy状態・outbox/通知・登録済み親セッションの子artifact検索/since判定はownerが担当する。
+- 専用`lib/task-supervision.ts`と全handler/dispatcher、Backend runtime entryの委譲/解除exportにowner guardを設け、NextをSDK/relay/outbox/metadata/FS/cacheより前に拒否する。入力`botId:null`は解除、非空の安全な128文字以内IDはtrim後に委譲する。callerの内部権限/action/command等は使わず、既存SDKがenabled/deny/Code起点/別Bot監督/実行中条件を検証する。解除は監督outboxをcancelし、Code本体の生成・圧縮を止めない。
+- POSTは4 KiB上限と専用`task-supervision-command.json`のconcurrent admission。通知待機中も解除/Stop/回答を一括queueしない。128件・実行前unknown・ACK照合・disconnect非取消/replay拒否を保持する。不正な成功TaskSummaryは503/unknown。completeは要求処理終了であり、Botへの通知/結果配送完了やリンク/outboxの原子的保存・rollback・無期限exactly-onceを保証しない。
+- GETはledger/SDK hydrationなし。Taskの登録済みsessionFile/directoryだけで検索し、クライアントのpath指定を無視する。既存1,000,000 byte tail・最大8 run・128-entry cache・temp artifactのparentSessionKey照合・since数値判定・running/completed/error/stale判定を維持する。深いUiMessage/思考/ツール状態/任意のユーザーtool inputは保持し、任意SDK/資格情報/ヘッダーを除去する。不正なrun/応答やBackend不通を偽の空配列で隠さない。
+
+### 第19区切りの検証結果
+
+- owner/2 handler/実BFF50件、Bot relay/並行outbox/子transcript/UI polling/ownership127件、Core/契約/HTTP/AST/bundle175件、独立fixture1件の対象353件が成功。全体スイートは今回再実行していない。Backend/Web typecheck、強制Backendビルド7,152 KiBも成功。
+- Webなし隔離実Backend/SDKで、実compaction provider待機中のuser Codeをfixture Botへ委譲→1件のdurable supervision outbox/リンク→解除→outbox cancel/リンク解除と圧縮継続を確認。実再起動後の解除状態/outbox/replay拒否、fixture child transcriptの思考/会話/current tool・since除外・再起動後の一覧復元・親会話非変更も確認（11.8秒）。Bot通知は到達不能localhostモデルのみ、圧縮/進行補助は既存固定text responderのみ。有料/外部生成・子エージェント起動/tool実行・稼働ユーザーTask/Bot/設定/資格情報/サービスへの操作は行わない。
+- 並行差分7ファイルと既存SDK routing timeout/selected-leaf永続化制約は保持し、今回解消したとは扱わない。Phase3全体は未完了で、Bot lifecycle/会話/Code/routine/Room業務等32経路・54操作が残る。

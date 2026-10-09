@@ -9,6 +9,7 @@ import { PROJECT_ROUTES, PROJECT_BODY_LIMIT, projectTarget, publicProjectBody } 
 import { TASK_COLLECTION_ROUTES, TASK_COLLECTION_BODY_LIMIT, taskCollectionTarget, publicTaskCollectionBody } from "./task-collection-contract.mjs";
 import { TASK_LIFECYCLE_ROUTES, TASK_LIFECYCLE_BODY_LIMIT, taskLifecycleTarget, publicTaskLifecycleBody } from "./task-lifecycle-contract.mjs";
 import { TASK_HISTORY_ROUTES, TASK_HISTORY_BODY_LIMIT, taskHistoryTarget, publicTaskHistoryBody } from "./task-history-contract.mjs";
+import { TASK_SUPERVISION_ROUTES, TASK_SUPERVISION_BODY_LIMIT, taskSupervisionTarget, publicTaskSupervisionBody } from "./task-supervision-contract.mjs";
 import { TASK_ASSISTANCE_ROUTES, taskAssistanceTarget, taskAssistanceBodyLimit, publicTaskAssistanceBody } from "./task-assistance-contract.mjs";
 import { TASK_COMPACTION_ROUTES, taskCompactionTarget, taskCompactionBodyLimit, taskCompactionTimeout, publicTaskCompactionBody } from "./task-compaction-contract.mjs";
 import { TASK_SESSION_ROUTES, TASK_SESSION_BODY_LIMIT, taskSessionTarget, publicTaskSessionBody } from "./task-session-contract.mjs";
@@ -23,15 +24,15 @@ export const JSON_BUSINESS_ROUTES = Object.freeze({
   "git/init": ["POST"], "git/log": ["GET"], "git/merge": ["POST"],
   "git/pr": ["GET", "POST"], "git/pull": ["POST"], "git/push": ["POST"],
   "git/repositories": ["GET"], "git/rm": ["POST"], "git/show": ["GET"], "diff/files": ["GET"],
-  ...DEFINITION_ROUTES, ...PROVIDER_ROUTES, ...PROVIDER_AUTH_ROUTES, ...ACCOUNT_ROUTES, ...USAGE_ROUTES, ...PEER_ROUTES, ...WORKSPACE_ROUTES, ...PROJECT_ROUTES, ...TASK_COLLECTION_ROUTES, ...TASK_LIFECYCLE_ROUTES, ...TASK_HISTORY_ROUTES, ...TASK_EXECUTION_SETTINGS_ROUTES, ...TASK_CONVERSATION_ROUTES, ...TASK_GOAL_LOOP_ROUTES, ...TASK_SESSION_ROUTES, ...TASK_COMPACTION_ROUTES, ...TASK_ASSISTANCE_ROUTES,
+  ...DEFINITION_ROUTES, ...PROVIDER_ROUTES, ...PROVIDER_AUTH_ROUTES, ...ACCOUNT_ROUTES, ...USAGE_ROUTES, ...PEER_ROUTES, ...WORKSPACE_ROUTES, ...PROJECT_ROUTES, ...TASK_COLLECTION_ROUTES, ...TASK_LIFECYCLE_ROUTES, ...TASK_HISTORY_ROUTES, ...TASK_EXECUTION_SETTINGS_ROUTES, ...TASK_CONVERSATION_ROUTES, ...TASK_GOAL_LOOP_ROUTES, ...TASK_SESSION_ROUTES, ...TASK_COMPACTION_ROUTES, ...TASK_ASSISTANCE_ROUTES, ...TASK_SUPERVISION_ROUTES,
 });
 export const JSON_BUSINESS_BODY_LIMIT = 1024 * 1024;
 export function jsonBusinessTarget(path) {
   if (Object.hasOwn(JSON_BUSINESS_ROUTES, path) && !path.includes("[")) return { route: path, params: {} };
-  return definitionTarget(path) ?? providerTarget(path) ?? providerAuthTarget(path) ?? accountTarget(path) ?? usageTarget(path) ?? peerTarget(path) ?? workspaceTarget(path) ?? projectTarget(path) ?? taskCollectionTarget(path) ?? taskLifecycleTarget(path) ?? taskHistoryTarget(path) ?? taskExecutionSettingsTarget(path) ?? taskConversationTarget(path) ?? taskGoalLoopTarget(path) ?? taskSessionTarget(path) ?? taskCompactionTarget(path) ?? taskAssistanceTarget(path);
+  return definitionTarget(path) ?? providerTarget(path) ?? providerAuthTarget(path) ?? accountTarget(path) ?? usageTarget(path) ?? peerTarget(path) ?? workspaceTarget(path) ?? projectTarget(path) ?? taskCollectionTarget(path) ?? taskLifecycleTarget(path) ?? taskHistoryTarget(path) ?? taskExecutionSettingsTarget(path) ?? taskConversationTarget(path) ?? taskGoalLoopTarget(path) ?? taskSessionTarget(path) ?? taskCompactionTarget(path) ?? taskAssistanceTarget(path) ?? taskSupervisionTarget(path);
 }
-export function jsonBusinessBodyLimit(path, method) { if (taskAssistanceTarget(path)) return taskAssistanceBodyLimit(path); if (taskCompactionTarget(path)) return taskCompactionBodyLimit(path); if (taskSessionTarget(path)) return TASK_SESSION_BODY_LIMIT; if (taskGoalLoopTarget(path)) return taskGoalLoopBodyLimit(path, method); if (taskConversationTarget(path)) return taskConversationBodyLimit(path); if (taskExecutionSettingsTarget(path)) return TASK_EXECUTION_SETTINGS_BODY_LIMIT; if (taskHistoryTarget(path)) return TASK_HISTORY_BODY_LIMIT; if (taskLifecycleTarget(path)) return TASK_LIFECYCLE_BODY_LIMIT; if (taskCollectionTarget(path)) return TASK_COLLECTION_BODY_LIMIT; if (projectTarget(path)) return PROJECT_BODY_LIMIT; if (workspaceTarget(path)) return WORKSPACE_BODY_LIMIT; if (peerFacing(path)) return 4096; const target = definitionTarget(path); return target ? definitionBodyLimit(target.route) : JSON_BUSINESS_BODY_LIMIT; }
-export function jsonBusinessCommand(path, method) { return method !== "GET" && Boolean(definitionTarget(path) || providerTarget(path) || providerAuthTarget(path) || accountTarget(path) || usageTarget(path) || peerCommand(path, method) || projectTarget(path) || taskCollectionTarget(path) || taskLifecycleTarget(path) || taskHistoryTarget(path) || taskExecutionSettingsTarget(path) || taskConversationTarget(path) || taskGoalLoopTarget(path) || taskSessionTarget(path) || taskCompactionTarget(path) || taskAssistanceTarget(path)); }
+export function jsonBusinessBodyLimit(path, method) { if (taskSupervisionTarget(path)) return TASK_SUPERVISION_BODY_LIMIT; if (taskAssistanceTarget(path)) return taskAssistanceBodyLimit(path); if (taskCompactionTarget(path)) return taskCompactionBodyLimit(path); if (taskSessionTarget(path)) return TASK_SESSION_BODY_LIMIT; if (taskGoalLoopTarget(path)) return taskGoalLoopBodyLimit(path, method); if (taskConversationTarget(path)) return taskConversationBodyLimit(path); if (taskExecutionSettingsTarget(path)) return TASK_EXECUTION_SETTINGS_BODY_LIMIT; if (taskHistoryTarget(path)) return TASK_HISTORY_BODY_LIMIT; if (taskLifecycleTarget(path)) return TASK_LIFECYCLE_BODY_LIMIT; if (taskCollectionTarget(path)) return TASK_COLLECTION_BODY_LIMIT; if (projectTarget(path)) return PROJECT_BODY_LIMIT; if (workspaceTarget(path)) return WORKSPACE_BODY_LIMIT; if (peerFacing(path)) return 4096; const target = definitionTarget(path); return target ? definitionBodyLimit(target.route) : JSON_BUSINESS_BODY_LIMIT; }
+export function jsonBusinessCommand(path, method) { return method !== "GET" && Boolean(definitionTarget(path) || providerTarget(path) || providerAuthTarget(path) || accountTarget(path) || usageTarget(path) || peerCommand(path, method) || projectTarget(path) || taskCollectionTarget(path) || taskLifecycleTarget(path) || taskHistoryTarget(path) || taskExecutionSettingsTarget(path) || taskConversationTarget(path) || taskGoalLoopTarget(path) || taskSessionTarget(path) || taskCompactionTarget(path) || taskAssistanceTarget(path) || taskSupervisionTarget(path)); }
 export const JSON_BUSINESS_RESPONSE_LIMIT = 32 * 1024 * 1024;
 export function jsonBusinessTimeout(route) { if (taskCompactionTarget(route)) return taskCompactionTimeout(route); return route === "git/pr" ? 200_000 : 180_000; }
 export function jsonBusinessMutates(route, method) { return method !== "GET" && route !== "git/commit-message" && !peerFacing(route) && !workspaceTarget(route); }
@@ -61,6 +62,10 @@ export function publicJsonBusinessResult(route, value, method) {
   if (Object.hasOwn(TASK_EXECUTION_SETTINGS_ROUTES, route)) {
     const body = publicTaskExecutionSettingsBody(route,value.body,value.status);
     return body ? {status:value.status,headers,body} : null;
+  }
+  if (Object.hasOwn(TASK_SUPERVISION_ROUTES, route)) {
+    const body = publicTaskSupervisionBody(route, value.body, value.status);
+    return body ? { status: value.status, headers, body } : null;
   }
   if (Object.hasOwn(TASK_ASSISTANCE_ROUTES, route)) {
     const body = publicTaskAssistanceBody(route, value.body, value.status, method);
