@@ -239,6 +239,7 @@ import {
 } from "@/lib/pi/hang-watchdog";
 import { blocksAutoCompactionAfterManualAbort } from "@/lib/aborted-resume";
 import { HANG_RETRY_PREFIX } from "@/lib/hang-retry";
+import { overrideSessionAutoRetry } from "@backend-core/session-retry-settings.mjs";
 import {
   createPermissionPromptService,
   taskIdForSession,
@@ -2511,11 +2512,7 @@ function trackProviderLimit(
     modelID: ids.modelID ?? "",
     message: limitMessage,
   };
-  if (
-    session.autoRetryEnabled &&
-    typeof session.setAutoRetryEnabled === "function"
-  ) {
-    session.setAutoRetryEnabled(false);
+  if (session.autoRetryEnabled && overrideSessionAutoRetry(session, false)) {
     live.restoreAutoRetry = true;
   }
 }
@@ -2564,7 +2561,7 @@ function finishSettledTurn(
   taskId: string,
 ): void {
   if (live.restoreAutoRetry) {
-    session.setAutoRetryEnabled(true);
+    overrideSessionAutoRetry(session, true);
     live.restoreAutoRetry = false;
   }
   if (live.pendingTransportRecovery) {
