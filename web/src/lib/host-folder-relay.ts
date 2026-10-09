@@ -1,5 +1,5 @@
 import { HOST_FOLDER_PATH, HOST_FOLDER_HEADER, HOST_FOLDER_BODY_LIMIT, publicHostFolderBody } from "@shared/host-folder-contract.mjs";
-import { resolveHostControlUrl } from "@/lib/host-control";
+import { resolveHostControlUrl } from "@/lib/host-http-client";
 import { isCrossOriginRequest } from "@/lib/same-origin";
 import { isWebUiRequestAuthorized, webUiAuthRequired } from "@/lib/webui-auth";
 const fail=(status:number,error:string,execution?:string)=>Response.json({error,...(execution?{execution}:{})},{status,headers:{"cache-control":"no-store, private"}});

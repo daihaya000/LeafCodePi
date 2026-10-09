@@ -6,7 +6,7 @@ const hostControl = vi.hoisted(() => ({
   resolveHostControlUrl: vi.fn(() => "http://127.0.0.1:18775"),
 }));
 
-vi.mock("@/lib/host-control", () => hostControl);
+vi.mock("@/lib/host-http-client", () => hostControl);
 
 import { GET, POST } from "./route";
 

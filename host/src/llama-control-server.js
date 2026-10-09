@@ -4,6 +4,7 @@
  */
 import http from "node:http";
 import { HOST_FOLDER_PATH, HOST_FOLDER_HEADER, HOST_FOLDER_BODY_LIMIT, publicHostFolderBody } from "../../shared/host-folder-contract.mjs";
+import { HOST_BUILD_INFO_PATH, HOST_BUILD_INFO_HEADER, HOST_BUILD_OPERATION_HEADER, HOST_BUILD_INFO_BODY_LIMIT, publicHostBuildInfo } from "../../shared/host-build-info-contract.mjs";
 
 const JSON_HEADERS = { "content-type": "application/json; charset=utf-8" };
 const LOCAL_CLIENT_REQUEST_HEADER = "x-leafcode-pi-local-client";
@@ -37,11 +38,11 @@ function localClientCorsHeaders(req, handlers) {
 }
 
 // Drain a byte-bounded opaque body without async-iterator destruction on 413.
-async function admitFolderBody(req) {
+async function admitFolderBody(req, limit = HOST_FOLDER_BODY_LIMIT) {
  return new Promise(resolve=>{
   let bytes=0,settled=false;
   const done=value=>{if(settled)return;settled=true;req.off("data",data);req.off("end",end);req.off("error",error);req.off("aborted",error);req.once("error",()=>{});resolve(value);};
-  const data=chunk=>{bytes+=chunk.length;if(bytes>HOST_FOLDER_BODY_LIMIT){done(false);req.resume();}};
+  const data=chunk=>{bytes+=chunk.length;if(bytes>limit){done(false);req.resume();}};
   const end=()=>done(true),error=()=>done(false);
   req.on("data",data);req.once("end",end);req.once("error",error);req.once("aborted",error);
  });
@@ -89,6 +90,8 @@ async function readJsonBody(req, maxBytes = 16_384) {
 /**
  * @param {{
  *   controlPort: number,
+ *   onBuildInfoRead?: () => Promise<object> | object,
+ *   onBuildInfoUpdate?: (operationId: string) => Promise<object> | object,
  *   onLlamaServerStatus: () => Promise<object> | object,
  *   onLlamaServerStart: (config: object) => Promise<{ ok: boolean }>,
  *   onLlamaServerStop: () => Promise<unknown> | unknown,
@@ -152,6 +155,26 @@ export function createLlamaControlServer(handlers) {
       }
       if (pathname.length > 1 && pathname.endsWith("/")) {
         pathname = pathname.slice(0, -1);
+      }
+
+      if (pathname === HOST_BUILD_INFO_PATH) {
+        const headers = { ...JSON_HEADERS, "cache-control": "no-store, private", "x-content-type-options": "nosniff" };
+        const send = (status, body) => { if (!res.destroyed) { res.writeHead(status, headers); res.end(JSON.stringify(body)); } };
+        if (origin || req.headers[HOST_BUILD_INFO_HEADER] !== "1") { send(403, { error: "Private Host ingress is required" }); return; }
+        if (!["GET", "POST"].includes(method)) { send(405, { error: "Method not allowed" }); return; }
+        const operationId = req.headers[HOST_BUILD_OPERATION_HEADER];
+        if (method === "POST" && (typeof operationId !== "string" || !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(operationId))) { send(400, { error: "Invalid operation ID" }); return; }
+        if (method === "POST" && !await admitFolderBody(req, HOST_BUILD_INFO_BODY_LIMIT)) { send(413, { error: "Request body is too large" }); return; }
+        const handler = method === "GET" ? handlers.onBuildInfoRead : handlers.onBuildInfoUpdate;
+        if (typeof handler !== "function") { send(501, { error: "Host build-info unavailable" }); return; }
+        try {
+          const result = await handler(operationId);
+          if (!Number.isInteger(result?.status) || result.status < 200 || result.status > 599) throw new Error();
+          const body = publicHostBuildInfo(result.body, result.status);
+          if (!body) throw new Error();
+          send(result.status, body);
+        } catch { send(503, { error: "Host build-info failed" }); }
+        return;
       }
 
       if (pathname === HOST_FOLDER_PATH) {

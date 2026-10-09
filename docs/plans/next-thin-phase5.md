@@ -37,6 +37,17 @@ Nextは画面・ブラウザ認証・入口制限・HTTP中継だけを担当す
 - 実Next production fixtureは15 unchanged API routes/80 source modulesをbuildし、約125秒SSE、256MiB cold branch、512MiB files、Range/HEAD、cancel、再接続・再起動を1/1成功。最大増分bytesはBackend RSS/heap/external `87,322,624 / 36,614,400 / 68,434,278`、Next `96,055,296 / 18,737,256 / 66,890,648`。steady heap増分はBackend `868,440`、Next `83,000`。従来のRSS128MiB/heap48MiB/external96MiB/steady heap8MiB以内、forced GCなし。活動reader/subscription/FD残留なし（bounded cold index cacheは仕様内）。
 - このproductionストリームfixtureは `sdkLoaded:false`。SDK生成中のWeb停止/再起動継続・非再実行の最終受入ではない。全Web suite、全画面構成、実provider/engine、無期限稼働の保証も行わない。Phase5全体は未完了。
 
+## 第3区切り: HostのGit情報・更新ownerと共通Host中継
+
+- Phase0の最終ownerどおり、`/api/build-info` のGit参照・fast-forward更新をHost control serverのprivate `/build-info` へ移管。Nextは認証・Origin・byte/deadline制限・receipt検証・HTTP中継のみ。Backend停止時もHostの情報・更新経路を使い、旧Hostには501を返す。NextのGit実行fallback・自動再送・稼働サービスの再起動はない。
+- Hostは固定repo・固定Git引数、shellなし・credential promptなしで実行し、stderrを公開しない。POSTはHostのdurable command receiptを更新前に保存。切断・Host owner再生成・同じIDの再要求で受付済pullを繰り返さず、同時更新を拒否する。成功pull後の情報再読取失敗・結果不明はunknownを保持する。
+- Host control入口はloopback Host・Origin拒否・private marker・method・UUID・body limitを副作用前に検査。metadata/operationの公開projectionで能力情報・任意headersを転送しない。
+- Host URL/pathの共通実装を `shared/host-http-client.ts` に分離。Next側はHost discovery metadataのreadFileSyncだけを保持し、Backendのsettings/read/write/path helpersを取り込まない。Cookie/BearerをHostへ転送しない。env/host-control.json/defaultの発見順、loopback制限、testのTemp限定を保持し、credential入りURLも拒否する。
+- 共通Hostの8 API入口、folder relay、build-infoを禁止import gateへ追加し、18 roots/82 modulesを監視。health/llamaと画面はまだ旧owner依存が残るため、全本番gate/Phase5全体の完了とはしない。
+- 隔離基準d2d752ddと自分の33 pathsのみでWeb213 files/1555 tests、native89 tests、ownership9 tests成功。Backend forced build/runtime型とWeb source-only型も成功。全WebUI/full core suiteの保証ではない。
+- 実Next productionの11 source filesのみをビルドし、Backendなし・Cookie認証・Origin拒否・Web停止中のHost受付済更新継続・Web再起動後metadata再読取・同じIDの409/一回だけのpullを11.3秒で確認。Gitは有限fake、receiptはTempの実ファイル、実資格情報・実Git pull・稼働サービス変更はなし。これは実SDK生成中のBackend継続受入ではない。
+- 初回Webの2失敗は、credential入りHost URLを新discovery helperが既定Hostへfallbackしていたため。credential/path/query/hashの指定はgeneric errorでfail-closedとし、別Hostへ業務を実行しない。既存2 owner回帰と新discoveryテストを含む213 filesを再検証した。初回fixture cleanupの終了済signal child待機も修正し、実Next停止・再起動試験を再完走した。レビューでUUIDのcanonical形と空日時の拒否も確認した。
+
 ## 残る作業
 
 - 画面で使うclient-safe helper/型と、Backend業務実装への互換re-exportを分離。実行グラフに残るBackend/SDK依存を特定して撤去し、旧helperの直接呼出しも整理する。

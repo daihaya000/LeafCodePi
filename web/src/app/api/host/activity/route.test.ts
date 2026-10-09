@@ -1,6 +1,6 @@
 import { afterEach, expect, it, vi } from "vitest";
 import { POST } from "./route";
-vi.mock("@/lib/host-control", () => ({ resolveHostControlUrl: () => "http://127.0.0.1:18775" }));
+vi.mock("@/lib/host-http-client", () => ({ resolveHostControlUrl: () => "http://127.0.0.1:18775" }));
 afterEach(() => vi.unstubAllGlobals());
 it("forwards activity to the local Host without browser-supplied URLs or timestamps", async () => {
   const fetchMock = vi.fn(async () => new Response(null, { status: 204 }));

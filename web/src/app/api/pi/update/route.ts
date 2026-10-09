@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { hostPiUpdatePath, resolveHostControlUrl } from "@/lib/host-control";
+import { hostPiUpdatePath, resolveHostControlUrl } from "@/lib/host-http-client";
 import { hostLaunchCheckHint } from "@/lib/host-launch-hints";
 
 export const runtime = "nodejs";

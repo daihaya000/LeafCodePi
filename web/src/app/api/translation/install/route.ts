@@ -1,4 +1,4 @@
-import { hostTranslationPath, resolveHostControlUrl } from "@/lib/host-control";
+import { hostTranslationPath, resolveHostControlUrl } from "@/lib/host-http-client";
 import { hostLaunchCheckHint } from "@/lib/host-launch-hints";
 import { NextResponse } from "next/server";
 

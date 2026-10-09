@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { hostWebUiAuthPath, resolveHostControlUrl } from "@/lib/host-control";
+import { hostWebUiAuthPath, resolveHostControlUrl } from "@/lib/host-http-client";
 import { WEBUI_AUTH_COOKIE, WEBUI_AUTH_COOKIE_OPTIONS } from "@/lib/webui-auth";
 
 export const runtime = "nodejs";

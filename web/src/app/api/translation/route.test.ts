@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-vi.mock("@/lib/host-control", () => ({
+vi.mock("@/lib/host-http-client", () => ({
   hostTranslationPath: (action: string) => `/translation/${action}`,
   resolveHostControlUrl: () => "http://127.0.0.1:18775",
   isLoopbackControlUrl: (url: string) => new URL(url).hostname === "127.0.0.1",

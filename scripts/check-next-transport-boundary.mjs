@@ -19,6 +19,16 @@ export const NEXT_TRANSPORT_ROOTS = Object.freeze([
   "web/src/lib/provider-auth-events-relay.ts",
   "web/src/lib/task-file-stream-relay.ts",
   "web/src/lib/backend-runtime-events.ts",
+  "web/src/lib/host-folder-relay.ts",
+  "web/src/app/api/build-info/route.ts",
+  "web/src/app/api/host/activity/route.ts",
+  "web/src/app/api/host/browser-config/route.ts",
+  "web/src/app/api/host/restart/route.ts",
+  "web/src/app/api/host/webui-auth/route.ts",
+  "web/src/app/api/pi/update/route.ts",
+  "web/src/app/api/translation/status/route.ts",
+  "web/src/app/api/translation/install/route.ts",
+  "web/src/app/api/translation/override/route.ts",
 ]);
 const within = (root, file) => {
   const rel = relative(root, file);
@@ -53,7 +63,7 @@ export function checkNextTransportBoundary(root = ROOT, ts = defaultParser(), ro
   const web = realpathSync(resolve(root, "web/src")), shared = realpathSync(resolve(root, "shared"));
   assert.equal(web, resolve(root, "web/src"), "Next source root cannot redirect to owner code");
   assert.equal(shared, resolve(root, "shared"), "Shared source root cannot redirect to owner code");
-  const reader = resolve(shared, "backend-http-client.ts");
+  const reader = resolve(shared, "backend-http-client.ts"), hostReader = resolve(shared, "host-http-client.ts");
   const visited = new Set();
   function visit(file) {
     const canonical = realpathSync(file);
@@ -64,7 +74,8 @@ export function checkNextTransportBoundary(root = ROOT, ts = defaultParser(), ro
     const source = readFileSync(canonical, "utf8");
     for (const specifier of startupImports(source, normalize(relative(root, canonical)), ts)) {
       if (EXTERNALS.has(specifier)) continue;
-      if (specifier === "node:fs" && canonical === reader) { generationReaderOnly(canonical, ts); continue; }
+      if (canonical === hostReader && ["node:os", "node:path"].includes(specifier)) continue;
+      if (specifier === "node:fs" && (canonical === reader || canonical === hostReader)) { generationReaderOnly(canonical, ts); continue; }
       assert.ok(specifier.startsWith("@/") || specifier.startsWith("@shared/") || specifier.startsWith("."),
         `${normalize(relative(root, canonical))}: forbidden transport import ${specifier}`);
       const target = specifier.startsWith("@/") ? resolve(web, specifier.slice(2))

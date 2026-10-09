@@ -7,7 +7,7 @@ const hostControl = vi.hoisted(() => ({
   ),
 }));
 
-vi.mock("@/lib/host-control", () => hostControl);
+vi.mock("@/lib/host-http-client", () => hostControl);
 vi.mock("@/lib/host-launch-hints", () => ({
   hostLaunchCheckHint: () => "hint",
 }));

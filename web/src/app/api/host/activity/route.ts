@@ -1,4 +1,4 @@
-import { resolveHostControlUrl } from "@/lib/host-control";
+import { resolveHostControlUrl } from "@/lib/host-http-client";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";

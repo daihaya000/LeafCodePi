@@ -21,11 +21,13 @@ import {
 
 beforeEach(() => {
   store.root = mkdtempSync(join(tmpdir(), "host-control-"));
+  vi.stubEnv("LEAFCODE_PI_DATA_DIR", store.root);
 });
 
 afterEach(() => {
   rmSync(store.root, { recursive: true, force: true });
   vi.restoreAllMocks();
+  vi.unstubAllEnvs();
 });
 
 describe("isLoopbackControlUrl", () => {

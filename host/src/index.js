@@ -10,6 +10,7 @@ import { readBrowserConfig, writeBrowserConfig } from "./browser-config.js";
 import { isThisModuleEntrypoint } from "./entry.js";
 import { selectProjectFolder } from "./select-folder.js";
 import { createLlamaControlServer, closeControlServer, listenControlServer } from "./llama-control-server.js";
+import { createHostBuildInfo } from "./build-info.js";
 import { createLoopbackWebUiProxy, listenLoopbackWebUiProxy, closeLoopbackWebUiProxy } from "./loopback-webui-proxy.js";
 import { createLlamaServerService } from "./llama-server-service.js";
 import { awaitLockOwner, lockOwnerAlive, pidAlive, processStartKey, readLock, removeLock, writeLock } from "./lock.js";
@@ -1160,8 +1161,11 @@ function acquireLock() {
 
 async function startControlServer() {
   if (controlServer) return;
+  const buildInfo = createHostBuildInfo({ repoRoot: REPO_ROOT, dataDir: DATA_DIR });
   const server = createLlamaControlServer({
     controlPort: CONTROL_PORT,
+    onBuildInfoRead: () => buildInfo.read(),
+    onBuildInfoUpdate: (operationId) => buildInfo.update(operationId),
     onLlamaServerStatus: () => llamaServerService.status(),
     onLlamaServerStart: (config) => llamaServerService.start(config),
     onLlamaServerStop: () => llamaServerService.stop(),

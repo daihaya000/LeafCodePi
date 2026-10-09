@@ -3,7 +3,7 @@ import {
   hostRestartPath,
   resolveHostControlUrl,
   type HostRestartTarget,
-} from "@/lib/host-control";
+} from "@/lib/host-http-client";
 import { hostLaunchCheckHint } from "@/lib/host-launch-hints";
 
 export const runtime = "nodejs";

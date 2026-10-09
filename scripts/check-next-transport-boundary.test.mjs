@@ -83,6 +83,15 @@ test("generation metadata admits only one named readFileSync, no default/write/d
     assert.throws(() => check(root), /generation|filesystem/);
   }
 });
+test("Host discovery filesystem permission cannot leak to another helper", (t) => {
+  const root = fixture(t, { "web/src/entry.ts": "import '@shared/host-http-client';", "shared/host-http-client.ts": "import { readFileSync } from 'node:fs'; import 'node:os'; import 'node:path';" });
+  assert.deepEqual(check(root), { roots: 1, modules: 2 });
+  writeFileSync(join(root, "shared/host-http-client.ts"), "import { writeFileSync } from 'node:fs';", "utf8");
+  assert.throws(() => check(root), /readFileSync/);
+  writeFileSync(join(root, "web/src/entry.ts"), "import 'node:path';", "utf8");
+  assert.throws(() => check(root), /forbidden transport import/);
+});
+
 test("rejects nonliteral loaders, syntax errors, unresolved modules and executable declarations", (t) => {
   const root = fixture(t, { "web/src/entry.ts": "", "shared/wire.d.mts": "export const data: true;" });
   for (const source of ["require(name)", "import(`./${name}`)", "import(", "import './missing'", "import '@shared/wire.d.mts'"]) {

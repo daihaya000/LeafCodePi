@@ -5,8 +5,8 @@ const { resolveHostControlUrl } = vi.hoisted(() => ({
   resolveHostControlUrl: vi.fn(() => "http://127.0.0.1:18765"),
 }));
 
-vi.mock("@/lib/host-control", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("@/lib/host-control")>();
+vi.mock("@/lib/host-http-client", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/host-http-client")>();
   return { ...actual, resolveHostControlUrl };
 });
 
