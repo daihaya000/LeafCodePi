@@ -316,9 +316,15 @@ function buildModelRows(entries: LlamaServerModelEntry[], contextWindow: number)
   });
 }
 
+// Account runtimes initialize together. Share only in-flight discovery, never a stale catalog.
+let liveModelsInFlight: Promise<LlamaServerModelEntry[]> | undefined;
+
 async function resolveModelRows(settings: LlamaServerSettings): Promise<OpenAiModelRow[]> {
   const contextWindow = settings.contextLength;
-  const live = await fetchLlamaServerModels(DEFAULT_LLAMA_SERVER_BASE);
+  liveModelsInFlight ??= fetchLlamaServerModels(DEFAULT_LLAMA_SERVER_BASE).finally(() => {
+    liveModelsInFlight = undefined;
+  });
+  const live = await liveModelsInFlight;
   if (live.length > 0) return buildModelRows(live, contextWindow);
   // 停止中（または /models 無応答）はモデルを1つも登録しない。modelFile からの推測 id を
   // 残すと、停止した llama-server がドロップダウンに選択できない項目として残る。
@@ -359,7 +365,9 @@ function providerConfig(models: OpenAiModelRow[]) {
     },
     models,
     streamSimple: llamaStreamSimple,
-    refreshModels: async () => {
+    refreshModels: async (context: { allowNetwork?: boolean; signal?: AbortSignal } = {}) => {
+      // SDK provider registration triggers offline refreshes. Keep the current models without HTTP.
+      if (context.allowNetwork === false || context.signal?.aborted) return undefined;
       const latest = parseLlamaServerSettings(readSettingValue(LLAMA_SERVER_SETTINGS_KEY));
       return resolveModelRows(latest);
     },

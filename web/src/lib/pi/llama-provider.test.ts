@@ -1,4 +1,7 @@
-import { rmSync } from "node:fs";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { ModelRuntime } from "@earendil-works/pi-coding-agent";
 import { describe, expect, it, vi, afterEach } from "vitest";
 import {
   appendLlamaServerSystemPrompt,
@@ -99,6 +102,49 @@ describe("displayName", () => {
 });
 
 describe("registerLlamaProviders", () => {
+  it("coalesces concurrent account discovery without caching later model changes", async () => {
+    let reply!: (response: Response) => void;
+    const fetchImpl = vi.fn(() => new Promise<Response>((resolve) => { reply = resolve; }));
+    vi.stubGlobal("fetch", fetchImpl);
+    const registrations = Array.from({ length: 8 }, () => vi.fn());
+    const pending = registrations.map((registerProvider) => registerLlamaProviders({ registerProvider }));
+    expect(fetchImpl).toHaveBeenCalledOnce();
+    reply(new Response(JSON.stringify({ data: [{ id: "first-model" }] })));
+    await Promise.all(pending);
+    for (const register of registrations) {
+      expect(register).toHaveBeenCalledWith("llama-server", expect.objectContaining({
+        models: [expect.objectContaining({ id: "first-model" })],
+      }));
+    }
+    const next = syncLlamaServerProvider({ registerProvider: registrations[0] });
+    expect(fetchImpl).toHaveBeenCalledTimes(2);
+    reply(new Response(JSON.stringify({ data: [{ id: "second-model" }] })));
+    await next;
+    expect(registrations[0]).toHaveBeenLastCalledWith("llama-server", expect.objectContaining({
+      models: [expect.objectContaining({ id: "second-model" })],
+    }));
+  });
+
+  it("keeps SDK offline registration/refresh network-free and preserves the catalog", async () => {
+    const directory = mkdtempSync(join(tmpdir(), "leafcode-llama-offline-"));
+    const fetchImpl = vi.fn(async () => new Response(JSON.stringify({ data: [{ id: "local-model" }] })));
+    vi.stubGlobal("fetch", fetchImpl);
+    try {
+      const runtime = await ModelRuntime.create({
+        authPath: join(directory, "auth.json"), modelsPath: null, refreshOnCreate: false,
+      });
+      await registerLlamaProviders(runtime);
+      await runtime.refresh({ allowNetwork: false });
+      expect(fetchImpl).toHaveBeenCalledOnce();
+      expect(runtime.getModels("llama-server").map((model) => model.id)).toEqual(["local-model"]);
+      await runtime.refresh({ allowNetwork: true, providers: ["llama-server"] });
+      expect(fetchImpl).toHaveBeenCalledTimes(2);
+      expect(runtime.getModels("llama-server").map((model) => model.id)).toEqual(["local-model"]);
+    } finally {
+      rmSync(directory, { recursive: true, force: true });
+    }
+  });
+
   it("registers llama-server without the built-in llama.cpp provider", async () => {
     vi.stubEnv("LLAMA_BASE_URL", "http://example.invalid");
     vi.stubGlobal(
