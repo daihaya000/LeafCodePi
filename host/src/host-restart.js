@@ -44,36 +44,25 @@ export function waitForHostRestartChildSpawn(child, timeoutMs = HOST_RESTART_SPA
   });
 }
 
-/** Consume restart flags; reuse existing builds unless an app update explicitly requests a rebuild. */
-export function consumeHostRestartOptions(env) {
-  const legacyRestart = env.LEAFCODE_PI_REBUILD_SERVICES === "1";
-  const forceBuild = env.LEAFCODE_PI_FORCE_REBUILD_SERVICES === "1";
-  const skipSourcePull =
-    legacyRestart ||
-    forceBuild ||
-    env.LEAFCODE_PI_SKIP_SOURCE_PULL === "1" ||
-    env.LEAFCODE_PI_SKIP_STALE_REBUILD === "1";
-
-  // Older Hosts used REBUILD_SERVICES for every restart. Treat it as a restart marker,
-  // not as a reason to rebuild, and retain the existing production build.
-  if (legacyRestart) env.LEAFCODE_PI_SKIP_STALE_REBUILD = "1";
+/** Replacement hosts rebuild both services once; do not leak the request to children. */
+export function consumeHostRestartBuild(env) {
+  // Older running Hosts pass the skip flag when launching their replacement.
+  // Treat it as a restart request so the first upgrade also rebuilds both services.
+  const rebuild = env.LEAFCODE_PI_REBUILD_SERVICES === "1" || env.LEAFCODE_PI_SKIP_STALE_REBUILD === "1";
   delete env.LEAFCODE_PI_REBUILD_SERVICES;
-  delete env.LEAFCODE_PI_FORCE_REBUILD_SERVICES;
-  delete env.LEAFCODE_PI_SKIP_SOURCE_PULL;
-  return { forceBuild, pull: !skipSourcePull };
+  if (rebuild) delete env.LEAFCODE_PI_SKIP_STALE_REBUILD;
+  return rebuild;
 }
 
-export function buildHostRestartScript({ lockFile, launcherExe, startBat, forceBuild = false, maxWaitAttempts = 120, relaunchGraceSeconds = 15 }) {
+export function buildHostRestartScript({ lockFile, launcherExe, startBat, maxWaitAttempts = 120, relaunchGraceSeconds = 15 }) {
   const launchLine = launcherExe
     ? `start "LeafCodePi" /min "${launcherExe}"`
     : `start "LeafCodePi" /min cmd.exe /c ""${startBat}" >nul 2>&1"`;
   return [
     "@echo off",
     "setlocal",
-    "set \"LEAFCODE_PI_REBUILD_SERVICES=\"",
-    `set \"LEAFCODE_PI_FORCE_REBUILD_SERVICES=${forceBuild ? "1" : ""}\"`,
-    "set \"LEAFCODE_PI_SKIP_SOURCE_PULL=1\"",
-    "set \"LEAFCODE_PI_SKIP_STALE_REBUILD=1\"",
+    "set \"LEAFCODE_PI_REBUILD_SERVICES=1\"",
+    "set \"LEAFCODE_PI_SKIP_STALE_REBUILD=\"",
     `set "LOCK=${lockFile}"`,
     "set /a WAIT=0",
     ":wait",
