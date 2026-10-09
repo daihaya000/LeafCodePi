@@ -2,9 +2,9 @@
 
 ## 進捗・範囲
 
-Phase3全体は未完了。Phase0のBackend/Phase3/JSON分類は118経路・182操作。Git・Diff・コミット文生成13経路・14操作、定義管理14経路・25操作、Provider/モデル設定7経路・8操作、Provider認証JSON4経路・5操作、アカウント管理/資格情報9経路・19操作、利用量/クレジット3経路・5操作、Peer認証共有5経路・9操作、Workspaceファイル/次タスク提案3経路・3操作、Project lifecycle1経路・4操作、Task collection1経路・3操作、個別Task lifecycle2経路・4操作、Task履歴/検索/bookmark3経路・5操作、Task実行設定4経路・4操作、Task送信/対話応答3経路・3操作、Goal制御2経路・4操作、Task会話編集/昇格4経路・4操作、Task compaction2経路・2操作、Task進行補助4経路・5操作、Task監督/子実行2経路・2操作、Bot lifecycle2経路・5操作、Bot会話3経路・3操作、Bot Code2経路・5操作、Bot routine3経路・6操作の合計96経路・147操作の境界を移管した。認証に付随するログインSSE 1経路・1操作も同じownerへ移管した（Phase3 JSONの集計には加算しない）。残る22経路・35操作には既存Backend中継も含まれ、受入条件の確認・残存業務処理の移管が必要。
+Phase3全体は未完了。Phase0のBackend/Phase3/JSON分類は118経路・182操作。Git・Diff・コミット文生成13経路・14操作、定義管理14経路・25操作、Provider/モデル設定7経路・8操作、Provider認証JSON4経路・5操作、アカウント管理/資格情報9経路・19操作、利用量/クレジット3経路・5操作、Peer認証共有5経路・9操作、Workspaceファイル/次タスク提案3経路・3操作、Project lifecycle1経路・4操作、Task collection1経路・3操作、個別Task lifecycle2経路・4操作、Task履歴/検索/bookmark3経路・5操作、Task実行設定4経路・4操作、Task送信/対話応答3経路・3操作、Goal制御2経路・4操作、Task会話編集/昇格4経路・4操作、Task compaction2経路・2操作、Task進行補助4経路・5操作、Task監督/子実行2経路・2操作、Bot lifecycle2経路・5操作、Bot会話3経路・3操作、Bot Code2経路・5操作、Bot routine3経路・6操作、Bot sidebar/内線受信箱2経路・3操作の合計98経路・150操作の境界を移管した。認証に付随するログインSSE 1経路・1操作も同じownerへ移管した（Phase3 JSONの集計には加算しない）。残る20経路・32操作には既存Backend中継も含まれ、受入条件の確認・残存業務処理の移管が必要。
 
-以下は第1区切り（Git・Diff・コミット文生成）の記録。第2区切りの定義管理、第3区切りのProvider/モデル設定、第4区切りのProvider認証、第5区切りのアカウント管理/資格情報、第6区切りの利用量/クレジット、第7区切りのPeer認証共有、第8区切りのWorkspaceファイル/次タスク提案、第9区切りのProject lifecycle、第10区切りのTask collection、第11区切りの個別Task lifecycle、第12区切りのTask履歴/検索/bookmark、第13区切りのTask実行設定、第14区切りのTask送信/対話応答、第15区切りのGoal制御、第16区切りのTask会話編集/昇格、第17区切りのTask compaction、第18区切りのTask進行補助、第19区切りのTask監督/子実行、第20区切りのBot lifecycle、第21区切りのBot会話、第22区切りのBot Code、第23区切りのBot routineは末尾に記載する。
+以下は第1区切り（Git・Diff・コミット文生成）の記録。第2区切りの定義管理、第3区切りのProvider/モデル設定、第4区切りのProvider認証、第5区切りのアカウント管理/資格情報、第6区切りの利用量/クレジット、第7区切りのPeer認証共有、第8区切りのWorkspaceファイル/次タスク提案、第9区切りのProject lifecycle、第10区切りのTask collection、第11区切りの個別Task lifecycle、第12区切りのTask履歴/検索/bookmark、第13区切りのTask実行設定、第14区切りのTask送信/対話応答、第15区切りのGoal制御、第16区切りのTask会話編集/昇格、第17区切りのTask compaction、第18区切りのTask進行補助、第19区切りのTask監督/子実行、第20区切りのBot lifecycle、第21区切りのBot会話、第22区切りのBot Code、第23区切りのBot routine、第24区切りのBot sidebar/内線受信箱は末尾に記載する。
 
 | 経路 | 操作 |
 | --- | --- |
@@ -391,3 +391,19 @@ Phase3全体は未完了。Phase0のBackend/Phase3/JSON分類は118経路・182�
 - Backend/Web型チェックとBackend強制ビルド（7,220 KiB）成功。Webなしの隔離Backend実プロセスでroutine作成/list/個別GET/改名、保存promptによる実SDK text生成、hold中のdisable→Bot Stop→failure snapshot、別routineの削除、再起動後のdisable/失敗数/成功時刻/改名/削除と8つの重複受付拒否（held runはunknown、他はcomplete）を検証した。
 - 新規routine用固定localhost responderは2回（正常1・hold/明示Stop1）。既存Bot responder3回は不変。tool call/resultを出さず、課金Provider/実通知/外部生成、ユーザー設定/SOUL/資格情報、稼働サービスを変更していない。
 - 初回検証失敗の原因: ASTテストが動的IDを1つと仮定し、独立fixtureはBot configだけをseedして通常のBot作成で登録される1:1 Taskが欠落していた。ASTを複数IDへ拡張し、fixtureのTask登録を補って再実行成功。レビューでscalar PATCHの誤受理も修正し、関連検証を再実行した。
+
+## 第24区切り: Bot sidebar・内線受信箱（2経路・3操作）
+
+- `bots/sidebar` GET、`bots/[id]/intercom` GET/PATCHをBackendへ移管。Nextは単一relay returnのみ。Bot/Room/store/outbox/transcriptの読取、preview/件数/presence/未読/pending判断、mailbox既読の永続化をownerへ集約する。Bot IDはdecode一回・UUID-shaped検証後にBot保存先へアクセスする。
+- sidebarは既存のoffline session previewのみ。4,000文字の先頭正規化・80コードポイント要約/emoji保護・invalid timestamp/null、8,000,000 bytes/24 filesのpreview budget、Bot全件でoutbox batch一回、owned/supervisedのworking Code件数を維持する。getTaskDetail/ensureLive/promptを呼ばず、投影済みDTOにprivate/no-cache ETagと304を生成する。条件付きGETでも不正DTOを304に隠さない。
+- Inboxは全message/attachment metadata・pending ask・preview・peer presenceを深く投影し、authored text/config/Room history/Code/Goal/handoff correlationを保持。追加SDK/credential/privateフィールドとRoomのserver relay envelope tokenを除外する。既存GETのexpired ask cleanupもBackendだけが実行し、GETにcommand receiptは書かない。
+- PATCHは既存action:readだけ。保存Botと既読timestampはownerが決め、callerのbotId/readAt/messages/pendingAsksを採用しない。common inbox読取・既読更新にowner guardを追加。lock/merge/atomic replace・inbox event通知を維持し、write/通知失敗後は503/unknownとcache破棄による実disk再読込にする。保存済み通知例外のtyped 4xxもrefusalにせず、秘密本文を返さない。
+- 専用private `bot-overview-command.json`（0600・最大128件）のserial admissionでoperation ID/実行状態のみ記録する。4 KiB上限、認証/Origin/readiness、operation ACK一致、効果前unknown、同IDの再起動後409、受付済み切断で更新を中止しない規約を保持。全mailbox/通知の原子性や無期限exactly-onceの保証は追加しない。
+
+### 第24区切りの検証結果
+
+- 新owner/既存sidebar handler/実Next relay: 56/56成功。既存Bot intercom/tool・offline preview/budget・runtime ownership: 75/75成功。
+- pure contract/実HTTP transport/AST ownership: 121/121成功。Bot intercom policy/serial command/lifecycle/Room normalize・bundle/build independence: 44/44成功。独立fixture1件を含め、今回の対象297件成功。全体スイートは再実行していない。
+- Backend/Web型チェック、Backend強制ビルド（7,241 KiB）成功。Webなし隔離Backend実プロセスでcold Botのoffline sidebar/Room preview/ETag304、mailbox/pending/attachment読取、invalid action拒否、偽造timestamp/別Botの無視と既読保存、再起動後の未読0・message/pending/queued保持・2 IDの再実行409・offline preview保持を確認（13.5秒）。
+- 追加のSDK attach/provider要求なし。既存固定localhost responderのBot3回/routine2回は不変。ユーザーSOUL/設定/資格情報/稼働サービス、課金Provider/実通知は操作していない。対象18ファイル以外の並行差分7ファイルを保持する。
+- 原因: 既存mark-readが保存前にcache markerを変更し、I/O失敗時も後続GETが既読成功のように見え得た。保存失敗時はcacheを破棄してdiskを再読込し、保存後通知例外も503/unknownにする。実lock拒否とtyped listener例外で保存未完了/保存済みの両方を検証した。初回owner件数テストはBot会話をCode一覧へ数えており、実Code taskを登録するfixtureへ修正して再検証成功。

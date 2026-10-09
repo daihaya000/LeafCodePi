@@ -1,3 +1,4 @@
+import { assertConfigurationOwner } from "@backend-core/configuration-command.mjs";
 import { EventEmitter } from "node:events";
 import { existsSync, mkdirSync, readFileSync, renameSync, statSync, writeFileSync } from "node:fs";
 import { readFile } from "node:fs/promises";
@@ -640,6 +641,7 @@ function counterpartPresence(botId: string, messages: BotIntercomMessageV1[]): B
 }
 
 export function getBotIntercomInbox(botId: string): BotIntercomInboxDto {
+  assertConfigurationOwner();
   pruneExpiredAsks(botId);
   const state = inboxState(botId);
   const messages = state.messages.map(toInboxItem);
@@ -667,12 +669,22 @@ export function getBotIntercomInbox(botId: string): BotIntercomInboxDto {
 }
 
 export function markBotIntercomInboxRead(botId: string, readAt = Date.now()): BotIntercomInboxDto {
+  assertConfigurationOwner();
   const state = inboxState(botId);
   const inbound = state.messages.filter((message) => message.toBotId === botId);
   const latest = inbound[inbound.length - 1]?.createdAt ?? readAt;
   state.lastReadAt = Math.max(state.lastReadAt, readAt, latest);
-  persistMailbox(botId, state);
-  return emitInbox(botId);
+  try {
+    persistMailbox(botId, state);
+    return emitInbox(botId);
+  } catch {
+    // The marker may already be on disk. Never expose a typed refusal after a partial save,
+    // or let the mutated cache pretend that a failed save was durable.
+    inboxes.delete(botId);
+    inboxMtimes.delete(botId);
+    inboxStamps.delete(botId);
+    throw Object.assign(new Error("Bot内線の既読更新結果を確認できません"), { status: 503 });
+  }
 }
 
 export function listBotIntercomPeers(fromBotId: string, options?: { cwd?: string }): BotIntercomPeerDto[] {

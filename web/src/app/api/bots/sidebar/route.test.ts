@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { NextRequest } from "next/server";
 import type { BotDto, RoomDto, TaskSummary } from "@/lib/types";
 
@@ -20,7 +20,8 @@ vi.mock("@/lib/direct-session", () => ({
 }));
 vi.mock("@/lib/pi/bot-code-relay", () => ({ listBotCodeRequestsForBots: mocks.listBotCodeRequestsForBots }));
 
-import { GET } from "./route";
+import { GET } from "@backend-runtime/json-business/handlers/bots/sidebar/route";
+beforeEach(() => vi.stubEnv("LEAFCODE_PI_PROCESS_ROLE", "backend"));
 
 const bot = (id: string): BotDto => ({
   id,
@@ -51,7 +52,7 @@ const room = (id: string, message?: { text: string; createdAt: number }): RoomDt
     members: [], botRelayEnabled: false,
     createdAt: "",
     updatedAt: "",
-    messages: message ? [message as never] : [],
+    messages: message ? [{ id: id + "-message", role: "user", ...message }] : [],
   }) as RoomDto;
 
 describe("GET /api/bots/sidebar", () => {

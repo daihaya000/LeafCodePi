@@ -24,6 +24,8 @@ import { POST as selectTaskAgent } from "../app/api/tasks/[id]/agent/route";
 import { PUT as selectGoalAuto } from "../app/api/tasks/[id]/goal-loop-auto-model/route";
 import { GET as readTaskGoal, POST as startTaskGoal, PATCH as controlTaskGoal } from "../app/api/tasks/[id]/goal-loop/route";
 import { GET as activeTaskGoals } from "../app/api/goal-loop/active/route";
+import { GET as botSidebar } from "../app/api/bots/sidebar/route";
+import { GET as botInbox, PATCH as markBotInbox } from "../app/api/bots/[id]/intercom/route";
 import { GET as listBotRoutines, POST as createBotRoutine } from "../app/api/bots/[id]/routines/route";
 import { GET as getBotRoutine, PATCH as patchBotRoutine, DELETE as deleteBotRoutine } from "../app/api/bots/[id]/routines/[routineId]/route";
 import { POST as runBotRoutine } from "../app/api/bots/[id]/routines/[routineId]/run/route";
@@ -64,6 +66,14 @@ beforeEach(() => {
 });
 afterEach(() => { vi.restoreAllMocks(); vi.unstubAllGlobals(); vi.unstubAllEnvs(); rmSync(root, { recursive: true, force: true }); });
 describe("JSON business ingress", () => {
+  it("Bot overview relays read/mark bytes and trusted headers, projects nested inbox and preserves conditional GET",async()=>{
+    const id="11111111-0123-4321-abcd-eeeeeeeeeeee",context={params:Promise.resolve({id})},inbox={messages:[],unreadCount:0,preview:null,pendingAsks:[],peerPresence:null,token:"PRIVATE"};
+    fetcher.mockResolvedValueOnce(Response.json({status:200,body:{inbox}}));expect(JSON.stringify(await (await botInbox(new NextRequest("http://localhost"),context)).json())).not.toContain("PRIVATE");
+    const body='{"action":"read","readAt":1,"botId":"forged"}';fetcher.mockImplementationOnce(async(_url,init)=>Response.json({status:200,body:{inbox,operation:{id:new Headers(init.headers).get("x-leafcode-business-operation"),execution:"complete"}}}));
+    expect((await markBotInbox(new NextRequest("http://localhost",{method:"PATCH",body}),context)).status).toBe(200);expect(new TextDecoder().decode(fetcher.mock.calls.at(-1)![1].body)).toBe(body);
+    fetcher.mockResolvedValueOnce(Response.json({status:304,body:null,headers:{etag:"fixture","cache-control":"private, no-cache"}}));const poll=await botSidebar(new NextRequest("http://localhost",{headers:{"if-none-match":"fixture"}}));expect(poll.status).toBe(304);expect(await poll.text()).toBe("");expect(new Headers(fetcher.mock.calls.at(-1)![1].headers).get("if-none-match")).toBe("fixture");
+    fetcher.mockResolvedValueOnce(Response.json({status:200,body:{inbox}}));expect((await markBotInbox(new NextRequest("http://localhost",{method:"PATCH",body}),context)).status).toBe(503);const calls=fetcher.mock.calls.length;expect((await markBotInbox(new NextRequest("http://localhost",{method:"PATCH",body:"x".repeat(4097)}),context)).status).toBe(413);expect(fetcher).toHaveBeenCalledTimes(calls);expect(readdirSync(root)).toEqual([]);
+  });
   it("Bot routines relay six operations/opaque bytes, project authored config and require mutation ACKs",async()=>{
     const id="11111111-0123-4321-abcd-eeeeeeeeeeee",routineId="22222222-0123-4321-abcd-eeeeeeeeeeee",context={params:Promise.resolve({id,routineId})},routine={id:routineId,botId:id,name:"authored 日本語",prompt:"authored",schedule:"0 0 29 2 *",enabled:true,createdAt:"fixture",updatedAt:"fixture",failureCount:0,lastRunAt:null,token:"PRIVATE"};
     for(const [method,fn,body,result] of [["GET",listBotRoutines,undefined,{routines:[routine]}],["POST",createBotRoutine,'{"name":"日本語","prompt":"authored","schedule":"0 0 29 2 *"}',{routine}],["GET",getBotRoutine,undefined,{routine}],["PATCH",patchBotRoutine,'{"enabled":false}',{routine}],["DELETE",deleteBotRoutine,'{"botId":"forged"}',{ok:true}],["POST",runBotRoutine,'{"prompt":"forged","permissionMode":"allow"}',{routine}]]as const){

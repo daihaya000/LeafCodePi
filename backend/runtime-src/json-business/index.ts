@@ -11,6 +11,8 @@ import { usageTarget } from "@shared/usage-contract.mjs";
 import { dispatchUsageRequest } from "./usage";
 import { peerTarget } from "@shared/peer-contract.mjs";
 import { dispatchPeerRequest } from "./peer";
+import { botOverviewTarget } from "@shared/bot-overview-contract.mjs";
+import { dispatchBotOverviewRequest } from "./bot-overview";
 import { botRoutineTarget } from "@shared/bot-routine-contract.mjs";
 import { dispatchBotRoutineRequest } from "./bot-routine";
 import { botCodeTarget } from "@shared/bot-code-contract.mjs";
@@ -75,6 +77,8 @@ export async function dispatchJsonBusinessRequest(input: JsonBusinessInput): Pro
   const request = configurationRequest(new Request(input.url, { method: input.method, headers: input.headers,
     signal, ...(input.body?.byteLength ? { body: new Uint8Array(input.body).slice().buffer } : {}) }), input.authorized);
   if (input.method !== "GET" && isCrossOriginRequest(request)) return { status: 403, headers: {}, body: { error: "Cross-origin request refused" } };
+  const botOverview = botOverviewTarget(input.route);
+  if (botOverview) return dispatchBotOverviewRequest(input, request, botOverview);
   const botRoutine = botRoutineTarget(input.route);
   if (botRoutine) return dispatchBotRoutineRequest(input, request, botRoutine);
   const botCode = botCodeTarget(input.route);
