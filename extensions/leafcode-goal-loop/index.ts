@@ -14,6 +14,7 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
+import { isProviderTransportError, providerTransportRetryDelayMs } from "../../shared/provider-transport.mjs";
 
 export type GoalLoopStatus =
   | "queued"
@@ -263,6 +264,7 @@ type GoalLoopHostRouting = GoalLoopTurnRoutingHooks & {
 };
 
 type Runtime = {
+  transportRecoveryAttempts?: number;
   key: string;
   cwd: string;
   sessionId: string;
@@ -1340,6 +1342,7 @@ function clearPendingAgentRun(runtime: Runtime): void {
 
 /** In-memory bookkeeping a reload successor inherits from its predecessor. */
 type ReloadHandoff = {
+  transportRecoveryAttempts?: number;
   sessionManager: unknown;
   pausedTurnPending: boolean;
   pausedTurnIndex?: number;
@@ -1362,6 +1365,7 @@ function reloadHandoffs(): Map<string, ReloadHandoff> {
 function stashReloadHandoff(runtime: Runtime): void {
   reloadHandoffs().set(runtime.key, {
     sessionManager: runtime.sessionManager,
+    transportRecoveryAttempts: runtime.transportRecoveryAttempts,
     pausedTurnPending: runtime.pausedTurnPending,
     pausedTurnIndex: runtime.pausedTurnIndex,
     pendingAgentMessages: runtime.pendingAgentMessages,
@@ -1386,6 +1390,7 @@ function takeReloadHandoff(key: string, sessionManager: unknown): ReloadHandoff 
 
 /** The predecessor may run older code after an edit, so read every field defensively. */
 function restoreReloadHandoff(runtime: Runtime, handoff: ReloadHandoff): void {
+  runtime.transportRecoveryAttempts = handoff.transportRecoveryAttempts ?? 0;
   runtime.pausedTurnPending = handoff.pausedTurnPending === true;
   runtime.pausedTurnIndex = typeof handoff.pausedTurnIndex === "number" ? handoff.pausedTurnIndex : undefined;
   runtime.pendingAgentMessages = Array.isArray(handoff.pendingAgentMessages)
@@ -1542,6 +1547,39 @@ async function settleAwaitingTurn(runtime: Runtime): Promise<void> {
     clearPendingAgentRun(runtime);
     return;
   }
+  if (error && isProviderTransportError(error)) {
+    const attempt = (runtime.transportRecoveryAttempts ?? 0) + 1;
+    const delayMs = providerTransportRetryDelayMs(attempt);
+    if (delayMs !== null) {
+      // Only settlement retries: native SDK retry/tool execution has finished.
+      // Preserve the budget and never execute an incomplete streamed tool call.
+      const resumed: GoalLoop = {
+        ...loop,
+        status: loop.turnKind === "verification" ? "verifying_completed" : "queued",
+        retryInterruptedTurn: true,
+        pauseReason: "",
+        error: "",
+        nextTurnAt: new Date(Date.now() + delayMs).toISOString(),
+      };
+      const generation = runtime.turnGeneration;
+      const persisted = writeLoop(resumed);
+      if (typeof persisted === "boolean" ? !persisted : !(await persisted)) return;
+      if (!isActiveRuntime(runtime) || runtime.turnGeneration !== generation) return;
+      runtime.transportRecoveryAttempts = attempt;
+      clearTimer(runtime);
+      runtime.awaitingTurn = false;
+      runtime.awaitingTurnIndex = undefined;
+      runtime.pausedTurnIndex = undefined;
+      clearPendingAgentRun(runtime);
+      updateUI(runtime, resumed);
+      appendSnapshot(runtime, resumed);
+      schedule(runtime);
+      return;
+    }
+    await pauseLoop(runtime, "scheduler_error", error);
+    clearPendingAgentRun(runtime);
+    return;
+  }
   if (error) {
     const turnGeneration = runtime.turnGeneration;
     let canRetry = false;
@@ -1597,6 +1635,7 @@ async function settleAwaitingTurn(runtime: Runtime): Promise<void> {
     return;
   }
 
+  runtime.transportRecoveryAttempts = 0;
   // Persist first while awaitingTurn remains true. Clearing flags before a
   // failed writeLoop left disk=running with no settlement owner.
   const write = result
@@ -2321,6 +2360,7 @@ async function startLoop(
   const persisted = writeLoop(loop);
   if (typeof persisted === "boolean" ? !persisted : !(await persisted)) return null;
 
+  runtime.transportRecoveryAttempts = 0;
   // The new state is durable. Now invalidate/abort any old in-flight turn so a
   // trailing settlement cannot apply to this loop.
   runtime.endNoticeQueued = false;

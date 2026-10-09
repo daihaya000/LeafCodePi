@@ -5,7 +5,7 @@
   "type": "module",
   "description": "Pi用Goal Loop（フルランモード付き）",
   "scripts": {
-    "test": "node --test index.test.mjs"
+    "test": "node --test index.test.mjs transport-retry.test.mjs"
   },
   "pi": {
     "extensions": ["index.ts"]
