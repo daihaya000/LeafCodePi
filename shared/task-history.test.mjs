@@ -34,6 +34,19 @@ test("shared pagination preserves turn boundaries and older-page cursors", () =>
   assert.throws(() => pageTaskMessages(messages, "missing"), InvalidTaskMessageCursorError);
 });
 
+test("long single turns stay bounded and remain navigable across all older pages", () => {
+  const messages = [{ id: "user", role: "user" }, ...Array.from({ length: 1000 }, (_, i) => ({ id: `a${i}`, role: "assistant" }))];
+  let cursor, pages = [], count = 0;
+  do {
+    const page = pageTaskMessages(messages, cursor, 150);
+    assert.ok(page.messages.length <= 300);
+    pages = [...page.messages, ...pages];
+    cursor = page.messageHistory.nextCursor;
+    assert.ok(++count < 20);
+  } while (cursor);
+  assert.deepEqual(pages, messages);
+});
+
 test("latest-page transport excludes old history without mutating the source", (t) => {
   const messages = Array.from({ length: 5000 }, (_, index) => ({
     id: `m${index}`, role: "user", parts: [{ type: "text", text: "x".repeat(100) }],

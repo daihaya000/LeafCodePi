@@ -28,8 +28,9 @@ export function pageTaskMessages(messages, before, limit = TASK_MESSAGE_PAGE_SIZ
   }
   let start = Math.max(0, end - safeLimit);
   if (start > 0 && messages[start]?.role !== "user") {
-    // Keep the load-more boundary between turns rather than inside an assistant reply.
-    for (let index = start - 1; index >= 0; index--) {
+    // Prefer whole turns only while expansion stays bounded. A long tool turn
+    // may span thousands of assistant rows and must remain pageable.
+    for (let index = start - 1; index >= Math.max(0, end - safeLimit * 2); index--) {
       if (messages[index]?.role === "user") {
         start = index;
         break;

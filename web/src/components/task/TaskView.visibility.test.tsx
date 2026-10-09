@@ -1,5 +1,5 @@
 // @vitest-environment happy-dom
-import { cleanup, render, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { COMPACTION_ACTION_SETTING_KEY } from "@/lib/compaction-settings";
 import type { TaskSummary } from "@/lib/types";
@@ -9,7 +9,7 @@ vi.mock("@/lib/client", () => ({ getJson: mocks.getJson, sendJson: mocks.sendJso
 vi.mock("@/lib/bot-unread", () => ({ markRead: vi.fn() }));
 vi.mock("@/components/shell/MobileMenuHeader", () => ({ MobileMenuButton: () => null }));
 vi.mock("@/components/task/PartView", () => ({
-  PartView: () => null,
+  PartView: ({ message }: { message: { parts: Array<{ text?: string }> } }) => <span>{message.parts.map(p => p.text).join("")}</span>,
   ToolCard: () => null,
   MessageMetaHeader: () => null,
   WorkingRow: () => null,
@@ -31,6 +31,7 @@ const task: TaskSummary = {
 };
 
 let opened = 0;
+let sources: Array<EventTarget & { url: string }> = [];
 
 beforeEach(() => {
   localStorage.clear();
@@ -38,10 +39,12 @@ beforeEach(() => {
   mocks.botFor.mockReturnValue(undefined);
   mocks.iconFor.mockReturnValue(undefined);
   opened = 0;
+  sources = [];
   class TestEventSource extends EventTarget {
-    constructor() {
+    constructor(public url: string) {
       super();
       opened += 1;
+      sources.push(this);
     }
     close() {}
   }
@@ -63,6 +66,54 @@ afterEach(() => {
 });
 
 describe("TaskView SSE visibility", () => {
+  it("does not advertise an empty cached transcript and can force a fresh history request", async () => {
+    const sessionTask = { ...task, sessionId: "session", sessionFile: "session.jsonl" };
+    saveTaskSessionCache({ task: sessionTask, messages: [], isStreaming: false, isCompacting: false });
+    render(<TaskView taskId={task.id} mdUp />);
+    await waitFor(() => expect(sources.length).toBe(1));
+    expect(sources[0].url).not.toContain("cachedSessionId");
+    await act(async () => {
+      sources[0].dispatchEvent(new MessageEvent("snapshot", { data: JSON.stringify({ task: sessionTask, messages: [], isStreaming: false, eventType: "ready" }) }));
+    });
+    fireEvent.click(screen.getByRole("button", { name: "履歴を再読み込み" }));
+    await waitFor(() => expect(sources.length).toBe(2));
+    expect(sources[1].url).not.toContain("cachedSessionId");
+  });
+
+  it("does not save a metadata-only background ready as empty history, and loads the transcript on visibility", async () => {
+    localStorage.clear();
+    const originalHidden = Object.getOwnPropertyDescriptor(document, "hidden");
+    Object.defineProperty(document, "hidden", { configurable: true, value: true });
+    try {
+      render(<TaskView taskId={task.id} mdUp />);
+      await waitFor(() => expect(sources.length).toBe(1));
+      expect(sources[0].url).toContain("streamMessages=0");
+      const sessionTask = { ...task, sessionId: "session", sessionFile: "session.jsonl" };
+      await act(async () => {
+        sources[0].dispatchEvent(new MessageEvent("snapshot", { data: JSON.stringify({ task: sessionTask, isStreaming: false, eventType: "bootstrap" }) }));
+        sources[0].dispatchEvent(new MessageEvent("snapshot", { data: JSON.stringify({ task: sessionTask, isStreaming: false, todos: [{ id: "1", content: "done", status: "completed", priority: "high" }], eventType: "ready" }) }));
+        window.dispatchEvent(new Event("pagehide"));
+      });
+      expect(localStorage.getItem("webui:task-session-cache")).toBeNull();
+      Object.defineProperty(document, "hidden", { configurable: true, value: false });
+      act(() => document.dispatchEvent(new Event("visibilitychange")));
+      await waitFor(() => expect(sources.length).toBe(2));
+      expect(sources[1].url).toContain("streamMessages=1");
+      expect(sources[1].url).not.toContain("cachedSessionId");
+      const messages = [{ id: "real", role: "assistant", createdAt: 1, parts: [{ id: "text", type: "text", text: "restored transcript" }] }];
+      await act(async () => {
+        sources[1].dispatchEvent(new MessageEvent("snapshot", { data: JSON.stringify({ task: sessionTask, messages, isStreaming: false, messageHistory: { hasMore: true, nextCursor: "real" }, eventType: "ready" }) }));
+      });
+      expect(screen.getByText("restored transcript")).toBeTruthy();
+      await act(async () => { window.dispatchEvent(new Event("pagehide")); });
+      const stored = JSON.parse(localStorage.getItem("webui:task-session-cache")!);
+      expect(stored.entries[task.id].messages).toEqual(messages);
+    } finally {
+      if (originalHidden) Object.defineProperty(document, "hidden", originalHidden);
+      else Reflect.deleteProperty(document, "hidden");
+    }
+  });
+
   it("does not connect while the pane is in the background", async () => {
     render(<TaskView taskId={task.id} mdUp={false} active={false} />);
 

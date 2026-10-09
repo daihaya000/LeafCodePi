@@ -924,6 +924,8 @@ export const TaskView = memo(function TaskView({
   const [historyRecoveryTaskId, setHistoryRecoveryTaskId] = useState<string | null>(null);
   const omitTranscript = historyRecoveryTaskId === taskId;
   const [sessionHydrating, setSessionHydrating] = useState(Boolean(cachedSession));
+  const [transcriptHydrated, setTranscriptHydrated] = useState(Boolean(cachedSession?.messages.length));
+  const [historyReloadEpoch, setHistoryReloadEpoch] = useState(0);
   const [sseReconnecting, setSseReconnecting] = useState(false);
   const [settledSilentMessageId, setSettledSilentMessageId] = useState<string | null>(null);
   const autoResumeKeyRef = useRef<string | null>(null);
@@ -1163,7 +1165,7 @@ export const TaskView = memo(function TaskView({
       reported: false,
     };
   }
-  cacheSnapshotRef.current = task && !omitTranscript && !(sessionHydrating && messages.length === 0)
+  cacheSnapshotRef.current = task && transcriptHydrated && !omitTranscript && !(sessionHydrating && messages.length === 0)
     ? {
         task,
         messages,
@@ -1186,7 +1188,7 @@ export const TaskView = memo(function TaskView({
       const latest = cacheSnapshotRef.current;
       if (latest) saveTaskSessionCache(latest);
     }, TASK_SESSION_CACHE_THROTTLE_MS);
-  }, [contextUsage, isCompacting, messageHistory, messages, sessionHydrating, task, taskId]);
+  }, [contextUsage, isCompacting, messageHistory, messages, sessionHydrating, task, taskId, transcriptHydrated]);
 
   useEffect(() => {
     const flush = () => {
@@ -1325,8 +1327,9 @@ export const TaskView = memo(function TaskView({
       });
       if (omitTranscript) eventParams.set("history", "omit");
       if (
-        !omitTranscript &&
+        !omitTranscript && historyReloadEpoch === 0 &&
         cachedSession &&
+        cachedSession.messages.length > 0 &&
         cachedSession.sessionId &&
         cachedSession.updatedAt &&
         cachedSession.status !== "working" &&
@@ -1444,7 +1447,11 @@ export const TaskView = memo(function TaskView({
             setHistoryLoading(false);
             setHistoryError(null);
           }
-          if (!isBootstrap) setSessionHydrating(false);
+          if (!isBootstrap) {
+            setSessionHydrating(false);
+            // A background ready has no transcript; it cannot certify an empty cache.
+            if (!document.hidden && !omitTranscript && Array.isArray(payload.messages)) setTranscriptHydrated(true);
+          }
           // `agent_settled` is the SDK's terminal event: only this snapshot
           // may prove that a turn truly ended without output.
           if (payload.eventType === "agent_settled") {
@@ -1755,7 +1762,7 @@ export const TaskView = memo(function TaskView({
       retryTimer = cancelPendingSseReconnect(retryTimer);
       source = closeSseSource(source);
     };
-  }, [active, cachedSession, taskId, omitTranscript, applyDetail, notifySidebarIfNeeded]);
+  }, [active, cachedSession, taskId, omitTranscript, historyReloadEpoch, applyDetail, notifySidebarIfNeeded]);
 
   /** Loads the next older page. Resolves to that page's messages, or null when nothing was loaded. */
   const loadOlderMessages = useCallback(async (): Promise<UiMessage[] | null> => {
@@ -1904,6 +1911,7 @@ export const TaskView = memo(function TaskView({
     const cachedHistory = cached?.messageHistory ?? EMPTY_TASK_MESSAGE_HISTORY;
     setTask(cached);
     setMessages(cached?.messages ?? []);
+    setTranscriptHydrated(Boolean(cached?.messages.length));
     setOptimisticPrompt(null);
     setPendingSteer(null);
     messageHistoryRef.current = cachedHistory;
@@ -4103,7 +4111,18 @@ export const TaskView = memo(function TaskView({
                 role={sessionHydrating ? "status" : undefined}
                 aria-live={sessionHydrating ? "polite" : undefined}
               >
-                {sessionHydrating ? "セッションを準備しています…" : "メッセージはまだありません"}
+                {sessionHydrating ? "セッションを準備しています…" : task?.sessionFile && !omitTranscript ? "履歴が表示されていません" : "メッセージはまだありません"}
+                {!sessionHydrating && task?.sessionFile && !omitTranscript && (
+                  <Button variant="ghost" className="mx-auto mt-2 block" onClick={() => {
+                    setError(null);
+                    setColdHistoryErrorTaskId(null);
+                    setSessionHydrating(true);
+                    setTranscriptHydrated(false);
+                    setHistoryReloadEpoch((current) => current + 1);
+                  }}>
+                    履歴を再読み込み
+                  </Button>
+                )}
               </p>
             )}
           </div>
@@ -4488,6 +4507,8 @@ export const TaskView = memo(function TaskView({
               setError(null);
               setColdHistoryErrorTaskId(null);
               setSessionHydrating(true);
+              setTranscriptHydrated(false);
+              setHistoryReloadEpoch((current) => current + 1);
               setHistoryRecoveryTaskId(null);
             }}>
               履歴表示を再試行

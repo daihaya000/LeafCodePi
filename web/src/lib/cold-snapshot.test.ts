@@ -43,10 +43,39 @@ it("invalidates offsets on same-size rewrite and inode replacement", async () =>
   writeFileSync(path, encode([user("u", null, "new")])); expect(JSON.stringify(await read())).toContain("new");
   rmSync(path); writeFileSync(path, encode([user("v", null, "yes")])); expect((await read())!.messages[0].id).toBe("v");
 });
-it("refuses legacy/cyclic/oversize lines/oversize page before SDK opens or session rewrites", async () => {
-  for (const [entries, version, status] of [[ [user("u", null, "old")], 1, 409 ], [[user("u", "u", "cycle")], 3, 409], [[user("u", null, "x".repeat(2 * 1024 * 1024))], 3, 413], [Array.from({length: 10}, (_,i) => ({type:"message",id:"a"+i,parentId:i?"a"+(i-1):null,message:{role:"assistant",timestamp:i,content:[{type:"text",text:"x".repeat(600000)}]}})), 3, 413]] as any[]) {
+it("refuses legacy/cyclic/oversize lines before SDK opens or session rewrites", async () => {
+  for (const [entries, version, status] of [[ [user("u", null, "old")], 1, 409 ], [[user("u", "u", "cycle")], 3, 409], [[user("u", null, "x".repeat(2 * 1024 * 1024))], 3, 413]] as any[]) {
     writeFileSync(path, encode(entries, version)); const before = readFileSync(path); await expect(read()).rejects.toMatchObject({ status }); expect(readFileSync(path).equals(before)).toBe(true);
   }
+});
+it("pages a 24MiB single user turn by bytes rather than expanding to its beginning", async () => {
+  const entries: any[] = [user("u", null, "long task")];
+  for (let i = 0; i < 1000; i++) entries.push({ type: "message", id: "a" + i, parentId: i ? "a" + (i - 1) : "u", message: { role: "assistant", timestamp: i + 2, content: [{ type: "text", text: "x".repeat(24576) }] } });
+  writeFileSync(path, encode(entries));
+  const before = createHash("sha256").update(readFileSync(path)).digest("hex");
+  const detail = await read(), page = pageTaskMessages(detail!.messages);
+  expect(page.messages.length).toBeGreaterThan(0);
+  expect(page.messages.length).toBeLessThan(150);
+  expect(page.messages.at(-1)).toMatchObject({ id: "a999", parts: [{ id: "msg-1000-text-0" }] });
+  expect(page.messageHistory).toEqual({ hasMore: true, nextCursor: page.messages[0].id });
+  expect(Buffer.byteLength(JSON.stringify(page))).toBeLessThan(4 * 1024 * 1024);
+  expect(createHash("sha256").update(readFileSync(path)).digest("hex")).toBe(before);
+});
+it("reduces an oversized initial page even when it has fewer than the configured row count", async () => {
+  const entries = Array.from({ length: 10 }, (_, i) => ({ type: "message", id: "a" + i, parentId: i ? "a" + (i - 1) : null, message: { role: "assistant", timestamp: i, content: [{ type: "text", text: "x".repeat(600000) }] } }));
+  writeFileSync(path, encode(entries));
+  const detail = await read();
+  expect(detail!.messages.map(m => m.id)).toEqual(["a7", "a8", "a9"]);
+  expect(pageTaskMessages(detail!.messages).messageHistory).toEqual({ hasMore: true, nextCursor: "a7" });
+});
+it("keeps small turn alignment and refuses an unpageable latest tool group instead of returning empty", async () => {
+  const entries: any[] = [user("u", null, "small task")];
+  for (let i = 0; i < 200; i++) entries.push({ type: "message", id: "a" + i, parentId: i ? "a" + (i - 1) : "u", message: { role: "assistant", timestamp: i, content: [{ type: "text", text: "small" }] } });
+  writeFileSync(path, encode(entries));
+  expect((await read())!.messages[0].id).toBe("u");
+  for (let i = 0; i < 3; i++) entries.push({ type: "message", id: "r" + i, parentId: i ? "r" + (i - 1) : "a199", message: { role: "toolResult", toolName: "read", toolCallId: "call", content: [{ type: "text", text: "x".repeat(1500000) }] } });
+  writeFileSync(path, encode(entries));
+  await expect(read()).rejects.toMatchObject({ status: 413, code: "COLD_TRANSCRIPT_UNAVAILABLE" });
 });
 it("recovers without scanning or rewriting an oversized transcript, even without a client cache", async () => {
   writeFileSync(path, encode([user("u", null, "x".repeat(2 * 1024 * 1024))]));

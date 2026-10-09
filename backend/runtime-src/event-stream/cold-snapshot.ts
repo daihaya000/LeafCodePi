@@ -106,9 +106,24 @@ async function readWindow(path: string, signal: AbortSignal, includeMessages: bo
     branch.reverse();
     let start = branch.length, visible = 0;
     if (includeMessages) {
-      for (let i = branch.length - 1; i >= 0; i--) if (branch[i].visible && ++visible >= readHistoryPageSize()) { start = i; break; }
-      if (visible < readHistoryPageSize()) start = 0;
-      if (start > 0 && !branch[start].user) { for (let i = start - 1; i >= 0; i--) if (branch[i].user) { start = i; break; } }
+      const pageSize = readHistoryPageSize(), messageBudget = PAGE / 2;
+      const suffixBytes = new Float64Array(branch.length + 1);
+      for (let i = branch.length - 1; i >= 0; i--) suffixBytes[i] = suffixBytes[i + 1] + (branch[i].raw ? branch[i].length : 0);
+      for (let i = branch.length - 1; i >= 0; i--) if (branch[i].visible && ++visible >= pageSize) { start = i; break; }
+      if (visible < pageSize) start = 0;
+      // Turn alignment is optional: an hours-long tool turn must not pull its
+      // entire transcript into one SSE frame. Reserve half the page for metadata/projection.
+      if (start > 0 && !branch[start].user) {
+        let count = visible;
+        for (let i = start - 1; i >= 0 && suffixBytes[i] <= messageBudget && count < pageSize * 2; i--) {
+          if (branch[i].visible) count++;
+          if (branch[i].user) { start = i; break; }
+        }
+      }
+      while (start < branch.length && suffixBytes[start] > messageBudget) start++;
+      while (start < branch.length && !branch[start].visible) start++;
+      // Never label a truncated page as an empty conversation.
+      if (visible > 0 && start === branch.length) throw refuse(413);
     }
     const hasMore = branch.some((r, i) => i < start && r.visible), selected = new Set<Row>(), markers = new Map<string, Row>();
     for (let i = 0; i < start; i++) { const row = branch[i]; if (row.marker) markers.set(row.marker, row); if (row.user) { markers.delete("goal"); markers.delete("intercom"); } }
