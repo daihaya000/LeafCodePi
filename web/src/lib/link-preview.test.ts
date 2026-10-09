@@ -5,7 +5,7 @@ import { getLinkPreview, getLinkPreviewImage, parseLinkMetadata } from "./link-p
 beforeEach(() => {
   remote.mockReset();
   const cache = (globalThis as unknown as { __leafcodeLinkPreviews: { pages: Map<string, unknown>; pending: Map<string, unknown>; images: Map<string, unknown>; activeImages: number; cachedImageBytes: number } }).__leafcodeLinkPreviews;
-  cache.pages.clear(); cache.pending.clear(); cache.images.clear(); cache.activeImages = 0; cache.cachedImageBytes = 0;
+  if (cache) { cache.pages.clear(); cache.pending.clear(); cache.images.clear(); cache.activeImages = 0; cache.cachedImageBytes = 0; }
 });
 async function registerThumbnail(path: string, source = "/thumb.png") {
   remote.mockResolvedValueOnce({ bytes: Buffer.from(`<title>Document</title><meta property="og:image" content="${source}">`), contentType: "text/html", url: `https://example.com/${path}` });

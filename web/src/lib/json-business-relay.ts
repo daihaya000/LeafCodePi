@@ -4,6 +4,7 @@ import { publicConfigurationMutation } from "@shared/configuration-contract.mjs"
 import { usageExternalCommand, publicUsageOperation } from "@shared/usage-contract.mjs";
 import { peerFacing, PEER_AUTHORIZATION_HEADER } from "@shared/peer-contract.mjs";
 import { ttsBusinessTarget } from "@shared/tts-business-contract.mjs";
+import { serviceBusinessTarget } from "@shared/service-business-contract.mjs";
 import { backendInformationTarget } from "@shared/backend-information-contract.mjs";
 import { mcpBusinessTarget } from "@shared/mcp-business-contract.mjs";
 import { typesafeSettingsTarget } from "@shared/typesafe-settings-contract.mjs";
@@ -37,20 +38,31 @@ const noStore = { "Cache-Control": "no-store, private", "X-Content-Type-Options"
 function failure(status: number, message: string, execution?: "not-started" | "unknown") {
   return Response.json({ error: message, ...(execution ? { execution } : {}) }, { status, headers: noStore });
 }
-async function boundedBytes(input: Pick<Request, "body" | "headers">, limit: number) {
+async function boundedBytes(input: Pick<Request, "body" | "headers"> & { signal?: AbortSignal }, limit: number, timeoutMs?: number) {
   if (Number(input.headers.get("content-length")) > limit) return null;
   if (!input.body) return new Uint8Array();
   const reader = input.body.getReader(), chunks: Uint8Array[] = [];
   let size = 0;
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  let onAbort = () => {};
+  const stopped = new Promise<never>((_resolve, reject) => {
+    onAbort = () => { reject(input.signal?.reason ?? new Error("Request aborted")); void reader.cancel().catch(() => {}); };
+    input.signal?.addEventListener("abort", onAbort, { once: true });
+    if (timeoutMs) timer = setTimeout(() => {
+      reject(new DOMException("Request body deadline", "TimeoutError"));
+      void reader.cancel().catch(() => {});
+    }, timeoutMs);
+  });
   try {
+    if (input.signal?.aborted) onAbort();
     for (;;) {
-      const { done, value } = await reader.read();
+      const { done, value } = await Promise.race([reader.read(), stopped]);
       if (done) break;
       size += value.byteLength;
       if (size > limit) { await reader.cancel(); return null; }
       chunks.push(value);
     }
-  } finally { reader.releaseLock(); }
+  } finally { clearTimeout(timer); input.signal?.removeEventListener("abort", onAbort); reader.releaseLock(); }
   const bytes = new Uint8Array(size);
   let offset = 0;
   for (const chunk of chunks) { bytes.set(chunk, offset); offset += chunk.byteLength; }
@@ -85,11 +97,11 @@ export async function relayJsonBusiness(request: Request, route: string): Promis
   let body: Uint8Array | undefined;
   if (request.method !== "GET") {
     try {
-      const bytes = await boundedBytes(request, jsonBusinessBodyLimit(route, request.method));
+      const bytes = await boundedBytes(request, jsonBusinessBodyLimit(route, request.method), serviceBusinessTarget(route) ? 2000 : undefined);
       if (bytes === null && !publicPeer) return failure(413, "本文が大きすぎます", before);
       // Invalid/oversized Peer bodies stay invalid, but authentication must run first at the owner.
       body = bytes ?? new Uint8Array();
-    } catch { return failure(400, "本文を読み込めません", before); }
+    } catch (error) { return failure(error instanceof DOMException && error.name === "TimeoutError" ? 408 : 400, "本文を読み込めません", before); }
   }
   if (request.signal.aborted) return failure(400, "リクエストが中断されました", before);
   const headers: Record<string, string> = { authorization: `Bearer ${token}`, [BACKEND_PROTOCOL_HEADER]: String(BACKEND_PROTOCOL_VERSION),
@@ -121,7 +133,7 @@ export async function relayJsonBusiness(request: Request, route: string): Promis
       if (providerAuthTarget(route)) {
         const operation = publicAuthOperation(result.body?.operation);
         if (!operation || operation.id !== operationId) return failure(503, "Backendの認証操作結果を確認できません", unknown);
-      } else if (taskCollectionTarget(route) || taskLifecycleTarget(route) || taskHistoryTarget(route) || taskExecutionSettingsTarget(route) || taskConversationTarget(route) || taskGoalLoopTarget(route) || taskSessionTarget(route) || taskCompactionTarget(route) || taskAssistanceTarget(route) || taskSupervisionTarget(route) || botLifecycleTarget(route) || botConversationTarget(route) || botCodeTarget(route) || botRoutineTarget(route) || botOverviewTarget(route) || roomLifecycleTarget(route) || roomConversationTarget(route) || typesafeSettingsTarget(route) || mcpBusinessTarget(route) || backendInformationTarget(route) || ttsBusinessTarget(route)) {
+      } else if (taskCollectionTarget(route) || taskLifecycleTarget(route) || taskHistoryTarget(route) || taskExecutionSettingsTarget(route) || taskConversationTarget(route) || taskGoalLoopTarget(route) || taskSessionTarget(route) || taskCompactionTarget(route) || taskAssistanceTarget(route) || taskSupervisionTarget(route) || botLifecycleTarget(route) || botConversationTarget(route) || botCodeTarget(route) || botRoutineTarget(route) || botOverviewTarget(route) || roomLifecycleTarget(route) || roomConversationTarget(route) || typesafeSettingsTarget(route) || mcpBusinessTarget(route) || backendInformationTarget(route) || ttsBusinessTarget(route) || serviceBusinessTarget(route)) {
         const operation = publicTaskOperation(result.body?.operation);
         if (!operation || operation.id !== operationId) return failure(503, "Backendのタスク操作結果を確認できません", unknown);
       } else if (projectTarget(route)) {
@@ -141,6 +153,15 @@ export async function relayJsonBusiness(request: Request, route: string): Promis
     if (botConversation?.route.endsWith("/prompt") && result.status < 400) wakeBackendTaskListeners(`bot:${botConversation.params.id}`, "prompt");
     const outputHeaders = new Headers(noStore);
     for (const [key, value] of Object.entries(result.headers)) outputHeaders.set(key, value);
+    if (route === "link-preview/image" && result.status < 400) {
+      const image = result.body?.image as { contentType: string; base64: string };
+      const bytes = new Uint8Array(Buffer.from(image.base64, "base64"));
+      outputHeaders.set("content-type", image.contentType);
+      outputHeaders.set("content-length", String(bytes.byteLength));
+      outputHeaders.set("cross-origin-resource-policy", "same-origin");
+      outputHeaders.set("referrer-policy", "no-referrer");
+      return new Response(bytes, { status: result.status, headers: outputHeaders });
+    }
     if (route === "tts/synthesize" && result.status < 400) {
       const audio = result.body?.audio as { contentType: string; base64: string };
       outputHeaders.set("content-type", audio.contentType);

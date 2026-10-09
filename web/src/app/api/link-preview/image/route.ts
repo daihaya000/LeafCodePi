@@ -1,12 +1,5 @@
-import { NextResponse } from "next/server";
-import { getLinkPreviewImage } from "@/lib/link-preview";
+import { NextRequest } from "next/server";
+import { relayJsonBusiness } from "@/lib/json-business-relay";
 export const runtime = "nodejs";
-export async function GET(request: Request) {
-  const image = await getLinkPreviewImage(new URL(request.url).searchParams.get("id") ?? "");
-  if (!image) return NextResponse.json({ error: "プレビュー画像を取得できません" }, { status: 404, headers: { "Cache-Control": "no-store" } });
-  return new NextResponse(new Uint8Array(image.bytes), { headers: {
-    "Content-Type": image.mime, "Content-Length": String(image.bytes.length),
-    "Cache-Control": "private, max-age=300", "X-Content-Type-Options": "nosniff",
-    "Cross-Origin-Resource-Policy": "same-origin", "Referrer-Policy": "no-referrer",
-  } });
-}
+export const dynamic = "force-dynamic";
+export async function GET(request: NextRequest) { return relayJsonBusiness(request, "link-preview/image"); }

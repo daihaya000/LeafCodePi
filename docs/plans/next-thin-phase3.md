@@ -2,9 +2,9 @@
 
 ## 進捗・範囲
 
-Phase3全体は未完了。Phase0のBackend/Phase3/JSON分類は118経路・182操作。Git・Diff・コミット文生成13経路・14操作、定義管理14経路・25操作、Provider/モデル設定7経路・8操作、Provider認証JSON4経路・5操作、アカウント管理/資格情報9経路・19操作、利用量/クレジット3経路・5操作、Peer認証共有5経路・9操作、Workspaceファイル/次タスク提案3経路・3操作、Project lifecycle1経路・4操作、Task collection1経路・3操作、個別Task lifecycle2経路・4操作、Task履歴/検索/bookmark3経路・5操作、Task実行設定4経路・4操作、Task送信/対話応答3経路・3操作、Goal制御2経路・4操作、Task会話編集/昇格4経路・4操作、Task compaction2経路・2操作、Task進行補助4経路・5操作、Task監督/子実行2経路・2操作、Bot lifecycle2経路・5操作、Bot会話3経路・3操作、Bot Code2経路・5操作、Bot routine3経路・6操作、Bot sidebar/内線受信箱2経路・3操作、Room lifecycle2経路・5操作、Room会話コマンド3経路・3操作、TypeSafe設定2経路・6操作、MCP定義/認証3経路・6操作、メモリ検索/システム監視/既読状態3経路・4操作、browse一覧/アイコン2経路・3操作、TTS音声一覧/HTTP合成2経路・2操作の合計115経路・179操作の境界を移管した。認証に付随するログインSSE 1経路・1操作も同じownerへ移管した（Phase3 JSONの集計には加算しない）。残る3経路・3操作には既存Backend中継も含まれ、受入条件の確認・残存業務処理の移管が必要。
+Phase0のBackend/Phase3/JSON分類118経路・182操作の業務境界を移管した。Git・Diff・コミット文生成13経路・14操作、定義管理14経路・25操作、Provider/モデル設定7経路・8操作、Provider認証JSON4経路・5操作、アカウント管理/資格情報9経路・19操作、利用量/クレジット3経路・5操作、Peer認証共有5経路・9操作、Workspaceファイル/次タスク提案3経路・3操作、Project lifecycle1経路・4操作、Task collection1経路・3操作、個別Task lifecycle2経路・4操作、Task履歴/検索/bookmark3経路・5操作、Task実行設定4経路・4操作、Task送信/対話応答3経路・3操作、Goal制御2経路・4操作、Task会話編集/昇格4経路・4操作、Task compaction2経路・2操作、Task進行補助4経路・5操作、Task監督/子実行2経路・2操作、Bot lifecycle2経路・5操作、Bot会話3経路・3操作、Bot Code2経路・5操作、Bot routine3経路・6操作、Bot sidebar/内線受信箱2経路・3操作、Room lifecycle2経路・5操作、Room会話コマンド3経路・3操作、TypeSafe設定2経路・6操作、MCP定義/認証3経路・6操作、メモリ検索/システム監視/既読状態3経路・4操作、browse一覧/アイコン2経路・3操作、TTS音声一覧/HTTP合成2経路・2操作、Backend保存Task一覧/リンクプレビュー/ローカル翻訳3経路・3操作、Explorer参照メタデータ2経路・2操作を移管した。登録済み121経路・185操作のうち、Phase0のBackend/Phase3/JSON分類118経路・182操作を全件照合した。TTS HTTP合成・ローカル翻訳・プレビュー画像GETの3操作はこの分類の外で、旧区切り別の累計とは集計基準が異なる。認証に付随するログインSSEとプレビュー画像GETも同じownerへ移管した（Phase3 JSONの集計には加算しない）。対象Nextルートは入口・中継のみで、業務判断・永続化・コマンド実行を持たない。
 
-以下は第1区切り（Git・Diff・コミット文生成）の記録。第2区切りの定義管理、第3区切りのProvider/モデル設定、第4区切りのProvider認証、第5区切りのアカウント管理/資格情報、第6区切りの利用量/クレジット、第7区切りのPeer認証共有、第8区切りのWorkspaceファイル/次タスク提案、第9区切りのProject lifecycle、第10区切りのTask collection、第11区切りの個別Task lifecycle、第12区切りのTask履歴/検索/bookmark、第13区切りのTask実行設定、第14区切りのTask送信/対話応答、第15区切りのGoal制御、第16区切りのTask会話編集/昇格、第17区切りのTask compaction、第18区切りのTask進行補助、第19区切りのTask監督/子実行、第20区切りのBot lifecycle、第21区切りのBot会話、第22区切りのBot Code、第23区切りのBot routine、第24区切りのBot sidebar/内線受信箱、第25区切りのRoom lifecycle、第26区切りのRoom会話コマンド、第27区切りのTypeSafe設定、第28区切りのMCP定義/認証、第29区切りのメモリ検索/システム監視/既読状態、第30区切りのbrowse一覧/アイコン・Host native選択、第31区切りのTTS音声一覧/HTTP合成は末尾に記載する。
+以下は第1区切り（Git・Diff・コミット文生成）の記録。第2区切りの定義管理、第3区切りのProvider/モデル設定、第4区切りのProvider認証、第5区切りのアカウント管理/資格情報、第6区切りの利用量/クレジット、第7区切りのPeer認証共有、第8区切りのWorkspaceファイル/次タスク提案、第9区切りのProject lifecycle、第10区切りのTask collection、第11区切りの個別Task lifecycle、第12区切りのTask履歴/検索/bookmark、第13区切りのTask実行設定、第14区切りのTask送信/対話応答、第15区切りのGoal制御、第16区切りのTask会話編集/昇格、第17区切りのTask compaction、第18区切りのTask進行補助、第19区切りのTask監督/子実行、第20区切りのBot lifecycle、第21区切りのBot会話、第22区切りのBot Code、第23区切りのBot routine、第24区切りのBot sidebar/内線受信箱、第25区切りのRoom lifecycle、第26区切りのRoom会話コマンド、第27区切りのTypeSafe設定、第28区切りのMCP定義/認証、第29区切りのメモリ検索/システム監視/既読状態、第30区切りのbrowse一覧/アイコン・Host native選択、第31区切りのTTS音声一覧/HTTP合成、第32区切りの残る参照・プレビュー・翻訳は末尾に記載する。
 
 | 経路 | 操作 |
 | --- | --- |
@@ -517,4 +517,17 @@ Phase3全体は未完了。Phase0のBackend/Phase3/JSON分類は118経路・182�
 - 対象264件成功（Web98、Node/Core/AST/build165、独立fixture1）。両typecheck成功、強制Backend build7368KiB。途中の型/alias/末尾空行エラーは修正・再検証した。全体suiteは未実行。
 - Webのソース/パッケージがない実Backendでlocal responderの音声bytes/MIME、日本語text、global/Bot voice、caller設定無視、engine failure/unknown、設定永続化、実再起動後4IDの409/no再生成を確認（15.6秒）。HTTP ingressでもdisconnect継続を確認。Aivis一覧はmock、独立fixtureのcustom URL一覧は従来通り空/no probe。実TTSモデル/SAPI/音声再生/課金・ユーザー設定/サービス操作は未実行。
 
-累計115/118経路・179/182操作。残りは `backend/tasks`・`link-preview`・`translation/reasoning` の3経路・3操作。Phase3全体は未完了。
+第31区切りの旧進捗台帳は115/118経路・179/182操作としていた。最終照合でExplorer GET 2件の漏れと対象外TTS/翻訳の混入を確認したため、以下ではPhase0の各操作を直接照合して完了を判定する。
+
+## 第32区切り: Backend保存Task一覧・リンクプレビュー・ローカル翻訳、漏れていたExplorer参照
+
+- `backend/tasks` GET・`link-preview` POST・`translation/reasoning` POSTは単一の `relayJsonBusiness` のみ。Backend保存Task一覧は従来のcode/Bot・archived全行を維持し、SDK hydrationを行わず公開Task DTOへ深く射影する。標準認証・Origin・readiness・generation境界を統一し、Web内fallbackはない。
+- プレビューのmetadata parser・public DNS/接続検証・ページ/画像cacheをBackendへ移管。画像IDは同じcacheのcapabilityなので、付随する `link-preview/image` GETも移管した。Nextはbounded/canonical base64をbytesへ復元するだけ。raw画像/MIME・private max-age=300・same-origin/nosniff/no-referrerを維持。画像GETはPhase3 JSON件数に加算しない。URL語彙・client-safe添付分割は `shared/link-preview.ts`、parser依存 `htmlparser2@10.1.0` はBackendに明示導入。
+- URL本文32KiB・2秒read期限、公開HTTP(S)/標準portのみ、全DNS回答検査・接続先pinning、最大3redirectの再検査、cookie/認証なし、敏感URL非消費、HTML head256KiB/6秒、raster画像2MiB、page/image各128件・画像cache8MiB・並列各8を維持。Next roleはdispatch・cache初期化/利用・public fetch・Host翻訳をIO前に拒否する。
+- 翻訳は1〜16の非空文字列・合計16,000文字、本文64KiB。Backend所有のloopback Host設定から固定 `/translation/translate` を呼び、caller URL/model/credentialは採用しない。65秒・redirect拒否・応答256KiB/fatal UTF-8・出力配列/boolean対応/入力件数一致を検証する。Hostには推論・翻訳cache/quality record所有を残し、Nextには判断を残さない。
+- 翻訳のみconcurrent/0600/max128/ID-onlyの `reasoning-translation-command.json` を使用。文章/翻訳/URLを保存せず、受付済disconnect継続・同ID/restart409/no再推論・ACK完全一致を維持する。Host接続後の不正/4xx/5xx/不確実性は503/unknown。readonly preview/Task/画像にはledger/ACKを要求しない。bounded retentionであり無期限exactly-onceやHostとの原子的checkpointは主張しない。
+- 原因: 旧進捗台帳で `projects/[id]/explorer`・`tasks/[id]/explorer` GETを未照合のまま除外していた。実NextにはID→pathの業務読取が残っていたため、同じBackend ownerへ移管し、stored project/taskから解決・Bot拒否・欠落404・安全なloopback controlUrlの射影を検証。Project POSTの固定403拒否は維持し、Host Explorer起動・遠隔起動中継は追加しない。
+- 対象335件成功（Web181、Node/Core/AST/build153、Webなし実Backend/restart1）。両typecheck成功、強制Backend build7,578KiB。ASTでPhase0の118経路・182操作すべての登録と、対象Nextの単一中継を確認。途中のhelper alias・fixture型/headers期待値・旧翻訳テスト境界の失敗は修正して再検証した。全体suite・実翻訳モデル・実publicサイト・実ユーザーデータ/サービス操作は未実行。
+- Webソース/パッケージなしの実Backendで保存Task/code/Bot/archive・store bytes不変・秘匿DTO、敏感URL/loopbackのno-fetch card、画像miss404、認証/Origin拒否、隔離loopback responderで日本語翻訳・caller設定無視・ID-only保存・実再起動後409/no再推論、保存project/taskのExplorerメタデータ/Bot拒否を確認（6.1秒）。SSRF/DNS/redirect/メタデータ/画像bytesのpositive経路はmock adapterと実HTTP ingressテストで検証した。画像cacheは意図的にmemory-onlyで再起動後の旧IDは404。
+
+累計118/118経路・182/182操作。Phase3の受入条件を満たす。Phase4のbinary/SSE全体やWebフレームワークの置換完了は主張しない。

@@ -43,6 +43,19 @@ for (const [route, methods] of Object.entries(JSON_BUSINESS_ROUTES)) {
     } else assert.doesNotMatch(readFileSync(join(root, "backend/runtime-src/json-business/handlers", route, "route.ts"), "utf8"), /from ["']next\//);
   });
 }
+test("all 118 Phase0 Backend JSON routes / 182 operations are registered as transport-only", () => {
+  const inventory = JSON.parse(readFileSync(join(root, "docs/plans/next-thin-phase0.json"), "utf8"));
+  let routes = 0, operations = 0;
+  for (const item of inventory.routes) {
+    const methods = item.operations.filter(op => op.owner === "Backend" && op.phase === 3 && op.contract === "json");
+    if (!methods.length) continue;
+    routes++; operations += methods.length;
+    const route = item.route.replace(/^\/api\//, "");
+    assert.ok(JSON_BUSINESS_ROUTES[route], route);
+    for (const operation of methods) assert.ok(JSON_BUSINESS_ROUTES[route].includes(operation.method), `${route} ${operation.method}`);
+  }
+  assert.equal(routes, 118); assert.equal(operations, 182);
+});
 test("Next login SSE is an opaque subscriber relay, not a local SDK/session owner", () => {
   const path = join(root, "web/src/app/api/providers/[id]/login/events/route.ts"), source = ts.createSourceFile(path, readFileSync(path, "utf8"), ts.ScriptTarget.Latest, true);
   assert.deepEqual(source.statements.filter(ts.isImportDeclaration).map(n => n.moduleSpecifier.text).sort(), ["@/lib/provider-auth-events-relay", "next/server"].sort());

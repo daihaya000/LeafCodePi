@@ -3,9 +3,10 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 vi.mock("@/lib/host-control", () => ({
   hostTranslationPath: (action: string) => `/translation/${action}`,
   resolveHostControlUrl: () => "http://127.0.0.1:18775",
+  isLoopbackControlUrl: (url: string) => new URL(url).hostname === "127.0.0.1",
 }));
 
-import { POST as reasoningPost } from "./reasoning/route";
+import { POST as reasoningPost } from "@backend-runtime/json-business/handlers/translation/reasoning/route";
 import { POST as overridePost } from "./override/route";
 import { GET as statusGet } from "./status/route";
 import { POST as installPost } from "./install/route";
@@ -56,12 +57,12 @@ describe("POST /api/translation/reasoning", () => {
     expect(response.status).toBe(200);
     expect(await response.json()).toEqual({ translations: ["訳:hello"] });
     expect(fetchMock).toHaveBeenCalledWith(
-      "http://127.0.0.1:18775/translation/translate",
+      new URL("http://127.0.0.1:18775/translation/translate"),
       expect.objectContaining({ method: "POST", signal: expect.anything() }),
     );
   });
 
-  it("maps host errors to 502 and connectivity failures to 503", async () => {
+  it("keeps post-start host errors and connectivity failures uncertain at 503", async () => {
     vi.stubGlobal(
       "fetch",
       vi.fn().mockResolvedValue(jsonResponse(500, { error: "boom" })),
@@ -69,7 +70,7 @@ describe("POST /api/translation/reasoning", () => {
     const failed = await reasoningPost(
       jsonRequest("http://localhost/api/translation/reasoning", { texts: ["hi"] }),
     );
-    expect(failed.status).toBe(502);
+    expect(failed.status).toBe(503);
 
     vi.stubGlobal(
       "fetch",
