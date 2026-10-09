@@ -22,6 +22,19 @@ describe("runtime ownership", () => {
     expect(webOwnsRuntime({ NODE_ENV: "production", LEAFCODE_PI_BACKEND_OWNS_RUNTIME: "in-process" })).toBe(false);
   });
 
+  it("refuses Next in all modes even with an inherited Backend marker", () => {
+    for (const mode of [undefined, "development", "production", "test"]) {
+      for (const marker of [undefined, "1", "attach"]) {
+        const env = { NODE_ENV: mode, LEAFCODE_PI_PROCESS_ROLE: "next", LEAFCODE_PI_BACKEND_RUNTIME: marker };
+        expect(webOwnsRuntime(env)).toBe(false);
+        expect(isBackendRuntimeHost(env)).toBe(false);
+        expect(localRuntimeBlocked(env)).toBe(true);
+        expect(() => assertLocalRuntimeAllowed(env)).toThrow(RuntimeNotOwnedError);
+      }
+    }
+    expect(localRuntimeBlocked({ NODE_ENV: "production", LEAFCODE_PI_PROCESS_ROLE: "backend", LEAFCODE_PI_BACKEND_RUNTIME: "1" })).toBe(false);
+  });
+
   it("recognises the Backend runtime host", () => {
     expect(isBackendRuntimeHost({})).toBe(false);
     for (const value of ["1", "true", "yes", "on", "attach"]) {

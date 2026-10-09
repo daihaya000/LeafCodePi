@@ -8,6 +8,7 @@
     "start": "next start",
     "lint": "eslint",
     "typecheck": "tsc --noEmit",
+    "check:startup": "node ../scripts/check-next-startup-boundary.mjs",
     "test": "vitest run"
   },
   "dependencies": {

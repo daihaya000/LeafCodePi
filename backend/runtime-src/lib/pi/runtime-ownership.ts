@@ -6,9 +6,9 @@
  * writing the same files. These helpers are the single answer to "may this process start a session?",
  * and the Backend itself is never blocked by the WebUI's rule.
  *
- * There is no ownership switch left: a production WebUI is a client, and a development one owns the
- * runtime because `next dev` usually runs without a Backend next to it. The Host always starts the
- * Backend and the WebUI as its client, so production never needs to be told.
+ * Next registers its process role before serving requests, in development and production. That
+ * role is never an owner, even if a Backend marker was inherited. Standalone test/SDK consumers
+ * without the Next role keep their existing ownership behavior until their own entrypoint decides it.
  */
 
 import { assertAutoUpdateAvailable } from "./auto-update-maintenance";
@@ -18,25 +18,27 @@ const runtimeGlobals = globalThis as typeof globalThis & { __leafcodeRuntimeOwne
 /** Values that mean this process is the Backend runtime host (the Backend's own marker). */
 const ENABLED_VALUES = new Set(["1", "true", "yes", "on", "attach"]);
 
-/** Whether this process owns the Pi runtime: only a development build does. */
+/** Next never owns runtime; unmarked development/test consumers retain compatibility. */
 export function webOwnsRuntime(env: Record<string, string | undefined> = process.env): boolean {
-  return (env.NODE_ENV ?? "").trim().toLowerCase() !== "production";
+  return env.LEAFCODE_PI_PROCESS_ROLE !== "next"
+    && (env.NODE_ENV ?? "").trim().toLowerCase() !== "production";
 }
 
 /** Whether this process *is* the Backend runtime host: it owns sessions regardless of the WebUI switch. */
 export function isBackendRuntimeHost(env: Record<string, string | undefined> = process.env): boolean {
-  return ENABLED_VALUES.has((env.LEAFCODE_PI_BACKEND_RUNTIME ?? "").trim().toLowerCase());
+  return env.LEAFCODE_PI_PROCESS_ROLE !== "next"
+    && ENABLED_VALUES.has((env.LEAFCODE_PI_BACKEND_RUNTIME ?? "").trim().toLowerCase());
 }
 
 /**
- * Whether a local session must be refused. True only for a WebUI that has been told the Backend owns
- * the runtime; the Backend process itself is never refused.
+ * Whether a local session must be refused. Explicit Next role takes precedence over NODE_ENV and
+ * inherited Backend markers; the actual Backend process remains allowed.
  */
 export function localRuntimeBlocked(env: Record<string, string | undefined> = process.env): boolean {
   return !isBackendRuntimeHost(env) && (!webOwnsRuntime(env) || runtimeGlobals.__leafcodeRuntimeOwnerUnavailable === true);
 }
 
-/** Prevents a dev Web process from starting sessions after another process owns the shared data dir. */
+/** Prevents an unmarked development consumer from running after its owner slot is unavailable. */
 export function setRuntimeOwnerUnavailable(unavailable: boolean): void {
   runtimeGlobals.__leafcodeRuntimeOwnerUnavailable = unavailable;
 }

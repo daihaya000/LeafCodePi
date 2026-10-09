@@ -1,4 +1,4 @@
-/** Transitional Web entrypoint; execution startup is owned by the runtime layer. */
+/** Next starts HTTP transport only. Backend owns runtime startup and recovery. */
 export async function register() {
   if (process.env.NEXT_RUNTIME !== "nodejs") return;
   // Process ownership, not NODE_ENV: configuration never falls back to a Next writer.
@@ -8,11 +8,5 @@ export async function register() {
     installContentTypeStringHeader();
   } catch (error) {
     console.warn("[http] content-type header fix unavailable", error);
-  }
-  try {
-    const { startRuntimeServices } = await import("@/lib/pi/runtime-startup");
-    await startRuntimeServices();
-  } catch (error) {
-    console.warn("[bot-code-relay] startup scan unavailable", error);
   }
 }
