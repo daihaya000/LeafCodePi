@@ -1,2 +1,2 @@
-// Compatibility entrypoint. Implementation is owned by Backend.
-export * from "@backend-runtime/lib/task-response-model";
+// UI contract only. No Backend or SDK value dependency.
+export * from "@shared/ui/task-response-model";

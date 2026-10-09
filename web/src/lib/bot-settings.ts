@@ -1,2 +1,2 @@
-﻿/** Compatibility import; canonical configuration implementation is owned by Backend. */
-export * from "@backend-runtime/lib/bot-settings";
+// UI contract only. No Backend or SDK value dependency.
+export * from "@shared/ui/bot-settings";

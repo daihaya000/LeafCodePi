@@ -7,6 +7,7 @@ import { fileURLToPath } from "node:url";
 import { isMirroredNextCliReady, resolveMirrorRoot, syncMirror } from "./web-build-mirror.mjs";
 import { checkNextStartupBoundary } from "./check-next-startup-boundary.mjs";
 import { checkNextTransportBoundary } from "./check-next-transport-boundary.mjs";
+import { checkNextUiBoundary } from "./check-next-ui-boundary.mjs";
 import { DEFAULT_HOST_CONTROL_PORT, dataDir, readPort } from "../host/src/config.js";
 import { hasSsListeningPort, parseListeningPids, parseLsofListeningPids, parseSsListeningPids } from "../host/src/port-plan.js";
 import { runPortSnapshot } from "../host/src/port-scanner.js";
@@ -561,6 +562,7 @@ export async function main(argv = process.argv.slice(2)) {
   const ts = createRequire(join(mirror.mirrorRoot, "package.json"))("typescript");
   checkNextStartupBoundary(REPO_ROOT, ts);
   checkNextTransportBoundary(REPO_ROOT, ts);
+  checkNextUiBoundary(REPO_ROOT, ts);
 
   const nextBin = join(mirror.mirrorRoot, "node_modules", "next", "dist", "bin", "next");
   if (!existsSync(nextBin)) {

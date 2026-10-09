@@ -1,2 +1,2 @@
-// Compatibility entrypoint. Implementation is owned by Backend.
-export * from "@backend-runtime/lib/tool-labels";
+// UI contract only. No Backend or SDK value dependency.
+export * from "@shared/ui/tool-labels";

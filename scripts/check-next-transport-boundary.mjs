@@ -9,7 +9,7 @@ const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const defaultParser = () => createRequire(resolve(ROOT, "web/package.json"))("typescript");
 const EXTERNALS = new Set(["next/server", "undici", "node:crypto", "node:zlib"]);
 const normalize = (path) => path.replaceAll("\\", "/");
-/** Migrated ingress only. Legacy Host/health/build-info and UI are not yet covered. */
+/** Migrated ingress only; full UI roots are checked separately. */
 export const NEXT_TRANSPORT_ROOTS = Object.freeze([
   "web/src/proxy.ts",
   "web/src/app/api/auth/webui/route.ts",
@@ -62,7 +62,7 @@ function generationReaderOnly(file, ts) {
   assert.equal(reads, 1, "Backend transport requires one named generation reader");
 }
 
-export function checkNextTransportBoundary(root = ROOT, ts = defaultParser(), roots = NEXT_TRANSPORT_ROOTS) {
+export function checkNextTransportBoundary(root = ROOT, ts = defaultParser(), roots = NEXT_TRANSPORT_ROOTS, kind = "transport") {
   root = realpathSync(root);
   const web = realpathSync(resolve(root, "web/src")), shared = realpathSync(resolve(root, "shared"));
   assert.equal(web, resolve(root, "web/src"), "Next source root cannot redirect to owner code");
@@ -75,9 +75,19 @@ export function checkNextTransportBoundary(root = ROOT, ts = defaultParser(), ro
     assert.ok(!/\.d\.[cm]?ts$/.test(canonical), `Declaration files are not executable dependencies: ${normalize(file)}`);
     if (visited.has(canonical)) return;
     visited.add(canonical);
+    if (kind === "ui" && /\.(css|svg|png|jpg|webp)$/.test(canonical)) return;
     const source = readFileSync(canonical, "utf8");
     for (const specifier of startupImports(source, normalize(relative(root, canonical)), ts)) {
       if (EXTERNALS.has(specifier)) continue;
+      if (kind === "ui" && ["react", "react-dom", "lucide-react", "next-themes", "next/dynamic", "next/image", "next/link", "next/navigation", "next/headers", "react-markdown", "remark-gfm"].includes(specifier)) continue;
+      if (kind === "ui" && canonical === resolve(web, "app/layout.tsx") && specifier === "node:os") {
+        const syntax = ts.createSourceFile(canonical, source, ts.ScriptTarget.Latest, true);
+        const imports = syntax.statements.filter(n => ts.isImportDeclaration(n) && n.moduleSpecifier.text === "node:os");
+        assert.equal(imports.length, 1, "UI hostname permits only a static named import");
+        const clause = imports[0].importClause, bindings = clause?.namedBindings;
+        assert.ok(!clause.name && bindings && ts.isNamedImports(bindings) && bindings.elements.length === 1 && bindings.elements[0].name.text === "hostname" && !bindings.elements[0].propertyName, "UI may read only the host display name");
+        continue;
+      }
       if (canonical === hostReader && ["node:os", "node:path"].includes(specifier)) continue;
       if (specifier === "node:fs" && (canonical === reader || canonical === hostReader)) { generationReaderOnly(canonical, ts); continue; }
       assert.ok(specifier.startsWith("@/") || specifier.startsWith("@shared/") || specifier.startsWith("."),

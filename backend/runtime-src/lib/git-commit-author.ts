@@ -1,2 +1,2 @@
-/** Compatibility import; canonical Git author configuration is shared with agent tools. */
-export * from "@shared/git-commit-author";
+// Shared presentation contract; Backend mutation/state remains in owner modules.
+export * from "@shared/ui/git-commit-author";

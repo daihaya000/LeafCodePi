@@ -1,2 +1,2 @@
-// Compatibility entrypoint. Implementation is owned by Backend.
-export * from "@backend-runtime/lib/openai-fast-mode";
+// UI contract only. No Backend or SDK value dependency.
+export * from "@shared/ui/openai-fast-mode";

@@ -8,7 +8,7 @@ import {
   readProviderModelState,
   sortByPreferredOrder,
 } from "@/lib/provider-model-state";
-import { thinkingLevelsForModel } from "@/lib/thinking-levels";
+import { thinkingLevelsForModel } from "./thinking-levels";
 import { isJevModel } from "@/lib/jev-model-catalog";
 import type { Api, Model } from "@earendil-works/pi-ai";
 import type { ModelOption, ThinkingLevel } from "@/lib/types";

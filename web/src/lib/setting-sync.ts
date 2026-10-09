@@ -1,2 +1,2 @@
-// Compatibility entrypoint. Implementation is owned by Backend.
-export * from "@backend-runtime/lib/setting-sync";
+// UI contract only. No Backend or SDK value dependency.
+export * from "@shared/ui/setting-sync";

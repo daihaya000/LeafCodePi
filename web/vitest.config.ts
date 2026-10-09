@@ -1,4 +1,5 @@
 import { configDefaults, defineConfig } from "vitest/config";
+import uiModules from "../shared/ui-module-paths.json";
 import { existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, isAbsolute, join, resolve } from "node:path";
@@ -22,6 +23,11 @@ export default defineConfig({
       if (!absolute) return null;
       const normalized = absolute.replaceAll("\\", "/");
       const prefix = webSource.replaceAll("\\", "/") + "/";
+      const runtimePrefix = runtimeSource.replaceAll("\\", "/") + "/";
+      const contractPath = normalized.startsWith(prefix) ? normalized.slice(prefix.length) : normalized.startsWith(runtimePrefix) ? normalized.slice(runtimePrefix.length) : null;
+      if (contractPath && uiModules.includes(contractPath.endsWith(".ts") ? contractPath : contractPath + ".ts") && !(normalized.startsWith(runtimePrefix) && contractPath.replace(/\.ts$/, "") === "lib/thinking-levels")) {
+        return fileURLToPath(new URL(`../shared/ui/${contractPath.slice(4).replace(/\.ts$/, "")}.ts`, import.meta.url));
+      }
       if (!normalized.startsWith(prefix) || /\.test\.[jt]sx?$/.test(normalized)) return null;
       const suffix = normalized.slice(prefix.length);
       // Auth and HTTP contracts are shared, not Backend business compatibility modules.

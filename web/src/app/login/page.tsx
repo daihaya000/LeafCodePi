@@ -1,5 +1,5 @@
 import { Suspense } from "react";
-import { displayLeafcodePiDataPath } from "@/lib/paths";
+import { displayLeafcodePiDataPath } from "@shared/display-data-path.mjs";
 import LoginForm from "./LoginForm";
 
 export default function LoginPage() {

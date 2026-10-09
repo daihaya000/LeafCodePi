@@ -58,6 +58,17 @@ Nextは画面・ブラウザ認証・入口制限・HTTP中継だけを担当す
 - 実Next productionで4 API routes/113 source filesをbuildし、匿名/private health投影・Backend不在のreadiness・Hostモデル一覧・Web停止/再起動中のload保持と一回だけのload POSTを1/1成功（13.8秒）。Backend metadata callbackとllama engineは有限fake、Hostのreceipt/scanはTemp実ファイル。実資格情報・実model load・実provider/engine・稼働サービス変更はなく、実SDK生成継続の最終受入ではない。
 - 初回nativeのruntime attach2件はbundle build前の試験順序で失敗し、build後に再実行して成功。health fixtureの初回2件は継承したgeneration pinが原因で、fixture限定で明示的に空にし再検証。production copierは許可済HTTP依存undiciを拒否していたため修正した。レビューでSDK診断待ちがreadinessを阻害するリスクを確認し、1秒deadlineと停止Backend回帰を追加した。
 
+## 第5区切り: 全画面のBackend値依存撤去・SSR設定HTTP化
+
+- 画面閉包の棚卸しで、純粋表示・入力schema・ブラウザ設定cache等がBackend互換wrapperを経由し、thinking-levels経由のSDK値importとlayoutからの設定ストア直読を持つことを確認。59モジュールを `shared/ui/`、pure Core4モジュールを `shared/ui-core/` に移管し、Web/Backend/Coreの旧pathはshared re-exportを保持。ブラウザcacheの正本は引き続きBackendの設定。Backendのモデル能力判定・SDK clampだけはBackend thinking-levelsに残す。
+- layoutの `readSettingsSnapshot` 直読を廃止し、既存Backend `/internal/configuration/settings` をSSRから一回だけ読む。Cookie/Bearer認証条件、internal bearer/protocol、世代pin、deadline1.5秒・応答4MiB・DTO/prototype key検査を維持。browser資格情報・任意headersをBackendに転送しない。失敗時はundefinedでブラウザの既存hydrateへ委ね、Nextのローカル設定・保存・再送へfallbackしない。RSCへ渡す値は検証済みplain objectとする。
+- loginのpath表記はFS/owner helperから切り離したpure shared formatterへ変更し、文字列仕様は維持。Root layoutのhostname表示だけはstatic named hostname importを限定許可し、他のOS能力へ権限を広げない。表示文言・style・構造は変更しない。
+- `check-next-ui-boundary` は全render convention/client directiveを自動発見し、145 roots/349 runtime modulesの推移的値importを検査。Backend/SDK/store/native/process/非literal loadingとroot/asset escapeを拒否し、既存transport gate22/90とともにcompiler準備後・既存.next退避前のbuild gateへ組み込み。API全閉包・型依存・manifestからのSDK除去の完了を意味しない。
+- 隔離基準fab908a3＋対象差分だけでBackend forced build/runtime型・Web source-only型成功。pure TS58個はimport pathを除くruntime emitが元実装と完全一致、pure Core4個の本体bytes（EOL除外）も一致。SDK thinking回帰・設定cache/Auto/effort・SSR境界の再検証成功。native70件成功。
+- 広域Web332 files/2921 testsは331 files/2920 tests成功、ConversationLayoutのscroll follow1件だけ失敗。変更なしHEADを別Tempへ展開し、同じ500対1200の失敗を再現したため今回の回帰としては修正せず、全Web成功とは主張しない。SettingsViewの既存happy-dom localhost通信拒否ログも隠さない。
+- 実Next productionで実UI page/layout全体をbuildし、既存MainLayoutClient・思考dropdownをrender。匿名SSRはBackend設定読取0、Cookie callerだけowner値を受け、Web停止/再起動後は更新したowner snapshotを表示、internal token非露出・Next data directory未生成を1/1成功（18.2秒）。有限fake設定ownerであり実provider/SDK生成継続の最終受入ではない。初回fixtureはResponseでないowner返値、次はRSCでnull-prototype DTOを渡す問題で失敗し、契約修正後に再検証した。
+- Backend SDK関数のimportはWeb alias誤解決を避けてrelativeへ変更。並行harness差分とは異なるimport1行だけを隔離展開・限定stageし、他者のoverload実装は含めない。実サービス停止/再起動、実資格情報、課金生成、installed package変更は行わない。
+
 ## 残る作業
 
 - 画面で使うclient-safe helper/型と、Backend業務実装への互換re-exportを分離。実行グラフに残るBackend/SDK依存を特定して撤去し、旧helperの直接呼出しも整理する。

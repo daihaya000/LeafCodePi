@@ -1,2 +1,2 @@
-/** Existing Pushover setting also controls browser notifications; keep the key to preserve OFF states. */
-export const NOTIFICATION_DELIVERY_SETTING_KEY = "pushover-notifications-enabled";
+// Shared presentation contract; Backend mutation/state remains in owner modules.
+export * from "@shared/ui/notification-delivery-key";

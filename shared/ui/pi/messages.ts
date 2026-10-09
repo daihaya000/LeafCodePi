@@ -1,0 +1,724 @@
+import { HANG_RETRY_PREFIX } from "@shared/ui/hang-retry";
+import { BOT_PROMPT_PREFIX, stripBotPromptPrefix, stripHangRetryPrefix } from "@shared/ui-core/prompt-markers.mjs";
+import type { GoalLoopTurn, NestedToolCallDto, ToolState, UiDiagnostic, UiMessage, UiPart } from "@shared/types";
+
+/**
+ * Bot（Code委譲・Botパネル）が送ったプロンプトを識別するマーカー。
+ * user メッセージ先頭に付与し、UI では送信者をBotとして描画する（本文からは除去）。
+ * Code画面の入力欄からユーザーが送った本文には付かない。
+ */
+export { BOT_PROMPT_PREFIX, isBotPromptText, markBotPrompt, stripBotPromptPrefix, stripPromptMarkers } from "@shared/ui-core/prompt-markers.mjs";
+
+/** セッションの raw メッセージから user プロンプト本文を取る（マーカーは付けたまま）。user 以外は空。 */
+export function rawUserMessageText(item: unknown): string {
+  if (!isRecord(item) || asString(item.role) !== "user") return "";
+  return typeof item.content === "string"
+    ? item.content
+    : textFromBlocks(contentBlocks(item.content));
+}
+
+/** Read only the displayed code points, without retaining the discarded suffix. */
+function codePointPrefix(text: string, limit: number): string {
+  const prefix: string[] = [];
+  for (const char of text) {
+    prefix.push(char);
+    if (prefix.length === limit) break;
+  }
+  return prefix.join("");
+}
+
+export function titleFromPrompt(prompt: string): string {
+  const line = prompt
+    .split(/\r?\n/)
+    .map((part) => part.trim())
+    .find(Boolean);
+  if (!line) return "無題のタスク";
+  // コードユニットではなくコードポイント単位で切る（サロゲートペアを壊さない）。
+  const chars = Array.from(codePointPrefix(line, 61));
+  return chars.length > 60 ? `${chars.slice(0, 59).join("")}…` : line;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null;
+}
+
+function asString(value: unknown): string {
+  return typeof value === "string" ? value : "";
+}
+
+const AGENT_SWITCH_CUSTOM_TYPE = "leafcode-pi.agent-switch";
+const INTERCOM_MESSAGE_CUSTOM_TYPE = "intercom_message";
+const DEFAULT_AGENT_LABEL = "the default assistant persona";
+
+type AgentSwitch = {
+  previousAgent?: string;
+  nextAgent?: string;
+};
+
+type IntercomContext = NonNullable<UiMessage["intercom"]>;
+
+/** Hidden intercom prompts are retained only as context on their assistant response. */
+function intercomContextFromRaw(item: Record<string, unknown>): IntercomContext | null {
+  if (asString(item.customType) !== INTERCOM_MESSAGE_CUSTOM_TYPE) return null;
+  const details = isRecord(item.details) ? item.details : null;
+  const from = isRecord(details?.from) ? details.from : null;
+  const label = asString(from?.name).trim() || asString(from?.id).trim().slice(0, 8);
+  return label ? { from: codePointPrefix(label, 80) } : {};
+}
+
+export function isIntercomMessageMarker(item: unknown): boolean {
+  return isRecord(item) && intercomContextFromRaw(item) !== null;
+}
+
+function normalizedAgent(value: unknown): string | undefined {
+  const name = asString(value).trim();
+  return name && name !== DEFAULT_AGENT_LABEL ? name : undefined;
+}
+
+/** Hidden session markers let archived transcripts retain persona boundaries. */
+function agentSwitchFromRaw(item: Record<string, unknown>): AgentSwitch | null {
+  if (item.customType !== AGENT_SWITCH_CUSTOM_TYPE) return null;
+  const details = isRecord(item.details) ? item.details : null;
+  if (details && ("previousAgent" in details || "nextAgent" in details)) {
+    return {
+      previousAgent: normalizedAgent(details.previousAgent),
+      nextAgent: normalizedAgent(details.nextAgent),
+    };
+  }
+  const match = asString(item.content).match(/switched from \"([^\"]*)\" to \"([^\"]*)\"/);
+  return match
+    ? { previousAgent: normalizedAgent(match[1]), nextAgent: normalizedAgent(match[2]) }
+    : null;
+}
+
+/** Hidden persona boundary marker retained in the session branch for projection. */
+export function isAgentSwitchMarker(item: unknown): boolean {
+  return isRecord(item) && agentSwitchFromRaw(item) !== null;
+}
+
+function diagnosticFromRaw(value: unknown): UiDiagnostic | null {
+  if (!isRecord(value)) return null;
+  const type = asString(value.type).trim();
+  // Anthropicが過去のthinkingブロックを入力から除外した通知。障害ではないため表示しない。
+  if (!type || type === "anthropic_input_transformations") return null;
+
+  const rawError = isRecord(value.error) ? value.error : undefined;
+  const errorMessage = rawError ? asString(rawError.message).trim() : "";
+  const error = errorMessage
+    ? {
+        // コードポイント単位で切る（絵文字などのサロゲートペアを壊さない）。
+        message: codePointPrefix(errorMessage, 4000),
+        ...(asString(rawError?.name).trim()
+          ? { name: codePointPrefix(asString(rawError?.name).trim(), 120) }
+          : {}),
+        ...(typeof rawError?.code === "string" ||
+        (typeof rawError?.code === "number" && Number.isFinite(rawError.code))
+          ? { code: rawError.code }
+          : {}),
+      }
+    : undefined;
+
+  const rawDetails = isRecord(value.details) ? value.details : undefined;
+  const details: NonNullable<UiDiagnostic["details"]> = {};
+  for (const key of ["configuredTransport", "fallbackTransport", "phase"] as const) {
+    const detail = asString(rawDetails?.[key]).trim();
+    if (detail) details[key] = codePointPrefix(detail, 120);
+  }
+  if (typeof rawDetails?.eventsEmitted === "boolean") {
+    details.eventsEmitted = rawDetails.eventsEmitted;
+  }
+  if (typeof rawDetails?.requestBytes === "number" && Number.isFinite(rawDetails.requestBytes)) {
+    details.requestBytes = Math.max(0, Math.round(rawDetails.requestBytes));
+  }
+
+  return {
+    type: codePointPrefix(type, 120),
+    ...(typeof value.timestamp === "number" && Number.isFinite(value.timestamp)
+      ? { timestamp: value.timestamp }
+      : {}),
+    ...(error ? { error } : {}),
+    ...(Object.keys(details).length > 0 ? { details } : {}),
+  };
+}
+
+function diagnosticsFromRaw(value: unknown): UiDiagnostic[] {
+  if (!Array.isArray(value)) return [];
+  return value.map(diagnosticFromRaw).filter((item): item is UiDiagnostic => item !== null);
+}
+
+const ANSI_ESCAPE_PATTERN =
+  /[\u001B\u009B][[\]()#;?]*(?:(?:(?:[a-zA-Z\d]*(?:;[-a-zA-Z\d/#&.:=?%@~_]*)*)?\u0007)|(?:(?:\d{1,4}(?:[;:]\d{0,4})*)?[\dA-PR-TZcf-nq-uy=><~]))/g;
+
+export function stripAnsiEscapeSequences(text: string): string {
+  return text.replace(ANSI_ESCAPE_PATTERN, "");
+}
+
+/** Keep UI history payloads bounded; the timeline renders the same prefix only. */
+export const MAX_UI_TOOL_OUTPUT_CHARS = 20_000;
+export const UI_TOOL_OUTPUT_OMISSION = "\n…（以降省略）";
+
+export function truncateUiToolOutput(text: string): string {
+  if (text.length <= MAX_UI_TOOL_OUTPUT_CHARS) return text;
+  // Iterate only the visible prefix; Array.from(text) allocated every code point
+  // of multi-MiB results before throwing almost all of them away.
+  return `${codePointPrefix(text, MAX_UI_TOOL_OUTPUT_CHARS)}${UI_TOOL_OUTPUT_OMISSION}`;
+}
+
+function contentBlocks(content: unknown): unknown[] {
+  if (typeof content === "string") return [{ type: "text", text: content }];
+  return Array.isArray(content) ? content : [];
+}
+
+function textFromBlocks(blocks: unknown[]): string {
+  return blocks
+    .map((block) => {
+      if (!isRecord(block)) return "";
+      if (block.type === "text") return asString(block.text);
+      return "";
+    })
+    .filter(Boolean)
+    .join("\n");
+}
+
+/** Tool result / partial result のテキストを UI 表示用に取り出す。 */
+export function toolResultText(result: unknown): string {
+  if (typeof result === "string") return truncateUiToolOutput(stripAnsiEscapeSequences(result));
+  if (!isRecord(result)) return "";
+  return truncateUiToolOutput(
+    stripAnsiEscapeSequences(
+      textFromBlocks(contentBlocks(result.content)) || asString(result.output),
+    ),
+  );
+}
+
+/**
+ * data URL は多次元文字列。実測で画像付きセッションではこれが snapshot の 99.9%
+ * を占め、投影のたびに同じ画像の文字列を作り直すと大きなヒープの churn になる。
+ * mime と base64 の組が同じなら同じ文字列を使い回す。
+ */
+const imageDataUrlCache = new Map<string, string>();
+const IMAGE_DATA_URL_CACHE_MAX_ENTRIES = 16;
+const IMAGE_DATA_URL_CACHE_MAX_BYTES = 8 * 1024 * 1024;
+let imageDataUrlCacheBytes = 0;
+
+/** Conservative UTF-16 payload estimate; never expose cached image data or keys. */
+export function readImageDataUrlCacheDiagnostics(): { entries: number; bytes: number; maxBytes: number } {
+  return { entries: imageDataUrlCache.size, bytes: imageDataUrlCacheBytes, maxBytes: IMAGE_DATA_URL_CACHE_MAX_BYTES };
+}
+export function resetImageDataUrlCacheForTests(): void { imageDataUrlCache.clear(); imageDataUrlCacheBytes = 0; }
+
+function imageDataUrl(mime: string, data: string): string {
+  const prefix = `data:${mime};base64,`;
+  // Count both retained strings, even when V8 shares their backing storage.
+  const bytes = 2 * (mime.length + 1 + data.length + prefix.length + data.length);
+  // Oversized images still render, but never create/hash an equally large cache key.
+  if (bytes > IMAGE_DATA_URL_CACHE_MAX_BYTES) return `${prefix}${data}`;
+  const key = `${mime}\u0000${data}`;
+  const cached = imageDataUrlCache.get(key);
+  if (cached) return cached;
+  const url = `${prefix}${data}`;
+  while (imageDataUrlCache.size >= IMAGE_DATA_URL_CACHE_MAX_ENTRIES || imageDataUrlCacheBytes + bytes > IMAGE_DATA_URL_CACHE_MAX_BYTES) {
+    const oldest = imageDataUrlCache.entries().next().value;
+    if (!oldest) break;
+    imageDataUrlCacheBytes -= 2 * (oldest[0].length + oldest[1].length);
+    imageDataUrlCache.delete(oldest[0]);
+  }
+  imageDataUrlCache.set(key, url); imageDataUrlCacheBytes += bytes;
+  return url;
+}
+
+function imagePartsFromBlocks(blocks: unknown[], prefix: string): UiPart[] {
+  const parts: UiPart[] = [];
+  blocks.forEach((block, index) => {
+    if (!isRecord(block) || block.type !== "image") return;
+    const mime = asString(block.mimeType) || "image/png";
+    const data = asString(block.data);
+    if (!data) return;
+    parts.push({
+      id: `${prefix}-image-${index}`,
+      type: "image",
+      mime,
+      url: imageDataUrl(mime, data),
+    });
+  });
+  return parts;
+}
+
+function utf8Base64(value: string): string {
+  const bytes = new TextEncoder().encode(value);
+  let binary = "";
+  for (const byte of bytes) binary += String.fromCharCode(byte);
+  return btoa(binary);
+}
+
+/** File markers are transport-only prompt text; project them as compact metadata cards. */
+function filePartsFromPromptText(value: string, prefix: string): { text: string; parts: UiPart[] } {
+  const parts: UiPart[] = [];
+  const marker = /(?:^|\n\n)<leafcode-file>\r?\n([\s\S]*?)\r?\n<\/leafcode-file>/g;
+  let text = "";
+  let cursor = 0;
+  for (const match of value.matchAll(marker)) {
+    const full = match[0] ?? "";
+    const start = match.index ?? 0;
+    const end = start + full.length;
+    text += value.slice(cursor, start);
+    try {
+      const payload = JSON.parse(match[1] ?? "") as { name?: unknown; mimeType?: unknown; content?: unknown; path?: unknown; size?: unknown };
+      if (
+        typeof payload.name !== "string" ||
+        !payload.name.trim() ||
+        typeof payload.mimeType !== "string" ||
+        !payload.mimeType.trim()
+      ) throw new Error("invalid marker");
+      if (typeof payload.content !== "string") {
+        // Oversized attachments are stored server-side; show metadata only.
+        if (typeof payload.path !== "string" || typeof payload.size !== "number") throw new Error("invalid marker");
+        parts.push({
+          id: `${prefix}-file-${parts.length}`,
+          type: "file",
+          name: payload.name,
+          mime: payload.mimeType,
+          size: payload.size,
+        });
+        cursor = end;
+        continue;
+      }
+      const content = payload.content;
+      parts.push({
+        id: `${prefix}-file-${parts.length}`,
+        type: "file",
+        name: payload.name,
+        mime: payload.mimeType,
+        size: new TextEncoder().encode(content).byteLength,
+        data: utf8Base64(content),
+      });
+    } catch {
+      text += value.slice(start, end);
+    }
+    cursor = end;
+  }
+  return { text: text + value.slice(cursor), parts };
+}
+
+/**
+ * pi-subagents は tool result の `details` に実行 ID を載せる
+ * （`runId` / `asyncId` / `results[].runId`）。入れ子パネルがどの実行を
+ * 表示すべきか特定するために回収する。
+ */
+export function subagentRunIdsFromDetails(details: unknown): string[] {
+  if (!isRecord(details)) return [];
+  const ids = new Set<string>();
+  const add = (value: unknown) => {
+    if (typeof value === "string" && value.trim()) ids.add(value);
+  };
+  add(details.runId);
+  add(details.asyncId);
+  if (Array.isArray(details.results)) {
+    for (const row of details.results) {
+      if (!isRecord(row)) continue;
+      add(row.runId);
+      add(row.asyncId);
+    }
+  }
+  return [...ids];
+}
+
+const NESTED_CALL_STATUSES = new Set(["ok", "error", "unfinished"]);
+const MAX_NESTED_CALLS = 256;
+const MAX_NESTED_ERROR_CHARS = 500;
+
+/**
+ * The SDK's `nestedCalls` record of a tool result (`{ calls, complete }`), reduced to what the card
+ * shows (no arguments). A bare array of calls is accepted too.
+ */
+export function nestedCallsFromRaw(value: unknown): NestedToolCallDto[] {
+  const rows = Array.isArray(value) ? value : isRecord(value) && Array.isArray(value.calls) ? value.calls : null;
+  if (!rows) return [];
+  const calls: NestedToolCallDto[] = [];
+  for (const row of rows) {
+    if (calls.length >= MAX_NESTED_CALLS) break;
+    if (!isRecord(row)) continue;
+    const id = asString(row.id);
+    const name = asString(row.name);
+    const status = asString(row.status);
+    if (!id || !name || !NESTED_CALL_STATUSES.has(status)) continue;
+    const error = asString(row.error);
+    calls.push({
+      id,
+      name,
+      status: status as NestedToolCallDto["status"],
+      ...(typeof row.durationMs === "number" && Number.isFinite(row.durationMs) && row.durationMs >= 0
+        ? { durationMs: row.durationMs }
+        : {}),
+      ...(error ? { error: error.slice(0, MAX_NESTED_ERROR_CHARS) } : {}),
+    });
+  }
+  return calls;
+}
+
+function mergeToolResult(
+  messages: UiMessage[],
+  toolCallId: string,
+  output: string,
+  isError: boolean,
+  subagentRunIds: string[] = [],
+  nestedCalls: NestedToolCallDto[] = [],
+): void {
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    const message = messages[index];
+    if (!message) continue;
+    const part = message.parts.find(
+      (item): item is Extract<UiPart, { type: "tool" }> =>
+        item.type === "tool" && item.callID === toolCallId,
+    );
+    if (!part) continue;
+    part.state = {
+      ...part.state,
+      status: isError ? "error" : "completed",
+      output,
+      error: isError ? output : undefined,
+      ...(subagentRunIds.length > 0 ? { subagentRunIds } : {}),
+      ...(nestedCalls.length > 0 ? { nestedCalls } : {}),
+    };
+    return;
+  }
+}
+
+const GOAL_LOOP_TURN_CUSTOM_TYPE = "leafcode-goal-turn";
+const GOAL_LOOP_VERIFICATION_CUSTOM_TYPE = "leafcode-goal-verification";
+const GOAL_LOOP_CUSTOM_TYPES = new Set([
+  GOAL_LOOP_TURN_CUSTOM_TYPE,
+  GOAL_LOOP_VERIFICATION_CUSTOM_TYPE,
+]);
+
+export function isGoalLoopTurnMarker(item: unknown): boolean {
+  return (
+    isRecord(item) &&
+    Object.prototype.hasOwnProperty.call(item, "customType") &&
+    asString(item.role) === "custom" &&
+    GOAL_LOOP_CUSTOM_TYPES.has(asString(item.customType))
+  );
+}
+
+/** Extract only the safe turn metadata from a hidden Goal Loop marker. */
+function goalLoopTurnFromRaw(item: Record<string, unknown>): GoalLoopTurn | null {
+  if (!GOAL_LOOP_CUSTOM_TYPES.has(asString(item.customType))) return null;
+  const details = isRecord(item.details) ? item.details : null;
+  const rawTurn = details?.turn;
+  const turn =
+    typeof rawTurn === "number"
+      ? rawTurn
+      : typeof rawTurn === "string"
+        ? Number(rawTurn)
+        : NaN;
+  const kind = details?.kind;
+  if (!Number.isInteger(turn) || turn < 1 || (kind !== "goal" && kind !== "verification")) {
+    return null;
+  }
+  const goalId = asString(details?.goalId).trim();
+  return {
+    ...(goalId ? { goalId } : {}),
+    turn,
+    kind,
+  };
+}
+
+/**
+ * Goal Loop custom messages carry the full LLM prompt in `content`. Only the
+ * separately supplied user goal is safe to project into the WebUI timeline.
+ */
+export function goalLoopUiPrompt(item: Record<string, unknown>): string | null {
+  if (item.customType !== GOAL_LOOP_TURN_CUSTOM_TYPE) return null;
+  const details = isRecord(item.details) ? item.details : null;
+  const prompt = asString(details?.uiPrompt);
+  return prompt.trim() ? prompt : null;
+}
+
+/** Only the labelled display text is public; scheduler instructions stay in model context. */
+function sessionResumeUiPrompt(item: Record<string, unknown>): string | null {
+  if (item.customType !== "leafcode-session-resume-trigger" || item.display !== true) return null;
+  const details = isRecord(item.details) ? item.details : null;
+  const prompt = asString(details?.uiPrompt);
+  return prompt.startsWith("【予約再開】\n") && prompt.length <= 4_100 ? prompt : null;
+}
+
+/** projectPiMessages で独立した UiMessage になる raw（toolResult は assistant へ merge され除外）。 */
+export function piRawMessageProjectsToUi(item: unknown): boolean {
+  if (!isRecord(item)) return false;
+  const role = asString(item.role);
+  if (role === "toolResult") return false;
+  return (
+    role === "user" ||
+    role === "assistant" ||
+    role === "bashExecution" ||
+    role === "compactionSummary" ||
+    (role === "custom" && (goalLoopUiPrompt(item) !== null || sessionResumeUiPrompt(item) !== null))
+  );
+}
+
+/** projectPiMessages の出力順と同じ順で、各 UiMessage に対応するセッション entry id を返す。 */
+export function entryIdsForProjectedMessages(
+  raw: unknown[],
+  entryIdByMessage: Map<unknown, string>,
+): (string | undefined)[] {
+  const ids: (string | undefined)[] = [];
+  for (const item of raw) {
+    if (!piRawMessageProjectsToUi(item)) continue;
+    ids.push(entryIdByMessage.get(item));
+  }
+  return ids;
+}
+
+/**
+ * セッションエントリの書き込み時刻からツール実行の開始/終了時刻を復元する。
+ * ライブ計測（LiveRuntime の Map）はプロセス内にしか残らないため、再起動後の
+ * 履歴はこれで埋める。assistant の message.timestamp は生成「開始」時刻で
+ * モデルの生成時間を含んでしまうので、エントリ書き込み時刻を使う。
+ */
+export function toolTimingFromSessionEntries(entries: unknown[]): {
+  startedAt: Map<string, number>;
+  endedAt: Map<string, number>;
+} {
+  const startedAt = new Map<string, number>();
+  const endedAt = new Map<string, number>();
+  // 直前の assistant 応答、または一つ前のツール結果の書き込み時刻。
+  // ponytail: 同一応答内の複数ツールは順次実行とみなす。並列実行でも合計の
+  // 実時間は一致し、内訳だけがずれる。
+  let pendingStartMs: number | undefined;
+  for (const entry of entries) {
+    if (!isRecord(entry) || entry.type !== "message") continue;
+    const message = entry.message;
+    if (!isRecord(message)) continue;
+    const tsMs = Date.parse(asString(entry.timestamp));
+    if (!Number.isFinite(tsMs)) continue;
+    const role = asString(message.role);
+    if (role === "assistant") {
+      pendingStartMs = tsMs;
+      continue;
+    }
+    if (role !== "toolResult") continue;
+    const callID = asString(message.toolCallId);
+    if (!callID) continue;
+    if (pendingStartMs !== undefined) startedAt.set(callID, pendingStartMs);
+    endedAt.set(callID, tsMs);
+    pendingStartMs = tsMs;
+  }
+  return { startedAt, endedAt };
+}
+
+export function projectPiMessages(raw: unknown[], indexOffset = 0): UiMessage[] {
+  const messages: UiMessage[] = [];
+  let activeGoalLoopTurn: GoalLoopTurn | undefined;
+  let activeIntercom: IntercomContext | undefined;
+  // The first marker describes the persona that produced the preceding history.
+  // Later markers switch the active persona for messages that follow them.
+  let activeAgent: string | undefined;
+  for (const item of raw) {
+    if (!isRecord(item)) continue;
+    const switchInfo = agentSwitchFromRaw(item);
+    if (switchInfo) {
+      activeAgent = switchInfo.previousAgent;
+      break;
+    }
+  }
+  raw.forEach((item, index) => {
+    if (!isRecord(item)) return;
+    const role = asString(item.role);
+    const id = asString(item.id) || `msg-${index + indexOffset}`;
+    const recordTsMs =
+      typeof item.timestamp === "number" && Number.isFinite(item.timestamp)
+        ? item.timestamp
+        : undefined;
+    const createdAt = recordTsMs ?? Date.now();
+
+    if (role === "user") {
+      activeGoalLoopTurn = undefined;
+      activeIntercom = undefined;
+      const blocks = contentBlocks(item.content);
+      const parts: UiPart[] = [];
+      const rawText = typeof item.content === "string" ? item.content : textFromBlocks(blocks);
+      const hangRetry = rawText.startsWith(HANG_RETRY_PREFIX);
+      const afterHangRetry = hangRetry ? stripHangRetryPrefix(rawText) : rawText;
+      // Bot送信マーカー付きの本文だけを Bot の送信として扱う（Code画面の入力欄からの送信と区別）。
+      const fromBot = afterHangRetry.startsWith(BOT_PROMPT_PREFIX);
+      const parsedFiles = filePartsFromPromptText(
+        fromBot ? stripBotPromptPrefix(afterHangRetry) : afterHangRetry,
+        id,
+      );
+      if (parsedFiles.text) parts.push({ id: `${id}-text`, type: "text", text: parsedFiles.text });
+      parts.push(...imagePartsFromBlocks(blocks, id));
+      parts.push(...parsedFiles.parts);
+      messages.push({
+        id,
+        role: "user",
+        createdAt,
+        parts,
+        ...(hangRetry ? { hangRetry: true } : {}),
+        ...(fromBot ? { fromBot: true } : {}),
+      });
+      return;
+    }
+
+    if (role === "custom") {
+      const intercom = intercomContextFromRaw(item);
+      if (intercom) {
+        activeIntercom = intercom;
+        return;
+      }
+      activeIntercom = undefined;
+      const agentSwitch = agentSwitchFromRaw(item);
+      if (agentSwitch) activeAgent = agentSwitch.nextAgent;
+      if (isGoalLoopTurnMarker(item)) {
+        activeGoalLoopTurn = goalLoopTurnFromRaw(item) ?? undefined;
+      }
+      const resumeText = sessionResumeUiPrompt(item);
+      if (resumeText !== null) activeGoalLoopTurn = undefined;
+      const text = goalLoopUiPrompt(item) ?? resumeText;
+      if (text === null) return;
+      messages.push({
+        id,
+        // A self-resume notice is not an editable user request or a new approval.
+        role: resumeText !== null ? "assistant" : "user",
+        createdAt,
+        parts: [
+          { id: `${id}-text`, type: "text", text },
+          ...imagePartsFromBlocks(contentBlocks(item.content), id),
+        ],
+        ...(activeGoalLoopTurn ? { goalLoopTurn: activeGoalLoopTurn } : {}),
+      });
+      return;
+    }
+
+    if (role === "assistant") {
+      const parts: UiPart[] = [];
+      const blocks = Array.isArray(item.content) ? item.content : [];
+      blocks.forEach((block, blockIndex) => {
+        if (!isRecord(block)) return;
+        if (block.type === "text" && asString(block.text)) {
+          parts.push({ id: `${id}-text-${blockIndex}`, type: "text", text: asString(block.text) });
+        }
+        if (block.type === "thinking" && asString(block.thinking)) {
+          parts.push({
+            id: `${id}-think-${blockIndex}`,
+            type: "thinking",
+            text: asString(block.thinking),
+          });
+        }
+        if (block.type === "toolCall") {
+          const callID = asString(block.id) || `${id}-tool-${blockIndex}`;
+          parts.push({
+            id: `${id}-tool-${callID}`,
+            type: "tool",
+            tool: asString(block.name) || "tool",
+            callID,
+            state: {
+              status: "running",
+              input: isRecord(block.arguments) ? block.arguments : {},
+              title: asString(block.name) || "tool",
+            },
+          });
+        }
+      });
+      const usageInput =
+        isRecord(item.usage) &&
+        typeof item.usage.input === "number" &&
+        Number.isFinite(item.usage.input) &&
+        item.usage.input > 0
+          ? Math.round(item.usage.input)
+          : undefined;
+      const usageOutput =
+        isRecord(item.usage) &&
+        typeof item.usage.output === "number" &&
+        Number.isFinite(item.usage.output) &&
+        item.usage.output > 0
+          ? Math.round(item.usage.output)
+          : undefined;
+      const errorMessage = asString(item.errorMessage);
+      const stopReason = asString(item.stopReason);
+      const error =
+        errorMessage ||
+        (stopReason === "aborted"
+          ? "Aborted"
+          : stopReason === "error"
+            ? "生成が失敗しました"
+            : undefined);
+      const diagnostics = diagnosticsFromRaw(item.diagnostics);
+      messages.push({
+        id,
+        role: "assistant",
+        createdAt,
+        parts,
+        ...(activeGoalLoopTurn ? { goalLoopTurn: activeGoalLoopTurn } : {}),
+        ...(activeIntercom ? { intercom: activeIntercom } : {}),
+        ...(activeAgent ? { agent: activeAgent } : {}),
+        model: asString(item.model) || undefined,
+        provider: asString(item.provider) || undefined,
+        // Pi intentionally omits errorMessage for user aborts. Keep the
+        // stopReason as a stable marker so resume remains available after a
+        // session reload, not only immediately after clicking Stop.
+        ...(error ? { error } : {}),
+        ...(diagnostics.length > 0 ? { diagnostics } : {}),
+        ...(usageInput !== undefined ? { inputTokens: usageInput } : {}),
+        ...(usageOutput !== undefined ? { outputTokens: usageOutput } : {}),
+      });
+      return;
+    }
+
+    if (role === "toolResult") {
+      const callID = asString(item.toolCallId);
+      const output = toolResultText(item);
+      mergeToolResult(
+        messages,
+        callID,
+        output,
+        item.isError === true,
+        subagentRunIdsFromDetails(item.details),
+        nestedCallsFromRaw(item.nestedCalls),
+      );
+      return;
+    }
+
+    if (role === "bashExecution") {
+      messages.push({
+        id,
+        role: "assistant",
+        createdAt,
+        ...(activeGoalLoopTurn ? { goalLoopTurn: activeGoalLoopTurn } : {}),
+        ...(activeIntercom ? { intercom: activeIntercom } : {}),
+        ...(activeAgent ? { agent: activeAgent } : {}),
+        parts: [
+          {
+            id: `${id}-bash`,
+            type: "tool",
+            tool: "bash",
+            callID: id,
+            state: {
+              status: item.cancelled === true ? "cancelled" : item.exitCode === 0 || item.exitCode == null ? "completed" : "error",
+              input: { command: asString(item.command) },
+              output: truncateUiToolOutput(stripAnsiEscapeSequences(asString(item.output))),
+              title: "bash",
+            } satisfies ToolState,
+          },
+        ],
+      });
+      return;
+    }
+
+    if (role === "compactionSummary") {
+      activeIntercom = undefined;
+      const summary = asString(item.summary);
+      const tokensBefore =
+        typeof item.tokensBefore === "number" && Number.isFinite(item.tokensBefore)
+          ? item.tokensBefore
+          : undefined;
+      messages.push({
+        id,
+        role: "compaction",
+        createdAt,
+        tokensBefore,
+        parts: summary ? [{ id: `${id}-text`, type: "text", text: summary }] : [],
+      });
+    }
+  });
+  return messages;
+}

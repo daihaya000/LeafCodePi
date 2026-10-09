@@ -1,2 +1,2 @@
-// Compatibility entrypoint. Implementation is owned by Backend.
-export * from "@backend-runtime/lib/task-panes";
+// UI contract only. No Backend or SDK value dependency.
+export * from "@shared/ui/task-panes";

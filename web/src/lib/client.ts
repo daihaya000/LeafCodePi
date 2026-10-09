@@ -1,4 +1,2 @@
-"use client";
-
-// Compatibility entrypoint. Implementation is owned by Backend.
-export * from "@backend-runtime/lib/client";
+// UI contract only. No Backend or SDK value dependency.
+export * from "@shared/ui/client";

@@ -2,14 +2,13 @@ import { describe, expect, it } from "vitest";
 import type { Api, Model } from "@earendil-works/pi-ai";
 import {
   THINKING_LEVEL_LABELS,
-  clampThinkingLevelForModel,
   defaultThinkingLevel,
   isThinkingLevel,
   resolveThinkingLevel,
   thinkingLevelLabel,
   thinkingLevelMetaLabel,
-  thinkingLevelsForModel,
 } from "./thinking-levels";
+import { clampThinkingLevelForModel, thinkingLevelsForModel } from "@backend-runtime/lib/thinking-levels";
 
 function fakeModel(partial: Partial<Model<Api>> & Pick<Model<Api>, "id">): Model<Api> {
   return {

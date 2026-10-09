@@ -435,7 +435,7 @@ import {
   isThinkingLevel,
   resolveThinkingLevel,
   thinkingLevelsForModel,
-} from "@/lib/thinking-levels";
+} from "../thinking-levels";
 import {
   THROUGHPUT_CUSTOM_TYPE,
   createThroughputTiming,

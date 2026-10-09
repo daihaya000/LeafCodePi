@@ -1,0 +1,84 @@
+export const COMPACTION_ACTION_SETTING_KEY = "compactionAction";
+export const COMPACTION_THRESHOLD_SETTING_KEY = "compactionThreshold";
+export const DEFAULT_COMPACTION_THRESHOLD = 95;
+/** accountID::providerID::modelID (or providerID::modelID). Empty uses the session model. */
+export const COMPACTION_MODEL_SETTING_KEY = "compaction-model";
+export const COMPACTION_MODEL_EFFORT_SETTING_KEY = "compaction-model-effort";
+export const COMPACTION_BACKGROUND_SETTING_KEY = "compaction-background-enabled";
+export const COMPACTION_BACKGROUND_THRESHOLD_SETTING_KEY = "compaction-background-threshold";
+export const COMPACTION_SUMMARY_MAX_TOKENS_SETTING_KEY = "compaction-summary-max-tokens";
+
+export function parseCompactionSummaryMaxTokens(value: string | null | undefined): number {
+  const parsed = Number(value);
+  return Number.isSafeInteger(parsed) && parsed >= 512 && parsed <= 16_384 ? parsed : 4_096;
+}
+
+export function parseBackgroundCompactionThreshold(value: string | null | undefined): number {
+  const parsed = Number(value);
+  return Number.isInteger(parsed) && parsed >= 50 && parsed <= 85 ? parsed : 70;
+}
+
+export const CACHE_WARMING_MODES = ["off", "streaming", "idle"] as const;
+export type CacheWarmingMode = (typeof CACHE_WARMING_MODES)[number];
+
+export function parseCacheWarmingMode(value: unknown): CacheWarmingMode | null {
+  return typeof value === "string" && CACHE_WARMING_MODES.includes(value as CacheWarmingMode)
+    ? value as CacheWarmingMode
+    : null;
+}
+
+export type CompactionAction = "suggest" | "auto" | "off";
+
+export function parseCompactionAction(value: string | null): CompactionAction {
+  return value === "auto" || value === "off" || value === "suggest" ? value : "auto";
+}
+
+export function parseCompactionThreshold(value: string | null): number {
+  const parsed = Number(value);
+  return Number.isInteger(parsed) && parsed >= 70 && parsed <= 95 ? parsed : DEFAULT_COMPACTION_THRESHOLD;
+}
+
+function isAtCompactionThreshold(
+  percent: number | null | undefined,
+  threshold: number,
+): boolean {
+  return typeof percent === "number" &&
+    Number.isFinite(percent) &&
+    percent >= threshold;
+}
+
+export function shouldCompactAtThreshold(
+  action: CompactionAction,
+  percent: number | null | undefined,
+  threshold: number,
+): boolean {
+  return action === "auto" && isAtCompactionThreshold(percent, threshold);
+}
+
+export function shouldSuggestAtThreshold(
+  action: CompactionAction,
+  percent: number | null | undefined,
+  threshold: number,
+): boolean {
+  return action === "suggest" && isAtCompactionThreshold(percent, threshold);
+}
+
+/**
+ * Headroom kept even at the highest threshold. A single turn can add several
+ * large tool results at once, so a 5% reserve (threshold 95) was crossed inside
+ * one turn: sessions reached the context window before compaction ran.
+ */
+const MIN_RESERVE_FRACTION = 0.1;
+
+/** Convert a percentage threshold into Pi's reserved-token boundary. */
+export function reserveTokensForThreshold(
+  contextWindow: number,
+  threshold: number,
+): number {
+  if (!Number.isFinite(contextWindow) || contextWindow <= 0) return 0;
+  return Math.max(
+    1,
+    Math.ceil((contextWindow * (100 - threshold)) / 100),
+    Math.ceil(contextWindow * MIN_RESERVE_FRACTION),
+  );
+}

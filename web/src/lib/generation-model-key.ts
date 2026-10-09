@@ -1,2 +1,2 @@
-// Compatibility entrypoint. Implementation is owned by Backend.
-export * from "@backend-runtime/lib/generation-model-key";
+// UI contract only. No Backend or SDK value dependency.
+export * from "@shared/ui/generation-model-key";

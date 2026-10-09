@@ -1,2 +1,2 @@
-/** Compatibility import; canonical configuration implementation is owned by Backend. */
-export * from "@backend-runtime/lib/leafcode-memory-schema";
+// UI contract only. No Backend or SDK value dependency.
+export * from "@shared/ui/leafcode-memory-schema";
