@@ -20,6 +20,23 @@ Nextは画面・ブラウザ認証・入口制限・HTTP中継だけを担当す
 - native register試験は3個の独立子プロセス（development/production/test）でcold並行5回登録、実HTTP patchのidempotency、runtime拒否、親が保持するruntime owner recordのbytes不変、runtime singleton未生成を確認した。本物のNext framework全体や実行中SDKを跨ぐWeb再起動の証拠ではない。
 - 隔離archiveの初回mixed native runは112/113成功、ownership Markdown比較だけCRLF差で失敗。作業ツリーの9/9成功と、隔離文書の改行正規化比較で165 routes/265 operations一致を確認済み。無関係なownership checker自体は変更しない。
 
+## 第2区切り: 共通認証・Backend HTTP transportの分離
+
+- Browser認証のNode版/Edge-safe版、Origin guard、private Backend HTTP clientを `shared/` の純認証・transport実装へ移動。WebとBackendの旧import先は同じ共有実装へのre-exportとして残す。Node版のSHA256＋`timingSafeEqual`、required時のfail-closed、Cookie/Bearer契約、protocol/generation確認、deadline、owner障害時の非fallback・非再送は変更しない。
+- MCP DTO型は `shared/mcp-types.ts` へ分離。HTTP clientにBackend業務moduleの型参照も残さない。generation markerの読取はHost管理のtransport metadataとして保持し、業務状態の読書き権限と区別する。
+- `scripts/check-next-transport-boundary.mjs` は8入口（Proxy、Browser sign-in、configuration/JSON/SSE/file relays、runtime-event transport）の値依存閉包を検査。sharedの `.mjs` を `.d.mts` の存在に関係なく実装まで追い、Backend/SDK/store/native process、非literal loader、relative escape/symlink owner参照、未解決依存を拒否。generation marker以外のFS依存を拒否し、marker helperでも `readFileSync` 以外のFS importを認めない。
+- Web buildはmirrorのcompiler準備後、既存`.next`退避前にtransport gateも実行。Vitestの共有契約aliasも新ownerへ更新し、テストだけBackend implementationへ戻る誤解決を避ける。
+- **このゲートは移管済み共通入口だけ**。全165 routes・画面の最終gateではない。棚卸しで `/api/health` のharness呼出し、`/api/build-info` のGit更新、Host/llama経路のローカル設定読取・health cache更新、旧relay/runtime ownership参照が残ることを確認した。これらのowner移管、Host folder relayのtransport分離、画面helper/SDK依存除去は次区切りで行う。
+- standalone bundle子プロセス試験はNext test aliasを使わず、Web compatibility importを直接bundle。外部依存がNode builtinsのcrypto/fsのみで、Backend/SDK/installed packagesがなくても認証・Origin・protocol・generation更新・非fallbackを確認する。これは実Next/SDK再起動継続受入の代用ではない。
+
+## 第2区切りの検証結果
+
+- HEAD `02957bab` の隔離展開に自分の21 pathsだけを重ねて検証。他者harness/GoalLoop/provider-overload差分を含めない。認証・Origin・HTTP clientの4実装は、import先の変更とcomment除去を除き、移動前とTypeScript runtime emitが同一。MCP DTO型本文も同一。
+- Web境界回帰: 211 files・1543 tests成功。起動/transport gate・SDKなしstandalone bundle/typecheck・Host build mirror: 91 tests成功。API ownership: 作業ツリーで9/9成功、165 routes/265 operations一致。共通入口の禁止import gateは8 roots/66 modulesで成功。
+- Backend強制build、Backend runtime型検査、Web全source-only型検査成功。shared認証/client単体のstrict型検査もBackend/SDK sourceなしで成功（既存projectと同じallowJs）。Webなしの実Backend build/実SDK・業務API/独立再起動fixtureは1/1成功（17.3秒）。
+- 実Next production fixtureは15 unchanged API routes/80 source modulesをbuildし、約125秒SSE、256MiB cold branch、512MiB files、Range/HEAD、cancel、再接続・再起動を1/1成功。最大増分bytesはBackend RSS/heap/external `87,322,624 / 36,614,400 / 68,434,278`、Next `96,055,296 / 18,737,256 / 66,890,648`。steady heap増分はBackend `868,440`、Next `83,000`。従来のRSS128MiB/heap48MiB/external96MiB/steady heap8MiB以内、forced GCなし。活動reader/subscription/FD残留なし（bounded cold index cacheは仕様内）。
+- このproductionストリームfixtureは `sdkLoaded:false`。SDK生成中のWeb停止/再起動継続・非再実行の最終受入ではない。全Web suite、全画面構成、実provider/engine、無期限稼働の保証も行わない。Phase5全体は未完了。
+
 ## 残る作業
 
 - 画面で使うclient-safe helper/型と、Backend業務実装への互換re-exportを分離。実行グラフに残るBackend/SDK依存を特定して撤去し、旧helperの直接呼出しも整理する。

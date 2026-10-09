@@ -24,6 +24,15 @@ export default defineConfig({
       const prefix = webSource.replaceAll("\\", "/") + "/";
       if (!normalized.startsWith(prefix) || /\.test\.[jt]sx?$/.test(normalized)) return null;
       const suffix = normalized.slice(prefix.length);
+      // Auth and HTTP contracts are shared, not Backend business compatibility modules.
+      const sharedContracts: Record<string, string> = {
+        "lib/backend-client": "backend-http-client",
+        "lib/webui-auth": "webui-auth",
+        "lib/webui-auth-shared": "webui-auth-shared",
+        "lib/same-origin": "same-origin",
+      };
+      const sharedContract = sharedContracts[suffix.replace(/\.ts$/, "")];
+      if (sharedContract) return fileURLToPath(new URL(`../shared/${sharedContract}.ts`, import.meta.url));
       // This Web transport remains remote; the Backend has a distinct local adapter.
       if (suffix === "lib/runtime-settings" || suffix === "lib/runtime-settings.ts") return null;
       // The Next event relay needs page metadata helpers absent from Backend task-history.

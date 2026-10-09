@@ -9,6 +9,7 @@
     "lint": "eslint",
     "typecheck": "tsc --noEmit",
     "check:startup": "node ../scripts/check-next-startup-boundary.mjs",
+    "check:transport": "node ../scripts/check-next-transport-boundary.mjs",
     "test": "vitest run"
   },
   "dependencies": {

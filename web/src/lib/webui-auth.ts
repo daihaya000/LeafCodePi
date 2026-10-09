@@ -1,2 +1,2 @@
-/** Compatibility import; canonical configuration implementation is owned by Backend. */
-export * from "@backend-runtime/lib/webui-auth";
+// Shared authentication/transport contract; no Backend business implementation.
+export * from "@shared/webui-auth";
