@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { randomBytes } from "node:crypto";
 import { setTimeout as delay } from "node:timers/promises";
 import test from "node:test";
+import { request as httpRequest } from "node:http";
 import { closeBackend, createBackendServer, listenBackend } from "./server.mjs";
 async function fixture(t, options = {}) {
   const token = randomBytes(32).toString("hex"), server = createBackendServer({ token, isReady: () => true, ...options });
@@ -23,6 +24,22 @@ test("business transport enforces auth, protocol, readiness, method, context and
   const unavailable = await fixture(t, { isReady: () => false, jsonBusinessRequestAction: async () => { calls++; } });
   assert.equal((await request(`${unavailable.base}/git/init`, { method: "POST", headers: unavailable.headers })).status, 503);
   assert.equal(calls, 0);
+});
+test("Bot lifecycle transport isolates opaque commands, read context, avatar bounds and public DTO",async t=>{
+ let calls=0;const f=await fixture(t,{jsonBusinessRequestAction:async input=>{
+  calls++;assert.equal(Boolean(input.signal),input.method==="GET");
+  assert.equal(Boolean(input.operationId),input.method!=="GET");
+  return {status:input.method==="GET"?404:409,body:{error:"owner refusal",...(input.operationId?{operation:{id:input.operationId,execution:"complete"}}:{}),token:"PRIVATE"}};
+ }});
+ const headers={...f.headers,"x-leafcode-business-operation":"aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"},id="11111111-0123-4321-abcd-eeeeeeeeeeee";
+ assert.equal((await request(f.base+"/bots",{method:"POST",headers,body:"x".repeat(4097)})).status,413);
+ const declaredStatus=await new Promise((resolve,reject)=>{const upload=httpRequest(f.base+"/bots/"+id,{method:"PATCH",headers:{...headers,"content-length":"4194305"}},response=>{response.resume();response.once("end",()=>resolve(response.statusCode));});upload.once("error",reject);upload.end();});assert.equal(declaredStatus,413);
+ assert.equal((await request(f.base+"/bots",{method:"POST",headers:f.headers,body:"{}"})).status,400);assert.equal(calls,0);
+ for(const [method,path] of [["GET","bots"],["GET","bots/"+id],["POST","bots"],["PATCH","bots/"+id],["DELETE","bots/"+id]]){
+  const response=await request(f.base+"/"+path,{method,headers:method==="GET"?f.headers:headers,...(method==="GET"?{}:{body:"opaque 日本語"})});assert.equal(response.status,200);assert.ok(!JSON.stringify(await response.json()).includes("PRIVATE"));
+ }
+ assert.equal(calls,5);
+ const invalid=await fixture(t,{jsonBusinessRequestAction:async()=>({status:200,body:{bot:{id}}})});assert.equal((await request(invalid.base+"/bots/"+id,{headers:invalid.headers})).status,503);
 });
 test("supervision transport scopes commands versus child reads and rejects malformed success",async t=>{
  let calls=0;const f=await fixture(t,{jsonBusinessRequestAction:async input=>{

@@ -24,6 +24,8 @@ import { POST as selectTaskAgent } from "../app/api/tasks/[id]/agent/route";
 import { PUT as selectGoalAuto } from "../app/api/tasks/[id]/goal-loop-auto-model/route";
 import { GET as readTaskGoal, POST as startTaskGoal, PATCH as controlTaskGoal } from "../app/api/tasks/[id]/goal-loop/route";
 import { GET as activeTaskGoals } from "../app/api/goal-loop/active/route";
+import { GET as listBots, POST as createBot } from "../app/api/bots/route";
+import { GET as getBot, PATCH as patchBot, DELETE as deleteBot } from "../app/api/bots/[id]/route";
 import { POST as superviseTask } from "../app/api/tasks/[id]/supervisor/route";
 import { GET as childRuns } from "../app/api/tasks/[id]/subagents/route";
 import { POST as askProgress } from "../app/api/tasks/[id]/progress/route";
@@ -54,6 +56,27 @@ beforeEach(() => {
 });
 afterEach(() => { vi.restoreAllMocks(); vi.unstubAllGlobals(); vi.unstubAllEnvs(); rmSync(root, { recursive: true, force: true }); });
 describe("JSON business ingress", () => {
+  const botDto=()=>({id:"11111111-0123-4321-abcd-eeeeeeeeeeee",name:"日本語",label:"",soul:"Authored",avatarColor:"#fff",avatarImage:null,model:null,thinkingLevel:null,permissionMode:null,enabled:true,notificationsEnabled:false,codeAutoApprove:false,createdAt:"fixture",updatedAt:"fixture",skills:{mode:"inherit",include:[],exclude:[],token:"PRIVATE"},extraRoots:[],token:"PRIVATE"});
+  it("Bot lifecycle relays opaque create/patch/delete bytes, projects configuration and verifies ACKs",async()=>{
+    const context={params:Promise.resolve({id:botDto().id})};
+    for(const [method,fn,body] of [["POST",createBot,'{"templateId":"researcher","codeAutoApprove":true}'],["PATCH",patchBot,'{"name":"日本語","codeAutoApprove":true}'],["DELETE",deleteBot,'{"action":"forged"}']] as const){
+      fetcher.mockImplementationOnce(async(_url,init)=>Response.json({status:method==="POST"?201:200,body:{...(method==="DELETE"?{ok:true}:{bot:botDto()}),operation:{id:new Headers(init.headers).get("x-leafcode-business-operation"),execution:"complete"}}}));
+      const result=await (fn as any)(new NextRequest("http://localhost/api/bots",{method,body}),context);expect(result.status).toBe(method==="POST"?201:200);expect(JSON.stringify(await result.json())).not.toContain("PRIVATE");
+      const [url,init]=fetcher.mock.calls.at(-1)!;expect(url).toContain(method==="POST"?"/bots":"/bots/"+botDto().id);expect(new TextDecoder().decode(init.body)).toBe(body);
+    }
+    for(const operation of [undefined,{id:"aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee",execution:"complete"}]){fetcher.mockResolvedValueOnce(Response.json({status:200,body:{bot:botDto(),operation}}));const result=await patchBot(new NextRequest("http://localhost/api/bots",{method:"PATCH",body:"{}"}),context);expect(result.status).toBe(503);expect((await result.json()).execution).toBe("unknown");}
+    expect(readdirSync(root)).toEqual([]);
+  });
+  it("Bot reads/ETag encode selectors without local fallback; avatar/soul budgets/auth/Origin bound transport",async()=>{
+    fetcher.mockResolvedValueOnce(Response.json({status:200,body:{bots:[botDto()]},headers:{etag:"public"}}));const listed=await listBots(new NextRequest("http://localhost/api/bots"));expect(listed.status).toBe(200);expect((await listed.json()).bots).toHaveLength(1);
+    fetcher.mockResolvedValueOnce(Response.json({status:304,body:null,headers:{etag:"public"}}));expect((await listBots(new NextRequest("http://localhost/api/bots",{headers:{"if-none-match":"public"}}))).status).toBe(304);
+    fetcher.mockResolvedValueOnce(Response.json({status:404,body:{error:"missing"}}));expect((await getBot(new NextRequest("http://localhost/api/bots/one"),{params:Promise.resolve({id:"../one"})})).status).toBe(404);expect(fetcher.mock.calls.at(-1)![0]).toContain("/bots/..%2Fone");
+    fetcher.mockRejectedValueOnce(new Error("offline"));expect((await getBot(new NextRequest("http://localhost/api/bots/one"),{params:Promise.resolve({id:"one"})})).status).toBe(503);
+    for(const [method,limit,fn] of [["POST",4096,createBot],["PATCH",4194304,patchBot]] as const){const before=fetcher.mock.calls.length;expect((await (fn as any)(new NextRequest("http://localhost/api/bots",{method,body:"x".repeat(limit+1)}),{params:Promise.resolve({id:botDto().id})})).status).toBe(413);expect(fetcher).toHaveBeenCalledTimes(before);}
+    const before=fetcher.mock.calls.length;expect((await createBot(new NextRequest("http://localhost/api/bots",{method:"POST",headers:{origin:"https://evil.test"},body:"{}"}))).status).toBe(403);
+    vi.stubEnv("LEAFCODE_PI_WEBUI_AUTH","required");expect((await createBot(new NextRequest("http://localhost/api/bots",{method:"POST",body:"{}"}))).status).toBe(401);expect(fetcher).toHaveBeenCalledTimes(before);expect(readdirSync(root)).toEqual([]);
+  });
+
   it("supervisor relays opaque handoff/release bytes, encodes legacy IDs and verifies its ACK",async()=>{
     const context={params:Promise.resolve({id:"bot:fixture"})},task={id:"bot:fixture",status:"working",supervisorBotId:"one",token:"PRIVATE"};
     for(const body of ['{"botId":"one","fromBot":true}','{"botId":null,"action":"abort"}']){

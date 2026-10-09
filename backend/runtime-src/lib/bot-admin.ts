@@ -1,3 +1,4 @@
+import { assertConfigurationOwner } from "@backend-core/configuration-command.mjs";
 import { BOT_TOOL_NAMES, deleteBot, getBot, isBotLabelWithinSize, isBotNameWithinSize, normalizeBotSkills, patchBot, botTaskId } from "@/lib/bots";
 import { abortTaskIncludingColdGoalLoop, destroyTask, requestBotSoulReload, resetTaskConversation, setBotModel, setBotPermissionMode, setBotThinkingLevel, setBotTools, stopBotCodeTask } from "@/lib/pi/harness";
 import { validateBotSoulContent } from "@/lib/pi/bot-soul-tool";
@@ -49,6 +50,7 @@ async function stopLinkedBotCodeSession(
  * the parsed body after the privileged-mutation check and replays this answer unchanged.
  */
 export async function handleBotPatch(id: string, parsed: unknown): Promise<BotAdminResult> {
+  assertConfigurationOwner();
   const body = parsed && typeof parsed === "object" && !Array.isArray(parsed)
     ? parsed as Record<string, unknown>
     : null;
@@ -179,8 +181,8 @@ export async function handleBotPatch(id: string, parsed: unknown): Promise<BotAd
     else if (body.soul !== undefined || hasSkills) requestBotSoulReload(id);
     return { status: 200, body: { bot } };
   } catch (error) {
-    const message = error instanceof Error ? error.message : "\u30dc\u30c3\u30c8\u8a2d\u5b9a\u304c\u4e0d\u6b63\u3067\u3059";
-    const status = typeof error === "object" && error !== null && "status" in error && typeof error.status === "number" ? error.status : 400;
+    const status = typeof error === "object" && error !== null && "status" in error && typeof error.status === "number" && Number.isInteger(error.status) && error.status >= 400 && error.status <= 599 ? error.status : 503;
+    const message = status >= 500 ? "Bot設定の処理結果を確認できません" : error instanceof Error ? error.message : "\u30dc\u30c3\u30c8\u8a2d\u5b9a\u304c\u4e0d\u6b63\u3067\u3059";
     return { status, body: { error: message } };
   }
 }
@@ -190,6 +192,7 @@ export async function handleBotPatch(id: string, parsed: unknown): Promise<BotAd
  * owns. All of that is owner work, so the WebUI forwards the request and replays this answer.
  */
 export async function handleBotDelete(id: string): Promise<BotAdminResult> {
+  assertConfigurationOwner();
   // Read before teardown: deleteBot clears codeSessionTaskId with the Bot record.
   const bot = getBot(id);
   if (!bot) return { status: 404, body: { error: "\u30dc\u30c3\u30c8\u304c\u898b\u3064\u304b\u308a\u307e\u305b\u3093" } };

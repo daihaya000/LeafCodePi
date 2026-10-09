@@ -2,9 +2,9 @@
 
 ## 進捗・範囲
 
-Phase3全体は未完了。Phase0のBackend/Phase3/JSON分類は118経路・182操作。Git・Diff・コミット文生成13経路・14操作、定義管理14経路・25操作、Provider/モデル設定7経路・8操作、Provider認証JSON4経路・5操作、アカウント管理/資格情報9経路・19操作、利用量/クレジット3経路・5操作、Peer認証共有5経路・9操作、Workspaceファイル/次タスク提案3経路・3操作、Project lifecycle1経路・4操作、Task collection1経路・3操作、個別Task lifecycle2経路・4操作、Task履歴/検索/bookmark3経路・5操作、Task実行設定4経路・4操作、Task送信/対話応答3経路・3操作、Goal制御2経路・4操作、Task会話編集/昇格4経路・4操作、Task compaction2経路・2操作、Task進行補助4経路・5操作、Task監督/子実行2経路・2操作の合計86経路・128操作の境界を移管した。認証に付随するログインSSE 1経路・1操作も同じownerへ移管した（Phase3 JSONの集計には加算しない）。残る32経路・54操作には既存Backend中継も含まれ、受入条件の確認・残存業務処理の移管が必要。
+Phase3全体は未完了。Phase0のBackend/Phase3/JSON分類は118経路・182操作。Git・Diff・コミット文生成13経路・14操作、定義管理14経路・25操作、Provider/モデル設定7経路・8操作、Provider認証JSON4経路・5操作、アカウント管理/資格情報9経路・19操作、利用量/クレジット3経路・5操作、Peer認証共有5経路・9操作、Workspaceファイル/次タスク提案3経路・3操作、Project lifecycle1経路・4操作、Task collection1経路・3操作、個別Task lifecycle2経路・4操作、Task履歴/検索/bookmark3経路・5操作、Task実行設定4経路・4操作、Task送信/対話応答3経路・3操作、Goal制御2経路・4操作、Task会話編集/昇格4経路・4操作、Task compaction2経路・2操作、Task進行補助4経路・5操作、Task監督/子実行2経路・2操作、Bot lifecycle2経路・5操作の合計88経路・133操作の境界を移管した。認証に付随するログインSSE 1経路・1操作も同じownerへ移管した（Phase3 JSONの集計には加算しない）。残る30経路・49操作には既存Backend中継も含まれ、受入条件の確認・残存業務処理の移管が必要。
 
-以下は第1区切り（Git・Diff・コミット文生成）の記録。第2区切りの定義管理、第3区切りのProvider/モデル設定、第4区切りのProvider認証、第5区切りのアカウント管理/資格情報、第6区切りの利用量/クレジット、第7区切りのPeer認証共有、第8区切りのWorkspaceファイル/次タスク提案、第9区切りのProject lifecycle、第10区切りのTask collection、第11区切りの個別Task lifecycle、第12区切りのTask履歴/検索/bookmark、第13区切りのTask実行設定、第14区切りのTask送信/対話応答、第15区切りのGoal制御、第16区切りのTask会話編集/昇格、第17区切りのTask compaction、第18区切りのTask進行補助、第19区切りのTask監督/子実行は末尾に記載する。
+以下は第1区切り（Git・Diff・コミット文生成）の記録。第2区切りの定義管理、第3区切りのProvider/モデル設定、第4区切りのProvider認証、第5区切りのアカウント管理/資格情報、第6区切りの利用量/クレジット、第7区切りのPeer認証共有、第8区切りのWorkspaceファイル/次タスク提案、第9区切りのProject lifecycle、第10区切りのTask collection、第11区切りの個別Task lifecycle、第12区切りのTask履歴/検索/bookmark、第13区切りのTask実行設定、第14区切りのTask送信/対話応答、第15区切りのGoal制御、第16区切りのTask会話編集/昇格、第17区切りのTask compaction、第18区切りのTask進行補助、第19区切りのTask監督/子実行、第20区切りのBot lifecycleは末尾に記載する。
 
 | 経路 | 操作 |
 | --- | --- |
@@ -326,3 +326,18 @@ Phase3全体は未完了。Phase0のBackend/Phase3/JSON分類は118経路・182�
 - owner/2 handler/実BFF50件、Bot relay/並行outbox/子transcript/UI polling/ownership127件、Core/契約/HTTP/AST/bundle175件、独立fixture1件の対象353件が成功。全体スイートは今回再実行していない。Backend/Web typecheck、強制Backendビルド7,152 KiBも成功。
 - Webなし隔離実Backend/SDKで、実compaction provider待機中のuser Codeをfixture Botへ委譲→1件のdurable supervision outbox/リンク→解除→outbox cancel/リンク解除と圧縮継続を確認。実再起動後の解除状態/outbox/replay拒否、fixture child transcriptの思考/会話/current tool・since除外・再起動後の一覧復元・親会話非変更も確認（11.8秒）。Bot通知は到達不能localhostモデルのみ、圧縮/進行補助は既存固定text responderのみ。有料/外部生成・子エージェント起動/tool実行・稼働ユーザーTask/Bot/設定/資格情報/サービスへの操作は行わない。
 - 並行差分7ファイルと既存SDK routing timeout/selected-leaf永続化制約は保持し、今回解消したとは扱わない。Phase3全体は未完了で、Bot lifecycle/会話/Code/routine/Room業務等32経路・54操作が残る。
+
+## 第20区切り: Bot lifecycle
+
+- `bots` GET/POST、`bots/[id]` GET/PATCH/DELETEをBackendへ移管。Nextはencoded IDと単一中継returnのみで、設定読取・テンプレート選択・入力検証・セッション更新・永続化・teardownを持たない。古い一覧のlocal fallback、個別adminのlocal/forward分岐を除去した。
+- guard付きの一覧/作成/個別取得入口と既存admin入口がNextをSDK/store/FSより前に拒否。作成はownerのpermission/thinking設定、既存Core既定値、7件の純粋shared template catalogを使用する。callerのmodel/permission/approval/directory/SOUL等は作成引数に採用しない。既存Coreの新規Bot `codeAutoApprove:true` は変更せず、特権PATCHは認証済みcontextをownerで再確認する。
+- 一覧はworking CodeのbotId優先件数とETag/304を維持。個別GETのlegacy tool移行/既にliveな設定反映はownerで行い、cold conversationをhydrationしない。Bot DTOはskills/tool/rootsを含め深く投影し、認可されたSOUL/画像/設定とnullable/optional fieldsを保持、private SDK/credential/headerを除く。読取失敗・不正successを空一覧に偽装しない。
+- PATCHは既存model/thinking/permission/tools/skills/SOUL更新、disable/resetのRoom/Code/Goal停止を維持。DELETEはRoom runtime離脱・所属解除・outbox/linked Code停止・owned Task破棄・残るsupervised Taskの監督解除・Bot directory除去を同じownerで順に実行する。ユーザーのCode workspace/他Bot/Room会話を削除しない。
+- private `bot-lifecycle-command.json`（0600・最大128件）の直列CRUD admissionがunknownを効果前に記録する。入力/設定/名前/SOUL/画像は記録しない。同じIDは再起動後も409、ACK一致必須、受付不能はnot-started、部分保存後SDK例外/5xx/不正successはunknownで自動再実行/fallbackなし。admission後のbrowser切断でteardownを取消さない。completeはJSON処理終了であり複数file/store/session更新の原子性やrollback保証ではない。
+- 作成/削除は4 KiB、PATCHは4 MiB。既存avatar最大3,000,000文字とSOUL最大128 KiB（UTF-8）を併用でき、最大SOULのJSON control escapeも通す。IDは一度だけdecode、既存UUID-shaped形・最大128文字でpath/double-encoding escapeを拒否し、sidebar/events/roomsを個別Bot経路へ吸い込まない。
+
+### 第20区切りの検証結果
+
+- owner/2 handler/実BFF73件、Bot store/SOUL/Code relay/並行outbox/ownership127件、Core/契約/HTTP/AST/bundle164件、独立fixture1件の対象365件が成功。全体スイートは今回再実行していない。Backend/Web typecheck、強制Backendビルド7,173 KiB成功。
+- Webなし隔離実Backendでtemplate Bot作成→owner一覧/ETag/個別cold読取→名前/tools/skills/roots設定保存→実プロセス再起動後の復元、3 command IDの再実行409を確認。別fixture Bot削除はlinked Code/owned Task除去・残るTaskの監督解除・Room所属解除・他Bot/Room会話/Code workspace保持まで実検証（11.9秒）。最大avatar+escaped SOULと保存後SDK例外によるunknown/partial-save/replay拒否もowner検証した。
+- 有料/外部生成・実OAuth・稼働ユーザーBot/Task/設定/資格情報/SOUL/サービスへの変更なし。並行差分7ファイルと既存routing timeout/selected-leaf永続化制約は保持する。Phase3全体は未完了で、Bot会話/Code/routine/sidebar/Room業務等30経路・49操作が残る。
