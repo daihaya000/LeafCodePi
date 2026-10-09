@@ -22,6 +22,8 @@ import { POST as selectTaskModel } from "../app/api/tasks/[id]/model/route";
 import { POST as selectTaskThinking } from "../app/api/tasks/[id]/thinking/route";
 import { POST as selectTaskAgent } from "../app/api/tasks/[id]/agent/route";
 import { PUT as selectGoalAuto } from "../app/api/tasks/[id]/goal-loop-auto-model/route";
+import { GET as readTaskGoal, POST as startTaskGoal, PATCH as controlTaskGoal } from "../app/api/tasks/[id]/goal-loop/route";
+import { GET as activeTaskGoals } from "../app/api/goal-loop/active/route";
 import { POST as sendPrompt } from "../app/api/tasks/[id]/prompt/route";
 import { POST as answerPermission } from "../app/api/tasks/[id]/permission/route";
 import { POST as answerQuestion } from "../app/api/tasks/[id]/question/route";
@@ -39,6 +41,38 @@ beforeEach(() => {
 });
 afterEach(() => { vi.restoreAllMocks(); vi.unstubAllGlobals(); vi.unstubAllEnvs(); rmSync(root, { recursive: true, force: true }); });
 describe("JSON business ingress", () => {
+  it("actual Goal reads/control/start are opaque relays with deep DTO and matching command ACKs",async()=>{
+    const context={params:Promise.resolve({id:"bot:fixture"})};
+    fetcher.mockResolvedValueOnce(Response.json({status:200,body:{loop:null}}));
+    expect(await(await readTaskGoal(new NextRequest("http://localhost/api/tasks/bot%3Afixture/goal-loop"),context)).json()).toEqual({loop:null});
+    expect(new Headers(fetcher.mock.calls.at(-1)![1].headers).has("x-leafcode-business-operation")).toBe(false);
+    fetcher.mockResolvedValueOnce(Response.json({status:200,body:{active:1,taskIds:["bot:fixture"],token:"PRIVATE"}}));
+    expect(await(await activeTaskGoals(new NextRequest("http://localhost/api/goal-loop/active"))).json()).toEqual({active:1,taskIds:["bot:fixture"]});
+    for(const [method,handler] of [["POST",startTaskGoal],["PATCH",controlTaskGoal]] as const){
+      const body='{"opaque":"日本語","botId":"untrusted","invalidDomainInput":42}';
+      fetcher.mockImplementationOnce(async(_url,init)=>Response.json({status:200,body:{loop:{id:"g",status:"queued",goal:"authored",progress:[{summary:"authored",token:"PRIVATE"}]},agent:null,operation:{id:new Headers(init.headers).get("x-leafcode-business-operation"),execution:"complete"},token:"PRIVATE"}}));
+      const response=await handler(new NextRequest("http://localhost/api/tasks/bot%3Afixture/goal-loop",{method,body}),context);expect(response.status).toBe(200);expect(JSON.stringify(await response.json())).not.toContain("PRIVATE");
+      const [url,init]=fetcher.mock.calls.at(-1)!;expect(url).toContain("/tasks/bot%3Afixture/goal-loop");expect(new TextDecoder().decode(init.body)).toBe(body);
+    }
+    expect(readdirSync(root)).toEqual([]);
+  });
+  it("Goal control has a 4KiB budget while image-compatible start retains 18MiB; auth/Origin precede forwarding",async()=>{
+    const context={params:Promise.resolve({id:"t"})},url="http://localhost/api/tasks/t/goal-loop";
+    expect((await controlTaskGoal(new NextRequest(url,{method:"PATCH",body:"x".repeat(4097)}),context)).status).toBe(413);
+    expect((await startTaskGoal(new NextRequest(url,{method:"POST",body:"{}",headers:{"content-length":String(18*1024*1024+1)}}),context)).status).toBe(413);
+    expect((await controlTaskGoal(new NextRequest(url,{method:"PATCH",body:"{}",headers:{origin:"https://evil.test"}}),context)).status).toBe(403);
+    vi.stubEnv("LEAFCODE_PI_WEBUI_AUTH","required");expect((await readTaskGoal(new NextRequest(url),context)).status).toBe(401);expect((await activeTaskGoals(new NextRequest("http://localhost/api/goal-loop/active"))).status).toBe(401);expect(fetcher).not.toHaveBeenCalled();expect(readdirSync(root)).toEqual([]);
+  });
+  it("Goal mutation missing/mismatched ACK or null/malformed success stays unknown, without replay or empty active fallback",async()=>{
+    const context={params:Promise.resolve({id:"t"})};
+    for(const body of [{loop:{status:"queued"}},{loop:{status:"queued"},operation:{id:"aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee",execution:"complete"}}]){
+      fetcher.mockResolvedValueOnce(Response.json({status:200,body}));const failed=await startTaskGoal(new NextRequest("http://localhost/api/tasks/t/goal-loop",{method:"POST",body:"{}"}),context);expect(failed.status).toBe(503);expect((await failed.json()).execution).toBe("unknown");
+    }
+    fetcher.mockImplementationOnce(async(_url,init)=>Response.json({status:200,body:{loop:null,operation:{id:new Headers(init.headers).get("x-leafcode-business-operation"),execution:"complete"}}}));
+    expect((await controlTaskGoal(new NextRequest("http://localhost/api/tasks/t/goal-loop",{method:"PATCH",body:"{}"}),context)).status).toBe(503);
+    fetcher.mockResolvedValueOnce(Response.json({status:200,body:{active:0,taskIds:["hidden"]}}));expect((await activeTaskGoals(new NextRequest("http://localhost/api/goal-loop/active"))).status).toBe(503);expect(fetcher).toHaveBeenCalledTimes(4);expect(readdirSync(root)).toEqual([]);
+  });
+
   it("actual prompt/permission/question routes relay opaque input, scrub owner output and wake only accepted prompts",async()=>{
     const wake=vi.spyOn(dirtyHub,"wakeBackendTaskListeners"),context={params:Promise.resolve({id:"bot:fixture"})};
     for(const [suffix,handler] of [["prompt",sendPrompt],["permission",answerPermission],["question",answerQuestion]] as const){

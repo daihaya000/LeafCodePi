@@ -24,6 +24,16 @@ test("business transport enforces auth, protocol, readiness, method, context and
   assert.equal((await request(`${unavailable.base}/git/init`, { method: "POST", headers: unavailable.headers })).status, 503);
   assert.equal(calls, 0);
 });
+test("Goal transport distinguishes start/control budgets and nullable reads from malformed command success",async t=>{
+ let calls=0;
+ const f=await fixture(t,{jsonBusinessRequestAction:async input=>{calls++;if(input.method==="GET")return {status:200,headers:{},body:{loop:null}};if(input.body.length>4096)return {status:400,headers:{},body:{error:"opaque large start",operation:{id:input.operationId,execution:"complete"}}};return {status:200,headers:{},body:{loop:null,operation:{id:input.operationId,execution:"complete"}}};}});
+ const url=`${f.base}/tasks/t/goal-loop`,headers={...f.headers,"x-leafcode-business-operation":"aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"};
+ assert.equal((await request(url,{method:"PATCH",headers,body:"x".repeat(4097)})).status,413);assert.equal(calls,0);
+ assert.equal((await request(url,{method:"POST",headers:f.headers,body:"{}"})).status,400);assert.equal(calls,0);
+ const read=await request(url,{headers:f.headers});assert.equal(read.status,200);assert.deepEqual((await read.json()).body,{loop:null});
+ const start=await request(url,{method:"POST",headers,body:"x".repeat(4097)});assert.equal(start.status,200);assert.equal((await start.json()).status,400);
+ assert.equal((await request(url,{method:"PATCH",headers,body:"{}"})).status,503);assert.equal(calls,3);
+});
 test("Peer bearer is forwarded only to Peer-facing routes; WebUI import remains protected and Retry-After survives", async t => {
   const previous = process.env.LEAFCODE_PI_WEBUI_AUTH; process.env.LEAFCODE_PI_WEBUI_AUTH = "required";
   t.after(() => { if (previous === undefined) delete process.env.LEAFCODE_PI_WEBUI_AUTH; else process.env.LEAFCODE_PI_WEBUI_AUTH = previous; });

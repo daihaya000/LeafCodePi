@@ -2,9 +2,9 @@
 
 ## 進捗・範囲
 
-Phase3全体は未完了。Phase0のBackend/Phase3/JSON分類は118経路・182操作。Git・Diff・コミット文生成13経路・14操作、定義管理14経路・25操作、Provider/モデル設定7経路・8操作、Provider認証JSON4経路・5操作、アカウント管理/資格情報9経路・19操作、利用量/クレジット3経路・5操作、Peer認証共有5経路・9操作、Workspaceファイル/次タスク提案3経路・3操作、Project lifecycle1経路・4操作、Task collection1経路・3操作、個別Task lifecycle2経路・4操作、Task履歴/検索/bookmark3経路・5操作、Task実行設定4経路・4操作、Task送信/対話応答3経路・3操作の合計72経路・111操作の境界を移管した。認証に付随するログインSSE 1経路・1操作も同じownerへ移管した（Phase3 JSONの集計には加算しない）。残る46経路・71操作には既存Backend中継も含まれ、受入条件の確認・残存業務処理の移管が必要。
+Phase3全体は未完了。Phase0のBackend/Phase3/JSON分類は118経路・182操作。Git・Diff・コミット文生成13経路・14操作、定義管理14経路・25操作、Provider/モデル設定7経路・8操作、Provider認証JSON4経路・5操作、アカウント管理/資格情報9経路・19操作、利用量/クレジット3経路・5操作、Peer認証共有5経路・9操作、Workspaceファイル/次タスク提案3経路・3操作、Project lifecycle1経路・4操作、Task collection1経路・3操作、個別Task lifecycle2経路・4操作、Task履歴/検索/bookmark3経路・5操作、Task実行設定4経路・4操作、Task送信/対話応答3経路・3操作、Goal制御2経路・4操作の合計74経路・115操作の境界を移管した。認証に付随するログインSSE 1経路・1操作も同じownerへ移管した（Phase3 JSONの集計には加算しない）。残る44経路・67操作には既存Backend中継も含まれ、受入条件の確認・残存業務処理の移管が必要。
 
-以下は第1区切り（Git・Diff・コミット文生成）の記録。第2区切りの定義管理、第3区切りのProvider/モデル設定、第4区切りのProvider認証、第5区切りのアカウント管理/資格情報、第6区切りの利用量/クレジット、第7区切りのPeer認証共有、第8区切りのWorkspaceファイル/次タスク提案、第9区切りのProject lifecycle、第10区切りのTask collection、第11区切りの個別Task lifecycle、第12区切りのTask履歴/検索/bookmark、第13区切りのTask実行設定、第14区切りのTask送信/対話応答は末尾に記載する。
+以下は第1区切り（Git・Diff・コミット文生成）の記録。第2区切りの定義管理、第3区切りのProvider/モデル設定、第4区切りのProvider認証、第5区切りのアカウント管理/資格情報、第6区切りの利用量/クレジット、第7区切りのPeer認証共有、第8区切りのWorkspaceファイル/次タスク提案、第9区切りのProject lifecycle、第10区切りのTask collection、第11区切りの個別Task lifecycle、第12区切りのTask履歴/検索/bookmark、第13区切りのTask実行設定、第14区切りのTask送信/対話応答、第15区切りのGoal制御は末尾に記載する。
 
 | 経路 | 操作 |
 | --- | --- |
@@ -253,4 +253,19 @@ Phase3全体は未完了。Phase0のBackend/Phase3/JSON分類は118経路・182�
 - 対象Web/owner/handler/SDK service/prepare/実BFF/ownership回帰106件、Core/契約/transport/AST/runtime bundle125件が成功。独立fixture1件を含め、重複を除く対象232件を検証した。送信準備中の実Stop・回答、disconnect後の継続、実pending serviceのTask/FIFO照合・approval/denial/answers/reject/expired、unknown/重複・満杯ledger、秘匿と内部権限指定の無視を確認。
 - Backend/Web typecheck、Backend強制ビルド7,067 KiB成功。Webソース/パッケージのない実Backend fixtureで、到達不能なlocalhost専用modelへの実SDK送信受付、期限切れpermission/questionの404、ledger非記録、実プロセス再起動後の3操作replay拒否を検証（10.0秒）。生成成功や実tool実行の検証とは扱わず、有料Provider・稼働ユーザーTask/資格情報/サービスへ操作していない。
 - 原因: 境界テストの古い期待値。Next SDK入口数の23→20を反映し、collection専用matcherと既に移管済みの個別Task matcherを区別した。後者の古い期待値と既存Task lifecycle matcherは開始時HEADにも存在したことを確認し、関連テスト再実行で成功。Web typecheckが検出したowner handlerのaliasと検証fixtureのDTO型も修正済み。
-- 全体スイートは今回再実行していない。第13区切りで分離済みの他者差分のみで再現するSDK routing待機timeoutを今回解消したとは扱わず、開始時の7ファイルを保持する。Phase3全体は未完了で、Goal制御・fork/promote/revert・compaction・Bot業務等46経路・71操作が残る。
+- 全体スイートは今回再実行していない。第13区切りで分離済みの他者差分のみで再現するSDK routing待機timeoutを今回解消したとは扱わず、開始時の7ファイルを保持する。第14区切り時点ではGoal制御・fork/promote/revert・compaction・Bot業務等46経路・71操作が残る。
+
+## 第15区切り: Goal制御（2経路・4操作）
+
+- `tasks/[id]/goal-loop` GET/POST/PATCHと`goal-loop/active` GETをBackendへ移管。Nextはparamsのtransport encodeと単一relay returnだけ。Goal/acceptance/画像・予算の検証とclamp、Auto/model/account/Agent選択、開始・pause/resume/stop/complete、Bot委譲元の解決、状態ファイルとlive inventoryの読取はownerが担当する。
+- Goal GETは必ずSDKのoffline読取を使い、cold Taskでもsessionを起動せず、見つからないloopはnull、Task不在は404を返す。activeはownerのlive/persisted queued/running/verifying一覧を返し、失敗を空リストに偽装しない。読取にもNext拒否をSDK/cache/FSより前に設ける。
+- canonical `startGoalLoopWithSelection`とBackend runtime entryのGoal state/command/activeにowner guardを追加する。開始選択のbusy判定・prepare/Stop取消・Auto再解決・既存best-effort設定rollback、resumeのlate verified completed、制御後のdurable状態照合を維持する。Bot-owned CodeのStopはcallerのbotIdを無視し、ownerで実際の委譲元を解決してoutbox停止経路へ接続する。
+- Goal専用`task-goal-loop-command.json`は第14区切りのconcurrent admission実装を再利用する。開始準備中も制御を受付可能で、実行前unknown checkpoint、同一IDの再起動後replay拒否、unknown保持/complete間引き、disconnect非取消を維持する。completeは要求処理の終了であり、Goal生成・全設定のrollback・原子的保存・無期限exactly-onceを保証しない。
+- startは画像互換の18 MiB、PATCH controlは4 KiBに分け、Next/Backend両transportもHTTP methodに基づく実byte上限を確認する。Goal/progress/initialImages・Agent・Auto decision/escalation・active taskIdsの純粋な深い公開DTOとACK一致を検証し、任意SDK/資格情報/ヘッダーを除去する。GET nullは保持し、POST/PATCHのnull成功は不正応答としてunknownにする。HTTPのrestartPrompt等の内部指示はSDKへ渡さない。
+
+### 第15区切りの検証結果
+
+- owner/2 handler/実BFF/ownership64件、関連SDK command/state/settings・Task lifecycle/conversation52件、Core/契約/transport/AST101件、独立fixture1件、重複なしの合計218件が成功。既存Goal拡張をreal SDK/faux providerで実行する18ケースも全件成功し、retry/lease/verification/reload/host routingを確認。全体スイートは今回再実行していない。
+- Backend/Web typecheckとBackend強制ビルド7,073 KiB成功。Webソース/パッケージのない実Backend fixtureで、fixture専用の無生成SDK Goal command拡張をロードし、開始→pause→resume→complete→stop、offline状態/active読取、durableファイル保持・深い秘匿・ledger非記録、実再起動後の状態とstart/resume replay拒否を検証（14.3秒）。fixture制御自体は生成やtool実行を行わず、実有料Provider・稼働Task/資格情報/サービスに触れていない。
+- 原因: 検証fixtureの誤った仮定。GETへ本文を付けず、24時間上限内のcooldown=5,000秒は維持する既存仕様へ期待値を修正し、関連テスト再実行で成功。Next SDK入口の実測数を20→19に更新した。
+- 開始時の他者差分7ファイルを保持してコミットへ混ぜず、第13区切りで分離済みのSDK routing待機timeoutを解消したとは扱わない。Phase3全体は未完了で、fork/promote/revert・compaction・進行補助・Bot業務等44経路・67操作が残る。

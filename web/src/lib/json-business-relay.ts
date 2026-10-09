@@ -3,6 +3,7 @@ import { providerAuthTarget, publicAuthOperation } from "@shared/provider-auth-c
 import { publicConfigurationMutation } from "@shared/configuration-contract.mjs";
 import { usageExternalCommand, publicUsageOperation } from "@shared/usage-contract.mjs";
 import { peerFacing, PEER_AUTHORIZATION_HEADER } from "@shared/peer-contract.mjs";
+import { taskGoalLoopTarget } from "@shared/task-goal-loop-contract.mjs";
 import { taskConversationTarget } from "@shared/task-conversation-contract.mjs";
 import { wakeBackendTaskListeners } from "@/lib/backend-task-dirty-hub";
 import { taskExecutionSettingsTarget } from "@shared/task-execution-settings-contract.mjs";
@@ -69,7 +70,7 @@ export async function relayJsonBusiness(request: Request, route: string): Promis
   let body: Uint8Array | undefined;
   if (request.method !== "GET") {
     try {
-      const bytes = await boundedBytes(request, jsonBusinessBodyLimit(route));
+      const bytes = await boundedBytes(request, jsonBusinessBodyLimit(route, request.method));
       if (bytes === null && !publicPeer) return failure(413, "本文が大きすぎます", before);
       // Invalid/oversized Peer bodies stay invalid, but authentication must run first at the owner.
       body = bytes ?? new Uint8Array();
@@ -99,13 +100,13 @@ export async function relayJsonBusiness(request: Request, route: string): Promis
       const refused = [401, 403, 404, 405, 409, 413].includes(response.status) || value?.code === "BACKEND_RUNTIME_UNAVAILABLE";
       return failure(response.status >= 400 ? response.status : 503, "Backendが要求を処理できません", refused ? before : unknown);
     }
-    const result = publicJsonBusinessResult(route, value);
+    const result = publicJsonBusinessResult(route, value, request.method);
     if (!result) return failure(503, "Backendの応答が不正です", unknown);
     if (operationId) {
       if (providerAuthTarget(route)) {
         const operation = publicAuthOperation(result.body?.operation);
         if (!operation || operation.id !== operationId) return failure(503, "Backendの認証操作結果を確認できません", unknown);
-      } else if (taskCollectionTarget(route) || taskLifecycleTarget(route) || taskHistoryTarget(route) || taskExecutionSettingsTarget(route) || taskConversationTarget(route)) {
+      } else if (taskCollectionTarget(route) || taskLifecycleTarget(route) || taskHistoryTarget(route) || taskExecutionSettingsTarget(route) || taskConversationTarget(route) || taskGoalLoopTarget(route)) {
         const operation = publicTaskOperation(result.body?.operation);
         if (!operation || operation.id !== operationId) return failure(503, "Backendのタスク操作結果を確認できません", unknown);
       } else if (projectTarget(route)) {

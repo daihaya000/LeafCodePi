@@ -477,7 +477,7 @@ export function createBackendServer({
       const headers = { host };
       for (const key of ["content-type", "origin", "sec-fetch-site", "x-forwarded-host", "if-none-match"]) if (typeof request.headers[key] === "string") headers[key] = request.headers[key];
       if (peerFacing(businessPath) && typeof request.headers[PEER_AUTHORIZATION_HEADER] === "string" && request.headers[PEER_AUTHORIZATION_HEADER].length <= 512) headers.authorization = request.headers[PEER_AUTHORIZATION_HEADER];
-      const body = request.method === "GET" ? undefined : await readConfigurationBody(request, jsonBusinessBodyLimit(businessPath));
+      const body = request.method === "GET" ? undefined : await readConfigurationBody(request, jsonBusinessBodyLimit(businessPath, request.method));
       const controller = new AbortController();
       const disconnect = () => { if (!response.writableEnded) controller.abort(); };
       response.once("close", disconnect);
@@ -485,7 +485,7 @@ export function createBackendServer({
       try {
         const result = publicJsonBusinessResult(businessPath, await jsonBusinessRequestAction({ route: businessPath, method: request.method,
           url: `${origin}/api/${businessPath}${target.search}`, headers, authorized: access === "1", body, operationId,
-          signal: jsonBusinessMutates(businessPath, request.method) ? undefined : controller.signal }));
+          signal: jsonBusinessMutates(businessPath, request.method) ? undefined : controller.signal }), request.method);
         if (!result || Buffer.byteLength(JSON.stringify(result), "utf8") > JSON_BUSINESS_RESPONSE_LIMIT) throw new Error("Invalid business result");
         sendJson(response, 200, result);
       } catch { if (!response.destroyed) sendJson(response, 503, { error: "Business request failed", code: BACKEND_ERROR_CODES.internal }); }

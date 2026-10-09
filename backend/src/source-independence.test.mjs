@@ -46,6 +46,29 @@ test("Backend builds and serves its runtime API without Web sources or Web packa
 
   const data = join(fixture, "data"), agent = join(fixture, "agent");
   mkdirSync(data); mkdirSync(agent);
+  // A fixture-only SDK command extension exercises durable Goal control without any model turn or tool execution.
+  mkdirSync(join(agent,"extensions"));
+  writeFileSync(join(agent,"extensions","goal-fixture.ts"),`
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
+export default function(api) {
+  for (const action of ["start","pause","resume","stop","complete"]) {
+    api.registerCommand("goal-"+action,{description:"Fixture state-only Goal command",handler:async(args,ctx)=>{
+      const sessionId=ctx.sessionManager.getSessionId(),dir=join(process.env.LEAFCODE_PI_DATA_DIR,"goals-loop"),file=join(dir,sessionId+".json");
+      let loop;try {loop=JSON.parse(readFileSync(file,"utf8"));}catch{}
+      if(action==="start") {
+        const input=JSON.parse(Buffer.from(args,"base64url").toString("utf8"));
+        loop={id:"fixture-sdk-goal",sessionId,cwd:ctx.cwd,status:"queued",goal:input.goal,acceptance:input.acceptance,maxTurns:input.maxTurns,cooldownSeconds:input.cooldownSeconds,forceFullRun:input.forceFullRun,turnCount:0,nextTurnAt:null,progress:[{time:"fixture",status:"progress",summary:"fixture-authored",token:"PRIVATE-GOAL-TOKEN"}],token:"PRIVATE-GOAL-TOKEN",createdAt:"fixture-goal-stamp",updatedAt:"fixture-goal-stamp"};
+      } else {
+        if(!loop)throw Object.assign(new Error("Fixture Goal missing"),{status:404});
+        loop.status=action==="pause"?"paused":action==="resume"?(loop.status==="completed"?"completed":"queued"):action==="stop"?"stopped":"completed";
+        if(action==="resume"&&args.includes("--turns"))loop.maxTurns=Number(args.split("--turns ")[1].split(" ")[0]);
+      }
+      mkdirSync(dir,{recursive:true});writeFileSync(file,JSON.stringify(loop),"utf8");
+    }});
+  }
+}
+`,"utf8");
   // Fixture-only catalog. Selection/session settings never prompt this unreachable endpoint.
   writeFileSync(join(agent,"models.json"),JSON.stringify({providers:{"fixture-local":{baseUrl:"http://127.0.0.1:9/v1",apiKey:"fixture-only-not-a-real-key",api:"openai-completions",models:[{id:"fixture-model",name:"Fixture",reasoning:true,input:["text"],contextWindow:32768,maxTokens:1024,cost:{input:0,output:0,cacheRead:0,cacheWrite:0}}]}}}));
   const individualSessionFile = join(fixture, "individual-session.jsonl");
@@ -262,6 +285,18 @@ test("Backend builds and serves its runtime API without Web sources or Web packa
   const individualRestore = await business("tasks/individual-task", { archived: false }, "", { "x-leafcode-business-operation": individualRestoreId }, "PATCH"); assert.equal(individualRestore.status, 200); assert.equal(individualRestore.body.task.status, "idle");
   const individualColdRead = await business("tasks/individual-task", undefined, "?messages=omit"); assert.equal(individualColdRead.status, 200); assert.equal(individualColdRead.body.task.status, "idle"); assert.deepEqual(individualColdRead.body.task.messages, []);
   const settingsThinking = await business("tasks/individual-task/thinking",{thinkingLevel:"high"},"",{"x-leafcode-business-operation":"bcbcbcbc-5678-4321-abcd-eeeeeeeeeeee"}); assert.equal(settingsThinking.status,200,JSON.stringify(settingsThinking)); assert.equal(settingsThinking.body.task.thinkingLevel,"high"); assert.equal(settingsThinking.body.operation.execution,"complete");
+  const goalStartId="abababab-6789-4321-abcd-eeeeeeeeeeee",goalPath="tasks/individual-task/goal-loop",goalText="Fixture Goal authored 日本語";
+  const goalStarted=await business(goalPath,{action:"start",goal:goalText,acceptance:"one\n two",maxTurns:2},"",{"x-leafcode-business-operation":goalStartId});
+  assert.equal(goalStarted.status,200,JSON.stringify(goalStarted));assert.equal(goalStarted.body.loop.status,"queued");assert.equal(goalStarted.body.operation.execution,"complete");assert.ok(!JSON.stringify(goalStarted).includes("PRIVATE-GOAL-TOKEN"));
+  const activeGoals=await business("goal-loop/active",undefined);assert.ok(activeGoals.body.taskIds.includes("individual-task"));
+  const goalBeforeControl=await business(goalPath,undefined);assert.equal(goalBeforeControl.body.loop.goal,goalText);
+  const goalControlIds=["bcbcbcbc-6789-4321-abcd-eeeeeeeeeeee","cdcdcdcd-6789-4321-abcd-eeeeeeeeeeee","dededede-6789-4321-abcd-eeeeeeeeeeee","efefefef-6789-4321-abcd-eeeeeeeeeeee"];
+  for(const [i,action,status] of [[0,"pause","paused"],[1,"resume","queued"],[2,"complete","completed"],[3,"stop","stopped"]]) {
+    const controlled=await business(goalPath,{action,maxTurns:7},"",{"x-leafcode-business-operation":goalControlIds[i]},"PATCH");assert.equal(controlled.status,200,JSON.stringify(controlled));assert.equal(controlled.body.loop.status,status);assert.equal(controlled.body.operation.execution,"complete");
+  }
+  assert.equal((await business("goal-loop/active",undefined)).body.taskIds.includes("individual-task"),false);
+  assert.equal((await business(goalPath,{action:"start",goal:goalText},"",{"x-leafcode-business-operation":goalStartId})).status,409);
+  const goalLedger=readFileSync(join(data,"task-goal-loop-command.json"),"utf8");assert.ok(!goalLedger.includes(goalText));assert.ok(!goalLedger.includes("PRIVATE-GOAL-TOKEN"));
   // Actual SDK admission targets only the unreachable localhost fixture model, never a paid provider or tool.
   const conversationPromptId="abababab-5678-4321-abcd-eeeeeeeeeeee";
   const fixturePrompt="Fixture local-only conversation request";
@@ -303,6 +338,9 @@ test("Backend builds and serves its runtime API without Web sources or Web packa
     const replay=await fetch(`${restartedBase}/internal/json-business/tasks/individual-task/${suffix}`,{method:"POST",headers:{...businessHeaders,"x-leafcode-business-operation":id},body:JSON.stringify(body),signal:AbortSignal.timeout(3000)});
     assert.equal(replay.status,200);const result=await replay.json();assert.equal(result.status,409);assert.equal(result.body.operation.execution,"complete");
   }
+  const goalAfterRestart=await fetch(`${restartedBase}/internal/json-business/${goalPath}`,{headers:businessHeaders,signal:AbortSignal.timeout(3000)});const restoredGoal=await goalAfterRestart.json();assert.equal(restoredGoal.body.loop.status,"stopped");assert.equal(restoredGoal.body.loop.goal,goalText);assert.ok(!JSON.stringify(restoredGoal).includes("PRIVATE-GOAL-TOKEN"));
+  const goalReplay=await fetch(`${restartedBase}/internal/json-business/${goalPath}`,{method:"POST",headers:{...businessHeaders,"x-leafcode-business-operation":goalStartId},body:JSON.stringify({action:"start",goal:"Do not start again"}),signal:AbortSignal.timeout(3000)});const deniedGoalReplay=await goalReplay.json();assert.equal(deniedGoalReplay.status,409);assert.equal(deniedGoalReplay.body.operation.execution,"complete");
+  const goalControlReplay=await fetch(`${restartedBase}/internal/json-business/${goalPath}`,{method:"PATCH",headers:{...businessHeaders,"x-leafcode-business-operation":goalControlIds[1]},body:JSON.stringify({action:"resume"}),signal:AbortSignal.timeout(3000)});assert.equal((await goalControlReplay.json()).status,409);
   const gitAfterRestart = await fetch(`${restartedBase}/internal/json-business/git/log${query}`, { headers: businessHeaders, signal: AbortSignal.timeout(5000) });
   assert.equal(gitAfterRestart.status, 200);
   assert.equal((await gitAfterRestart.json()).body.commits[0].hash, history.body.commits[0].hash);

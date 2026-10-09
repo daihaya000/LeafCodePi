@@ -31,7 +31,7 @@ function attention(v) {
   if (!out || !string(out.taskId) || !string(out.title) || !Array.isArray(v.kinds) || v.kinds.some(k => !["permission", "question"].includes(k))) return null;
   return { ...out, kinds: [...v.kinds] };
 }
-function decision(v) {
+export function publicAutoDecision(v) {
   const out = model(v); if (!out) return null;
   const rest = fields(v, { tier: string, mode: string, reason: string, candidateIndex: number, usedPreset: boolean }); if (!rest) return null;
   if (v.escalation !== undefined) { rest.escalation = model(v.escalation); if (!rest.escalation) return null; }
@@ -43,7 +43,7 @@ export function publicTaskCollectionBody(input, status) {
   if (status < 400) {
     for (const key of ["tasks", "attention"]) if (input[key] !== undefined) { if (!Array.isArray(input[key])) return null; out[key] = input[key].map(key === "tasks" ? publicTaskSummary : attention); if (out[key].some(v => v === null)) return null; }
     if (input.task !== undefined) { out.task = publicTaskSummary(input.task); if (!out.task) return null; }
-    if (input.autoDecision !== undefined) { out.autoDecision = decision(input.autoDecision); if (!out.autoDecision) return null; }
+    if (input.autoDecision !== undefined) { out.autoDecision = publicAutoDecision(input.autoDecision); if (!out.autoDecision) return null; }
     if (!out.task && !out.tasks && !out.attention && out.ok !== true) return null;
   }
   if (input.operation !== undefined) { out.operation = publicTaskOperation(input.operation); if (!out.operation) return null; }

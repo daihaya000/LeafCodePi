@@ -47,6 +47,7 @@ function goal(v) {
   if(v.initialImages!==undefined)out.initialImages=array(v.initialImages,image=>fields(image,shape(["type","mimeType","data"])));
   return out;
 }
+export function publicGoalLoop(v) { try { return goal(v); } catch { return null; } }
 function permission(v) { return fields(v,{...shape(["id","sessionId","command","message"]),labels:strings}); }
 function question(v) {
   const out=fields(v,shape(["id","sessionId"])); out.questions=array(v.questions,q=>{ const result=fields(q,shape(["question","header"],[],["multiple","custom"])); result.options=array(q.options,o=>fields(o,shape(["label","description"]))); return result; }); return out;

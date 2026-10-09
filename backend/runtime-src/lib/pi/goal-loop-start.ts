@@ -1,3 +1,4 @@
+import { assertConfigurationOwner } from "@backend-core/configuration-command.mjs";
 import { getTask } from "@/lib/store";
 import { readSessionConversation } from "@/lib/direct-session";
 import { parseDirectModelKey } from "@/lib/direct-generation";
@@ -69,6 +70,7 @@ function fail(message: string, status: number): never {
 
 /** Owner-only operation, independent of Next's request/response objects. */
 export async function startGoalLoopWithSelection(id: string, body: GoalLoopStartBody) {
+  assertConfigurationOwner();
   assertLocalRuntimeAllowed();
   if (!body || typeof body !== "object" || Array.isArray(body)) fail("invalid Goal Loop request", 400);
   if (hasTaskPreparation(id)) fail("タスクの送信準備中です", 409);

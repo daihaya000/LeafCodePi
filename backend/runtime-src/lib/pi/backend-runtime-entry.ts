@@ -14,6 +14,7 @@ export { openProviderLoginEvents } from "../../json-business/provider-auth-event
 
 export { createTask } from "../task-collection";
 export { promptTask, respondToPermissionPrompt, respondToQuestionPrompt } from "../task-conversation";
+export { goalLoopCommand, goalLoopState, activeGoalLoopTaskIds } from "../task-goal-loop";
 export { setTaskModel, setTaskThinkingLevel, setTaskAgent } from "../task-execution-settings";
 export { getTaskDetail, archiveTask, destroyTask, abortTaskIncludingColdGoalLoop, stopBotCodeTask } from "../task-lifecycle";
 export {
@@ -27,9 +28,6 @@ export {
   completeBotCodeRequest,
   createBotCodeTask,
   continueBotCodeTask,
-  goalLoopCommand,
-  goalLoopState,
-  activeGoalLoopTaskIds,
   readAutoUpdateState,
   prepareAutoUpdate,
   releaseAutoUpdate,
