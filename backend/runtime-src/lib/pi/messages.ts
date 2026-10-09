@@ -17,6 +17,16 @@ export function rawUserMessageText(item: unknown): string {
     : textFromBlocks(contentBlocks(item.content));
 }
 
+/** Read only the displayed code points, without retaining the discarded suffix. */
+function codePointPrefix(text: string, limit: number): string {
+  const prefix: string[] = [];
+  for (const char of text) {
+    prefix.push(char);
+    if (prefix.length === limit) break;
+  }
+  return prefix.join("");
+}
+
 export function titleFromPrompt(prompt: string): string {
   const line = prompt
     .split(/\r?\n/)
@@ -24,7 +34,7 @@ export function titleFromPrompt(prompt: string): string {
     .find(Boolean);
   if (!line) return "無題のタスク";
   // コードユニットではなくコードポイント単位で切る（サロゲートペアを壊さない）。
-  const chars = Array.from(line);
+  const chars = Array.from(codePointPrefix(line, 61));
   return chars.length > 60 ? `${chars.slice(0, 59).join("")}…` : line;
 }
 
@@ -53,7 +63,7 @@ function intercomContextFromRaw(item: Record<string, unknown>): IntercomContext 
   const details = isRecord(item.details) ? item.details : null;
   const from = isRecord(details?.from) ? details.from : null;
   const label = asString(from?.name).trim() || asString(from?.id).trim().slice(0, 8);
-  return label ? { from: Array.from(label).slice(0, 80).join("") } : {};
+  return label ? { from: codePointPrefix(label, 80) } : {};
 }
 
 export function isIntercomMessageMarker(item: unknown): boolean {
@@ -97,9 +107,9 @@ function diagnosticFromRaw(value: unknown): UiDiagnostic | null {
   const error = errorMessage
     ? {
         // コードポイント単位で切る（絵文字などのサロゲートペアを壊さない）。
-        message: Array.from(errorMessage).slice(0, 4000).join(""),
+        message: codePointPrefix(errorMessage, 4000),
         ...(asString(rawError?.name).trim()
-          ? { name: Array.from(asString(rawError?.name).trim()).slice(0, 120).join("") }
+          ? { name: codePointPrefix(asString(rawError?.name).trim(), 120) }
           : {}),
         ...(typeof rawError?.code === "string" ||
         (typeof rawError?.code === "number" && Number.isFinite(rawError.code))
@@ -112,7 +122,7 @@ function diagnosticFromRaw(value: unknown): UiDiagnostic | null {
   const details: NonNullable<UiDiagnostic["details"]> = {};
   for (const key of ["configuredTransport", "fallbackTransport", "phase"] as const) {
     const detail = asString(rawDetails?.[key]).trim();
-    if (detail) details[key] = Array.from(detail).slice(0, 120).join("");
+    if (detail) details[key] = codePointPrefix(detail, 120);
   }
   if (typeof rawDetails?.eventsEmitted === "boolean") {
     details.eventsEmitted = rawDetails.eventsEmitted;
@@ -122,7 +132,7 @@ function diagnosticFromRaw(value: unknown): UiDiagnostic | null {
   }
 
   return {
-    type: Array.from(type).slice(0, 120).join(""),
+    type: codePointPrefix(type, 120),
     ...(typeof value.timestamp === "number" && Number.isFinite(value.timestamp)
       ? { timestamp: value.timestamp }
       : {}),
@@ -151,12 +161,7 @@ export function truncateUiToolOutput(text: string): string {
   if (text.length <= MAX_UI_TOOL_OUTPUT_CHARS) return text;
   // Iterate only the visible prefix; Array.from(text) allocated every code point
   // of multi-MiB results before throwing almost all of them away.
-  const prefix: string[] = [];
-  for (const char of text) {
-    prefix.push(char);
-    if (prefix.length === MAX_UI_TOOL_OUTPUT_CHARS) break;
-  }
-  return `${prefix.join("")}${UI_TOOL_OUTPUT_OMISSION}`;
+  return `${codePointPrefix(text, MAX_UI_TOOL_OUTPUT_CHARS)}${UI_TOOL_OUTPUT_OMISSION}`;
 }
 
 function contentBlocks(content: unknown): unknown[] {
