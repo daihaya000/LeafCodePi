@@ -94,7 +94,7 @@ function serializeRemoteMessages(messages: readonly { id: string }[]): { page: S
 
 async function getTaskDetailForReady(
   id: string,
-  options?: Parameters<typeof getTaskDetail>[1],
+  options?: Parameters<typeof getTaskDetailBounded>[1],
 ): Promise<Awaited<ReturnType<typeof getTaskDetail>>> {
   return getTaskDetailBounded(id, {
     ...options,
@@ -115,6 +115,9 @@ export async function GET(
   const messageDelta = req.nextUrl.searchParams.get("delta") === "1";
   const streamDeltas = req.nextUrl.searchParams.get("streamDeltas") !== "0";
   const streamMessages = req.nextUrl.searchParams.get("streamMessages") !== "0";
+  // Explicit recovery is transcript-free even when a single old JSONL row exceeds the scanner limit.
+  const omitTranscript = req.nextUrl.searchParams.get("history") === "omit";
+  const recoveryOptions = omitTranscript ? { omitTranscript: true, includeMessages: false } : {};
   const serverTimings: { phase: string; durationMs: number }[] = [];
   const transportTimings: { phase: string; durationMs: number }[] = [];
   const reportTiming = perfRequested
@@ -225,7 +228,7 @@ export async function GET(
         };
         sendTaskAwareSnapshot("snapshot", streamMessages ? bootstrapPayload : omitTaskMessagePayload(bootstrapPayload));
         if (sse.closed) return;
-        const hasCacheCandidate = Boolean(cachedTaskUpdatedAt && cachedSessionId);
+        const hasCacheCandidate = !omitTranscript && Boolean(cachedTaskUpdatedAt && cachedSessionId);
         // A matching idle cache can render while cold Pi setup finishes. Keep
         // this interim snapshot distinct; the client stays gated until ready.
         const canSendCachedReady = Boolean(
@@ -257,11 +260,13 @@ export async function GET(
             ? { includeMessages: false }
             : {}),
           ...(reportTiming ? { onTiming: reportTiming } : {}),
+          ...recoveryOptions,
         });
         if (sse.closed) return;
         const matchesCachedRevision = (candidate: typeof detail) =>
           Boolean(
-            cachedTaskUpdatedAt &&
+            !omitTranscript &&
+              cachedTaskUpdatedAt &&
               cachedSessionId &&
               cachedTaskUpdatedAt === candidate.updatedAt &&
               cachedSessionId === candidate.sessionId &&
@@ -313,7 +318,7 @@ export async function GET(
             : messagePage
               ? { messages: messagePage.messages, messageHistory: messagePage.messageHistory }
               : {}),
-          ...(hasCacheCandidate && !canReuseCachedMessages ? { historyReset: true } : {}),
+          ...(omitTranscript || hasCacheCandidate && !canReuseCachedMessages ? { historyReset: true } : {}),
           ...(perfRequested ? { serverTiming: serverTimings } : {}),
           isStreaming: detail.isStreaming,
           isCompacting: detail.isCompacting,
@@ -400,6 +405,7 @@ export async function GET(
               const detail = await getTaskDetailBounded(id, {
                 offline: true,
                 ...(!streamMessages ? { includeMessages: false } : {}),
+                ...recoveryOptions,
                 timeoutMs: 10_000,
               });
               if (writer.closed) return;
@@ -524,8 +530,12 @@ export async function GET(
           scheduleRemotePoll(REMOTE_TASK_POLL_BASE_MS);
         }
       } catch (error) {
-        sse.send("error", { error: error instanceof Error ? error.message : String(error) });
-        sse.close();
+        sse.send("error", {
+          error: error instanceof Error ? error.message : String(error),
+          ...((error as { code?: string })?.code === "COLD_TRANSCRIPT_UNAVAILABLE"
+            ? { code: "COLD_TRANSCRIPT_UNAVAILABLE" } : {}),
+        });
+        sse.finish();
         return;
       }
       if (sse.closed) {

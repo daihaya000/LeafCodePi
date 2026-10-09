@@ -920,6 +920,9 @@ export const TaskView = memo(function TaskView({
   const prevStatusWorkingRef = useRef(false);
   const [hangRetryCount, setHangRetryCount] = useState(0);
   const [error, setError] = useState<string | null>(null);
+  const [coldHistoryErrorTaskId, setColdHistoryErrorTaskId] = useState<string | null>(null);
+  const [historyRecoveryTaskId, setHistoryRecoveryTaskId] = useState<string | null>(null);
+  const omitTranscript = historyRecoveryTaskId === taskId;
   const [sessionHydrating, setSessionHydrating] = useState(Boolean(cachedSession));
   const [sseReconnecting, setSseReconnecting] = useState(false);
   const [settledSilentMessageId, setSettledSilentMessageId] = useState<string | null>(null);
@@ -1160,7 +1163,7 @@ export const TaskView = memo(function TaskView({
       reported: false,
     };
   }
-  cacheSnapshotRef.current = task
+  cacheSnapshotRef.current = task && !omitTranscript && !(sessionHydrating && messages.length === 0)
     ? {
         task,
         messages,
@@ -1320,7 +1323,9 @@ export const TaskView = memo(function TaskView({
         streamDeltas: document.hidden ? "0" : "1",
         streamMessages: document.hidden ? "0" : "1",
       });
+      if (omitTranscript) eventParams.set("history", "omit");
       if (
+        !omitTranscript &&
         cachedSession &&
         cachedSession.sessionId &&
         cachedSession.updatedAt &&
@@ -1657,7 +1662,8 @@ export const TaskView = memo(function TaskView({
           source = closeSseSource(nextSource);
           retryTimer = cancelPendingSseReconnect(retryTimer);
           try {
-            const payload = JSON.parse(event.data) as { error?: string };
+            const payload = JSON.parse(event.data) as { error?: string; code?: string };
+            setColdHistoryErrorTaskId(payload.code === "COLD_TRANSCRIPT_UNAVAILABLE" ? taskId : null);
             setError(payload.error ?? "イベント接続に失敗しました");
           } catch {
             setError("イベント接続に失敗しました");
@@ -1749,7 +1755,7 @@ export const TaskView = memo(function TaskView({
       retryTimer = cancelPendingSseReconnect(retryTimer);
       source = closeSseSource(source);
     };
-  }, [active, cachedSession, taskId, applyDetail, notifySidebarIfNeeded]);
+  }, [active, cachedSession, taskId, omitTranscript, applyDetail, notifySidebarIfNeeded]);
 
   /** Loads the next older page. Resolves to that page's messages, or null when nothing was loaded. */
   const loadOlderMessages = useCallback(async (): Promise<UiMessage[] | null> => {
@@ -3018,6 +3024,8 @@ export const TaskView = memo(function TaskView({
         { timeoutMs: COMPACT_TIMEOUT_MS },
       );
       applyDetail(result.task);
+      setHistoryRecoveryTaskId(null);
+      setColdHistoryErrorTaskId(null);
       notifyTasksChanged();
     } catch (err) {
       setError(err instanceof Error ? err.message : "コンテキスト圧縮に失敗しました");
@@ -4459,10 +4467,32 @@ export const TaskView = memo(function TaskView({
             イベント接続を再試行しています…
           </p>
         )}
-        {error && (
+        {(error || (coldHistoryErrorTaskId === taskId && !omitTranscript)) && (
           <p role="alert" className="mx-auto mb-2 max-w-5xl rounded-card border border-danger/30 bg-danger-bg px-3 py-2 text-sm text-danger">
-            {error}
+            {error ?? "履歴を読み込めない。履歴を読み込まずに再接続できる。"}
+            {coldHistoryErrorTaskId === taskId && !omitTranscript && (
+              <Button variant="ghost" className="mt-2 block" onClick={() => {
+                setError(null);
+                setColdHistoryErrorTaskId(null);
+                setHistoryRecoveryTaskId(taskId);
+              }}>
+                履歴を読み込まずに再接続
+              </Button>
+            )}
           </p>
+        )}
+        {omitTranscript && (
+          <div role="status" className="mx-auto mb-2 max-w-5xl rounded-card border border-border bg-surface-2 px-3 py-2 text-sm text-muted">
+            過去の履歴を読み込まずに接続中。保存済みの履歴は削除されない。コンテキスト圧縮は会話ファイルのサイズを減らさない。
+            <Button variant="ghost" className="mt-2 block" onClick={() => {
+              setError(null);
+              setColdHistoryErrorTaskId(null);
+              setSessionHydrating(true);
+              setHistoryRecoveryTaskId(null);
+            }}>
+              履歴表示を再試行
+            </Button>
+          </div>
         )}
         {goalLoopEnabled && !archived && (
           <div className="mx-auto max-w-5xl">

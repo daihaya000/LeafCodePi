@@ -18,7 +18,7 @@ const timers=new Set<ReturnType<typeof setTimeout>>();
 export function setIndividualTimeout(fn:()=>void,ms:number){const timer=setTimeout(()=>{timers.delete(timer);stats.individualPollTimers--;fn();},ms);timers.add(timer);stats.individualPollTimers++;return timer;}
 export function clearIndividualTimeout(timer:ReturnType<typeof setTimeout>){if(timers.delete(timer))stats.individualPollTimers--;clearTimeout(timer);}
 export function startIndividualPoll(fn:()=>void,writer:{onCleanup(fn:()=>void):void}){stats.individualPollTimers++;const timer=setInterval(fn,2000);timer.unref?.();writer.onCleanup(()=>{clearInterval(timer);stats.individualPollTimers--;});}
-export async function readIndividualDetail(id:string,options:NonNullable<Parameters<typeof getTaskDetailBounded>[1]>={}){
+export async function readIndividualDetail(id:string,options:NonNullable<Parameters<typeof getTaskDetailBounded>[1]>&{omitTranscript?:boolean}={}){
  assertConfigurationOwner();const signal=scope.getStore()?.signal;if(signal?.aborted)throw new Error("Stream closed");
  while(stats.individualReads>=2){
   if(waiters.size>=32)throw new Error("Snapshot busy");

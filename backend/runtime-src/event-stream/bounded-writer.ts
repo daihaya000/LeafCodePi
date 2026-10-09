@@ -32,26 +32,29 @@ export function validateBoundedEvent(value:unknown,max=FRAME):void { checkedEven
 export function measureBoundedEvent(value:unknown,max=FRAME):number { return checkedEvent(value,max,true).bytes; }
 export function serializeBoundedEvent(value:unknown,max=FRAME):string { return checkedEvent(value,max).json; }
 export function createBoundedEventWriter(controller:ReadableStreamDefaultController<Uint8Array>,signal:AbortSignal,options:{stallMs?:number;heartbeatMs?:number;maxFrameBytes?:number}={}){
- const encoder=new TextEncoder(),queue:Uint8Array[]=[];let offset=0,demand=false,closed=false,queuedBytes=0;
+ const encoder=new TextEncoder(),queue:Uint8Array[]=[];let offset=0,demand=false,closed=false,ending=false,queuedBytes=0;
  let stall:ReturnType<typeof setTimeout>|undefined,heartbeat:ReturnType<typeof setInterval>|undefined;const cleanups:Array<()=>void>=[];
  stats.writers++;
  const clearStall=()=>{if(stall){clearTimeout(stall);stall=undefined;stats.stallTimers--;}};
  const close=()=>{if(closed)return;closed=true;clearStall();if(heartbeat){clearInterval(heartbeat);heartbeat=undefined;stats.heartbeats--;}stats.queuedBytes-=queuedBytes;queuedBytes=0;stats.queuedFrames-=queue.length;queue.length=0;stats.writers--;signal.removeEventListener("abort",close);for(const fn of cleanups.splice(0))try{fn();}catch{}try{controller.close();}catch{}};
  const arm=(progress=false)=>{if(progress||!queue.length)clearStall();if(queue.length&&!stall){stats.stallTimers++;stall=setTimeout(close,options.stallMs??45000);stall.unref?.();}};
- const pump=()=>{if(closed||!demand||!queue.length)return;const head=queue[0],end=Math.min(head.length,offset+CHUNK);demand=false;try{controller.enqueue(head.slice(offset,end));offset=end;if(offset===head.length){queue.shift();stats.queuedFrames--;offset=0;queuedBytes-=head.length;stats.queuedBytes-=head.length;}arm(true);}catch{close();}};
+ const pump=()=>{if(closed||!demand||!queue.length)return;const head=queue[0],end=Math.min(head.length,offset+CHUNK);demand=false;try{controller.enqueue(head.slice(offset,end));offset=end;if(offset===head.length){queue.shift();stats.queuedFrames--;offset=0;queuedBytes-=head.length;stats.queuedBytes-=head.length;}arm(true);if(ending&&!queue.length)close();}catch{close();}};
  const enqueue=(bytes:Uint8Array)=>{if(closed)return;if(queue.length>=MAX_QUEUED_FRAMES||bytes.length>(options.maxFrameBytes??FRAME)||queuedBytes+bytes.length>FRAME||stats.queuedBytes+bytes.length>GLOBAL){stats.overflows++;close();return;}queue.push(bytes);stats.queuedFrames++;stats.peakQueuedFrames=Math.max(stats.peakQueuedFrames,stats.queuedFrames);queuedBytes+=bytes.length;stats.queuedBytes+=bytes.length;stats.peakQueuedBytes=Math.max(stats.peakQueuedBytes,stats.queuedBytes);arm();pump();};
  const writer={
-  get closed(){return closed;},
+  get closed(){return closed||ending;},
+  // Fatal SSE data must reach a slow consumer before teardown. Existing stall/abort
+  // limits still bound the retained terminal queue; no new producer frames are admitted.
+  finish(){if(closed||ending)return;ending=true;if(heartbeat){clearInterval(heartbeat);heartbeat=undefined;stats.heartbeats--;}if(!queue.length)close();},
   onCleanup(fn:()=>void){if(closed)fn();else cleanups.push(fn);},
   pull(){if(closed)return;demand=true;pump();},
-  sendSerialized(event:string,json:string){if(closed)return;const available=Math.min(options.maxFrameBytes??FRAME,FRAME-queuedBytes,GLOBAL-stats.queuedBytes);if(!/^[a-zA-Z0-9_-]{1,64}$/.test(event)||json.length>available||Buffer.byteLength(json)+event.length+16>available){stats.overflows++;close();return;}// Encode fragments into one exact owned frame; flattening an interpolated
+  sendSerialized(event:string,json:string){if(closed||ending)return;const available=Math.min(options.maxFrameBytes??FRAME,FRAME-queuedBytes,GLOBAL-stats.queuedBytes);if(!/^[a-zA-Z0-9_-]{1,64}$/.test(event)||json.length>available||Buffer.byteLength(json)+event.length+16>available){stats.overflows++;close();return;}// Encode fragments into one exact owned frame; flattening an interpolated
    // UTF-16 payload first would duplicate every large JSON string.
    const prefix=`event: ${event}\ndata: `,bytes=new Uint8Array(prefix.length+Buffer.byteLength(json)+2);
    encoder.encodeInto(prefix,bytes);encoder.encodeInto(json,bytes.subarray(prefix.length));bytes[bytes.length-2]=10;bytes[bytes.length-1]=10;enqueue(bytes);},
-  send(event:string,data:unknown){if(closed)return;try{
+  send(event:string,data:unknown){if(closed||ending)return;try{
    writer.sendSerialized(event,serializeBoundedEvent(data,Math.min(options.maxFrameBytes??FRAME,FRAME-queuedBytes,GLOBAL-stats.queuedBytes)-event.length-16));
   }catch{stats.overflows++;close();}},
-  heartbeat(){if(!closed)enqueue(encoder.encode(": ping\n\n"));},
+  heartbeat(){if(!closed&&!ending)enqueue(encoder.encode(": ping\n\n"));},
   close,
  };
  signal.addEventListener("abort",close,{once:true});

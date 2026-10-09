@@ -7,6 +7,7 @@ const mocks = vi.hoisted(() => ({
   getTask: vi.fn(),
   getTaskBootstrap: vi.fn(),
   getTaskDetail: vi.fn(),
+  readColdIndividualDetail: vi.fn(),
   isTaskRuntimeOwnedElsewhere: vi.fn(() => false),
   pendingPermissionForTask: vi.fn(),
   pendingQuestionForTask: vi.fn(),
@@ -17,7 +18,7 @@ const mocks = vi.hoisted(() => ({
 }));
 
 // Route state-machine tests use the existing mocked detail getter; cold IO has its own real-file suite.
-vi.mock("@backend-runtime/event-stream/cold-snapshot", () => ({ readColdIndividualDetail: async () => null }));
+vi.mock("@backend-runtime/event-stream/cold-snapshot", () => ({ readColdIndividualDetail: mocks.readColdIndividualDetail }));
 vi.mock("@/lib/pi/harness", () => mocks);
 vi.mock("@backend-runtime/lib/pi/harness", () => mocks);
 vi.mock("@/lib/store", () => ({ getTask: mocks.getTask }));
@@ -74,6 +75,7 @@ describe("/api/tasks/[id]/events", () => {
     mocks.getTask.mockReset();
     mocks.getTaskBootstrap.mockReset();
     mocks.getTaskDetail.mockReset();
+    mocks.readColdIndividualDetail.mockReset().mockResolvedValue(null);
     mocks.isTaskRuntimeOwnedElsewhere.mockReset().mockReturnValue(false);
     mocks.pendingPermissionForTask.mockReset().mockReturnValue(null);
     mocks.pendingQuestionForTask.mockReset().mockReturnValue(null);
@@ -81,6 +83,40 @@ describe("/api/tasks/[id]/events", () => {
     mocks.localRuntimeBlocked.mockReset().mockReturnValue(false);
     mocks.forwardTaskDetail.mockReset();
     mocks.forwardTaskPendingRequests.mockReset().mockResolvedValue({ ok: true, permissionRequest: null, questionRequest: null });
+  });
+
+  it("exposes a recoverable cold transcript error code", async () => {
+    const bootstrap = task({ messages: [], isStreaming: false, status: "idle" });
+    mocks.getTaskBootstrap.mockReturnValue(bootstrap);
+    mocks.subscribeTask.mockReturnValue(vi.fn());
+    mocks.readColdIndividualDetail.mockRejectedValue(Object.assign(new Error("bounded history"), { code: "COLD_TRANSCRIPT_UNAVAILABLE" }));
+    const response = await GET(new NextRequest("http://localhost/api/tasks/task-1/events"), { params: Promise.resolve({ id: "task-1" }) });
+    const reader = response.body!.getReader();
+    await readChunk(reader);
+    expect(eventData(await readChunk(reader))).toEqual({ error: "bounded history", code: "COLD_TRANSCRIPT_UNAVAILABLE" });
+    expect(mocks.getTaskDetail).not.toHaveBeenCalled();
+    await reader.cancel();
+  });
+
+  it("recovers without reusing cached history or opening the SDK, and preserves live control events", async () => {
+    const detail = task({ messages: [], isStreaming: false, status: "idle" });
+    let listener!: (payload: Record<string, unknown>) => void;
+    mocks.getTaskBootstrap.mockReturnValue(detail);
+    mocks.readColdIndividualDetail.mockResolvedValue(detail);
+    mocks.subscribeTask.mockImplementation((_id: string, fn: typeof listener) => { listener = fn; return vi.fn(); });
+    const response = await GET(new NextRequest(`http://localhost/api/tasks/task-1/events?history=omit&cachedSessionId=session-1&cachedTaskUpdatedAt=${encodeURIComponent(detail.updatedAt)}`), { params: Promise.resolve({ id: "task-1" }) });
+    const reader = response.body!.getReader();
+    await readChunk(reader);
+    const ready = eventData(await readChunk(reader));
+    expect(ready).toMatchObject({ eventType: "ready", historyReset: true, messages: [], messageHistory: { hasMore: false, nextCursor: null } });
+    expect(ready).not.toHaveProperty("messagesReused");
+    expect(mocks.readColdIndividualDetail).toHaveBeenCalledWith("task-1", expect.objectContaining({ omitTranscript: true, includeMessages: false }), expect.any(AbortSignal));
+    expect(mocks.getTaskDetail).not.toHaveBeenCalled();
+    listener({ type: "snapshot", eventType: "permission_request", permissionRequest: { requestId: "req-recovered" } });
+    expect(eventData(await readChunk(reader))).toMatchObject({ permissionRequest: { requestId: "req-recovered" } });
+    listener({ type: "delta", message: { id: "new", role: "assistant", createdAt: 2, parts: [] } });
+    expect(eventData(await readChunk(reader))).toMatchObject({ message: { id: "new" } });
+    await reader.cancel();
   });
 
   it("unsubscribes when the request is already aborted before task subscription", async () => {

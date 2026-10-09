@@ -22,7 +22,7 @@ type Index = { version: string; sessionId: string; leaf: string | null; rows: Ma
 const cache = new Map<string, Index>(); let cachedBytes = 0, buffer: Buffer | undefined;
 const decoder = new TextDecoder("utf-8", { fatal: true });
 export const readColdSnapshotDiagnostics = () => ({ ...stats, coldIndexBytes: cachedBytes, coldIndexEntries: cache.size });
-const refuse = (status: number) => Object.assign(new Error("Cold transcript exceeds safe SSE limits or changed; retry after reducing the history"), { status });
+const refuse = (status: number) => Object.assign(new Error("履歴が読み込み制限を超えたか、読み込み中に変更された。履歴を読み込まずに再接続できる（保存済みの履歴は削除されない）。"), { status, code: "COLD_TRANSCRIPT_UNAVAILABLE" });
 const waiters: Array<() => void> = [];
 async function admit(signal: AbortSignal) {
   signal.throwIfAborted();
@@ -141,7 +141,7 @@ async function readWindow(path: string, signal: AbortSignal, includeMessages: bo
     let messages: UiMessage[] = includeMessages ? projectPiMessages(raw) : [];
     messages = messages.map((m, i) => ({ ...m, id: ids[i] ?? m.id }));
     if (timings.length) messages = applySnapshotThroughput(messages, restoreThroughputFromEntries(timings).timings);
-    validateBoundedEvent(messages, PAGE);
+    try { validateBoundedEvent(messages, PAGE); } catch { throw refuse(413); }
     const after = await fd.stat({ bigint: true }), current = await stat(path, { bigint: true });
     if (version(after) !== version(before) || version(current) !== version(before) || await realpath(path) !== resolve(path)) throw refuse(409);
     check(); if (cache.get(path) !== index) remember(path, index);
@@ -153,12 +153,12 @@ async function readWindow(path: string, signal: AbortSignal, includeMessages: bo
   finally { try { if (fd) { try { await fd.close(); } finally { stats.coldDescriptors--; } } } finally { release(); } }
 }
 /** Null selects the existing owned live snapshot; all other reads bypass SDK.open/repair/cache. */
-export async function readColdIndividualDetail(id: string, options: { offline?: boolean; includeMessages?: boolean }, signal: AbortSignal): Promise<TaskDetail | null> {
+export async function readColdIndividualDetail(id: string, options: { offline?: boolean; includeMessages?: boolean; omitTranscript?: boolean }, signal: AbortSignal): Promise<TaskDetail | null> {
   assertConfigurationOwner(); signal.throwIfAborted(); const task = getTask(id); if (!task) return null;
   const live = (globalThis as any).__leafcodePiHarness?.live?.get(id);
   if (task.status !== "archived" && !options.offline && !isTaskRuntimeOwnedElsewhere(task) && live && !live.leaseLost) return null;
   let parts: Omit<Awaited<ReturnType<typeof readWindow>>, "messageRevision"> & { messageRevision?: string } = { messages: [], todos: [], sessionResume: null };
-  if (task.sessionFile) { try { parts = await readWindow(task.sessionFile, signal, options.includeMessages !== false); } catch (error) { if ((error as { code?: string }).code !== "ENOENT") throw error; } }
+  if (task.sessionFile && !options.omitTranscript) { try { parts = await readWindow(task.sessionFile, signal, options.includeMessages !== false); } catch (error) { if ((error as { code?: string }).code !== "ENOENT") throw error; } }
   // Pair transcript fields with the task row captured before async IO. Re-reading
   // bootstrap here could label old-file messages with a newly switched session.
   return { ...task, ...parts, ...offlineDetailFlags(task), isStreaming: task.status === "working", permissionRequest: null, questionRequest: null,

@@ -48,6 +48,18 @@ it("refuses legacy/cyclic/oversize lines/oversize page before SDK opens or sessi
     writeFileSync(path, encode(entries, version)); const before = readFileSync(path); await expect(read()).rejects.toMatchObject({ status }); expect(readFileSync(path).equals(before)).toBe(true);
   }
 });
+it("recovers without scanning or rewriting an oversized transcript, even without a client cache", async () => {
+  writeFileSync(path, encode([user("u", null, "x".repeat(2 * 1024 * 1024))]));
+  const before = readFileSync(path), scanned = stats().coldScanBytes;
+  await expect(read()).rejects.toMatchObject({ status: 413, code: "COLD_TRANSCRIPT_UNAVAILABLE" });
+  const afterFailure = stats().coldScanBytes;
+  expect(afterFailure).toBeGreaterThan(scanned);
+  expect(await read({ omitTranscript: true })).toMatchObject({ id: "t", sessionId: "s", messages: [], isStreaming: false });
+  expect(stats().coldScanBytes).toBe(afterFailure);
+  expect(readFileSync(path).equals(before)).toBe(true);
+  mock.task.status = "archived";
+  expect(await read({ omitTranscript: true })).toMatchObject({ messages: [], isStreaming: false, goalLoop: null });
+});
 it("refuses oversized files by stat and cancels queued/in-progress scanner slots", async () => {
   writeFileSync(path, encode([user("u", null, "hello")])); const fd = openSync(path, "r+"); ftruncateSync(fd, 512 * 1024 * 1024 + 1); closeSync(fd); await expect(read()).rejects.toMatchObject({ status: 413 });
   writeFileSync(path, encode(Array.from({length:2000},(_,i)=>user("u"+i,i?"u"+(i-1):null,"x".repeat(16384)))));

@@ -3,6 +3,25 @@ import { createBoundedEventWriter,readBoundedEventDiagnostics,serializeBoundedEv
 function make(options:any={}){let writer!:ReturnType<typeof createBoundedEventWriter>;const controller=new AbortController();const body=new ReadableStream<Uint8Array>({start(c){writer=createBoundedEventWriter(c,controller.signal,options);},pull(){writer.pull();},cancel(){writer.close();}},{highWaterMark:0});return{writer,controller,body};}
 afterEach(()=>{vi.useRealTimers();expect(readBoundedEventDiagnostics()).toMatchObject({writers:0,queuedBytes:0,queuedFrames:0,heartbeats:0,stallTimers:0});});
 it("no demand retains bounded frames and pull emits at most64KiB without reordering",async()=>{const x=make(),reader=x.body.getReader();x.writer.send("snapshot",{text:"x".repeat(150000)});expect(readBoundedEventDiagnostics().queuedBytes).toBeGreaterThan(150000);let text="";while(!text.endsWith("\n\n")||!text.includes("event: snapshot")){const item=await reader.read();expect(item.value!.length).toBeLessThanOrEqual(65536);text+=new TextDecoder().decode(item.value);}expect(text.startsWith(": connected\n\n")).toBe(true);expect(text).toContain('"text":"'+ "x".repeat(150000)+'"');await reader.cancel();});
+it("flushes a terminal event before closing, without admitting later producer frames", async () => {
+ const x=make(),off=vi.fn();x.writer.onCleanup(off);
+ x.writer.send("error",{error:"x".repeat(150000)});x.writer.finish();
+ expect(off).not.toHaveBeenCalled();
+ x.writer.send("snapshot",{late:true});x.writer.heartbeat();
+ const reader=x.body.getReader();let text="";
+ for(;;){const item=await reader.read();if(item.done)break;text+=new TextDecoder().decode(item.value);}
+ expect(text).toContain("event: error");expect(text).toContain("x".repeat(150000));expect(text).not.toContain("late");
+ expect(off).toHaveBeenCalledOnce();expect(x.writer.closed).toBe(true);
+});
+it("terminal drain remains bounded by the stalled consumer deadline", async () => {
+ vi.useFakeTimers();const x=make({stallMs:20}),off=vi.fn();x.writer.onCleanup(off);
+ x.writer.send("error",{error:"stop"});x.writer.finish();
+ await vi.advanceTimersByTimeAsync(21);expect(off).toHaveBeenCalledOnce();await x.body.cancel();
+});
+it("abort cancels a terminal drain immediately", async () => {
+ const x=make(),off=vi.fn();x.writer.onCleanup(off);x.writer.send("error",{error:"stop"});x.writer.finish();x.controller.abort();
+ expect(off).toHaveBeenCalledOnce();await x.body.cancel();
+});
 it("producer writes cannot reset a stalled consumer deadline",async()=>{vi.useFakeTimers();const x=make({stallMs:20,heartbeatMs:5}),off=vi.fn();x.writer.onCleanup(off);await vi.advanceTimersByTimeAsync(21);expect(x.writer.closed).toBe(true);expect(off).toHaveBeenCalledOnce();await x.body.cancel();});
 it("consumption resets only the progress deadline and abort disposes cleanup exactly once",async()=>{vi.useFakeTimers();const x=make({stallMs:20}),off=vi.fn();x.writer.onCleanup(off);await vi.advanceTimersByTimeAsync(15);const reader=x.body.getReader();await reader.read();x.writer.send("snapshot",{value:1});await vi.advanceTimersByTimeAsync(15);expect(x.writer.closed).toBe(false);x.controller.abort();await reader.cancel();x.writer.close();expect(off).toHaveBeenCalledOnce();});
 it("global16MiB quota includes whole backing frames, not just their unread tails",async()=>{const all=[make(),make(),make()];for(const x of all)x.writer.sendSerialized("snapshot",'"'+"x".repeat(7*1024*1024)+'"');expect(readBoundedEventDiagnostics().queuedBytes).toBeLessThanOrEqual(16*1024*1024);expect(all[2].writer.closed).toBe(true);await Promise.all(all.map(x=>x.body.cancel()));});

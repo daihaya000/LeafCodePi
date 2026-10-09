@@ -5,6 +5,7 @@ import { saveTaskSessionCache } from "@/lib/task-session-cache";
 import type { TaskSummary } from "@/lib/types";
 
 const mocks = vi.hoisted(() => ({ getJson: vi.fn(), sendJson: vi.fn() }));
+let sources: Array<EventTarget & { url: string; close: ReturnType<typeof vi.fn> }> = [];
 vi.mock("@/lib/client", () => mocks);
 vi.mock("@/components/shell/MobileMenuHeader", () => ({ MobileMenuButton: () => null }));
 vi.mock("@/components/task/PartView", () => ({
@@ -25,7 +26,11 @@ const task: TaskSummary = {
 beforeEach(() => {
   localStorage.clear();
   vi.clearAllMocks();
-  class TestEventSource extends EventTarget { close() {} }
+  sources = [];
+  class TestEventSource extends EventTarget {
+    close = vi.fn();
+    constructor(public url: string) { super(); sources.push(this); }
+  }
   vi.stubGlobal("EventSource", TestEventSource);
   mocks.getJson.mockResolvedValue({ models: [], agents: [], skills: [], accounts: [] });
   mocks.sendJson.mockResolvedValue({ task });
@@ -37,6 +42,42 @@ afterEach(() => {
 });
 
 describe("TaskView manual compaction", () => {
+  it("reconnects without history after a cold failure, keeps compression usable, and retries normal history", async () => {
+    render(<TaskView taskId={task.id} mdUp />);
+    await act(async () => { await Promise.resolve(); });
+    const first = sources[0];
+    await act(async () => {
+      first.dispatchEvent(new MessageEvent("snapshot", { data: JSON.stringify({ task, messages: [], isStreaming: false, isCompacting: false, eventType: "bootstrap" }) }));
+      first.dispatchEvent(new MessageEvent("error", { data: JSON.stringify({ error: "bounded history", code: "COLD_TRANSCRIPT_UNAVAILABLE" }) }));
+    });
+    fireEvent.click(screen.getByRole("button", { name: "履歴を読み込まずに再接続" }));
+    await waitFor(() => expect(sources.length).toBe(2));
+    expect(first.close).toHaveBeenCalled();
+    expect(sources[1].url).toContain("history=omit");
+    expect(sources[1].url).not.toContain("cachedSessionId");
+    await act(async () => {
+      sources[1].dispatchEvent(new MessageEvent("snapshot", { data: JSON.stringify({ task, messages: [], messageHistory: { hasMore: false, nextCursor: null }, historyReset: true, isStreaming: false, isCompacting: false, eventType: "ready" }) }));
+    });
+    expect(screen.getByRole<HTMLButtonElement>("button", { name: "コンテキスト圧縮" }).disabled).toBe(false);
+    await act(async () => { window.dispatchEvent(new Event("pagehide")); });
+    expect(localStorage.getItem("webui:task-session-cache")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "履歴表示を再試行" }));
+    await waitFor(() => expect(sources.length).toBe(3));
+    expect(sources[2].url).not.toContain("history=omit");
+    await act(async () => { window.dispatchEvent(new Event("pagehide")); });
+    expect(localStorage.getItem("webui:task-session-cache")).toBeNull();
+  });
+
+  it("does not offer transcript recovery for unrelated fatal errors", async () => {
+    render(<TaskView taskId={task.id} mdUp />);
+    await act(async () => { await Promise.resolve(); });
+    await act(async () => {
+      sources[0].dispatchEvent(new MessageEvent("error", { data: JSON.stringify({ error: "not found" }) }));
+    });
+    expect(screen.getByRole("alert").textContent).toContain("not found");
+    expect(screen.queryByRole("button", { name: "履歴を読み込まずに再接続" })).toBeNull();
+  });
+
   it.each(["auto", "suggest", "off", "unavailable"])("shows the button with compaction setting %s", async (setting) => {
     mocks.getJson.mockImplementation((url: string) => {
       if (url === "/api/settings/compactionAction") {
