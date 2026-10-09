@@ -24,6 +24,10 @@ import { POST as selectTaskAgent } from "../app/api/tasks/[id]/agent/route";
 import { PUT as selectGoalAuto } from "../app/api/tasks/[id]/goal-loop-auto-model/route";
 import { GET as readTaskGoal, POST as startTaskGoal, PATCH as controlTaskGoal } from "../app/api/tasks/[id]/goal-loop/route";
 import { GET as activeTaskGoals } from "../app/api/goal-loop/active/route";
+import { POST as forkSession } from "../app/api/tasks/[id]/fork/route";
+import { POST as revertSession } from "../app/api/tasks/[id]/revert/route";
+import { POST as unrevertSession } from "../app/api/tasks/[id]/unrevert/route";
+import { POST as promoteSession } from "../app/api/tasks/[id]/promote/route";
 import { POST as sendPrompt } from "../app/api/tasks/[id]/prompt/route";
 import { POST as answerPermission } from "../app/api/tasks/[id]/permission/route";
 import { POST as answerQuestion } from "../app/api/tasks/[id]/question/route";
@@ -41,6 +45,31 @@ beforeEach(() => {
 });
 afterEach(() => { vi.restoreAllMocks(); vi.unstubAllGlobals(); vi.unstubAllEnvs(); rmSync(root, { recursive: true, force: true }); });
 describe("JSON business ingress", () => {
+  it("session routes relay opaque bodies, require matching ACKs, retain draft/project warning and reject private fields",async()=>{
+    const context={params:Promise.resolve({id:"bot:fixture"})},task={id:"bot:fixture",status:"idle",token:"PRIVATE"},detail={...task,isStreaming:false,messages:[]};
+    for(const [action,handler] of [["fork",forkSession],["revert",revertSession],["unrevert",unrevertSession],["promote",promoteSession]] as const) {
+      const body='{"entryId":"opaque","destinationPath":"opaque","invalidDomainInput":"日本語"}';
+      fetcher.mockImplementationOnce(async(_url,init)=>Response.json({status:200,body:{task:action==="revert"||action==="unrevert"?detail:task,text:"authored",images:[{uri:"data:image/png;base64,YQ==",mime:"image/png",token:"PRIVATE"}],files:[],project:{id:"p",name:"P",rootPath:"path",token:"PRIVATE"},warning:"元の削除失敗",operation:{id:new Headers(init.headers).get("x-leafcode-business-operation"),execution:"complete"}}}));
+      const response=await handler(new NextRequest(`http://localhost/api/tasks/bot%3Afixture/${action}`,{method:"POST",body}),context);expect(response.status).toBe(200);
+      const dto=await response.json();expect(JSON.stringify(dto)).not.toContain("PRIVATE");if(action==="promote")expect(dto.warning).toBe("元の削除失敗");
+      expect(new TextDecoder().decode(fetcher.mock.calls.at(-1)![1].body)).toBe(body);expect(fetcher.mock.calls.at(-1)![0]).toContain(`/tasks/bot%3Afixture/${action}`);
+      for(const operation of [undefined,{id:"aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee",execution:"complete"}]){
+        fetcher.mockResolvedValueOnce(Response.json({status:200,body:{task:action==="revert"||action==="unrevert"?detail:task,text:"authored",images:[],files:[],project:{id:"p",name:"P",rootPath:"path"},operation}}));
+        const failed=await handler(new NextRequest(`http://localhost/api/tasks/t/${action}`,{method:"POST",body:"{}"}),context);expect(failed.status).toBe(503);expect((await failed.json()).execution).toBe("unknown");
+      }
+    }
+    expect(fetcher).toHaveBeenCalledTimes(12);expect(readdirSync(root)).toEqual([]);
+  });
+  it("session auth, Origin and 4KiB bounds precede forwarding for all four operations",async()=>{
+    const context={params:Promise.resolve({id:"t"})};
+    for(const [action,handler] of [["fork",forkSession],["revert",revertSession],["unrevert",unrevertSession],["promote",promoteSession]] as const) {
+      const url=`http://localhost/api/tasks/t/${action}`;
+      expect((await handler(new NextRequest(url,{method:"POST",body:"x".repeat(4097)}),context)).status).toBe(413);
+      expect((await handler(new NextRequest(url,{method:"POST",body:"{}",headers:{origin:"https://evil.test"}}),context)).status).toBe(403);
+    }
+    vi.stubEnv("LEAFCODE_PI_WEBUI_AUTH","required");expect((await forkSession(new NextRequest("http://localhost/api/tasks/t/fork",{method:"POST",body:"{}"}),context)).status).toBe(401);
+    expect(fetcher).not.toHaveBeenCalled();expect(readdirSync(root)).toEqual([]);
+  });
   it("actual Goal reads/control/start are opaque relays with deep DTO and matching command ACKs",async()=>{
     const context={params:Promise.resolve({id:"bot:fixture"})};
     fetcher.mockResolvedValueOnce(Response.json({status:200,body:{loop:null}}));

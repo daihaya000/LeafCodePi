@@ -42,12 +42,8 @@ export {
   subscribeTaskStream,
   startBotCodeRelay,
   applyCodePermissionSettingsToLiveTasks,
-  // Rewinding a transcript rewrites the session and clears the owner's pending attention.
-  revertTask,
-  unrevertTask,
   reloadLiveSessionsContext,
   refreshLiveSessionsForAgentDefinition,
-  promoteTask,
   handoffTaskToBot,
   releaseTaskFromBot,
   // Compaction summarizes inside the session, so only the owner may run or stop it.
@@ -88,7 +84,8 @@ export { isGoalLoopSessionOwned, readGoalLoopState } from "@/lib/pi/goal-loop-st
 export { startGoalLoopWithSelection } from "@/lib/pi/goal-loop-start";
 export { startBotGoalLoop } from "@/lib/pi/bot-goal-loop-start";
 export { handleTaskPrompt } from "@/lib/pi/task-prompt";
-export { forkTask } from "@/lib/pi/task-fork";
+// Tree edits and workspace promotion are guarded before SDK/cache/filesystem effects.
+export { forkTask, revertTask, unrevertTask, promoteTask } from "../task-session";
 // PRIVATE startup API: the provider must share the harness's bundled module instance.
 // Merely exporting these does not install it or switch MCP. No implicit env/storage/network defaults.
 export { createBackendMcpNativeRuntime } from "@backend-core/mcp-native-runtime.mjs";

@@ -2,9 +2,9 @@
 
 ## 進捗・範囲
 
-Phase3全体は未完了。Phase0のBackend/Phase3/JSON分類は118経路・182操作。Git・Diff・コミット文生成13経路・14操作、定義管理14経路・25操作、Provider/モデル設定7経路・8操作、Provider認証JSON4経路・5操作、アカウント管理/資格情報9経路・19操作、利用量/クレジット3経路・5操作、Peer認証共有5経路・9操作、Workspaceファイル/次タスク提案3経路・3操作、Project lifecycle1経路・4操作、Task collection1経路・3操作、個別Task lifecycle2経路・4操作、Task履歴/検索/bookmark3経路・5操作、Task実行設定4経路・4操作、Task送信/対話応答3経路・3操作、Goal制御2経路・4操作の合計74経路・115操作の境界を移管した。認証に付随するログインSSE 1経路・1操作も同じownerへ移管した（Phase3 JSONの集計には加算しない）。残る44経路・67操作には既存Backend中継も含まれ、受入条件の確認・残存業務処理の移管が必要。
+Phase3全体は未完了。Phase0のBackend/Phase3/JSON分類は118経路・182操作。Git・Diff・コミット文生成13経路・14操作、定義管理14経路・25操作、Provider/モデル設定7経路・8操作、Provider認証JSON4経路・5操作、アカウント管理/資格情報9経路・19操作、利用量/クレジット3経路・5操作、Peer認証共有5経路・9操作、Workspaceファイル/次タスク提案3経路・3操作、Project lifecycle1経路・4操作、Task collection1経路・3操作、個別Task lifecycle2経路・4操作、Task履歴/検索/bookmark3経路・5操作、Task実行設定4経路・4操作、Task送信/対話応答3経路・3操作、Goal制御2経路・4操作、Task会話編集/昇格4経路・4操作の合計78経路・119操作の境界を移管した。認証に付随するログインSSE 1経路・1操作も同じownerへ移管した（Phase3 JSONの集計には加算しない）。残る40経路・63操作には既存Backend中継も含まれ、受入条件の確認・残存業務処理の移管が必要。
 
-以下は第1区切り（Git・Diff・コミット文生成）の記録。第2区切りの定義管理、第3区切りのProvider/モデル設定、第4区切りのProvider認証、第5区切りのアカウント管理/資格情報、第6区切りの利用量/クレジット、第7区切りのPeer認証共有、第8区切りのWorkspaceファイル/次タスク提案、第9区切りのProject lifecycle、第10区切りのTask collection、第11区切りの個別Task lifecycle、第12区切りのTask履歴/検索/bookmark、第13区切りのTask実行設定、第14区切りのTask送信/対話応答、第15区切りのGoal制御は末尾に記載する。
+以下は第1区切り（Git・Diff・コミット文生成）の記録。第2区切りの定義管理、第3区切りのProvider/モデル設定、第4区切りのProvider認証、第5区切りのアカウント管理/資格情報、第6区切りの利用量/クレジット、第7区切りのPeer認証共有、第8区切りのWorkspaceファイル/次タスク提案、第9区切りのProject lifecycle、第10区切りのTask collection、第11区切りの個別Task lifecycle、第12区切りのTask履歴/検索/bookmark、第13区切りのTask実行設定、第14区切りのTask送信/対話応答、第15区切りのGoal制御、第16区切りのTask会話編集/昇格は末尾に記載する。
 
 | 経路 | 操作 |
 | --- | --- |
@@ -268,4 +268,19 @@ Phase3全体は未完了。Phase0のBackend/Phase3/JSON分類は118経路・182�
 - owner/2 handler/実BFF/ownership64件、関連SDK command/state/settings・Task lifecycle/conversation52件、Core/契約/transport/AST101件、独立fixture1件、重複なしの合計218件が成功。既存Goal拡張をreal SDK/faux providerで実行する18ケースも全件成功し、retry/lease/verification/reload/host routingを確認。全体スイートは今回再実行していない。
 - Backend/Web typecheckとBackend強制ビルド7,073 KiB成功。Webソース/パッケージのない実Backend fixtureで、fixture専用の無生成SDK Goal command拡張をロードし、開始→pause→resume→complete→stop、offline状態/active読取、durableファイル保持・深い秘匿・ledger非記録、実再起動後の状態とstart/resume replay拒否を検証（14.3秒）。fixture制御自体は生成やtool実行を行わず、実有料Provider・稼働Task/資格情報/サービスに触れていない。
 - 原因: 検証fixtureの誤った仮定。GETへ本文を付けず、24時間上限内のcooldown=5,000秒は維持する既存仕様へ期待値を修正し、関連テスト再実行で成功。Next SDK入口の実測数を20→19に更新した。
-- 開始時の他者差分7ファイルを保持してコミットへ混ぜず、第13区切りで分離済みのSDK routing待機timeoutを解消したとは扱わない。Phase3全体は未完了で、fork/promote/revert・compaction・進行補助・Bot業務等44経路・67操作が残る。
+- 開始時の他者差分7ファイルを保持してコミットへ混ぜず、第13区切りで分離済みのSDK routing待機timeoutを解消したとは扱わない。第15区切り時点ではPhase3全体は未完了で、fork/promote/revert・compaction・進行補助・Bot業務等44経路・67操作が残る。
+
+## 第16区切り: Task会話編集・昇格（4経路・4操作）
+
+- `tasks/[id]/{fork,revert,unrevert,promote}` POSTをBackendへ移管。Nextは単一relay returnとparamsのencodeのみ。entryId/destinationPathの検証、会話ツリーの分岐/巻戻し/復元、プロジェクト登録・workspaceコピー/最終削除・session再接続はownerが実行する。
+- `lib/task-session.ts`の専用owner guardをHTTP処理とBackend runtime entryへ接続する。NextをSDK/cache/FS操作前に拒否し、並行変更中のharnessは編集しない。既存のactive-branch/legacy ID解決、idle/attention/lease/prepare/tree-edit保護、Goal停止、復元marker、fork rollback、昇格先lockとコピー失敗のrollback・部分成功warningを維持する。
+- 全4操作を4 KiBの実byte上限・純粋な深いdraft/attachment/TaskDetail/Project DTOで保護する。HTTPからentryIdかdestinationPathだけを渡し、任意Bot/SDK内部指示を実行しない。公開外SDK/資格情報/ヘッダーを除去し、NextはoperationId一致を必須にする。不正なSDK成功DTOはownerのcheckpoint前に503/unknownとして扱う。
+- 専用`task-session-command.json`はconcurrent admission、実行前unknown checkpoint、128件のunknown保持/complete間引き、再起動後の同一ID拒否、disconnect非取消を再利用する。別Task/control/回答をworkspaceコピーの後ろへ並べない。completeは要求処理の終了であり、原子的移動・rollback成功・無期限exactly-once・selected-leaf永続化を意味しない。
+
+### 第16区切りの検証結果
+
+- owner/4 relay handler/実BFF/ownership52件、既存fork/revert/promote/workspace移動55件、Core/契約/HTTP transport/AST/bundle112件、独立fixture1件、重複なしの合計220件が成功。全体スイートは今回再実行していない。
+- Backend/Web typecheck、Backend強制ビルド7,092 KiB成功。Webのない隔離実Backendで100件の祖先だけを分岐し、元ファイル不変、巻戻し→復元、実workspace/SessionManager昇格・元workspace削除・保存後の実再起動、全4 operation IDのreplay拒否、cold復元markerの消去、移動先ファイル保持とledger非記録を確認（10.5秒）。有料生成・実tool実行・稼働ユーザーTask/資格情報/サービスへの操作は行わない。
+- 原因: 旧境界期待値とfixture前提。Next SDK入口19→16を反映し、Web typecheckの新owner alias参照を相対参照へ修正。事前fixture workspaceのmkdirを再帰化し、state-only Goal command後は実Stopでleaseを解放してからforkする。
+- 既存制約（今回未修正）: SDK `branch()/navigateTree()`は次のappendまで選択leafをメモリ内だけで保持するため、巻戻し後に何もappendせずBackendを再起動すると旧branchの履歴へ戻る。実fixtureで100→50→再起動100を観測し、SDK実装を確認した。保存済みundo markerと再起動後の復元/marker消去は確認済み。選択leafの永続化を本移管の成功条件・成果として偽装しない。
+- 開始時の他者差分7ファイルを保持し、既存SDK routing待機timeoutを解消したとは扱わない。Phase3全体は未完了で、compaction・進行補助・supervisor・Bot業務等40経路・63操作が残る。

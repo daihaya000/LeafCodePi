@@ -24,6 +24,22 @@ test("business transport enforces auth, protocol, readiness, method, context and
   assert.equal((await request(`${unavailable.base}/git/init`, { method: "POST", headers: unavailable.headers })).status, 503);
   assert.equal(calls, 0);
 });
+test("session transport enforces 4KiB, authorized context and operation IDs for all four routes",async t=>{
+ const previous=process.env.LEAFCODE_PI_WEBUI_AUTH;process.env.LEAFCODE_PI_WEBUI_AUTH="required";
+ t.after(()=>{if(previous===undefined)delete process.env.LEAFCODE_PI_WEBUI_AUTH;else process.env.LEAFCODE_PI_WEBUI_AUTH=previous;});
+ let calls=0;
+ const f=await fixture(t,{jsonBusinessRequestAction:async input=>{calls++;assert.equal(input.signal,undefined);assert.equal(input.authorized,true);assert.equal(Buffer.from(input.body).toString(),"opaque bytes");return {status:409,headers:{"set-cookie":"PRIVATE"},body:{error:"busy",operation:{id:input.operationId,execution:"complete"},token:"PRIVATE"}};}});
+ const id="aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee",headers={...f.headers,"x-leafcode-business-operation":id};
+ for(const action of ["fork","revert","unrevert","promote"]){
+  const url=`${f.base}/tasks/bot%3At/${action}`;
+  assert.equal((await request(url,{headers})).status,405);
+  assert.equal((await request(url,{method:"POST",headers:f.headers,body:"{}"})).status,400);
+  assert.equal((await request(url,{method:"POST",headers:{...headers,"x-leafcode-business-authorized":"0"},body:"{}"})).status,403);
+  assert.equal((await request(url,{method:"POST",headers,body:"x".repeat(4097)})).status,413);
+  const result=await request(url,{method:"POST",headers,body:"opaque bytes"});assert.equal(result.status,200);assert.deepEqual(await result.json(),{status:409,headers:{},body:{error:"busy",operation:{id,execution:"complete"}}});
+ }
+ assert.equal(calls,4);
+});
 test("Goal transport distinguishes start/control budgets and nullable reads from malformed command success",async t=>{
  let calls=0;
  const f=await fixture(t,{jsonBusinessRequestAction:async input=>{calls++;if(input.method==="GET")return {status:200,headers:{},body:{loop:null}};if(input.body.length>4096)return {status:400,headers:{},body:{error:"opaque large start",operation:{id:input.operationId,execution:"complete"}}};return {status:200,headers:{},body:{loop:null,operation:{id:input.operationId,execution:"complete"}}};}});

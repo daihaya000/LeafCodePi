@@ -73,7 +73,11 @@ export default function(api) {
   writeFileSync(join(agent,"models.json"),JSON.stringify({providers:{"fixture-local":{baseUrl:"http://127.0.0.1:9/v1",apiKey:"fixture-only-not-a-real-key",api:"openai-completions",models:[{id:"fixture-model",name:"Fixture",reasoning:true,input:["text"],contextWindow:32768,maxTokens:1024,cost:{input:0,output:0,cacheRead:0,cacheWrite:0}}]}}}));
   const individualSessionFile = join(fixture, "individual-session.jsonl");
   writeFileSync(individualSessionFile, [JSON.stringify({ type: "session", version: 3, id: "isolated-session", cwd: fixture, timestamp: new Date().toISOString() }), ...Array.from({ length: 205 }, (_, i) => JSON.stringify({ type: "message", id: `ui${i}`, parentId: i ? `ui${i-1}` : null, timestamp: new Date().toISOString(), message: { role: "user", content: [{ type: "text", text: `isolated line ${i}` }], timestamp: i } }))].join("\n") + "\n", "utf8");
-  writeFileSync(join(data, "store.json"), JSON.stringify({ version: 1, projects: [{ id: "fixture-project", name: "Fixture", rootPath: join(fixture, "workspaces"), archived: false, createdAt: "2026-01-01T00:00:00.000Z", updatedAt: "2026-01-01T00:00:00.000Z" }], tasks: [{
+  const promotionSource = join(fixture,"workspaces","session-promotion-source"), promotionDestination = join(fixture,"session-promoted");
+  mkdirSync(promotionSource,{recursive:true});writeFileSync(join(promotionSource,"keep-promotion.txt"),"fixture workspace 日本語");
+  const promotionSessionFile=join(promotionSource,"promotion-session.jsonl");
+  writeFileSync(promotionSessionFile,[{type:"session",version:3,id:"promotion-session",cwd:promotionSource,timestamp:new Date().toISOString()},{type:"message",id:"promotion-input",parentId:null,timestamp:new Date().toISOString(),message:{role:"user",content:"promotion authored text",timestamp:1}}].map(row=>JSON.stringify(row)).join("\n")+"\n");
+  writeFileSync(join(data, "store.json"), JSON.stringify({ version: 1, projects: [{ id: "fixture-project", name: "Fixture", rootPath: join(fixture, "workspaces"), archived: false, createdAt: "2026-01-01T00:00:00.000Z", updatedAt: "2026-01-01T00:00:00.000Z" }], tasks: [{id:"session-promotion-task",projectId:null,projectName:"",title:"Fixture promotion",directory:promotionSource,isolation:"current_folder",status:"idle",sessionId:"promotion-session",sessionFile:promotionSessionFile,providerID:"fixture-local",modelID:"fixture-model",createdAt:new Date().toISOString(),updatedAt:new Date().toISOString()}, {
     id: "independent-task", projectId: null, projectName: "test", title: "Backend-owned task", directory: fixture,
     isolation: "current_folder", status: "idle", sessionId: null, sessionFile: null,
     createdAt: "2026-01-01T00:00:00.000Z", updatedAt: new Date().toISOString(),
@@ -136,7 +140,7 @@ export default function(api) {
   assert.equal(JSON.parse(readFileSync(savedPath, "utf8"))["history-page-size"], "100");
 
   // Real Git business owner: fixture-only commands/files, no Next sources or fallback.
-  const workspace = join(fixture, "workspaces"); mkdirSync(workspace);
+  const workspace = join(fixture, "workspaces"); mkdirSync(workspace,{recursive:true});
   const businessHeaders = { ...headers, "content-type": "application/json", "x-leafcode-business-origin": "http://localhost",
     "x-leafcode-business-host": "localhost", "x-leafcode-business-authorized": "1" };
   const business = async (route, body, query = "", extraHeaders = {}, method = "POST") => {
@@ -297,6 +301,26 @@ export default function(api) {
   assert.equal((await business("goal-loop/active",undefined)).body.taskIds.includes("individual-task"),false);
   assert.equal((await business(goalPath,{action:"start",goal:goalText},"",{"x-leafcode-business-operation":goalStartId})).status,409);
   const goalLedger=readFileSync(join(data,"task-goal-loop-command.json"),"utf8");assert.ok(!goalLedger.includes(goalText));assert.ok(!goalLedger.includes("PRIVATE-GOAL-TOKEN"));
+  // State-only Goal commands may retain the SDK task lease; the real Stop settles it before tree edits.
+  const beforeTreeStop=await business("tasks/individual-task/abort",{},"",{"x-leafcode-business-operation":"aaaaaaaa-7890-4321-abcd-eeeeeeeeeeee"});assert.equal(beforeTreeStop.status,200,JSON.stringify(beforeTreeStop));
+  // Real SessionManager operations: branch/revert/restore/promotion need no model generation or tool.
+  const forkOperation="abababab-7890-4321-abcd-eeeeeeeeeeee",forkSourceBefore=readFileSync(individualSessionFile,"utf8");
+  const sessionFork=await business("tasks/individual-task/fork",{entryId:"ui100"},"",{"x-leafcode-business-operation":forkOperation});
+  assert.equal(sessionFork.status,200,JSON.stringify(sessionFork));assert.equal(sessionFork.body.text,"isolated line 100");assert.equal(sessionFork.body.operation.execution,"complete");
+  const forkTaskId=sessionFork.body.task.id;assert.notEqual(forkTaskId,"individual-task");assert.notEqual(sessionFork.body.task.sessionFile,individualSessionFile);assert.equal(readFileSync(individualSessionFile,"utf8"),forkSourceBefore);
+  const forkDetail=await business(`tasks/${forkTaskId}`,undefined);assert.equal(forkDetail.body.task.messages.length,100);assert.ok(!forkDetail.body.task.messages.some(message=>message.id==="ui100"));
+  const revertOperation="bcbcbcbc-7890-4321-abcd-eeeeeeeeeeee",unrevertOperation="cdcdcdcd-7890-4321-abcd-eeeeeeeeeeee";
+  const reverted=await business(`tasks/${forkTaskId}/revert`,{entryId:"ui50"},"",{"x-leafcode-business-operation":revertOperation});
+  assert.equal(reverted.status,200,JSON.stringify(reverted));assert.equal(reverted.body.text,"isolated line 50");assert.equal(reverted.body.task.messages.length,50);assert.ok(reverted.body.task.revertLeafId);
+  const unreverted=await business(`tasks/${forkTaskId}/unrevert`,{},"",{"x-leafcode-business-operation":unrevertOperation});
+  assert.equal(unreverted.status,200,JSON.stringify(unreverted));assert.equal(unreverted.body.task.messages.length,100);assert.equal(unreverted.body.task.revertLeafId,null);
+  const revertRestartOperation="dededede-7890-4321-abcd-eeeeeeeeeeee";
+  assert.equal((await business(`tasks/${forkTaskId}/revert`,{entryId:"ui50"},"",{"x-leafcode-business-operation":revertRestartOperation})).status,200);
+  const promotionOperation="efefefef-7890-4321-abcd-eeeeeeeeeeee";
+  const promoted=await business("tasks/session-promotion-task/promote",{destinationPath:promotionDestination},"",{"x-leafcode-business-operation":promotionOperation});
+  assert.equal(promoted.status,200,JSON.stringify(promoted));assert.equal(promoted.body.operation.execution,"complete");assert.equal(promoted.body.task.directory,promotionDestination);assert.equal(promoted.body.project.rootPath,promotionDestination);assert.notEqual(promoted.body.task.sessionFile,promotionSessionFile);
+  assert.equal(existsSync(promotionSource),false);assert.equal(readFileSync(join(promotionDestination,"keep-promotion.txt"),"utf8"),"fixture workspace 日本語");
+  const sessionLedger=readFileSync(join(data,"task-session-command.json"),"utf8");assert.ok(!sessionLedger.includes("isolated line"));assert.ok(!sessionLedger.includes(promotionDestination));assert.ok(!sessionLedger.includes("ui50"));
   // Actual SDK admission targets only the unreachable localhost fixture model, never a paid provider or tool.
   const conversationPromptId="abababab-5678-4321-abcd-eeeeeeeeeeee";
   const fixturePrompt="Fixture local-only conversation request";
@@ -382,6 +406,15 @@ export default function(api) {
   const settingsReplay = await fetch(`${restartedBase}/internal/json-business/tasks/individual-task/model`,{method:"POST",headers:{...businessHeaders,"x-leafcode-business-operation":taskSettingsModelId},body:JSON.stringify({model:"fixture-local::fixture-model"}),signal:AbortSignal.timeout(3000)}); assert.equal((await settingsReplay.json()).status,409);
   const autoReplay = await fetch(`${restartedBase}/internal/json-business/tasks/individual-task/goal-loop-auto-model`,{method:"PUT",headers:{...businessHeaders,"x-leafcode-business-operation":taskSettingsAutoId},body:JSON.stringify({enabled:true}),signal:AbortSignal.timeout(3000)}); assert.equal((await autoReplay.json()).status,409);
   const disableAuto = await fetch(`${restartedBase}/internal/json-business/tasks/individual-task/goal-loop-auto-model`,{method:"PUT",headers:{...businessHeaders,"x-leafcode-business-operation":"abababab-5678-4321-abcd-eeeeeeeeeeee"},body:JSON.stringify({enabled:false}),signal:AbortSignal.timeout(3000)}); assert.equal((await disableAuto.json()).body.enabled,false); assert.equal(JSON.parse(readFileSync(savedPath,"utf8"))["goal-loop-auto-model:individual-task"],undefined);
+  for(const [path,id] of [["tasks/individual-task/fork",forkOperation],[`tasks/${forkTaskId}/revert`,revertOperation],[`tasks/${forkTaskId}/unrevert`,unrevertOperation],["tasks/session-promotion-task/promote",promotionOperation]]) {
+    const replay=await fetch(`${restartedBase}/internal/json-business/${path}`,{method:"POST",headers:{...businessHeaders,"x-leafcode-business-operation":id},body:JSON.stringify({entryId:"ui0",destinationPath:promotionDestination}),signal:AbortSignal.timeout(5000)});assert.equal((await replay.json()).status,409);
+  }
+  const forkAfterRestart=await fetch(`${restartedBase}/internal/json-business/tasks/${forkTaskId}`,{headers:businessHeaders,signal:AbortSignal.timeout(5000)});const restartedFork=(await forkAfterRestart.json()).body.task;
+  // Existing SDK branch()/navigateTree() selection is in-memory until the next append; only the undo marker is durable.
+  // Preserve this baseline limitation explicitly rather than claiming selected-leaf durability at command ACK.
+  assert.equal(restartedFork.messages.length,100);assert.ok(restartedFork.revertLeafId);
+  const restoreAfterRestart=await fetch(`${restartedBase}/internal/json-business/tasks/${forkTaskId}/unrevert`,{method:"POST",headers:{...businessHeaders,"x-leafcode-business-operation":"fafafafa-7890-4321-abcd-eeeeeeeeeeee"},body:"{}",signal:AbortSignal.timeout(5000)});const restoredFork=await restoreAfterRestart.json();assert.equal(restoredFork.status,200,JSON.stringify(restoredFork));assert.equal(restoredFork.body.task.messages.length,100);assert.equal(restoredFork.body.task.revertLeafId,null);
+  const promotedAfterRestart=await fetch(`${restartedBase}/internal/json-business/tasks/session-promotion-task`,{headers:businessHeaders,signal:AbortSignal.timeout(5000)});assert.equal((await promotedAfterRestart.json()).body.task.directory,promotionDestination);assert.equal(readFileSync(join(promotionDestination,"keep-promotion.txt"),"utf8"),"fixture workspace 日本語");
   const historyReload = await fetch(`${restartedBase}/internal/json-business/tasks/individual-task/bookmarks?verify=1`, {headers:businessHeaders,signal:AbortSignal.timeout(3000)}); const historyReloaded = await historyReload.json(); assert.equal(historyReloaded.body.bookmarks[0].messageId,"ui0"); assert.deepEqual(historyReloaded.body.missing,[]);
   const bookmarkReplay = await fetch(`${restartedBase}/internal/json-business/tasks/individual-task/bookmarks`, {method:"PUT",headers:{...businessHeaders,"x-leafcode-business-operation":bookmarkId},body:JSON.stringify({messageId:"ui1",role:"user"}),signal:AbortSignal.timeout(3000)}); assert.equal((await bookmarkReplay.json()).status,409);
   const bookmarkDeleted = await fetch(`${restartedBase}/internal/json-business/tasks/individual-task/bookmarks?messageId=ui0`, {method:"DELETE",headers:{...businessHeaders,"x-leafcode-business-operation":"bcbcbcbc-1234-4321-abcd-eeeeeeeeeeee"},signal:AbortSignal.timeout(3000)}); assert.deepEqual((await bookmarkDeleted.json()).body.bookmarks,[]);
