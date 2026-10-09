@@ -74,27 +74,22 @@ describe("runtime ownership coverage", () => {
     expect(stale, "a wired or deleted route must leave the pending list").toEqual([]);
   });
 
-  it("the guarded routes are the ones that own sessions today", () => {
+  it("no Next route owns a session after the Backend migration", () => {
     const guarded = sessionStarters()
       .filter((route) => route.guarded)
       .map((route) => route.path)
       .sort();
-    expect(guarded).toEqual([
-      "bots/[id]/events/route.ts",
-      "bots/rooms/[id]/events/route.ts",
-      "tasks/[id]/events/route.ts",
-      "tasks/[id]/message-image/route.ts",
-    ]);
+    expect(guarded).toEqual([]);
   });
 
-  it("counts the remaining work so the removal has a number", () => {
+  it("counts the remaining local session surface after the Backend migration", () => {
     const starters = sessionStarters();
     const pending = starters.filter((route) => !route.guarded).map((route) => route.path).sort();
     // Every unguarded starter is a measured, listed gap — never an unrecorded one.
     expect(pending).toEqual(Object.keys(LOCAL_ONLY_PENDING).sort());
     expect({ starters: starters.length, guarded: starters.length - pending.length }).toEqual({
-      starters: 4,
-      guarded: 4,
+      starters: 0,
+      guarded: 0,
     });
     // No route may act as a second owner: every starter is guarded and the pending list is empty.
     expect(pending).toEqual([]);

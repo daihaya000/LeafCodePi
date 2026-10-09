@@ -63,7 +63,7 @@ import { createRoom, ensureRoomBotTask, getRoom, issueRoomRelayEnvelope, patchRo
 import { getTaskDetail } from "@/lib/pi/harness";
 import { getTask } from "@/lib/store";
 import { MAX_PROMPT_IMAGE_TOTAL_BYTES, MAX_PROMPT_TEXT_CHARS } from "@/lib/prompt-images";
-import { GET as events } from "../events/route";
+import { openLiveEvents } from "@backend-runtime/event-stream";
 import { POST } from "@backend-runtime/json-business/handlers/bots/rooms/[id]/prompt/route";
 import { PATCH } from "@backend-runtime/json-business/handlers/bots/rooms/[id]/route";
 
@@ -710,7 +710,7 @@ describe("room mention responses", () => {
 
   it("delivers the completed reply through the room SSE stream", async () => {
     const { room, taskIds: [taskId] } = setup();
-    const stream = await events(new NextRequest("http://localhost"), { params: Promise.resolve({ id: room.id }) });
+    const stream = await openLiveEvents({ route: `bots/rooms/${room.id}/events`, method: "GET", url: `http://localhost/api/bots/rooms/${room.id}/events`, authorized: true, signal: new AbortController().signal });
     const reader = stream.body!.getReader();
     try {
       await reader.read(); // initial room snapshot
