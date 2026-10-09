@@ -7,10 +7,11 @@ import { openTaskLocalMedia, parseMediaRange } from "../lib/local-media";
 import { resolveTaskLocalFile } from "../lib/local-file";
 import { imageMimeFromBytes } from "../lib/raster-image";
 import { MAX_LOCAL_IMAGE_BYTES } from "../lib/local-image";
+import { openRoomAttachment, readRoomAttachmentDiagnostics } from "./room-attachments";
 
 const CHUNK = 64 * 1024, MAX_ACTIVE = 32;
 const counters = { active: 0, descriptors: 0, peakActive: 0, bytesRead: 0 };
-export function readTaskFileStreamDiagnostics() { assertConfigurationOwner(); return { ...counters, chunkBytes: CHUNK, maxActive: MAX_ACTIVE }; }
+export function readTaskFileStreamDiagnostics() { assertConfigurationOwner(); return { ...counters, ...readRoomAttachmentDiagnostics(), chunkBytes: CHUNK, maxActive: MAX_ACTIVE }; }
 type Input = { route: string; method: string; url: string; headers: Record<string, string>; authorized: boolean; signal: AbortSignal };
 const mimes: Record<string, string> = { ".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".gif": "image/gif", ".webp": "image/webp", ".avif": "image/avif", ".bmp": "image/bmp" };
 const fail = (method: string, status: number, error: string) => new Response(method === "HEAD" ? null : JSON.stringify({ error }), { status, headers: { "content-type": "application/json", "cache-control": "private, no-store", "x-content-type-options": "nosniff" } });
@@ -39,8 +40,13 @@ export async function openTaskFileStream(input: Input): Promise<Response> {
   const abort = () => { void close(); };
   try {
     const path = new URL(input.url).searchParams.get("path") ?? "";
-    let size: number, mime: string;
-    if (target.kind === "media") {
+    let size: number, mime: string, cacheControl = "private, no-store", disposition = "inline";
+    if (target.kind === "files" || target.kind === "images") {
+      const result = await openRoomAttachment(target.id, target.file!, target.kind, input.signal);
+      if (!result.ok) { await close(); return fail(input.method, result.status, result.error); }
+      file = result.file; size = result.size; mime = result.mime; counters.descriptors++;
+      cacheControl = result.cacheControl; disposition = result.disposition;
+    } else if (target.kind === "media") {
       const result = await openTaskLocalMedia(target.id, path);
       if (!result.ok) { await close(); return fail(input.method, result.status, result.error); }
       file = result.file; size = result.size; mime = result.mime; counters.descriptors++;
@@ -64,7 +70,7 @@ export async function openTaskFileStream(input: Input): Promise<Response> {
     const stamp = await file.stat();
     const rangeHeader = input.method === "HEAD" || input.headers["if-range"] !== undefined ? null : input.headers.range ?? null;
     const range = parseMediaRange(rangeHeader, size);
-    const headers: Record<string, string> = { "content-type": mime, "content-disposition": "inline", "accept-ranges": "bytes", "cache-control": "private, no-store", "cross-origin-resource-policy": "same-origin", "x-content-type-options": "nosniff" };
+    const headers: Record<string, string> = { "content-type": mime, "content-disposition": disposition, "accept-ranges": "bytes", "cache-control": cacheControl, "cross-origin-resource-policy": "same-origin", "x-content-type-options": "nosniff" };
     if (!range) { await close(); return new Response(null, { status: 416, headers: { ...headers, "content-range": `bytes */${size}` } }); }
     headers["content-length"] = String(range.end - range.start + 1);
     if (rangeHeader !== null) headers["content-range"] = `bytes ${range.start}-${range.end}/${size}`;

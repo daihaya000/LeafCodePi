@@ -21,6 +21,22 @@ Phase0のPhase4対象は14経路・15操作。今回の移管は `tasks/[id]/ima
 - productionの45秒drain期限は短縮20msの同じtransportテストで解放を確認。32枠上限、未消費時のpayload読取0、画像/音声署名、パス拒否、変更中ファイルの失敗、Cancel後FD0を検証。
 - 初回の実fixtureは認証設定、欠落パスの既存403期待値、adapterによるprivate protocolヘッダ再付加が不適切だった。fixtureを実認証・既存境界・素のHTTP adapterへ修正し再検証した。全体suiteは未実行。
 
+## 追加単位: Room添付file/image
+
+- `bots/rooms/[id]/files/[file]` と `images/[file]` のGETをBackendへ移管。Next自動HEAD互換の明示HEADも同じ中継。累計4経路・Phase0掲載5操作を移管済み（追加の明示HEADは3操作）。
+- 共通private ingress・WebUI認証・generation・最大32配信・64KiB読取・pull/HWM0・drain期限・切断制御を再利用。Roomも単一/suffix Range、416、If-Range全体200を提供する。
+- Backendのみが隔離Root内のRoom JSON・生成名・添付FDを検証する。ファイルは既存どおりlive messagesへの登録、画像はRoom存在＋生成名の権限契約（live履歴のoverflow/reset後も既存画像URLは有効）。Room/sessionの書換え、SDK再hydration、履歴scanはしない。
+- MIME・日本語添付名・immutable/private cacheを維持。MIMEの安全なASCIIパラメータを制限せず保持し、制御文字は拒否。filenameはUTF-8/RFC5987形式。画像は拡張子と署名を照合し、nosniff/same-originを追加する。
+- 添付8MiB（保存側の既存上限）。Room JSONは新しく8MiBを上限にし、超過は503で拒否する（巨大な既存Roomの配信は制限される）。メタデータの読取は64KiB刻み、同時2件・再利用buffer合計16MiB以下、待機は共通32枠内で有界。解析Roomは添付権限の確認後に保持せず、配信へ持ち越すのはMIME/filenameヘッダだけ。取消しで待機listener/枠を解放する。JSONはBackendでのみ有界bufferに読むが、添付本文はBackend/Nextとも全体bufferしない。
+- canonical名をFDのdev/inoと再照合し、Roomディレクトリのsymlink/Windows junctionによる他Room・Root外への差替えを拒否。FDの読取中size/mtime検査は共通実装で継続する。原子的snapshot・OS全体のFD計測・無期限の保証ではない。
+
+### Room検証
+
+- Web53件、Room store/normalize・native server104件、契約/AST/ストール10件、Task/Room実2段HTTP各1件、計169件。Backend/Web型チェック成功。前回Taskの1GiB/61切断も再検証し、active/FD/中継activeは0。
+- Roomは8MiBを4並列×8巡、計256MiB配信。32本文切断、7MiB metadataの24要求取消し、Range/HEAD/認証/画像、Backend・relay再起動後の再取得を実証。最後の配信active/添付FD/metadata active/metadata待機/relay activeはすべて0、metadata peakは2以下。
+- プロセスRSS/heap/externalを25msで採取。閾値RSS128MiB、heap64MiB、external96MiB。最終計測のRSS増分はBackend68,300,800 / relay52,830,208 bytes、heap13,973,472 / 3,963,568、external67,904,928 / 52,625,626 bytes。実Backend runtimeと実Next relay＋HTTP adapterであり、Next production server全体・SSEの長時間計測ではない。
+- 原因: メタデータbufferを要求ごとに再確保した版は、読取を64KiB刻みにした再検証でexternal増分124,825,632 bytesとなり96MiB閾値に抵触した（RSS増分73,805,824 bytes、heap17,041,632 bytes）。同時2枠でbufferを再利用し、閾値を緩めず再検証を通した。再利用bufferの合計も16MiB以下をassertする。\n- 原因: 最初のRoom再起動fixtureがSIGTERM終了済みchildをexitCodeだけで生存扱いし、cleanupが既に発生したexitを待ち30秒timeoutになった。signalCodeとIPC接続状態も確認するよう修正。再実行で再起動・cleanup成功、旧fixtureプロセス残留なしを確認した。
+
 ## 残り
 
-Room添付file/image、message-image、project icon、profile export、preview image、TTS binary、Task/Bot/Room/Provider SSE。既存のProvider SSE中継もPhase4の共通切断・再接続・長時間/停滞検証の対象にする。全対象の所有権と長時間SSEの有界性が確認できるまでPhase4の受入完了とはしない。
+message-image、project icon、profile export、preview image、TTS binary、Task/Bot/Room/Provider SSE。既存のProvider SSE中継もPhase4の共通切断・再接続・長時間/停滞検証の対象にする。全対象の所有権と長時間SSEの有界性が確認できるまでPhase4の受入完了とはしない。
