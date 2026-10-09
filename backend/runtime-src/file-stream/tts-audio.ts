@@ -5,8 +5,9 @@ import { TTS_AUDIO_BODY_LIMIT,TTS_AUDIO_OPERATION_HEADER,TTS_AUDIO_EXECUTION_HEA
 import { dataDir } from "../lib/paths";import { configurationRequest } from "../configuration/http";
 import { POST } from "../json-business/handlers/tts/synthesize/route";
 import { TTS_MAX_AUDIO_BYTES } from "../lib/tts-synthesize";
+import { readTtsEngineTransportDiagnostics } from "../lib/tts-engine-transport";
 const state={ttsActive:0,ttsReaders:0,ttsHeldChunkBytes:0,ttsBytesRead:0};
-export function readTtsAudioDiagnostics(){return{...state,maxTtsStreams:2,maxTtsAudioBytes:TTS_MAX_AUDIO_BYTES};}
+export function readTtsAudioDiagnostics(){return{...state,...readTtsEngineTransportDiagnostics(),maxTtsStreams:2,maxTtsAudioBytes:TTS_MAX_AUDIO_BYTES};}
 type Input={url:string;headers:Record<string,string>;authorized:boolean;operationId?:string;body?:Uint8Array;signal:AbortSignal};
 const headers={"cache-control":"private, no-store","x-content-type-options":"nosniff","cross-origin-resource-policy":"same-origin","accept-ranges":"none"};
 export async function openTtsAudio(input:Input,onClose:()=>Promise<void>):Promise<Response>{

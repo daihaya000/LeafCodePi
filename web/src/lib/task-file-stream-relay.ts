@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { openBackendFileSource } from "./backend-file-transport";
 import { isCrossOriginRequest } from "@/lib/same-origin";
 import { TTS_AUDIO_ROUTE, TTS_AUDIO_BODY_LIMIT, TTS_AUDIO_OPERATION_HEADER, TTS_AUDIO_EXECUTION_HEADER, TTS_AUDIO_HEADER_TIMEOUT_MS } from "@shared/tts-audio-contract.mjs";
 import { TASK_FILE_STREAM_PATH, TASK_FILE_ROUTES, FILE_STREAM_HEADERS, taskFileTarget } from "@shared/task-file-stream-contract.mjs";
@@ -55,9 +56,9 @@ export async function relayTaskFileStream(request: Request, route: string): Prom
     for (const name of ["range", "if-range", "origin", "content-type"]) { const value = request.headers.get(name); if (value !== null) headers[name] = value; }
     if (operationId) headers[JSON_BUSINESS_HEADERS.operation] = operationId;
     handedOff = true;
-    const source = await fetch(`${backendBaseUrl()}${TASK_FILE_STREAM_PATH}/${route}${original.search}`, { method: request.method, headers, ...(body ? { body: new Uint8Array(body).slice().buffer } : {}), signal: controller.signal, redirect: "error", cache: "no-store" });
+    const source = await openBackendFileSource(`${backendBaseUrl()}${TASK_FILE_STREAM_PATH}/${route}${original.search}`,  { method: request.method, headers, ...(body ? { body: new Uint8Array(body).slice().buffer } : {}), signal: controller.signal, redirect: "error", cache: "no-store" });
     clearTimeout(timer);
-    if (source.headers.get(BACKEND_PROTOCOL_HEADER) !== String(BACKEND_PROTOCOL_VERSION) || source.headers.has("content-encoding") || source.status < 200 || source.status >= 500 && source.status !== 503 && !isTts) {
+    if (source.headers.get(BACKEND_PROTOCOL_HEADER) !== String(BACKEND_PROTOCOL_VERSION) || source.headers.has("content-encoding") || source.status < 200 || source.status >= 300 && source.status < 400 || source.status >= 500 && source.status !== 503 && !isTts) {
       await source.body?.cancel().catch(() => {}); cleanup(); return fail(503);
     }
     if (isTts && source.ok && (source.status !== 200 || source.headers.get(TTS_AUDIO_OPERATION_HEADER) !== operationId || source.headers.get(TTS_AUDIO_EXECUTION_HEADER) !== "unknown" || !/^(?:audio\/[A-Za-z0-9.+-]+|application\/octet-stream)$/.test(source.headers.get("content-type") ?? ""))) { await source.body?.cancel().catch(() => {}); cleanup(); return fail(503); }

@@ -42,7 +42,7 @@ export async function POST(req: NextRequest) {
   }
   let attempted = false;
   try {
-    const response = await openTtsEngineAudio(text, config.url, bot?.ttsVoice || config.voice, { onStart: () => { attempted = true; } });
+    const response = await openTtsEngineAudio(text, config.url, bot?.ttsVoice || config.voice, { onStart: () => { attempted = true; }, streaming: true });
     if (!response.ok) { await response.body?.cancel().catch(() => {}); throw new TtsSynthesizeError("合成エンジンの結果を確認できません", 502); }
     return response;
   } catch (error) {

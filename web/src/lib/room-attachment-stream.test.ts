@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { openTaskFileStream, readTaskFileStreamDiagnostics } from "@backend-runtime/file-stream/task-files";
 import { openRoomAttachment } from "@backend-runtime/file-stream/room-attachments";
+vi.mock("@/lib/backend-file-transport",()=>({openBackendFileSource:(url:string,init:RequestInit)=>fetch(url,init)}));
 import { GET, HEAD } from "../app/api/bots/rooms/[id]/files/[file]/route";
 import { GET as imageGet } from "../app/api/bots/rooms/[id]/images/[file]/route";
 import { BACKEND_PROTOCOL_HEADER } from "@shared/backend-protocol.mjs";

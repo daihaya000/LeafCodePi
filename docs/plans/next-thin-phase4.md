@@ -192,3 +192,22 @@ Phase0のPhase4対象は14経路・15操作。今回の移管は `tasks/[id]/ima
 - 無期限・全14経路同時の最大負荷・全WebUI pages/instrumentation/Proxyを含むproduction構成・実provider/model/engineの計算資源・電源断耐久・原子的directory/transcript snapshotは未検証/保証外。実API adapterのfixture buildは型検査を省略するが、別の全source型検査を成功させた。全Web test suiteの既存baseline問題を解消したとは主張しない。
 - JSONの古い履歴getter/load-moreは別契約で、既存SDK guard/cacheが残る。今回の512MiB readonly cold SSE readerの証拠を、そのJSON経路の巨大履歴・SDK hydration保証へ流用しない。既存owned live SDK sessionの業務状態増大も配信queueの上限とは別。
 - Phase4の移管・受入はここで終了。全WebUI構成やJSON履歴の追加最適化を、この完了のための未定義な追加条件にしない。
+
+## Turn12 — 独立再検証でのexternal超過とtransport修正
+
+### 原因・対処
+
+- 独立した確定コミットの再実行ではBackend external増分108,276,867bytesが96MiBを超過した。追加のフェーズ別計測でTTS全量転送中と特定。保持chunk約128KiBに対してexternal約100MB、診断専用のGC後heap snapshotでは生存ArrayBuffer backing計1,126,775bytesだった。持続的な保持リークではなく読取buffer割当て/コピーとGCタイミングの影響が濃い。GC/OS変動を含むため、個別変更の寄与や無期限の上限を断定しない。
+- Backend公開TTSはnative HTTPの64KiB/HWM0 view読取へ変更。source chunk最大256KiB、60秒絶対期限、非pool接続、EOF/取消し時のsocket/iterator/timer解放を追加。gzip/deflate/br、Voicevox query→synthesis、URL資格情報拒否、redirect非追従、受付後header待ちとsubscriber取消しの分離を維持する。非HTTP向けbuffered互換helperのfetch契約は維持した。
+- Backendだけの変更後もNext external105,040,604bytes、単純native Readable iterator版でも103,864,042bytesの超過を確認した。共通file relayをUndici raw dispatchへ移し、fetchのbyte copyとアプリ側Readable iterator連結を排除。parserを需要ごとにpauseし、最大256KiBのtailから64KiB viewだけを渡す。本文のdecode/全量収集/再試行はしない。HEAD/Range/protocol/ACK/Origin/private header境界を維持し、3xxは取消して拒否する。
+- raw dispatcherの初回版は合法なゼロ長parser flushをoverflow扱いし、大容量本文が中断した。空chunkを無視し、coalesced chunk/EOF tailの2MiB実HTTP回帰テストを追加した。single-use clientは読取完了までkeep-alive、EOF/取消しでdestroyしidle poolを残さない。peer FIN時にpauseを越えてdrainするUndici経路はfail-closedで、有界chunkを無制限に受け入れない。
+- 受入閾値RSS128MiB/heap48MiB/external96MiB/steady heap8MiBを変更していない。GC実行とheap snapshotは環境変数を除去した診断専用fixtureのみ。受入fixtureには入れていない。
+
+### 最終版の再検証
+
+- `d45c6a69`を展開した隔離sourceに今回の所有差分だけを重ねた。他者のharness/GoalLoop/provider-overload差分、実資格情報、実サービス再起動、実モデル/エンジン生成を使わない。実Next `dev:false`の15API route/94source moduleで検証した。
+- 310tests成功（Web195/native113/実Next2）、skip0。Backend runtime/nativeとWeb全source型検査成功、独立bundle7767KiB。隔離CLIの初回generation失敗は親から継承した元作業ツリーの`LEAFCODE_PI_BACKEND_RUNTIME_BUNDLE`が原因で、launcherを隔離bundleへ固定後に113tests全成功。API ownership165routes/265operationsも一致。
+- Profile source512MiB→gzip539,148,840bytes、TTS536,870,912bytes、Provider SSE125,001ms/536,492,355bytes/各8heartbeat。Profile32本文切断/16inventory取消し、TTS32切断/受付後header待ち取消し、Provider32切断/停止consumer/producer継続/再接続を確認。再起動後のv1、日本語/base64/mode/auth除外、complete/unknown duplicate409/engine再実行なし、古いlogin失効と新しいloginを最後まで検証した。
+- 上記最終ピーク増分（Backend / Next、bytes）：RSS113,053,696 / 59,797,504、heap31,948,248 / 7,969,792、external95,628,535 / 40,296,319。steady heap−109,000 / 63,080。file/FD/directory/compressor/metadata/TTS reader/held chunk/native engine connection・pending header・queue/engine/Provider subscriber・queue・reader・drain・listener・heartbeat・stall/Next activeは全0。意図的なProvider復旧履歴4entry/33,078bytesだけ残す。
+- Cold履歴269,584,138bytes、file536,870,912bytes、Task/Bot SSE125,010ms/550,590,629bytes。32SSE切断/8scan取消し/16file切断、Range206/416/HEAD、foreign poll、停止consumer、再接続/再起動、source SHA不変/SDK未load/配信資源0も再確認した。ピークRSS89,415,680 / 96,292,864、heap34,237,008 / 18,540,472、external62,257,195 / 66,497,432、steady heap−79,584 / 47,520。意図的なcold buffer2MiB/索引1,989,526bytesだけ残す。
+- 最終ログ：`lcp-p4-t12-final-acceptance-{production,native,web}.log`、state全exit0。fixture process残留なし。前節の有限・配信層だけの受入範囲と保証外事項はそのまま適用する。

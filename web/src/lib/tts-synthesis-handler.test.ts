@@ -7,6 +7,10 @@ import { createBot, patchBot } from "@/lib/bots";
 import { writeTtsConfig } from "@/lib/tts-config";
 import { POST } from "@backend-runtime/json-business/handlers/tts/synthesize/route";
 
+// Handler input/auth tests substitute only engine IO; the native transport has real HTTP tests.
+vi.mock("@backend-runtime/lib/tts-engine-transport", () => ({
+  openStreamingTtsResponse: (url: string, init: RequestInit) => fetch(url, init),
+}));
 const WEBUI_TOKEN = "tts-synthesis-webui-token";
 
 function request(text: unknown, botId?: string, token?: string): NextRequest {

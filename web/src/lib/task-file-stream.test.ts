@@ -8,6 +8,7 @@ import { relayTaskFileStream } from "./task-file-stream-relay";
 import { GET as nextImage } from "../app/api/tasks/[id]/image/route";
 import { GET as nextMedia, HEAD as nextHead } from "../app/api/tasks/[id]/media/route";
 import { BACKEND_PROTOCOL_HEADER } from "@shared/backend-protocol.mjs";
+vi.mock("@/lib/backend-file-transport",()=>({openBackendFileSource:(url:string,init:RequestInit)=>fetch(url,init)}));
 const store=vi.hoisted(()=>({getTask:vi.fn(),getProject:vi.fn(),listProjects:vi.fn(()=>[])}));vi.mock("@/lib/store",()=>store);
 let root:string;
 const bytes=Buffer.from("RIFF0000WAVEfmt data test audio");

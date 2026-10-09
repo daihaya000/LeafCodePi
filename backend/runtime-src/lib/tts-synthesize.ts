@@ -1,5 +1,6 @@
 import { assertConfigurationOwner } from "@backend-core/configuration-command.mjs";
 import { readTtsEngineText } from "./tts-engine-body";
+import { openStreamingTtsResponse } from "./tts-engine-transport";
 /**
  * サーバー側のTTS合成。設定（tts.json）のエンジンで音声を作り、ブラウザ再生用に返す。
  * エンジン判定・リクエスト形式は extensions/leafcode-tts/index.ts と合わせる（あちらがCLI側の正本）。
@@ -49,6 +50,9 @@ export const TTS_SYNTHESIZE_TIMEOUT_MS = 60_000;
 export const TTS_MAX_AUDIO_BYTES = 64 * 1024 * 1024;
 
 const timeoutSignal = () => AbortSignal.timeout(TTS_SYNTHESIZE_TIMEOUT_MS);
+const engineRequest = (url: string, init: { method: "POST"; headers?: Record<string, string>; body?: string }, streaming: boolean) => streaming
+  ? openStreamingTtsResponse(url, { ...init, timeoutMs: TTS_SYNTHESIZE_TIMEOUT_MS })
+  : fetch(url, { ...init, redirect: "error", signal: timeoutSignal() });
 
 async function readAudio(res: Response): Promise<{ audio: Buffer; contentType: string }> {
   if (!res.ok) throw new TtsSynthesizeError(`合成エンジンが ${res.status} を返しました`);
@@ -83,52 +87,40 @@ async function readAudio(res: Response): Promise<{ audio: Buffer; contentType: s
 }
 
 /** AivisSpeech / VOICEVOX エンジン: audio_query → synthesis。voice は style id。 */
-async function synthesizeVoicevox(baseUrl: string, text: string, voice: string, onStart: () => void): Promise<Response> {
+async function synthesizeVoicevox(baseUrl: string, text: string, voice: string, onStart: () => void, streaming: boolean): Promise<Response> {
   const speaker = voice.replace(/[^0-9]/g, "") || "1";
   const root = baseUrl.replace(/\/+$/, "");
   let queryRes: Response;
   try {
     onStart();
-    queryRes = await fetch(`${root}/audio_query?text=${encodeURIComponent(text)}&speaker=${speaker}`, {
-      method: "POST",
-      redirect: "error",
-      signal: timeoutSignal(),
-    });
+    queryRes = await engineRequest(`${root}/audio_query?text=${encodeURIComponent(text)}&speaker=${speaker}`, { method: "POST" }, streaming);
   } catch {
     throw new TtsSynthesizeError("合成エンジンに接続できません（停止中？）");
   }
-  if (!queryRes.ok) throw new TtsSynthesizeError(`audio_query が ${queryRes.status} を返しました`);
+  if (!queryRes.ok) { await queryRes.body?.cancel().catch(() => undefined); throw new TtsSynthesizeError(`audio_query が ${queryRes.status} を返しました`); }
   let synthRes: Response;
   try {
-    synthRes = await fetch(`${root}/synthesis?speaker=${speaker}`, {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: await readTtsEngineText(queryRes),
-      redirect: "error",
-      signal: timeoutSignal(),
-    });
+    synthRes = await engineRequest(`${root}/synthesis?speaker=${speaker}`, {
+      method: "POST", headers: { "content-type": "application/json" }, body: await readTtsEngineText(queryRes),
+    }, streaming);
   } catch {
     throw new TtsSynthesizeError("合成エンジンに接続できません（停止中？）");
   }
   return synthRes;
 }
 
-export async function openTtsEngineAudio(text: string, url: string, voice: string, options: { onStart?: () => void } = {}): Promise<Response> {
+export async function openTtsEngineAudio(text: string, url: string, voice: string, options: { onStart?: () => void; streaming?: boolean } = {}): Promise<Response> {
   assertConfigurationOwner();
   const clean = text.trim();
   if (!clean) throw new TtsSynthesizeError("読み上げる文章が空です", 400);
   if (!url.trim()) throw new TtsSynthesizeError("合成エンジンが未設定です（設定→読み上げで AivisSpeech または HTTP URL を指定）", 400);
-  if (isVoicevoxEngineUrl(url)) return synthesizeVoicevox(url, clean, voice.trim(), options.onStart ?? (() => {}));
+  if (isVoicevoxEngineUrl(url)) return synthesizeVoicevox(url, clean, voice.trim(), options.onStart ?? (() => {}), options.streaming === true);
   let res: Response;
   try {
     options.onStart?.();
-    res = await fetch(url, {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: buildBody(url, clean, voice.trim()),
-      redirect: "error",
-      signal: timeoutSignal(),
-    });
+    res = await engineRequest(url, {
+      method: "POST", headers: { "content-type": "application/json" }, body: buildBody(url, clean, voice.trim()),
+    }, options.streaming === true);
   } catch {
     throw new TtsSynthesizeError("合成エンジンに接続できません（停止中？）");
   }
