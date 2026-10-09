@@ -25,6 +25,16 @@ test("business transport enforces auth, protocol, readiness, method, context and
   assert.equal((await request(`${unavailable.base}/git/init`, { method: "POST", headers: unavailable.headers })).status, 503);
   assert.equal(calls, 0);
 });
+test("Bot Code transport keeps read context, opaque commands and per-route budgets separate",async t=>{
+ let calls=0;const f=await fixture(t,{jsonBusinessRequestAction:async input=>{
+  calls++;if(input.method==="GET"){assert.ok(input.operationId==null);return input.route.endsWith("code-session")?{status:200,body:{tasks:[],loops:{}}}:{status:200,body:{requests:[]}};}
+  assert.equal(input.signal,undefined);assert.ok(input.operationId);assert.equal(Buffer.from(input.body).toString(),"opaque");
+  return {status:409,body:{error:"owner refusal",operation:{id:input.operationId,execution:"complete"},token:"PRIVATE"}};
+ }});
+ const headers={...f.headers,"x-leafcode-business-operation":"aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"},id="11111111-0123-4321-abcd-eeeeeeeeeeee";
+ for(const action of ["code-session","code-requests"]){const path=f.base+"/bots/"+id+"/"+action;assert.equal((await request(path,{headers:f.headers})).status,200);assert.equal((await request(path,{method:"POST",headers:f.headers,body:"{}"})).status,400);const result=await request(path,{method:"POST",headers,body:"opaque"});assert.equal(result.status,200);assert.ok(!JSON.stringify(await result.json()).includes("PRIVATE"));assert.equal((await request(path,{method:"POST",headers,body:"x".repeat(action==="code-session"?262145:4097)})).status,413);}
+ const patch=await request(f.base+"/bots/"+id+"/code-session",{method:"PATCH",headers,body:"opaque"});assert.equal(patch.status,200);assert.equal(calls,5);
+});
 test("Bot conversation transport isolates three admitted writes, their bounds and deep Goal/tree DTO",async t=>{
  let calls=0;const f=await fixture(t,{jsonBusinessRequestAction:async input=>{
   calls++;assert.equal(input.signal,undefined);assert.ok(input.operationId);assert.equal(Buffer.from(input.body).toString(),"opaque 日本語");

@@ -85,7 +85,7 @@ vi.mock("@/lib/backend-forward", () => ({
 
 import { MAX_PROMPT_TEXT_CHARS } from "@/lib/prompt-images";
 import type { GoalLoopDto } from "@/lib/types";
-import { GET, PATCH, POST } from "./route";
+import { GET, PATCH, POST } from "@backend-runtime/json-business/handlers/bots/[id]/code-session/route";
 
 const bot = {
   id: "bot-1",
@@ -105,6 +105,8 @@ function request(method: string, body?: unknown): NextRequest {
 }
 
 beforeEach(() => {
+  vi.stubEnv("LEAFCODE_PI_PROCESS_ROLE", "backend");
+  vi.stubEnv("LEAFCODE_PI_BACKEND_RUNTIME", "attach");
   vi.clearAllMocks();
   // Ownership is per-test: a leftover value would make every later test refuse.
   mocks.localRuntimeBlocked.mockReturnValue(false);
@@ -678,144 +680,5 @@ describe("Bot Code session control", () => {
       },
     });
     expect(mocks.getBotCodeSessionPanelState).toHaveBeenCalledWith("bot-1");
-  });
-});
-
-describe("Bot Code session after the cutover", () => {
-  it("forwards the start to the owning Backend instead of creating a second owner", async () => {
-    mocks.getBot.mockReturnValue({ id: "one", permissionMode: "ask", enabled: true });
-    mocks.localRuntimeBlocked.mockReturnValue(true);
-    mocks.forwardBotCodeSessionStart.mockResolvedValue({ ok: true, task: { id: "code-1", status: "working" } });
-    const response = await POST(
-      new NextRequest("http://localhost/api/bots/one/code-session", {
-        method: "POST",
-        body: JSON.stringify({ prompt: "やって", projectId: null }),
-      }),
-      { params: Promise.resolve({ id: "one" }) },
-    );
-    expect(response.status).toBe(200);
-    await expect(response.json()).resolves.toEqual({ task: { id: "code-1", status: "working" } });
-    expect(mocks.forwardBotCodeSessionStart).toHaveBeenCalledWith("one", {
-      projectId: null,
-      prompt: "やって",
-      permissionMode: "ask",
-    });
-    expect(mocks.createBotCodeTask).not.toHaveBeenCalled();
-  });
-
-  it("never starts locally when the Backend cannot take it", async () => {
-    mocks.getBot.mockReturnValue({ id: "one", permissionMode: "ask", enabled: true });
-    mocks.localRuntimeBlocked.mockReturnValue(true);
-    mocks.forwardBotCodeSessionStart.mockResolvedValue({ ok: false, reason: "unreachable" });
-    const failed = await POST(
-      new NextRequest("http://localhost/api/bots/one/code-session", {
-        method: "POST",
-        body: JSON.stringify({ prompt: "やって", projectId: null }),
-      }),
-      { params: Promise.resolve({ id: "one" }) },
-    );
-    expect(failed.status).toBe(502);
-    expect(mocks.createBotCodeTask).not.toHaveBeenCalled();
-  });
-
-  it("forwards a clear to the owning Backend and refuses unknown actions", async () => {
-    mocks.getBot.mockReturnValue({ id: "one", codeSessionTaskId: "task-1" });
-    mocks.localRuntimeBlocked.mockReturnValue(true);
-    mocks.forwardBotCodeSessionStart.mockResolvedValue({ ok: true, task: null });
-    const cleared = await PATCH(
-      new NextRequest("http://localhost/api/bots/one/code-session", {
-        method: "PATCH",
-        body: JSON.stringify({ action: "clear" }),
-      }),
-      { params: Promise.resolve({ id: "one" }) },
-    );
-    expect(cleared.status).toBe(200);
-    await expect(cleared.json()).resolves.toEqual({ task: null });
-    expect(mocks.forwardBotCodeSessionStart).toHaveBeenCalledWith("one", { action: "clear", taskId: "task-1" });
-    expect(mocks.stopBotCodeTask).not.toHaveBeenCalled();
-
-    const unknown = await PATCH(
-      new NextRequest("http://localhost/api/bots/one/code-session", {
-        method: "PATCH",
-        body: JSON.stringify({ action: "unknown" }),
-      }),
-      { params: Promise.resolve({ id: "one" }) },
-    );
-    expect(unknown.status).toBe(409);
-    await expect(unknown.json()).resolves.toEqual({
-      error: "Codeセッションの操作は非所有モードでは未対応です",
-      code: "CODE_SESSION_CONTROL_NOT_SUPPORTED",
-    });
-  });
-
-  it("forwards stop and Goal Loop control to the owning Backend", async () => {
-    mocks.getBot.mockReturnValue({ id: "one", codeSessionTaskId: "task-1" });
-    mocks.localRuntimeBlocked.mockReturnValue(true);
-    mocks.forwardTaskAbort.mockResolvedValue({ ok: true, task: { id: "task-1", status: "error" } });
-    const stopped = await PATCH(
-      new NextRequest("http://localhost/api/bots/one/code-session", {
-        method: "PATCH",
-        body: JSON.stringify({ action: "abort" }),
-      }),
-      { params: Promise.resolve({ id: "one" }) },
-    );
-    expect(stopped.status).toBe(200);
-    await expect(stopped.json()).resolves.toEqual({ task: { id: "task-1", status: "error" } });
-    expect(mocks.forwardTaskAbort).toHaveBeenCalledWith("task-1", { botId: "one" });
-
-    mocks.forwardGoalLoopControl.mockResolvedValue({ ok: true, loop: { id: "task-1", status: "paused" } });
-    const paused = await PATCH(
-      new NextRequest("http://localhost/api/bots/one/code-session", {
-        method: "PATCH",
-        body: JSON.stringify({ action: "goal-loop", goalLoopAction: "pause" }),
-      }),
-      { params: Promise.resolve({ id: "one" }) },
-    );
-    expect(paused.status).toBe(200);
-    await expect(paused.json()).resolves.toEqual({ loop: { id: "task-1", status: "paused" } });
-    expect(mocks.forwardGoalLoopControl).toHaveBeenCalledWith("task-1", { action: "pause", botId: "one" });
-    expect(mocks.stopBotCodeTask).not.toHaveBeenCalled();
-    expect(mocks.goalLoopCommand).not.toHaveBeenCalled();
-  });
-
-  it("forwards a continue to the owning Backend", async () => {
-    mocks.getBot.mockReturnValue({ id: "one", codeSessionTaskId: "task-1" });
-    mocks.localRuntimeBlocked.mockReturnValue(true);
-    mocks.forwardBotCodeSessionStart.mockResolvedValue({ ok: true, task: { id: "task-2", status: "working" } });
-    const response = await PATCH(
-      new NextRequest("http://localhost/api/bots/one/code-session", {
-        method: "PATCH",
-        body: JSON.stringify({ action: "prompt", prompt: "続けて" }),
-      }),
-      { params: Promise.resolve({ id: "one" }) },
-    );
-    expect(response.status).toBe(200);
-    await expect(response.json()).resolves.toEqual({ task: { id: "task-2", status: "working" } });
-    expect(mocks.forwardBotCodeSessionStart).toHaveBeenCalledWith("one", {
-      action: "continue",
-      taskId: "task-1",
-      prompt: "続けて",
-    });
-    expect(mocks.continueBotCodeTask).not.toHaveBeenCalled();
-  });
-
-  it("never acts locally when a forwarded control cannot be delivered", async () => {
-    mocks.getBot.mockReturnValue({ id: "one", codeSessionTaskId: "task-1" });
-    mocks.localRuntimeBlocked.mockReturnValue(true);
-    mocks.forwardTaskAbort.mockResolvedValue({ ok: false, reason: "unreachable" });
-    const failed = await PATCH(
-      new NextRequest("http://localhost/api/bots/one/code-session", {
-        method: "PATCH",
-        body: JSON.stringify({ action: "abort" }),
-      }),
-      { params: Promise.resolve({ id: "one" }) },
-    );
-    expect(failed.status).toBe(502);
-    await expect(failed.json()).resolves.toEqual({
-      error: "Backendを停止できません",
-      code: "BACKEND_FORWARD_FAILED",
-      reason: "unreachable",
-    });
-    expect(mocks.stopBotCodeTask).not.toHaveBeenCalled();
   });
 });

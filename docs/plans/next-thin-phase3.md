@@ -2,9 +2,9 @@
 
 ## 進捗・範囲
 
-Phase3全体は未完了。Phase0のBackend/Phase3/JSON分類は118経路・182操作。Git・Diff・コミット文生成13経路・14操作、定義管理14経路・25操作、Provider/モデル設定7経路・8操作、Provider認証JSON4経路・5操作、アカウント管理/資格情報9経路・19操作、利用量/クレジット3経路・5操作、Peer認証共有5経路・9操作、Workspaceファイル/次タスク提案3経路・3操作、Project lifecycle1経路・4操作、Task collection1経路・3操作、個別Task lifecycle2経路・4操作、Task履歴/検索/bookmark3経路・5操作、Task実行設定4経路・4操作、Task送信/対話応答3経路・3操作、Goal制御2経路・4操作、Task会話編集/昇格4経路・4操作、Task compaction2経路・2操作、Task進行補助4経路・5操作、Task監督/子実行2経路・2操作、Bot lifecycle2経路・5操作、Bot会話3経路・3操作の合計91経路・136操作の境界を移管した。認証に付随するログインSSE 1経路・1操作も同じownerへ移管した（Phase3 JSONの集計には加算しない）。残る27経路・46操作には既存Backend中継も含まれ、受入条件の確認・残存業務処理の移管が必要。
+Phase3全体は未完了。Phase0のBackend/Phase3/JSON分類は118経路・182操作。Git・Diff・コミット文生成13経路・14操作、定義管理14経路・25操作、Provider/モデル設定7経路・8操作、Provider認証JSON4経路・5操作、アカウント管理/資格情報9経路・19操作、利用量/クレジット3経路・5操作、Peer認証共有5経路・9操作、Workspaceファイル/次タスク提案3経路・3操作、Project lifecycle1経路・4操作、Task collection1経路・3操作、個別Task lifecycle2経路・4操作、Task履歴/検索/bookmark3経路・5操作、Task実行設定4経路・4操作、Task送信/対話応答3経路・3操作、Goal制御2経路・4操作、Task会話編集/昇格4経路・4操作、Task compaction2経路・2操作、Task進行補助4経路・5操作、Task監督/子実行2経路・2操作、Bot lifecycle2経路・5操作、Bot会話3経路・3操作、Bot Code2経路・5操作の合計93経路・141操作の境界を移管した。認証に付随するログインSSE 1経路・1操作も同じownerへ移管した（Phase3 JSONの集計には加算しない）。残る25経路・41操作には既存Backend中継も含まれ、受入条件の確認・残存業務処理の移管が必要。
 
-以下は第1区切り（Git・Diff・コミット文生成）の記録。第2区切りの定義管理、第3区切りのProvider/モデル設定、第4区切りのProvider認証、第5区切りのアカウント管理/資格情報、第6区切りの利用量/クレジット、第7区切りのPeer認証共有、第8区切りのWorkspaceファイル/次タスク提案、第9区切りのProject lifecycle、第10区切りのTask collection、第11区切りの個別Task lifecycle、第12区切りのTask履歴/検索/bookmark、第13区切りのTask実行設定、第14区切りのTask送信/対話応答、第15区切りのGoal制御、第16区切りのTask会話編集/昇格、第17区切りのTask compaction、第18区切りのTask進行補助、第19区切りのTask監督/子実行、第20区切りのBot lifecycle、第21区切りのBot会話は末尾に記載する。
+以下は第1区切り（Git・Diff・コミット文生成）の記録。第2区切りの定義管理、第3区切りのProvider/モデル設定、第4区切りのProvider認証、第5区切りのアカウント管理/資格情報、第6区切りの利用量/クレジット、第7区切りのPeer認証共有、第8区切りのWorkspaceファイル/次タスク提案、第9区切りのProject lifecycle、第10区切りのTask collection、第11区切りの個別Task lifecycle、第12区切りのTask履歴/検索/bookmark、第13区切りのTask実行設定、第14区切りのTask送信/対話応答、第15区切りのGoal制御、第16区切りのTask会話編集/昇格、第17区切りのTask compaction、第18区切りのTask進行補助、第19区切りのTask監督/子実行、第20区切りのBot lifecycle、第21区切りのBot会話、第22区切りのBot Codeは末尾に記載する。
 
 | 経路 | 操作 |
 | --- | --- |
@@ -357,3 +357,21 @@ Phase3全体は未完了。Phase0のBackend/Phase3/JSON分類は118経路・182�
 - Bot responderはlocalhost固定textのみ、3要求（待機1・正常応答2）。SDKは組込toolを宣言し得るが応答でtool callを返さず、sessionのtoolCall/toolResult非存在も確認した。Goalはfixture extensionによるstate-only SDK commandでprovider要求を増やさず、有料/外部生成・Code/子agent起動・tool実行・稼働ユーザーBot/Task/設定/資格情報/SOUL/サービスへの操作はない。
 - 原因: 初回7件のpromptテスト失敗はmockがtyped 400/409を500へ潰したため。ownerへ移した本番validationは保持し、mockを実status対応に修正した。ownership期待値は移管済み3経路を除外し14→11へ更新。レビューでSDK編集後のtyped outbox refusalを検出し、503/unknown化と再実行拒否を検証した。
 - 並行差分7ファイルと既存routing timeout/selected-leaf制約を保持する。巻戻しだけのleaf永続化を追加したものではなく、fixtureは次prompt append後のbranch復元を検証した。Phase3全体は未完了で、Bot Code/routine/sidebar/Room業務等27経路・46操作が残る。
+
+## 第22区切り: Bot Code（2経路・5操作）
+
+- `bots/[id]/code-session` GET/POST/PATCH、`bots/[id]/code-requests` GET/POSTをBackendへ移管。Nextはparams encodeと単一relay returnのみ。旧local/forward分岐、Bot/Project/Task判断、orphan reconcile、Goal設定解釈、SDK開始/継続/停止、link/outbox更新、progress peek・ETag生成をownerへ集約した。
+- 全handler/dispatcherと専用 `lib/bot-code.ts` のSDK入口をguardし、NextをSDK/store/cache/FSより前に拒否する。POSTは既存のProject有効性・Bot deny/disable・prompt/model/thinking/permission・Goal acceptance/clampを検証。callerのbotId/taskId/codeRequestId/beforePrompt/images等は開始引数へ採用せず、ownerがoutbox ID/起点/Code taskを生成する。
+- PATCHはlinked task/明示taskIdをownerで解決し、1:1のowned/supervised Codeだけを操作する。Room worker/Room-delegated Code/他Botを拒否。prompt継続はdeny/disableを拒否、Goal resumeはdisableを拒否し、pause/stop/complete/abortは無効化後も使用できる。Goal Stopはoutboxをuser-stoppedにし、unlinkはworking/cold operator-held Goalまで停止→再確認後にだけmatching Bot/監督linkを解除する。停止不能409はlinkを保持し、別のCode linkを消さない。
+- request Stopは64文字のlowercase hex IDとBot所有を検証し、当該outboxだけuser-stoppedにする。実Codeが開始済みの場合はcold/live Goalを含むabortを行い、finallyで生成済み結果を回収する。途中のabort/回収例外や部分的link更新例外はtyped 4xxであっても503/unknownへ変換し、成功済み効果をrefusal/rollbackとして扱わない。
+- 専用 `bot-code-command.json`（0600・最大128件・入力/設定/Task ID非記録）のconcurrent admissionでCode launch/継続を待たずStopを受ける。効果前unknown、ACK一致、admitted disconnect非取消、同ID再起動後409、無fallback/自動再送を保持。completeは要求処理終了でありCode生成/結果配送終了やstore/Bot/outboxの原子性・無期限exactly-onceの保証ではない。
+- GETのpanelはBot-scoped既存summary/Goal/todo取得、requestsは既存非intervention一覧/順序とactiveだけのprogress peekを保持。cold pollingでlive sessionを新規attachせず、GETにcommand ledgerを書かない。Task/Goal/進捗・結果reportを深く投影し、author text/output/acceptance/evidence・legacy plain resultを保持、SDK/credential/header/任意reportフィールドを除く。不正成功を空一覧に偽装せず503。ETag/304も維持する。
+- Code session本文は256 KiBで既存32,000 code-point promptの最大UTF-8/JSON control escapeとGoal optionsを収容、request Stopは4 KiB。Bot IDはdecode一回・既存UUID-shaped検証。
+
+### 第22区切りの検証結果
+
+- owner/2 handler/実BFF/ownership94件、Code SDK/relay/並行outbox/lock/Goal/関連owner131件、Core/契約/HTTP/AST/bundle207件、独立fixture1件の対象433件が成功。全体スイートは今回再実行していない。Backend/Web typecheck、強制Backendビルド7,205 KiB成功。
+- Webなし隔離実Backend/SDKでCode Goal task/outbox実作成→panel/Goal/progress/ETag304→別Botのtask/request操作404→Goal pause/resume→request Stop/user-stopped保存→続行受付/abort→unlinkを確認。実プロセス再起動後のCode task/停止Goal/outbox保持と7 command IDの再実行409も確認（12.3秒）。
+- Goalは既存fixture-only state command、Code/報告Botのモデルは到達不能localhostだけ。追加の有料/外部provider生成・tool実行・子agent起動はなく、既存固定Bot responderの3要求も増えていない。稼働ユーザーTask/Bot/設定/資格情報/SOUL/サービスへの操作なし。
+- 原因: レビューで停止/部分link更新後のtyped 4xx例外を安全なrefusalとして返せる点を確認。503/unknown・秘密非公開・同ID拒否を追加検証した。初回HTTPテストは任意operationIdのundefinedをnull限定で比較したため503となり、未指定の契約に合わせて修正。ownershipの残存session-starter期待値は11→9。
+- 並行差分7ファイルと既存routing timeout/selected-leaf永続化制約は保持し、今回解消したとは扱わない。Phase3全体は未完了で、Bot routine/sidebar/intercom/Room等25経路・41操作が残る。

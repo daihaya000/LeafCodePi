@@ -24,6 +24,8 @@ import { POST as selectTaskAgent } from "../app/api/tasks/[id]/agent/route";
 import { PUT as selectGoalAuto } from "../app/api/tasks/[id]/goal-loop-auto-model/route";
 import { GET as readTaskGoal, POST as startTaskGoal, PATCH as controlTaskGoal } from "../app/api/tasks/[id]/goal-loop/route";
 import { GET as activeTaskGoals } from "../app/api/goal-loop/active/route";
+import { GET as botCodePanel, POST as startBotCode, PATCH as controlBotCode } from "../app/api/bots/[id]/code-session/route";
+import { GET as botCodeRequests, POST as stopBotCodeRequest } from "../app/api/bots/[id]/code-requests/route";
 import { POST as sendBotPrompt } from "../app/api/bots/[id]/prompt/route";
 import { POST as abortBotConversation } from "../app/api/bots/[id]/abort/route";
 import { POST as rewindBotConversation } from "../app/api/bots/[id]/revert/route";
@@ -59,6 +61,22 @@ beforeEach(() => {
 });
 afterEach(() => { vi.restoreAllMocks(); vi.unstubAllGlobals(); vi.unstubAllEnvs(); rmSync(root, { recursive: true, force: true }); });
 describe("JSON business ingress", () => {
+  it("Bot Code relays five operations without business decisions, validates ACKs and projects deep reports",async()=>{
+    const id="11111111-0123-4321-abcd-eeeeeeeeeeee",context={params:Promise.resolve({id})},task={id:"code",status:"idle",token:"PRIVATE"};
+    for(const [action,method,fn,body,result]of [
+      ["code-session","GET",botCodePanel,undefined,{tasks:[task],loops:{code:{status:"blocked",goal:"authored",token:"PRIVATE"}}}],
+      ["code-requests","GET",botCodeRequests,undefined,{requests:[{id:"a".repeat(64),codeTaskId:"code",state:"running",prompt:"authored",token:"PRIVATE"}]}],
+      ["code-session","POST",startBotCode,'{"projectId":null,"prompt":"日本語","botId":"forged"}',{task}],
+      ["code-session","PATCH",controlBotCode,'{"action":"unlink","taskId":"code"}',{task:null}],
+      ["code-requests","POST",stopBotCodeRequest,'{"action":"abort","requestId":"opaque"}',{requestId:"a".repeat(64),state:"ready",task}]
+    ]as const){
+      fetcher.mockImplementationOnce(async(_url,init)=>Response.json({status:200,body:{...result,...(method!=="GET"?{operation:{id:new Headers(init.headers).get("x-leafcode-business-operation"),execution:"complete"}}:{})},headers:{etag:'W/"fixture"',"set-cookie":"PRIVATE"}}));
+      const response=await fn(new NextRequest("http://localhost/api/bots/"+id+"/"+action,{method,...(body?{body}:{})}),context);expect(response.status).toBe(200);expect(JSON.stringify(await response.json())).not.toContain("PRIVATE");expect(response.headers.get("set-cookie")).toBeNull();const [url,init]=fetcher.mock.calls.at(-1)!;expect(url).toContain("/bots/"+id+"/"+action);if(body)expect(new TextDecoder().decode(init.body)).toBe(body);
+    }
+    fetcher.mockResolvedValueOnce(Response.json({status:304,body:null,headers:{etag:'W/"fixture"'}}));const unchanged=await botCodePanel(new NextRequest("http://localhost/api/bots/"+id+"/code-session",{headers:{"if-none-match":'W/"fixture"'}}),context);expect(unchanged.status).toBe(304);expect(await unchanged.text()).toBe("");
+    fetcher.mockResolvedValueOnce(Response.json({status:200,body:{task}}));const missing=await startBotCode(new NextRequest("http://localhost/api/bots/"+id+"/code-session",{method:"POST",body:"{}"}),context);expect(missing.status).toBe(503);expect((await missing.json()).execution).toBe("unknown");
+    const calls=fetcher.mock.calls.length;expect((await stopBotCodeRequest(new NextRequest("http://localhost/api/bots/"+id+"/code-requests",{method:"POST",body:"x".repeat(4097)}),context)).status).toBe(413);expect(fetcher).toHaveBeenCalledTimes(calls);expect(readdirSync(root)).toEqual([]);
+  });
   it("Bot conversation relays unchanged prompt/Goal/stop/revert bytes and only wakes after matching public ACK",async()=>{
     const id="11111111-0123-4321-abcd-eeeeeeeeeeee",context={params:Promise.resolve({id})},wake=vi.spyOn(dirtyHub,"wakeBackendTaskListeners"),task={id:"bot:"+id,status:"working",token:"PRIVATE"};
     for(const [action,fn,body,result] of [
