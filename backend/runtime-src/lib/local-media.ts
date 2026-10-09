@@ -1,5 +1,5 @@
 import { constants } from "node:fs";
-import { open, type FileHandle } from "node:fs/promises";
+import { open, realpath, stat, type FileHandle } from "node:fs/promises";
 import { resolveTaskLocalFile, type LocalFileFailure } from "@/lib/local-file";
 import { mediaFormatForPath, type MediaFormat, type MediaKind } from "@/lib/media-formats";
 
@@ -42,6 +42,8 @@ export async function openTaskLocalMedia(taskId: string, path: string): Promise<
     const info = await file.stat();
     if (!info.isFile() || info.size <= 0) return await fail(400, "空ではない動画・音声ファイルを指定してください");
     if (info.size > MAX_LOCAL_MEDIA_BYTES) return await fail(413, "動画・音声は512 MB以下にしてください");
+    const canonical = await realpath(resolved.path), current = await stat(canonical);
+    if (canonical !== resolved.path || current.dev !== info.dev || current.ino !== info.ino) return await fail(403, "ファイルの場所が変更されました");
     const buffer = Buffer.alloc(4096);
     const { bytesRead } = await file.read(buffer, 0, buffer.length, 0);
     if (!validHeader(buffer.subarray(0, bytesRead), format.signature)) return await fail(415, "動画・音声の形式を確認できません");

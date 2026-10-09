@@ -4,6 +4,8 @@ import { createHash, randomUUID, timingSafeEqual } from "node:crypto";
 import { createServer } from "node:http";
 import { once } from "node:events";
 import { streamRuntimeEvents } from "./runtime-events.mjs";
+import { taskFileTarget, TASK_FILE_ROUTES, TASK_FILE_STREAM_PATH } from "../../shared/task-file-stream-contract.mjs";
+import { writeFileStream } from "./file-stream.mjs";
 import { readJsonBody, JsonBodyReadError } from "./json-body.mjs";
 import { streamProviderLoginEvents } from "./provider-login-events.mjs";
 import { PROVIDER_AUTH_EVENTS_PATH } from "../../shared/provider-auth-contract.mjs";
@@ -223,6 +225,7 @@ export function createBackendServer({
   configurationRequestAction = null,
   jsonBusinessRequestAction = null,
   providerLoginEventsAction = null,
+  taskFileStreamAction = null,
 } = {}) {
   if (
     typeof token !== "string" ||
@@ -259,6 +262,7 @@ export function createBackendServer({
     configurationRequestAction,
     jsonBusinessRequestAction,
     providerLoginEventsAction,
+    taskFileStreamAction,
     subscribeRuntimeEvents,
     createTask,
     respondToQuestion,
@@ -415,7 +419,8 @@ export function createBackendServer({
       ? target.pathname.slice(CONFIGURATION_PATH.length + 1) : null;
     const businessPath = target.pathname.startsWith(`${JSON_BUSINESS_PATH}/`) ? target.pathname.slice(JSON_BUSINESS_PATH.length + 1) : null;
     const authEventsMatch = new RegExp(`^${PROVIDER_AUTH_EVENTS_PATH}/([^/]+)$`).exec(target.pathname);
-    const knownPath = authEventsMatch !== null || businessPath !== null || configurationPath !== null || target.pathname === BACKEND_HEALTH_PATH
+    const filePath = target.pathname.startsWith(`${TASK_FILE_STREAM_PATH}/`) ? target.pathname.slice(TASK_FILE_STREAM_PATH.length + 1) : null;
+    const knownPath = filePath !== null || authEventsMatch !== null || businessPath !== null || configurationPath !== null || target.pathname === BACKEND_HEALTH_PATH
       || target.pathname === BACKEND_RUNTIME_CONTROL_PATH
       || target.pathname === BACKEND_RUNTIME_EVENTS_PATH
       || target.pathname === BACKEND_LIVE_SESSIONS_RELOAD_PATH
@@ -438,6 +443,28 @@ export function createBackendServer({
       || actionPath !== undefined;
     if (!knownPath) {
       sendJson(response, 404, { error: "Not found", code: BACKEND_ERROR_CODES.notFound });
+      return;
+    }
+    if (filePath !== null) {
+      const fileTarget = taskFileTarget(filePath);
+      if (!fileTarget) { sendJson(response, 404, { error: "Unknown file route" }); return; }
+      if (!TASK_FILE_ROUTES[fileTarget.route].includes(request.method)) { sendJson(response, 405, { error: "Method not allowed" }); return; }
+      if (!taskFileStreamAction || !isReady()) { sendJson(response, 503, { error: "File owner unavailable" }); return; }
+      const origin = request.headers[JSON_BUSINESS_HEADERS.origin], host = request.headers[JSON_BUSINESS_HEADERS.host], access = request.headers[JSON_BUSINESS_HEADERS.authorized];
+      try {
+        const url = new URL(origin);
+        if (!["http:", "https:"].includes(url.protocol) || url.origin !== origin || typeof host !== "string" || !["0", "1"].includes(access)) throw new Error();
+      } catch { sendJson(response, 400, { error: "Invalid file context" }); return; }
+      if (process.env.LEAFCODE_PI_WEBUI_AUTH === "required" && access !== "1") { sendJson(response, 403, { error: "WebUI access required" }); return; }
+      const controller = new AbortController(), disconnect = () => controller.abort();
+      response.once("close", disconnect); request.socket.once("end", disconnect);
+      const headers = { host };
+      for (const key of ["range", "if-range"]) if (typeof request.headers[key] === "string") headers[key] = request.headers[key];
+      try {
+        const source = await taskFileStreamAction({ route: filePath, method: request.method, url: `${origin}/api/${filePath}${target.search}`, headers, authorized: access === "1", signal: controller.signal });
+        await writeFileStream(response, source, controller.signal, request.method);
+      } catch { if (!response.headersSent && !response.destroyed) sendJson(response, 503, { error: "File owner unavailable" }); else response.destroy(); }
+      finally { response.off("close", disconnect); request.socket.off("end", disconnect); controller.abort(); }
       return;
     }
     if (authEventsMatch) {

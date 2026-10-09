@@ -6,7 +6,14 @@ import { NextRequest } from "next/server";
 
 const store = vi.hoisted(() => ({ getTask: vi.fn(), getProject: vi.fn(), listProjects: vi.fn(() => []) }));
 vi.mock("@/lib/store", () => store);
-import { GET, HEAD } from "./route";
+import { openTaskFileStream } from "@backend-runtime/file-stream/task-files";
+const serve = async (req: Request, context: { params: Promise<{ id: string }> }, method: string) => {
+  const { id } = await context.params;
+  return openTaskFileStream({ route: `tasks/${encodeURIComponent(id)}/media`, method, url: req.url,
+    headers: Object.fromEntries(req.headers), authorized: true, signal: req.signal });
+};
+const GET = (req: Request, context: { params: Promise<{ id: string }> }) => serve(req, context, "GET");
+const HEAD = (req: Request, context: { params: Promise<{ id: string }> }) => serve(req, context, "HEAD");
 import { MAX_LOCAL_MEDIA_BYTES, openTaskLocalMedia, parseMediaRange, validateTaskLocalMedia } from "@/lib/local-media";
 
 let root: string;

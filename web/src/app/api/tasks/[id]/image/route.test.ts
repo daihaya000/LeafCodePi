@@ -7,7 +7,12 @@ import { NextRequest } from "next/server";
 const mocks = vi.hoisted(() => ({ getProject: vi.fn(), getTask: vi.fn(), listProjects: vi.fn() }));
 vi.mock("@/lib/store", () => mocks);
 
-import { GET } from "./route";
+import { openTaskFileStream } from "@backend-runtime/file-stream/task-files";
+const GET = async (req: Request, context: { params: Promise<{ id: string }> }) => {
+  const { id } = await context.params;
+  return openTaskFileStream({ route: `tasks/${encodeURIComponent(id)}/image`, method: "GET", url: req.url,
+    headers: Object.fromEntries(req.headers), authorized: true, signal: req.signal });
+};
 
 const png = Buffer.from(
   "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/p9sAAAAASUVORK5CYII=",
