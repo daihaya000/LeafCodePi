@@ -11,6 +11,8 @@ import { usageTarget } from "@shared/usage-contract.mjs";
 import { dispatchUsageRequest } from "./usage";
 import { peerTarget } from "@shared/peer-contract.mjs";
 import { dispatchPeerRequest } from "./peer";
+import { botConversationTarget } from "@shared/bot-conversation-contract.mjs";
+import { dispatchBotConversationRequest } from "./bot-conversation";
 import { botLifecycleTarget } from "@shared/bot-lifecycle-contract.mjs";
 import { dispatchBotLifecycleRequest } from "./bot-lifecycle";
 import { taskSupervisionTarget } from "@shared/task-supervision-contract.mjs";
@@ -69,6 +71,8 @@ export async function dispatchJsonBusinessRequest(input: JsonBusinessInput): Pro
   const request = configurationRequest(new Request(input.url, { method: input.method, headers: input.headers,
     signal, ...(input.body?.byteLength ? { body: new Uint8Array(input.body).slice().buffer } : {}) }), input.authorized);
   if (input.method !== "GET" && isCrossOriginRequest(request)) return { status: 403, headers: {}, body: { error: "Cross-origin request refused" } };
+  const botConversation = botConversationTarget(input.route);
+  if (botConversation) return dispatchBotConversationRequest(input, request, botConversation);
   const botLifecycle = botLifecycleTarget(input.route);
   if (botLifecycle) return dispatchBotLifecycleRequest(input, request, botLifecycle);
   const supervision = taskSupervisionTarget(input.route);

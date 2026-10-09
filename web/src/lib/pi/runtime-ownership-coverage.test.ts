@@ -80,12 +80,9 @@ describe("runtime ownership coverage", () => {
       .map((route) => route.path)
       .sort();
     expect(guarded).toEqual([
-      "bots/[id]/abort/route.ts",
       "bots/[id]/code-requests/route.ts",
       "bots/[id]/code-session/route.ts",
       "bots/[id]/events/route.ts",
-      "bots/[id]/prompt/route.ts",
-      "bots/[id]/revert/route.ts",
       "bots/[id]/routines/[routineId]/run/route.ts",
       "bots/rooms/[id]/code/route.ts",
       "bots/rooms/[id]/events/route.ts",
@@ -103,8 +100,8 @@ describe("runtime ownership coverage", () => {
     // Every unguarded starter is a measured, listed gap — never an unrecorded one.
     expect(pending).toEqual(Object.keys(LOCAL_ONLY_PENDING).sort());
     expect({ starters: starters.length, guarded: starters.length - pending.length }).toEqual({
-      starters: 14,
-      guarded: 14,
+      starters: 11,
+      guarded: 11,
     });
     // No route may act as a second owner: every starter is guarded and the pending list is empty.
     expect(pending).toEqual([]);

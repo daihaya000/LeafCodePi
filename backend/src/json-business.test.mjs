@@ -25,6 +25,21 @@ test("business transport enforces auth, protocol, readiness, method, context and
   assert.equal((await request(`${unavailable.base}/git/init`, { method: "POST", headers: unavailable.headers })).status, 503);
   assert.equal(calls, 0);
 });
+test("Bot conversation transport isolates three admitted writes, their bounds and deep Goal/tree DTO",async t=>{
+ let calls=0;const f=await fixture(t,{jsonBusinessRequestAction:async input=>{
+  calls++;assert.equal(input.signal,undefined);assert.ok(input.operationId);assert.equal(Buffer.from(input.body).toString(),"opaque 日本語");
+  return {status:409,body:{error:"owner refusal",operation:{id:input.operationId,execution:"complete"},token:"PRIVATE"}};
+ }});
+ const headers={...f.headers,"x-leafcode-business-operation":"aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"},id="11111111-0123-4321-abcd-eeeeeeeeeeee";
+ for(const action of ["prompt","abort","revert"]){
+  const path=f.base+"/bots/"+id+"/"+action;assert.equal((await request(path,{headers})).status,405);
+  assert.equal((await request(path,{method:"POST",headers:f.headers,body:"{}"})).status,400);
+  if(action!=="prompt")assert.equal((await request(path,{method:"POST",headers,body:"x".repeat(4097)})).status,413);
+  const response=await request(path,{method:"POST",headers,body:"opaque 日本語"});assert.equal(response.status,200);assert.ok(!JSON.stringify(await response.json()).includes("PRIVATE"));
+ }
+ assert.equal(calls,3);
+ const malformed=await fixture(t,{jsonBusinessRequestAction:async()=>({status:200,body:{task:null,loop:{status:"queued"}}})});assert.equal((await request(malformed.base+"/bots/"+id+"/prompt",{method:"POST",headers:{...malformed.headers,"x-leafcode-business-operation":headers["x-leafcode-business-operation"]},body:"{}"})).status,503);
+});
 test("Bot lifecycle transport isolates opaque commands, read context, avatar bounds and public DTO",async t=>{
  let calls=0;const f=await fixture(t,{jsonBusinessRequestAction:async input=>{
   calls++;assert.equal(Boolean(input.signal),input.method==="GET");

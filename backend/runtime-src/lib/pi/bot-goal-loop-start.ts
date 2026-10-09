@@ -1,3 +1,4 @@
+import { assertConfigurationOwner } from "@backend-core/configuration-command.mjs";
 import { botTaskId, getBot } from "@/lib/bots";
 import { goalLoopCommand, isTaskRuntimeBusyForGoalLoopStart } from "@/lib/pi/harness";
 import { assertLocalRuntimeAllowed } from "@/lib/pi/runtime-ownership";
@@ -25,6 +26,7 @@ function fail(message: string, status: number): never {
 
 /** Unlike ordinary tasks, a Bot task may not exist until goalLoopCommand initializes it. */
 export async function startBotGoalLoop(botId: string, body: BotGoalLoopStartBody) {
+  assertConfigurationOwner();
   assertLocalRuntimeAllowed();
   if (!getBot(botId)) fail("Bot not found", 404);
   if (typeof body.goal !== "string") fail("Prompt is required", 400);

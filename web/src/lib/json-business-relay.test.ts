@@ -24,6 +24,9 @@ import { POST as selectTaskAgent } from "../app/api/tasks/[id]/agent/route";
 import { PUT as selectGoalAuto } from "../app/api/tasks/[id]/goal-loop-auto-model/route";
 import { GET as readTaskGoal, POST as startTaskGoal, PATCH as controlTaskGoal } from "../app/api/tasks/[id]/goal-loop/route";
 import { GET as activeTaskGoals } from "../app/api/goal-loop/active/route";
+import { POST as sendBotPrompt } from "../app/api/bots/[id]/prompt/route";
+import { POST as abortBotConversation } from "../app/api/bots/[id]/abort/route";
+import { POST as rewindBotConversation } from "../app/api/bots/[id]/revert/route";
 import { GET as listBots, POST as createBot } from "../app/api/bots/route";
 import { GET as getBot, PATCH as patchBot, DELETE as deleteBot } from "../app/api/bots/[id]/route";
 import { POST as superviseTask } from "../app/api/tasks/[id]/supervisor/route";
@@ -56,6 +59,21 @@ beforeEach(() => {
 });
 afterEach(() => { vi.restoreAllMocks(); vi.unstubAllGlobals(); vi.unstubAllEnvs(); rmSync(root, { recursive: true, force: true }); });
 describe("JSON business ingress", () => {
+  it("Bot conversation relays unchanged prompt/Goal/stop/revert bytes and only wakes after matching public ACK",async()=>{
+    const id="11111111-0123-4321-abcd-eeeeeeeeeeee",context={params:Promise.resolve({id})},wake=vi.spyOn(dirtyHub,"wakeBackendTaskListeners"),task={id:"bot:"+id,status:"working",token:"PRIVATE"};
+    for(const [action,fn,body,result] of [
+      ["prompt",sendBotPrompt,'{"prompt":"日本語","fromBot":true}',{task}],
+      ["prompt",sendBotPrompt,'{"prompt":"Goal","goalLoop":{"maxTurns":2}}',{task:null,loop:{id:"g",sessionId:"s",status:"queued",token:"PRIVATE"}}],
+      ["abort",abortBotConversation,'{"taskId":"other","action":"delete"}',{task}],
+      ["revert",rewindBotConversation,'{"entryId":"m","botId":"other"}',{task:{...task,isStreaming:false,messages:[]},text:"authored",images:[],files:[],cancelledCodeRequests:1}]
+    ] as const){
+      fetcher.mockImplementationOnce(async(_url,init)=>Response.json({status:200,body:{...result,operation:{id:new Headers(init.headers).get("x-leafcode-business-operation"),execution:"complete"}}}));
+      const response=await fn(new NextRequest("http://localhost/api/bots/"+id+"/"+action,{method:"POST",body}),context);expect(response.status).toBe(200);expect(JSON.stringify(await response.json())).not.toContain("PRIVATE");const [url,init]=fetcher.mock.calls.at(-1)!;expect(url).toContain("/bots/"+id+"/"+action);expect(new TextDecoder().decode(init.body)).toBe(body);
+    }
+    expect(wake).toHaveBeenCalledTimes(2);expect(wake).toHaveBeenCalledWith("bot:"+id,"prompt");
+    for(const operation of [undefined,{id:"aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee",execution:"complete"}]){fetcher.mockResolvedValueOnce(Response.json({status:200,body:{task,operation}}));const response=await sendBotPrompt(new NextRequest("http://localhost/api/bots/"+id+"/prompt",{method:"POST",body:"{}"}),context);expect(response.status).toBe(503);expect((await response.json()).execution).toBe("unknown");}expect(wake).toHaveBeenCalledTimes(2);
+    const before=fetcher.mock.calls.length;expect((await abortBotConversation(new NextRequest("http://localhost/api/bots/"+id+"/abort",{method:"POST",body:"x".repeat(4097)}),context)).status).toBe(413);expect(fetcher).toHaveBeenCalledTimes(before);expect(readdirSync(root)).toEqual([]);
+  });
   const botDto=()=>({id:"11111111-0123-4321-abcd-eeeeeeeeeeee",name:"日本語",label:"",soul:"Authored",avatarColor:"#fff",avatarImage:null,model:null,thinkingLevel:null,permissionMode:null,enabled:true,notificationsEnabled:false,codeAutoApprove:false,createdAt:"fixture",updatedAt:"fixture",skills:{mode:"inherit",include:[],exclude:[],token:"PRIVATE"},extraRoots:[],token:"PRIVATE"});
   it("Bot lifecycle relays opaque create/patch/delete bytes, projects configuration and verifies ACKs",async()=>{
     const context={params:Promise.resolve({id:botDto().id})};
