@@ -1,3 +1,4 @@
+import { assertConfigurationOwner } from "@backend-core/configuration-command.mjs";
 import { homedir, tmpdir } from "node:os";
 import { isAbsolute, resolve } from "node:path";
 import { browseAllowedRoots, resolveAllowedBrowsePath } from "@/lib/browse-paths";
@@ -6,6 +7,7 @@ import { getProject, getTask } from "@/lib/store";
 export type LocalFileFailure = { ok: false; status: number; error: string };
 /** Shared image/media boundary; never canonicalize a network or lexically untrusted path. */
 export function resolveTaskLocalFile(taskId: string, requestedPath: string): { ok: true; path: string } | LocalFileFailure {
+  assertConfigurationOwner();
   if (!requestedPath || requestedPath.length > 4096 || /[\u0000-\u001f\u007f]/.test(requestedPath)) {
     return { ok: false, status: 400, error: "ファイルパスが不正です" };
   }
