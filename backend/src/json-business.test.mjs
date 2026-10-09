@@ -25,6 +25,14 @@ test("business transport enforces auth, protocol, readiness, method, context and
   assert.equal((await request(`${unavailable.base}/git/init`, { method: "POST", headers: unavailable.headers })).status, 503);
   assert.equal(calls, 0);
 });
+test("Room lifecycle transport preserves two reads/five operations and enforces opaque byte-bounded commands",async t=>{
+ const room={id:"11111111-0123-4321-abcd-eeeeeeeeeeee",name:"Authored 日本語",members:[],botRelayEnabled:false,createdAt:"fixture",updatedAt:"fixture",messages:[]};let reads=0,writes=0;
+ const f=await fixture(t,{jsonBusinessRequestAction:async input=>{if(input.method==="GET"){reads++;return {status:200,body:input.route==="bots/rooms"?{rooms:[room]}:{room}};}writes++;assert.equal(input.signal,undefined);assert.ok(input.operationId);assert.equal(new TextDecoder().decode(input.body),"opaque");return {status:input.method==="POST"?201:200,body:{...(input.method==="DELETE"?{ok:true}:{room}),operation:{id:input.operationId,execution:"complete"}}};}});
+ const headers={...f.headers,"x-leafcode-business-operation":"aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"},base=f.base+"/bots/rooms";
+ for(const path of [base,base+"/"+room.id])assert.equal((await request(path,{headers:f.headers})).status,200);
+ for(const [path,method,bound]of [[base,"POST",65536],[base+"/"+room.id,"PATCH",65536],[base+"/"+room.id,"DELETE",4096]]){assert.equal((await request(path,{method,headers:f.headers,body:"{}"})).status,400);assert.equal((await request(path,{method,headers,body:"x".repeat(bound+1)})).status,413);const response=await request(path,{method,headers,body:"opaque"});assert.equal(response.status,200);assert.equal((await response.json()).status,method==="POST"?201:200);}
+ assert.equal(reads,2);assert.equal(writes,3);
+});
 test("Bot sidebar/inbox transport preserves conditional polling, opaque mark-read and 4KiB admission",async t=>{
  const id="11111111-0123-4321-abcd-eeeeeeeeeeee",inbox={messages:[],unreadCount:0,preview:null,pendingAsks:[],peerPresence:null};let writes=0,reads=0;
  const f=await fixture(t,{jsonBusinessRequestAction:async input=>{if(input.method==="GET"){reads++;if(input.route==="bots/sidebar")return {status:304,headers:{etag:"fixture"},body:null};return {status:200,body:{inbox}};}writes++;assert.equal(input.signal,undefined);assert.ok(input.operationId);assert.equal(new TextDecoder().decode(input.body),"opaque");return {status:200,body:{inbox,operation:{id:input.operationId,execution:"complete"}}};}});

@@ -2,9 +2,9 @@
 
 ## 進捗・範囲
 
-Phase3全体は未完了。Phase0のBackend/Phase3/JSON分類は118経路・182操作。Git・Diff・コミット文生成13経路・14操作、定義管理14経路・25操作、Provider/モデル設定7経路・8操作、Provider認証JSON4経路・5操作、アカウント管理/資格情報9経路・19操作、利用量/クレジット3経路・5操作、Peer認証共有5経路・9操作、Workspaceファイル/次タスク提案3経路・3操作、Project lifecycle1経路・4操作、Task collection1経路・3操作、個別Task lifecycle2経路・4操作、Task履歴/検索/bookmark3経路・5操作、Task実行設定4経路・4操作、Task送信/対話応答3経路・3操作、Goal制御2経路・4操作、Task会話編集/昇格4経路・4操作、Task compaction2経路・2操作、Task進行補助4経路・5操作、Task監督/子実行2経路・2操作、Bot lifecycle2経路・5操作、Bot会話3経路・3操作、Bot Code2経路・5操作、Bot routine3経路・6操作、Bot sidebar/内線受信箱2経路・3操作の合計98経路・150操作の境界を移管した。認証に付随するログインSSE 1経路・1操作も同じownerへ移管した（Phase3 JSONの集計には加算しない）。残る20経路・32操作には既存Backend中継も含まれ、受入条件の確認・残存業務処理の移管が必要。
+Phase3全体は未完了。Phase0のBackend/Phase3/JSON分類は118経路・182操作。Git・Diff・コミット文生成13経路・14操作、定義管理14経路・25操作、Provider/モデル設定7経路・8操作、Provider認証JSON4経路・5操作、アカウント管理/資格情報9経路・19操作、利用量/クレジット3経路・5操作、Peer認証共有5経路・9操作、Workspaceファイル/次タスク提案3経路・3操作、Project lifecycle1経路・4操作、Task collection1経路・3操作、個別Task lifecycle2経路・4操作、Task履歴/検索/bookmark3経路・5操作、Task実行設定4経路・4操作、Task送信/対話応答3経路・3操作、Goal制御2経路・4操作、Task会話編集/昇格4経路・4操作、Task compaction2経路・2操作、Task進行補助4経路・5操作、Task監督/子実行2経路・2操作、Bot lifecycle2経路・5操作、Bot会話3経路・3操作、Bot Code2経路・5操作、Bot routine3経路・6操作、Bot sidebar/内線受信箱2経路・3操作、Room lifecycle2経路・5操作の合計100経路・155操作の境界を移管した。認証に付随するログインSSE 1経路・1操作も同じownerへ移管した（Phase3 JSONの集計には加算しない）。残る18経路・27操作には既存Backend中継も含まれ、受入条件の確認・残存業務処理の移管が必要。
 
-以下は第1区切り（Git・Diff・コミット文生成）の記録。第2区切りの定義管理、第3区切りのProvider/モデル設定、第4区切りのProvider認証、第5区切りのアカウント管理/資格情報、第6区切りの利用量/クレジット、第7区切りのPeer認証共有、第8区切りのWorkspaceファイル/次タスク提案、第9区切りのProject lifecycle、第10区切りのTask collection、第11区切りの個別Task lifecycle、第12区切りのTask履歴/検索/bookmark、第13区切りのTask実行設定、第14区切りのTask送信/対話応答、第15区切りのGoal制御、第16区切りのTask会話編集/昇格、第17区切りのTask compaction、第18区切りのTask進行補助、第19区切りのTask監督/子実行、第20区切りのBot lifecycle、第21区切りのBot会話、第22区切りのBot Code、第23区切りのBot routine、第24区切りのBot sidebar/内線受信箱は末尾に記載する。
+以下は第1区切り（Git・Diff・コミット文生成）の記録。第2区切りの定義管理、第3区切りのProvider/モデル設定、第4区切りのProvider認証、第5区切りのアカウント管理/資格情報、第6区切りの利用量/クレジット、第7区切りのPeer認証共有、第8区切りのWorkspaceファイル/次タスク提案、第9区切りのProject lifecycle、第10区切りのTask collection、第11区切りの個別Task lifecycle、第12区切りのTask履歴/検索/bookmark、第13区切りのTask実行設定、第14区切りのTask送信/対話応答、第15区切りのGoal制御、第16区切りのTask会話編集/昇格、第17区切りのTask compaction、第18区切りのTask進行補助、第19区切りのTask監督/子実行、第20区切りのBot lifecycle、第21区切りのBot会話、第22区切りのBot Code、第23区切りのBot routine、第24区切りのBot sidebar/内線受信箱、第25区切りのRoom lifecycleは末尾に記載する。
 
 | 経路 | 操作 |
 | --- | --- |
@@ -407,3 +407,22 @@ Phase3全体は未完了。Phase0のBackend/Phase3/JSON分類は118経路・182�
 - Backend/Web型チェック、Backend強制ビルド（7,241 KiB）成功。Webなし隔離Backend実プロセスでcold Botのoffline sidebar/Room preview/ETag304、mailbox/pending/attachment読取、invalid action拒否、偽造timestamp/別Botの無視と既読保存、再起動後の未読0・message/pending/queued保持・2 IDの再実行409・offline preview保持を確認（13.5秒）。
 - 追加のSDK attach/provider要求なし。既存固定localhost responderのBot3回/routine2回は不変。ユーザーSOUL/設定/資格情報/稼働サービス、課金Provider/実通知は操作していない。対象18ファイル以外の並行差分7ファイルを保持する。
 - 原因: 既存mark-readが保存前にcache markerを変更し、I/O失敗時も後続GETが既読成功のように見え得た。保存失敗時はcacheを破棄してdiskを再読込し、保存後通知例外も503/unknownにする。実lock拒否とtyped listener例外で保存未完了/保存済みの両方を検証した。初回owner件数テストはBot会話をCode一覧へ数えており、実Code taskを登録するfixtureへ修正して再検証成功。
+
+## 第25区切り: Room lifecycle（2経路・5操作）
+
+- `bots/rooms` GET/POST、`bots/rooms/[id]` GET/PATCH/DELETEをBackendへ移管。Nextは単一relay returnのみ。Room一覧/個別読取、入力検証・既知メンバー判断、作成/保存、設定変更・会話リセット・メンバー離脱・削除のteardownをownerへ集約する。
+- `room-lifecycle-api.ts`のread/create入口、既存admin入口・common create/patch/deleteにowner guardを追加。Room IDはdecode一回・UUID-shaped検証後に保存先へアクセスする。未移管のRoom送信/Code停止/巻戻し/イベント/添付読取を壊さないため、全common読取/全writerの一律禁止は行わない。
+- 作成時の既存default名・trim・100コードポイント上限・既知メンバーの順序/dedupe/未知ID filter、PATCHの未知メンバー拒否、relay/Code standing approvalのtrusted認証を維持。callerのRoom ID/history/作成時privilegeを採用しない。Ingressは共通Web認証/Origin/readiness、ownerはtrusted contextでprivileged PATCHを検証する。
+- resetはturn停止→handoff取消→Code停止→member session reset→Room transcript clear、離脱はdetach後にmembers更新、削除はturn/handoff/Code停止→該当Room bot tasks destroy→Room JSON/添付data削除。別Room・Bot 1:1・Code workspaceは保持。resetの添付は既存仕様どおり保持し、Room削除時だけdataディレクトリを削除する。
+- pure DTOはsidebarの深いRoom projectorを共用し、derived preview欄を付けずに全authored message/attachment metadata・conversation/Code/Goal/handoff correlationを投影する。server relay envelope token/追加SDK/private欄は返さず、壊れたsuccessは503。
+- serial `room-lifecycle-command.json`（0600・最大128件）はID/executionのみ。効果前unknown、ACK一致、同IDの再起動後409、応答喪失/5xx/receipt失敗unknown、受付済み切断でもteardown続行、Next fallback/自動再送なし。POST/PATCH 64 KiB、DELETE 4 KiB、GETはledgerなし。複数ファイルの原子性/無期限exactly-onceは保証しない。
+- 原因: 旧admin catchは停止/離脱/保存後のtyped 4xxを未実行のrefusalのように返せた。またresetと未知membersを同時指定するとmember検証より先にsessionを停止し得た。全requested membersを効果前に検証し、効果開始後の失敗は503/unknownへ統一。保存済みevent例外も実disk状態を保持し、rollback成功を偽装しない。
+- Room送信/Code停止/巻戻し3経路・3操作は次の区切りに残す。Phase3全体の完了とは扱わない。
+
+### 第25区切りの検証結果
+
+- owner/admin/common Room CRUD・実Next relay・runtime ownership: 83/83成功。未移管Roomのprompt/revert/Code/events、Room runtime/conversation/opener/events: 209/209成功。
+- pure contract/実HTTP transport/AST ownership: 123/123成功。Room store/normalize・serial command・build: 34/34成功。Webなし隔離実Backend/SDKと実再起動fixture1件を含め、対象回帰450件成功。全体スイートは再実行していない。
+- Backend/Web型チェックとBackend強制ビルド（7,249 KiB）成功。隔離fixtureで実Room list/create/read/privileged PATCH、未知members+resetの効果前400、cold Room member session reset、detach、Room task/JSON/添付data削除、別Room/1:1/outbox/workspace保持、再起動後の削除と7 IDのcomplete replay409を検証（20.2秒、並行検証時）。
+- 追加Provider要求なし。cold Room sessionのSDK reset/destroyのみ追加し、既存固定localhost responderのBot3回/routine2回は不変。課金Provider/tool実行/実通知・ユーザーSOUL/設定/資格情報/稼働サービスへの操作なし。並行差分7ファイルを保持する。
+- 検証fixture修正: collection/privileged PATCHの旧テストはローカルNext handlerを前提としていたためBackend handler検証へ変更し、BFFは別の5操作テストで検証。深い添付DTOのfixtureを実RoomFileのsizeへ修正。Web型チェックはprojectを明示して再実行した。

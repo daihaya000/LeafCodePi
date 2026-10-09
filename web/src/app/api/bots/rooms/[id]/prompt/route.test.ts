@@ -65,7 +65,7 @@ import { getTask } from "@/lib/store";
 import { MAX_PROMPT_IMAGE_TOTAL_BYTES, MAX_PROMPT_TEXT_CHARS } from "@/lib/prompt-images";
 import { GET as events } from "../events/route";
 import { POST } from "./route";
-import { PATCH } from "../route";
+import { PATCH } from "@backend-runtime/json-business/handlers/bots/rooms/[id]/route";
 
 function snapshot(taskId: string, eventType: string, patch: Partial<TaskDetail>) {
   const detail = { ...state.details.get(taskId)!, ...patch };

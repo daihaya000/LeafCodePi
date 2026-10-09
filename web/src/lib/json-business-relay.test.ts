@@ -24,6 +24,8 @@ import { POST as selectTaskAgent } from "../app/api/tasks/[id]/agent/route";
 import { PUT as selectGoalAuto } from "../app/api/tasks/[id]/goal-loop-auto-model/route";
 import { GET as readTaskGoal, POST as startTaskGoal, PATCH as controlTaskGoal } from "../app/api/tasks/[id]/goal-loop/route";
 import { GET as activeTaskGoals } from "../app/api/goal-loop/active/route";
+import { GET as roomCollection, POST as createRoom } from "../app/api/bots/rooms/route";
+import { GET as readRoom, PATCH as patchRoom, DELETE as deleteRoom } from "../app/api/bots/rooms/[id]/route";
 import { GET as botSidebar } from "../app/api/bots/sidebar/route";
 import { GET as botInbox, PATCH as markBotInbox } from "../app/api/bots/[id]/intercom/route";
 import { GET as listBotRoutines, POST as createBotRoutine } from "../app/api/bots/[id]/routines/route";
@@ -66,6 +68,15 @@ beforeEach(() => {
 });
 afterEach(() => { vi.restoreAllMocks(); vi.unstubAllGlobals(); vi.unstubAllEnvs(); rmSync(root, { recursive: true, force: true }); });
 describe("JSON business ingress", () => {
+  it("Room lifecycle relays five operations/opaque bytes with encoded IDs and ACKs, never local room IO",async()=>{
+    const id="11111111-0123-4321-abcd-eeeeeeeeeeee",context={params:Promise.resolve({id})},room={id,name:"authored 日本語",members:[],botRelayEnabled:false,createdAt:"fixture",updatedAt:"fixture",messages:[],token:"PRIVATE"};
+    for(const [method,fn,body,result] of [["GET",roomCollection,undefined,{rooms:[room]}],["POST",createRoom,'{"name":"日本語","codeAutoApprove":true}',{room}],["GET",readRoom,undefined,{room}],["PATCH",patchRoom,'{"resetMessages":true}',{room}],["DELETE",deleteRoom,'{"id":"forged"}',{ok:true}]]as const){
+      fetcher.mockImplementationOnce(async(_url,init)=>Response.json({status:method==="POST"?201:200,body:{...result,...(method!=="GET"?{operation:{id:new Headers(init.headers).get("x-leafcode-business-operation"),execution:"complete"}}:{})}}));
+      const response=await fn(new NextRequest("http://localhost",{method,...(body?{body}:{})}),context);expect(response.status).toBe(method==="POST"?201:200);expect(JSON.stringify(await response.json())).not.toContain("PRIVATE");if(body)expect(new TextDecoder().decode(fetcher.mock.calls.at(-1)![1].body)).toBe(body);
+    }
+    const encoded={params:Promise.resolve({id:"unsafe/selector"})};fetcher.mockImplementationOnce(async(_url,init)=>Response.json({status:400,body:{error:"invalid",operation:{id:new Headers(init.headers).get("x-leafcode-business-operation"),execution:"complete"}}}));expect((await patchRoom(new NextRequest("http://localhost",{method:"PATCH",body:"{}"}),encoded)).status).toBe(400);expect(String(fetcher.mock.calls.at(-1)![0])).toContain("unsafe%2Fselector");
+    fetcher.mockResolvedValueOnce(Response.json({status:200,body:{room}}));expect((await patchRoom(new NextRequest("http://localhost",{method:"PATCH",body:"{}"}),context)).status).toBe(503);const calls=fetcher.mock.calls.length;for(const [fn,method,limit] of [[createRoom,"POST",65536],[patchRoom,"PATCH",65536],[deleteRoom,"DELETE",4096]]as const)expect((await fn(new NextRequest("http://localhost",{method,body:"x".repeat(limit+1)}),context)).status).toBe(413);expect(fetcher).toHaveBeenCalledTimes(calls);expect(readdirSync(root)).toEqual([]);
+  });
   it("Bot overview relays read/mark bytes and trusted headers, projects nested inbox and preserves conditional GET",async()=>{
     const id="11111111-0123-4321-abcd-eeeeeeeeeeee",context={params:Promise.resolve({id})},inbox={messages:[],unreadCount:0,preview:null,pendingAsks:[],peerPresence:null,token:"PRIVATE"};
     fetcher.mockResolvedValueOnce(Response.json({status:200,body:{inbox}}));expect(JSON.stringify(await (await botInbox(new NextRequest("http://localhost"),context)).json())).not.toContain("PRIVATE");

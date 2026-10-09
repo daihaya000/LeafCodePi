@@ -1,3 +1,4 @@
+import { assertConfigurationOwner } from "@backend-core/configuration-command.mjs";
 import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { randomUUID } from "node:crypto";
@@ -98,12 +99,14 @@ export function listRooms(): RoomDto[] {
 }
 export function getRoom(id: string): RoomDto | undefined { return readRoom(id); }
 export function createRoom(input: { name?: string; members?: string[] }): RoomDto {
+  assertConfigurationOwner();
   const now = new Date().toISOString();
   const room: RoomDto = { id: randomUUID(), name: input.name?.trim() || "New room", members: validMembers(input.members ?? []), botRelayEnabled: false, createdAt: now, updatedAt: now, messages: [] };
   writeRoom(room);
   return room;
 }
 export function patchRoom(id: string, patch: { name?: string; members?: string[]; botRelayEnabled?: boolean; codeAutoApprove?: boolean; resetMessages?: boolean }): RoomDto | undefined {
+  assertConfigurationOwner();
   return withRoomLock(id, () => {
     const room = readRoom(id);
     if (!room) return undefined;
@@ -131,6 +134,7 @@ export function removeRoomMember(id: string, memberId: string): RoomDto | undefi
   });
 }
 export function deleteRoom(id: string): boolean {
+  assertConfigurationOwner();
   return withRoomLock(id, () => {
     if (!readRoom(id)) return false;
     rmSync(roomPath(id), { force: true });

@@ -1,222 +1,26 @@
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync,rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { NextRequest } from "next/server";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-
-const state = vi.hoisted(() => ({
-  destroyTask: vi.fn(),
-  resetTaskConversation: vi.fn(async (id: string) => ({ id })),
-  stopRoomTurns: vi.fn(async () => 0),
-  cancelPendingRoomHandoffs: vi.fn(() => 0),
-  stopAllRoomCodeSessions: vi.fn(async () => 0),
-  detachBotFromRoomRuntime: vi.fn(async () => undefined),
-  forwardRoomAdmin: vi.fn(),
-  localRuntimeBlocked: vi.fn(() => false),
-}));
-vi.mock("@/lib/backend-forward", () => ({ forwardRoomAdmin: state.forwardRoomAdmin }));
-vi.mock("@/lib/pi/runtime-ownership", () => ({
-  localRuntimeBlocked: state.localRuntimeBlocked,
-  assertLocalRuntimeAllowed: vi.fn(),
-}));
-vi.mock("@/lib/pi/harness", () => ({
-  destroyTask: state.destroyTask,
-  resetTaskConversation: state.resetTaskConversation,
-}));
-vi.mock("@/lib/room-runtime", () => ({
-  stopRoomTurns: state.stopRoomTurns,
-  cancelPendingRoomHandoffs: state.cancelPendingRoomHandoffs,
-  detachBotFromRoomRuntime: state.detachBotFromRoomRuntime,
-}));
-vi.mock("@/lib/pi/bot-code-relay", () => ({
-  stopAllRoomCodeSessions: state.stopAllRoomCodeSessions,
-}));
-
+import { afterEach,beforeEach,describe,expect,it,vi } from "vitest";
+const mocks=vi.hoisted(()=>({destroyTask:vi.fn(),resetTaskConversation:vi.fn(async()=>({})),stopRoomTurns:vi.fn(async()=>0),cancelPendingRoomHandoffs:vi.fn(()=>0),stopAllRoomCodeSessions:vi.fn(async()=>0),detachBotFromRoomRuntime:vi.fn(async()=>{})}));
+vi.mock("@/lib/pi/harness",()=>({...mocks,jsonError:(error:Error&{status?:number})=>({error:error.message,status:error.status??500})}));
+vi.mock("@/lib/room-runtime",()=>mocks);
+vi.mock("@/lib/pi/bot-code-relay",()=>mocks);
 import { createBot } from "@/lib/bots";
-import { appendRoomMessage, createRoom, ensureRoomBotTask, getRoom, MAX_ROOM_NAME_CHARS } from "@/lib/rooms";
+import { appendRoomMessage,createRoom,ensureRoomBotTask,getRoom } from "@/lib/rooms";
 import { getTask } from "@/lib/store";
-import { DELETE, PATCH } from "./route";
-
-describe("DELETE /api/bots/rooms/[id]", () => {
-  let root = "";
-
-  beforeEach(() => {
-    root = mkdtempSync(join(tmpdir(), "leafcode-api-room-delete-"));
-    vi.stubEnv("LEAFCODE_PI_DATA_DIR", root);
-  });
-
-  afterEach(() => {
-    state.destroyTask.mockReset();
-    state.resetTaskConversation.mockClear();
-    state.stopRoomTurns.mockClear();
-    state.cancelPendingRoomHandoffs.mockClear();
-    state.stopAllRoomCodeSessions.mockClear();
-    state.detachBotFromRoomRuntime.mockClear();
-    vi.unstubAllEnvs();
-    rmSync(root, { recursive: true, force: true });
-  });
-
-  it("destroys existing room tasks before deleting the room", async () => {
-    const bot = createBot({ name: "Room bot" });
-    const room = createRoom({ members: [bot.id] });
-    const taskId = ensureRoomBotTask(room, bot);
-
-    const response = await DELETE(new NextRequest("http://localhost", { method: "DELETE" }), {
-      params: Promise.resolve({ id: room.id }),
-    });
-
-    expect(response.status).toBe(200);
-    expect(state.stopRoomTurns).toHaveBeenCalledWith(room.id);
-    expect(state.cancelPendingRoomHandoffs).toHaveBeenCalledWith(room.id);
-    expect(state.stopAllRoomCodeSessions).toHaveBeenCalledWith(room.id);
-    expect(state.destroyTask).toHaveBeenCalledWith(taskId);
-    expect(getTask(taskId)).toBeUndefined();
-  });
-
-  it("forwards the deletion after the cutover without tearing down locally", async () => {
-    const bot = createBot({ name: "Room bot" });
-    const room = createRoom({ members: [bot.id] });
-    const taskId = ensureRoomBotTask(room, bot);
-    state.localRuntimeBlocked.mockReturnValue(true);
-    state.forwardRoomAdmin.mockResolvedValue({ ok: true, result: { status: 200, body: { ok: true } } });
-
-    const response = await DELETE(new NextRequest("http://localhost", { method: "DELETE" }), {
-      params: Promise.resolve({ id: room.id }),
-    });
-
-    expect(response.status).toBe(200);
-    expect(state.forwardRoomAdmin).toHaveBeenCalledWith("DELETE", room.id, null);
-    expect(state.stopRoomTurns).not.toHaveBeenCalled();
-    expect(state.destroyTask).not.toHaveBeenCalled();
-    expect(getTask(taskId)).toBeDefined();
-    expect(getRoom(room.id)).toBeDefined();
-    state.localRuntimeBlocked.mockReturnValue(false);
-  });
-
-  it("reports an unreachable Backend instead of deleting locally", async () => {
-    const room = createRoom({ name: "Team" });
-    state.localRuntimeBlocked.mockReturnValue(true);
-    state.forwardRoomAdmin.mockResolvedValue({ ok: false, reason: "unreachable" });
-
-    const response = await DELETE(new NextRequest("http://localhost", { method: "DELETE" }), {
-      params: Promise.resolve({ id: room.id }),
-    });
-
-    expect(response.status).toBe(502);
-    await expect(response.json()).resolves.toMatchObject({ error: "Backendへ転送できません", reason: "unreachable" });
-    expect(getRoom(room.id)).toBeDefined();
-    state.localRuntimeBlocked.mockReturnValue(false);
-  });
-});
-
-describe("PATCH /api/bots/rooms/[id] resetMessages", () => {
-  let root = "";
-
-  beforeEach(() => {
-    root = mkdtempSync(join(tmpdir(), "leafcode-api-room-reset-"));
-    vi.stubEnv("LEAFCODE_PI_DATA_DIR", root);
-    state.resetTaskConversation.mockClear();
-    state.stopRoomTurns.mockClear();
-    state.cancelPendingRoomHandoffs.mockClear();
-    state.stopAllRoomCodeSessions.mockClear();
-  });
-
-  afterEach(() => {
-    vi.unstubAllEnvs();
-    rmSync(root, { recursive: true, force: true });
-  });
-
-  it("stops turns, cancels Code outbox, and resets member sessions before clearing messages", async () => {
-    const bot = createBot({ name: "Room bot" });
-    const room = createRoom({ members: [bot.id] });
-    const taskId = ensureRoomBotTask(room, bot);
-    appendRoomMessage(room.id, { role: "user", text: "残作業も進めて" });
-
-    const response = await PATCH(
-      new NextRequest("http://localhost", {
-        method: "PATCH",
-        body: JSON.stringify({ resetMessages: true }),
-      }),
-      { params: Promise.resolve({ id: room.id }) },
-    );
-
-    expect(response.status).toBe(200);
-    expect(state.stopRoomTurns).toHaveBeenCalledWith(room.id);
-    expect(state.cancelPendingRoomHandoffs).toHaveBeenCalledWith(room.id);
-    expect(state.stopAllRoomCodeSessions).toHaveBeenCalledWith(room.id);
-    expect(state.resetTaskConversation).toHaveBeenCalledWith(taskId);
-    expect(getRoom(room.id)?.messages).toEqual([]);
-  });
-
-  it("forwards the settings change after the cutover and touches nothing locally", async () => {
-    const bot = createBot({ name: "Room bot" });
-    const room = createRoom({ members: [bot.id] });
-    appendRoomMessage(room.id, { role: "user", text: "残作業も進めて" });
-    state.localRuntimeBlocked.mockReturnValue(true);
-    state.forwardRoomAdmin.mockResolvedValue({ ok: true, result: { status: 200, body: { room: { id: room.id, messages: [] } } } });
-
-    const response = await PATCH(
-      new NextRequest("http://localhost", { method: "PATCH", body: JSON.stringify({ resetMessages: true }) }),
-      { params: Promise.resolve({ id: room.id }) },
-    );
-
-    expect(response.status).toBe(200);
-    await expect(response.json()).resolves.toMatchObject({ room: { id: room.id } });
-    expect(state.forwardRoomAdmin).toHaveBeenCalledWith("PATCH", room.id, { resetMessages: true });
-    expect(state.stopRoomTurns).not.toHaveBeenCalled();
-    expect(state.stopAllRoomCodeSessions).not.toHaveBeenCalled();
-    expect(state.resetTaskConversation).not.toHaveBeenCalled();
-    // The owner rewound the transcript; this process did not touch it.
-    expect(getRoom(room.id)?.messages).toHaveLength(1);
-    state.localRuntimeBlocked.mockReturnValue(false);
-  });
-
-  it("replays an owner refusal for a forwarded settings change", async () => {
-    const room = createRoom({ name: "Original" });
-    state.localRuntimeBlocked.mockReturnValue(true);
-    state.forwardRoomAdmin.mockResolvedValue({ ok: true, result: { status: 400, body: { error: "ルーム設定が不正です" } } });
-
-    const response = await PATCH(
-      new NextRequest("http://localhost", { method: "PATCH", body: JSON.stringify({ name: "x".repeat(MAX_ROOM_NAME_CHARS + 1) }) }),
-      { params: Promise.resolve({ id: room.id }) },
-    );
-
-    expect(response.status).toBe(400);
-    await expect(response.json()).resolves.toEqual({ error: "ルーム設定が不正です" });
-    state.localRuntimeBlocked.mockReturnValue(false);
-  });
-
-  it("rejects an oversized name before patching a room", async () => {
-    const room = createRoom({ name: "Original" });
-
-    const response = await PATCH(
-      new NextRequest("http://localhost", {
-        method: "PATCH",
-        body: JSON.stringify({ name: "x".repeat(MAX_ROOM_NAME_CHARS + 1) }),
-      }),
-      { params: Promise.resolve({ id: room.id }) },
-    );
-
-    expect(response.status).toBe(400);
-    expect(getRoom(room.id)?.name).toBe("Original");
-  });
-
-  it("detaches removed members before patching membership", async () => {
-    const alpha = createBot({ name: "Alpha" });
-    const beta = createBot({ name: "Beta" });
-    const room = createRoom({ members: [alpha.id, beta.id] });
-
-    const response = await PATCH(
-      new NextRequest("http://localhost", {
-        method: "PATCH",
-        body: JSON.stringify({ members: [alpha.id] }),
-      }),
-      { params: Promise.resolve({ id: room.id }) },
-    );
-
-    expect(response.status).toBe(200);
-    expect(state.detachBotFromRoomRuntime).toHaveBeenCalledWith(room.id, beta.id);
-    expect(state.detachBotFromRoomRuntime).not.toHaveBeenCalledWith(room.id, alpha.id);
-    expect(getRoom(room.id)?.members).toEqual([alpha.id]);
-  });
+import { DELETE,PATCH } from "@backend-runtime/json-business/handlers/bots/rooms/[id]/route";
+import { configurationRequest } from "@backend-runtime/configuration/http";
+let root:string;
+beforeEach(()=>{root=mkdtempSync(join(tmpdir(),"leafcode-room-admin-"));vi.stubEnv("LEAFCODE_PI_DATA_DIR",root);vi.stubEnv("LEAFCODE_PI_PROCESS_ROLE","backend");vi.clearAllMocks();});
+afterEach(()=>{vi.unstubAllEnvs();rmSync(root,{recursive:true,force:true});});
+const context=(id:string)=>({params:Promise.resolve({id})});
+const request=(body:unknown,authorized=true)=>configurationRequest(new Request("http://localhost",{method:"PATCH",body:JSON.stringify(body)}),authorized);
+describe("Room lifecycle owner handler",()=>{
+ it("reset stops turns then handoffs/outbox/member sessions before clearing the room",async()=>{const bot=createBot({name:"Fixture"}),room=createRoom({members:[bot.id]}),taskId=ensureRoomBotTask(room,bot);appendRoomMessage(room.id,{role:"user",text:"Authored 日本語"});const response=await PATCH(request({resetMessages:true}),context(room.id));expect(response.status).toBe(200);expect(mocks.stopRoomTurns).toHaveBeenCalledExactlyOnceWith(room.id);expect(mocks.cancelPendingRoomHandoffs).toHaveBeenCalledExactlyOnceWith(room.id);expect(mocks.stopAllRoomCodeSessions).toHaveBeenCalledExactlyOnceWith(room.id);expect(mocks.resetTaskConversation).toHaveBeenCalledExactlyOnceWith(taskId);expect(getRoom(room.id)?.messages).toEqual([]);expect(mocks.stopRoomTurns.mock.invocationCallOrder[0]).toBeLessThan(mocks.resetTaskConversation.mock.invocationCallOrder[0]);});
+ it("removed members detach before patch, while unknown reset members refuse before stop or persistence",async()=>{const a=createBot({name:"A"}),b=createBot({name:"B"}),room=createRoom({members:[a.id,b.id]});expect((await PATCH(request({members:[a.id]}),context(room.id))).status).toBe(200);expect(mocks.detachBotFromRoomRuntime).toHaveBeenCalledExactlyOnceWith(room.id,b.id);mocks.stopRoomTurns.mockClear();expect((await PATCH(request({resetMessages:true,members:["unknown"]}),context(room.id))).status).toBe(400);expect(mocks.stopRoomTurns).not.toHaveBeenCalled();expect(getRoom(room.id)?.members).toEqual([a.id]);});
+ it("standing relay/Code privilege requires trusted ingress authorization",async()=>{const room=createRoom({});expect((await PATCH(request({codeAutoApprove:true},false),context(room.id))).status).toBe(403);expect(getRoom(room.id)?.codeAutoApprove).not.toBe(true);expect((await PATCH(request({codeAutoApprove:true,botRelayEnabled:true}),context(room.id))).status).toBe(200);expect(getRoom(room.id)).toMatchObject({codeAutoApprove:true,botRelayEnabled:true});});
+ it("delete destroys existing room tasks, not other room/1:1 tasks, before deleting files",async()=>{const bot=createBot({}),room=createRoom({members:[bot.id]}),other=createRoom({members:[bot.id]}),taskId=ensureRoomBotTask(room,bot),otherId=ensureRoomBotTask(other,bot);expect((await DELETE(new Request("http://localhost"),context(room.id))).status).toBe(200);expect(mocks.destroyTask).toHaveBeenCalledExactlyOnceWith(taskId);expect(getTask(taskId)).toBeUndefined();expect(getTask(otherId)).toBeDefined();expect(getTask("bot:"+bot.id)).toBeDefined();expect(getRoom(other.id)).toBeDefined();});
+ it("typed post-stop reset/delete failure is sanitized unknown, retains room and never claims rollback",async()=>{const room=createRoom({});appendRoomMessage(room.id,{role:"user",text:"Keep authored"});mocks.stopAllRoomCodeSessions.mockRejectedValueOnce(Object.assign(new Error("PRIVATE SDK/path"),{status:409}));const response=await PATCH(request({resetMessages:true}),context(room.id));expect(response.status).toBe(503);expect(JSON.stringify(await response.json())).not.toContain("PRIVATE");expect(getRoom(room.id)?.messages).toHaveLength(1);mocks.stopRoomTurns.mockRejectedValueOnce(Object.assign(new Error("PRIVATE"),{status:400}));expect((await DELETE(new Request("http://localhost"),context(room.id))).status).toBe(503);expect(getRoom(room.id)).toBeDefined();});
+ it("missing/invalid settings refuse without effects; Next refuses before reading or SDK",async()=>{const room=createRoom({});for(const body of [null,[],{name:"x".repeat(101)},{members:[1]},{botRelayEnabled:"yes"},{resetMessages:1}])expect((await PATCH(request(body),context(room.id))).status).toBe(400);expect(mocks.stopRoomTurns).not.toHaveBeenCalled();vi.stubEnv("LEAFCODE_PI_PROCESS_ROLE","next");await expect(PATCH(request({resetMessages:true}),context(room.id))).rejects.toThrow("owned by Backend");await expect(DELETE(new Request("http://localhost"),context(room.id))).rejects.toThrow("owned by Backend");expect(mocks.stopRoomTurns).not.toHaveBeenCalled();});
 });
