@@ -6,13 +6,14 @@ export const GIT_FINALIZE_NAME = "git_finalize";
 const text = Type.String({ minLength: 1, maxLength: 2_000 });
 const paths = Type.Array(text, { minItems: 1, maxItems: 100 });
 const operation = (name: string, fields = {}) => Type.Object({ operation: Type.Literal(name), ...fields }, { additionalProperties: false });
+const safeAgent = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/;
 export const GitFinalizeParams = Type.Union([
   operation("status"),
   operation("diff", { staged: Type.Optional(Type.Boolean()), paths: Type.Optional(paths) }),
   operation("log", { limit: Type.Optional(Type.Integer({ minimum: 1, maximum: 100 })) }),
   operation("show", { revision: Type.Optional(text) }),
   operation("add", { paths }),
-  operation("commit", { message: text }),
+  operation("commit", { message: text, agent: Type.Optional(Type.String({ minLength: 1, maxLength: 128, pattern: "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$" })) }),
   operation("push", { remote: Type.Optional(text), branch: Type.Optional(text) }),
   operation("fetch", { remote: Type.Optional(text) }),
   operation("rev_parse", { revision: Type.Optional(text) }),
@@ -20,7 +21,7 @@ export const GitFinalizeParams = Type.Union([
 
 const OPERATION_FIELDS: Record<string, readonly string[]> = {
   status: [], diff: ["staged", "paths"], log: ["limit"], show: ["revision"], add: ["paths"],
-  commit: ["message"], push: ["remote", "branch"], fetch: ["remote"], rev_parse: ["revision"],
+  commit: ["message", "agent"], push: ["remote", "branch"], fetch: ["remote"], rev_parse: ["revision"],
 };
 
 /** No raw argv, shell text, cwd override, global config, force, merge or history rewriting. */
@@ -67,7 +68,10 @@ export function buildGitFinalizeArgs(input: unknown): string[] {
     }
     case "show": args = ["show", "--no-ext-diff", "--no-textconv", revision(params.revision), "--"]; break;
     case "add": args = ["add", "--", ...filePaths(true)]; break;
-    case "commit": args = ["commit", "-m", scalar(params.message)]; break;
+    case "commit":
+      if (params.agent !== undefined && (typeof params.agent !== "string" || !safeAgent.test(params.agent))) throw Error("agent名が不正です。");
+      args = ["commit", "-m", scalar(params.message)];
+      break;
     case "push": args = ["push", remote(), ...(params.branch === undefined ? [] : [revision(params.branch)])]; break;
     case "fetch": args = ["fetch", remote()]; break;
     default: args = ["rev-parse", "--verify", revision(params.revision)];
@@ -99,13 +103,37 @@ export async function validateGitFinalizeAddPaths(
   }
 }
 
-export function gitFinalizeCommand(args: readonly string[], shell: "powershell" | "bash"): string {
+export function gitFinalizeCommand(
+  args: readonly string[],
+  shell: "powershell" | "bash",
+  author?: { name: string; email: string },
+): string {
   const quote = (value: string) => shell === "powershell"
     ? `'${value.replace(/'/g, "''")}'` : `'${value.replace(/'/g, `'"'"'`)}'`;
-  if (shell === "powershell" && args[2] === "commit" && args[3] === "-m") {
+  const isCommit = args[2] === "commit";
+  let command: string;
+  if (shell === "powershell" && isCommit && args[3] === "-m") {
     // Windows PowerShell's legacy native argv strips embedded double quotes. UTF-8 stdin
     // preserves the exact message on both 5.1 and 7, without shell interpolation.
-    return `$OutputEncoding=[System.Text.UTF8Encoding]::new($false); ${quote(args[4]!)} | git ${args.slice(0, 3).map(quote).join(" ")} '--file=-'; exit $LASTEXITCODE`;
+    command = `$OutputEncoding=[System.Text.UTF8Encoding]::new($false); ${quote(args[4]!)} | git ${args.slice(0, 3).map(quote).join(" ")} '--file=-'`;
+  } else {
+    command = `git ${args.map(quote).join(" ")}`;
   }
-  return `git ${args.map(quote).join(" ")}`;
+  if (!isCommit || !author) return shell === "powershell" && isCommit ? `${command}; exit $LASTEXITCODE` : command;
+
+  const env = {
+    GIT_AUTHOR_NAME: author.name,
+    GIT_AUTHOR_EMAIL: author.email,
+    GIT_COMMITTER_NAME: author.name,
+    GIT_COMMITTER_EMAIL: author.email,
+  };
+  if (shell === "bash") {
+    return `${Object.entries(env).map(([key, value]) => `${key}=${quote(value)}`).join(" ")} ${command}`;
+  }
+
+  const entries = Object.entries(env);
+  const save = entries.map(([key], index) => `$__leafcodeGitAuthor${index} = $env:${key}`).join("; ");
+  const assign = entries.map(([key, value]) => `$env:${key} = ${quote(value)}`).join("; ");
+  const restore = entries.map(([key], index) => `$env:${key} = $__leafcodeGitAuthor${index}`).join("; ");
+  return `${save}; try { ${assign}; ${command}; $__leafcodeGitCommitExit = $LASTEXITCODE } finally { ${restore} }; exit $__leafcodeGitCommitExit`;
 }
