@@ -69,7 +69,7 @@ function mockSpawn(handlers) {
   return (_cmd, args) => {
     const key = args[0];
     const handler = handlers[key] || handlers.default;
-    const result = typeof handler === "function" ? handler(args) : handler;
+    const result = typeof handler === "function" ? handler(args) : handler ?? { status: 0, stdout: "", stderr: "" };
     const child = new EventEmitter();
     child.stdout = new EventEmitter();
     child.stderr = new EventEmitter();
@@ -94,8 +94,35 @@ test("pullLatestSourcesAsync stays non-blocking and reports up to date", async (
     }),
     log: (message) => logs.push(message),
   });
-  assert.deepEqual(result, { ok: true, updated: false });
+  assert.deepEqual(result, { ok: true, updated: false, localChanges: false });
   assert.ok(logs.some((message) => message.includes("Already up to date.")));
+});
+
+test("pullLatestSourcesAsync detects a remote fast-forward", async () => {
+  let revisionChecks = 0;
+  const result = await pullLatestSourcesAsync({
+    repoRoot: "C:\\repo",
+    spawn: mockSpawn({
+      status: { status: 0, stdout: "" },
+      "rev-parse": () => ({ status: 0, stdout: ++revisionChecks === 1 ? "abc\\n" : "def\\n" }),
+      pull: { status: 0, stdout: "Updating abc..def\\n" },
+    }),
+  });
+
+  assert.deepEqual(result, { ok: true, updated: true, localChanges: false });
+});
+
+test("pullLatestSourcesAsync reports a dirty local worktree", async () => {
+  const result = await pullLatestSourcesAsync({
+    repoRoot: "C:\\repo",
+    spawn: mockSpawn({
+      status: { status: 0, stdout: " M web/src/app/page.tsx\\n" },
+      "rev-parse": { status: 0, stdout: "abc123\\n" },
+      pull: { status: 0, stdout: "Already up to date.\\n" },
+    }),
+  });
+
+  assert.deepEqual(result, { ok: true, updated: false, localChanges: true });
 });
 
 test("pullLatestSourcesAsync continues on pull failure", async () => {
@@ -108,6 +135,6 @@ test("pullLatestSourcesAsync continues on pull failure", async () => {
     }),
     error: (message) => errors.push(message),
   });
-  assert.deepEqual(result, { ok: false, updated: false });
+  assert.deepEqual(result, { ok: false, updated: false, localChanges: false });
   assert.match(errors[0], /continuing with local sources/);
 });

@@ -221,6 +221,7 @@ test("host restart relaunches through LeafCodePi.exe when available", () => {
     lockFile: "C:\\Users\\Daichi\\AppData\\Roaming\\leafcode-pi\\host.lock",
     launcherExe: "C:\\Users\\Daichi\\LeafCodePi\\LeafCodePi.exe",
     startBat: "C:\\Users\\Daichi\\LeafCodePi\\scripts\\start-webui.bat",
+    rebuildServices: true,
   });
   const script = lines.join("\n");
   assert.ok(
@@ -343,7 +344,9 @@ test("every service restart pulls latest sources first", () => {
   assert.match(backend, /pullLatestSourcesAsync\(/);
   assert.match(web, /pullLatestSourcesAsync\(/);
   assert.match(host, /pullLatestSourcesAsync\(/);
-  // Pull precedes stop/rebuild for Backend, and spawnWeb keeps pull:false after WebUI's explicit pull.
+  assert.match(host, /rebuildServices = pullResult\.updated \|\| pullResult\.localChanges/);
+  assert.match(host, /LEAFCODE_PI_REBUILD_SERVICES: rebuildServices \? "1" : ""/);
+  // Pull precedes stop/rebuild for Backend, and the replacement does not pull a second time.
   assert.ok(backend.indexOf("pullLatestSourcesAsync(") < backend.indexOf("stopForRestart()"));
   assert.match(web, /await spawnWeb\(\{ pull: false, forceBuild: true \}\)/);
   // Tray handlers route through the same restart functions (no separate pull-less path).
@@ -405,7 +408,7 @@ test("production starts Backend-owned without a hand-over", () => {
   const index = readFileSync(join(repoRoot, "host", "src", "index.js"), "utf8");
   // The Backend owns the runtime in the shipped build, so the Host runs one by default.
   assert.match(index, /const backendService = shouldRunBackend\(process\.env\)/);
-  assert.match(index, /await spawnWeb\(\{ forceBuild: rebuildServices, pull: !rebuildServices \}\)/);
+  assert.match(index, /await spawnWeb\(\{ forceBuild: rebuildServices, pull: restartOptions\.pull \}\)/);
   // A restarted Host brings the Backend back attached before the client WebUI is served.
   assert.match(index, /backendService\.start\(\{ attachRuntime: true \}\)/);
   assert.match(index, /waitForBackendReady\(/);

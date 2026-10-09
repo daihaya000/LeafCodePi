@@ -29,7 +29,7 @@ async function resolveAfter(getAfter) {
   return await getAfter();
 }
 
-async function finishPull({ before, result, getAfter, log, error }) {
+async function finishPull({ before, result, localChanges, getAfter, log, error }) {
   const output = [result?.stdout, result?.stderr]
     .filter((value) => typeof value === "string" && value.trim())
     .join("\n")
@@ -38,12 +38,12 @@ async function finishPull({ before, result, getAfter, log, error }) {
 
   if (result?.error || result?.status !== 0) {
     error(`Remote git pull failed; continuing with local sources (${failureReason(result)})`);
-    return { ok: false, updated: false };
+    return { ok: false, updated: false, localChanges };
   }
   const after = await resolveAfter(getAfter);
   const updated = !before || !after || before !== after;
   log(updated ? "Pulled updated sources from remote" : "Sources are already up to date");
-  return { ok: true, updated };
+  return { ok: true, updated, localChanges };
 }
 
 /**
@@ -153,6 +153,16 @@ async function currentCommitAsync(repoRoot, env, spawnImpl) {
   return result.status === 0 ? result.stdout?.trim() || null : null;
 }
 
+async function hasLocalChangesAsync(repoRoot, env, spawnImpl) {
+  const result = await spawnGit(spawnImpl, ["status", "--porcelain"], {
+    cwd: repoRoot,
+    env,
+    timeoutMs: GIT_PULL_TIMEOUT_MS,
+  });
+  // If cleanliness cannot be verified, rebuild conservatively rather than reuse stale artifacts.
+  return result.status !== 0 || Boolean(result.stdout?.trim());
+}
+
 /** Non-blocking pull so Host control / hang-watch keep running during restart. */
 export async function pullLatestSourcesAsync({
   repoRoot,
@@ -163,7 +173,9 @@ export async function pullLatestSourcesAsync({
 } = {}) {
   let before;
   let result;
+  let localChanges = true;
   try {
+    localChanges = await hasLocalChangesAsync(repoRoot, env, spawn);
     before = await currentCommitAsync(repoRoot, env, spawn);
     result = await spawnGit(spawn, ["pull", "--ff-only"], {
       cwd: repoRoot,
@@ -172,12 +184,13 @@ export async function pullLatestSourcesAsync({
     });
   } catch (err) {
     error(`Remote git pull failed; continuing with local sources (${err instanceof Error ? err.message : String(err)})`);
-    return { ok: false, updated: false };
+    return { ok: false, updated: false, localChanges };
   }
 
   return finishPull({
     before,
     result,
+    localChanges,
     getAfter: () => currentCommitAsync(repoRoot, env, spawn),
     log,
     error,

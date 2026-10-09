@@ -21,7 +21,7 @@ import { stopOrphanedWebUi } from "./stale-webui.js";
 import {
   buildHostRestartScript,
   buildHostRestartWaitProgram,
-  consumeHostRestartBuild,
+  consumeHostRestartOptions,
   hostStdoutLogFile,
   waitForHostRestartChildSpawn,
 } from "./host-restart.js";
@@ -845,7 +845,14 @@ async function restartHost({ autoUpdate = false } = {}) {
   try {
     log("Host restart requested; spawning replacement…");
     // Auto-update already fast-forwarded a checked, exact commit under the idle guard.
-    if (!autoUpdate) await pullLatestSourcesAsync({ repoRoot: REPO_ROOT, log, error });
+    let rebuildServices = autoUpdate;
+    if (!autoUpdate) {
+      const pullResult = await pullLatestSourcesAsync({ repoRoot: REPO_ROOT, log, error });
+      rebuildServices = pullResult.updated || pullResult.localChanges;
+    }
+    log(rebuildServices
+      ? "Source changes detected; rebuilding services during Host restart"
+      : "No local changes or remote update detected; reusing fresh builds during Host restart");
     if (process.platform !== "win32") {
       const waitProgram = buildHostRestartWaitProgram();
       const logFile = hostStdoutLogFile();
@@ -863,7 +870,14 @@ async function restartHost({ autoUpdate = false } = {}) {
         {
           detached: true,
           stdio: ["ignore", output, output],
-          env: { ...process.env, LEAFCODE_PI_NO_BROWSER: "1", LEAFCODE_PI_REBUILD_SERVICES: "1" },
+          env: {
+            ...process.env,
+            LEAFCODE_PI_NO_BROWSER: "1",
+            LEAFCODE_PI_REBUILD_SERVICES: rebuildServices ? "1" : "",
+            LEAFCODE_PI_FORCE_REBUILD_SERVICES: "",
+            LEAFCODE_PI_SKIP_SOURCE_PULL: "1",
+            LEAFCODE_PI_SKIP_STALE_REBUILD: "",
+          },
         },
       );
       await waitForHostRestartChildSpawn(child);
@@ -879,6 +893,7 @@ async function restartHost({ autoUpdate = false } = {}) {
         lockFile: LOCK_FILE,
         launcherExe: existsSync(launcherExePath) ? launcherExePath : null,
         startBat,
+        rebuildServices,
       });
       writeFileSync(launcherPath, `${lines.join("\r\n")}\r\n`, "utf8");
       const ps =
@@ -1342,7 +1357,8 @@ async function main() {
     removeLock(LOCK_FILE);
     throw err;
   }
-  const rebuildServices = consumeHostRestartBuild(process.env);
+  const restartOptions = consumeHostRestartOptions(process.env);
+  const rebuildServices = restartOptions.rebuildServices;
   log(`LeafCodePi host ${HOST_VERSION} pid=${process.pid}`);
   log(`Binding WebUI on ${WEBUI_HOST}:${WEBUI_PORT} (open ${WEBUI_URL})`);
   if (WEBUI_HOST === "127.0.0.1" && (!process.env.LEAFCODE_PI_HOST || process.env.LEAFCODE_PI_HOST.trim().toLowerCase() === "tailscale")) {
@@ -1419,7 +1435,7 @@ async function main() {
     // build. Repair missing dependencies even when a restart reuses that build.
     ensureExtensionDependencies(join(REPO_ROOT, "extensions"));
     if (backendService) await buildBackendWithFallback({ force: rebuildServices, log, error });
-    await spawnWeb({ forceBuild: rebuildServices, pull: !rebuildServices });
+    await spawnWeb({ forceBuild: rebuildServices, pull: restartOptions.pull });
   } catch (err) {
     removeLock(LOCK_FILE);
     error(err instanceof Error ? err.message : String(err));
