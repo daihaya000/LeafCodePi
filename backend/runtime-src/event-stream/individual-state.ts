@@ -1,8 +1,9 @@
 import { assertConfigurationOwner } from "@backend-core/configuration-command.mjs";
-import { pageTaskMessages } from "@shared/task-history.mjs";
+import { pageTaskMessages } from "../lib/task-history";
+import { readColdIndividualDetail } from "./cold-snapshot";
 import { readHistoryPageSize } from "../lib/pi/history-page-size";
 import { AsyncLocalStorage } from "node:async_hooks";
-import { createBoundedEventWriter, serializeBoundedEvent } from "./bounded-writer";
+import { createBoundedEventWriter, serializeBoundedEvent, validateBoundedEvent } from "./bounded-writer";
 import { bufferPendingSsePayload } from "../lib/sse-ready-buffer";
 import { subscribeTask } from "@/lib/pi/harness";
 import { getTaskDetailBounded } from "@/lib/pi/get-task-detail-bounded";
@@ -24,18 +25,18 @@ export async function readIndividualDetail(id:string,options:NonNullable<Paramet
   await new Promise<void>((resolve,reject)=>{const wake=()=>{signal?.removeEventListener("abort",abort);waiters.delete(wake);stats.individualWaiters--;resolve();};const abort=()=>{signal?.removeEventListener("abort",abort);waiters.delete(wake);stats.individualWaiters--;reject(new Error("Stream closed"));};waiters.add(wake);stats.individualWaiters++;signal?.addEventListener("abort",abort,{once:true});});
   if(signal?.aborted)throw new Error("Stream closed");
  }
- stats.individualReads++;try{const detail=await getTaskDetailBounded(id,{...options,readOnly:true});if(signal?.aborted)throw new Error("Stream closed");serializeBoundedEvent({...detail,messages:pageTaskMessages(detail.messages,undefined,readHistoryPageSize()).messages});return detail;}finally{stats.individualReads--;waiters.values().next().value?.();}
+ stats.individualReads++;try{const detail=await readColdIndividualDetail(id,options,signal??new AbortController().signal)??await getTaskDetailBounded(id,{...options,readOnly:true});if(signal?.aborted)throw new Error("Stream closed");validateBoundedEvent({...detail,messages:pageTaskMessages(detail.messages,undefined,readHistoryPageSize()).messages});return detail;}finally{stats.individualReads--;waiters.values().next().value?.();}
 }
 export function subscribeIndividualTask(...args:Parameters<typeof subscribeTask>){assertConfigurationOwner();const off=subscribeTask(...args);stats.individualSubscriptions++;let closed=false;return()=>{if(closed)return;closed=true;stats.individualSubscriptions--;off();};}
 export function subscribeIndividualInbox(...args:Parameters<typeof subscribeBotIntercomInbox>){assertConfigurationOwner();const off=subscribeBotIntercomInbox(...args);stats.individualSubscriptions++;let closed=false;return()=>{if(closed)return;closed=true;stats.individualSubscriptions--;off();};}
-export function readIndividualInbox(...args:Parameters<typeof getBotIntercomInbox>){assertConfigurationOwner();const value=getBotIntercomInbox(...args);serializeBoundedEvent(value);return value;}
+export function readIndividualInbox(...args:Parameters<typeof getBotIntercomInbox>){assertConfigurationOwner();const value=getBotIntercomInbox(...args);validateBoundedEvent(value);return value;}
 export function createIndividualWriter(controller:ReadableStreamDefaultController<Uint8Array>,options:{signal:AbortSignal;onTiming?:(value:{phase:string;durationMs:number})=>void}){
  assertConfigurationOwner();const writer=createBoundedEventWriter(controller,options.signal),pending=new Map<Record<string,unknown>[],number>();
  const releasePending=(items:Record<string,unknown>[])=>{const bytes=pending.get(items)??0;stats.individualPendingBytes-=bytes;pending.delete(items);items.length=0;};
  writer.onCleanup(scope.getStore()?.close??(()=>{}));
  writer.onCleanup(()=>{for(const items of pending.keys())releasePending(items);});
  return{...writer,get closed(){return writer.closed;},startHeartbeat(){},cleanup:writer.close,releasePending,
-  validate(value:unknown){try{serializeBoundedEvent(value);return !writer.closed;}catch{writer.close();return false;}},
+  validate(value:unknown){try{validateBoundedEvent(value);return !writer.closed;}catch{writer.close();return false;}},
   trackPending(items:Record<string,unknown>[]){try{if(items.length>64)throw Error();const bytes=Buffer.byteLength(serializeBoundedEvent(items)),old=pending.get(items)??0;if(bytes>FRAME||stats.individualPendingBytes-old+bytes>GLOBAL)throw Error();stats.individualPendingBytes+=bytes-old;pending.set(items,bytes);}catch{releasePending(items);writer.close();}},
  };
 }

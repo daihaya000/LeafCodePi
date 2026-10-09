@@ -252,7 +252,7 @@ function sameThroughputProjection(left: UiMessage, right: UiMessage): boolean {
   );
 }
 
-function applySnapshotThroughput(
+export function applySnapshotThroughput(
   messages: UiMessage[],
   timings: Map<number, ThroughputTiming>,
 ): UiMessage[] {

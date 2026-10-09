@@ -16,6 +16,8 @@ const mocks = vi.hoisted(() => ({
   forwardTaskPendingRequests: vi.fn(),
 }));
 
+// Route state-machine tests use the existing mocked detail getter; cold IO has its own real-file suite.
+vi.mock("@backend-runtime/event-stream/cold-snapshot", () => ({ readColdIndividualDetail: async () => null }));
 vi.mock("@/lib/pi/harness", () => mocks);
 vi.mock("@backend-runtime/lib/pi/harness", () => mocks);
 vi.mock("@/lib/store", () => ({ getTask: mocks.getTask }));
