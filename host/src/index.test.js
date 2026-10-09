@@ -33,7 +33,7 @@ test("host repairs extension dependencies before starting children even with a r
   const source = readFileSync(new URL("./index.js", import.meta.url), "utf8");
   const check = source.indexOf('    ensureExtensionDependencies(join(REPO_ROOT, "extensions"));');
   const backendBuild = source.indexOf("    if (backendService) await buildBackendWithFallback({ force: rebuildServices, log, error });");
-  const webStart = source.indexOf("    await spawnWeb({ forceBuild: rebuildServices, pull: !rebuildServices });", check);
+  const webStart = source.indexOf("    await spawnWeb({ forceBuild: rebuildServices, pull: restartOptions.pull });", check);
   assert.ok(check > source.indexOf("async function main("));
   assert.ok(check < backendBuild && backendBuild < webStart);
 });

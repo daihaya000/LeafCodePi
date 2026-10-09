@@ -9,7 +9,7 @@ import test from "node:test";
 import {
   buildHostRestartScript,
   buildHostRestartWaitProgram,
-  consumeHostRestartBuild,
+  consumeHostRestartOptions,
   HOST_RESTART_SPAWN_TIMEOUT_MS,
   hostStdoutLogFile,
   waitForHostRestartChildSpawn,
@@ -21,15 +21,34 @@ const lines = buildHostRestartScript({
   startBat: "C:\\app\\start.bat",
 });
 
-test("replacement rebuilds both services exactly once instead of skipping stale builds", () => {
-  assert.ok(lines.includes('set "LEAFCODE_PI_REBUILD_SERVICES=1"'));
-  const env = { LEAFCODE_PI_REBUILD_SERVICES: "1", LEAFCODE_PI_SKIP_STALE_REBUILD: "1" };
-  assert.equal(consumeHostRestartBuild(env), true);
-  assert.deepEqual(env, {});
-  assert.equal(consumeHostRestartBuild(env), false);
+test("Host restart reuses fresh builds and rebuilds when source changes are detected", () => {
+  assert.ok(lines.includes('set "LEAFCODE_PI_REBUILD_SERVICES="'));
+  assert.ok(lines.includes('set "LEAFCODE_PI_SKIP_SOURCE_PULL=1"'));
+  assert.ok(lines.includes('set "LEAFCODE_PI_SKIP_STALE_REBUILD="'));
+  const rebuildLines = buildHostRestartScript({
+    lockFile: "C:\\data\\host.lock",
+    launcherExe: "C:\\app\\LeafCodePi.exe",
+    startBat: "C:\\app\\start.bat",
+    rebuildServices: true,
+  });
+  assert.ok(rebuildLines.includes('set "LEAFCODE_PI_REBUILD_SERVICES=1"'));
+
+  const noChangeEnv = {
+    LEAFCODE_PI_REBUILD_SERVICES: "",
+    LEAFCODE_PI_SKIP_SOURCE_PULL: "1",
+    LEAFCODE_PI_SKIP_STALE_REBUILD: "",
+  };
+  assert.deepEqual(consumeHostRestartOptions(noChangeEnv), { rebuildServices: false, pull: false });
+  assert.deepEqual(noChangeEnv, {});
+
+  const changedEnv = { LEAFCODE_PI_REBUILD_SERVICES: "1", LEAFCODE_PI_SKIP_SOURCE_PULL: "1" };
+  assert.deepEqual(consumeHostRestartOptions(changedEnv), { rebuildServices: true, pull: false });
+  assert.deepEqual(changedEnv, {});
+
   const legacyEnv = { LEAFCODE_PI_SKIP_STALE_REBUILD: "1" };
-  assert.equal(consumeHostRestartBuild(legacyEnv), true);
+  assert.deepEqual(consumeHostRestartOptions(legacyEnv), { rebuildServices: true, pull: false });
   assert.deepEqual(legacyEnv, {});
+  assert.deepEqual(consumeHostRestartOptions({}), { rebuildServices: false, pull: true });
 });
 
 test("waits for the lock, launches, then relaunches once if no host owns the lock", () => {

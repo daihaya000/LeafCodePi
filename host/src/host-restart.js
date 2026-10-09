@@ -44,24 +44,29 @@ export function waitForHostRestartChildSpawn(child, timeoutMs = HOST_RESTART_SPA
   });
 }
 
-/** Replacement hosts rebuild both services once; do not leak the request to children. */
-export function consumeHostRestartBuild(env) {
-  // Older running Hosts pass the skip flag when launching their replacement.
-  // Treat it as a restart request so the first upgrade also rebuilds both services.
-  const rebuild = env.LEAFCODE_PI_REBUILD_SERVICES === "1" || env.LEAFCODE_PI_SKIP_STALE_REBUILD === "1";
+/** Consume restart flags; pull once and rebuild only when requested or local sources changed. */
+export function consumeHostRestartOptions(env) {
+  const rebuildServices =
+    env.LEAFCODE_PI_REBUILD_SERVICES === "1" ||
+    env.LEAFCODE_PI_FORCE_REBUILD_SERVICES === "1" ||
+    env.LEAFCODE_PI_SKIP_STALE_REBUILD === "1";
+  const skipSourcePull = env.LEAFCODE_PI_SKIP_SOURCE_PULL === "1" || rebuildServices;
   delete env.LEAFCODE_PI_REBUILD_SERVICES;
-  if (rebuild) delete env.LEAFCODE_PI_SKIP_STALE_REBUILD;
-  return rebuild;
+  delete env.LEAFCODE_PI_FORCE_REBUILD_SERVICES;
+  delete env.LEAFCODE_PI_SKIP_SOURCE_PULL;
+  delete env.LEAFCODE_PI_SKIP_STALE_REBUILD;
+  return { rebuildServices, pull: !skipSourcePull };
 }
 
-export function buildHostRestartScript({ lockFile, launcherExe, startBat, maxWaitAttempts = 120, relaunchGraceSeconds = 15 }) {
+export function buildHostRestartScript({ lockFile, launcherExe, startBat, rebuildServices = false, maxWaitAttempts = 120, relaunchGraceSeconds = 15 }) {
   const launchLine = launcherExe
     ? `start "LeafCodePi" /min "${launcherExe}"`
     : `start "LeafCodePi" /min cmd.exe /c ""${startBat}" >nul 2>&1"`;
   return [
     "@echo off",
     "setlocal",
-    "set \"LEAFCODE_PI_REBUILD_SERVICES=1\"",
+    `set \"LEAFCODE_PI_REBUILD_SERVICES=${rebuildServices ? "1" : ""}\"`,
+    "set \"LEAFCODE_PI_SKIP_SOURCE_PULL=1\"",
     "set \"LEAFCODE_PI_SKIP_STALE_REBUILD=\"",
     `set "LOCK=${lockFile}"`,
     "set /a WAIT=0",
