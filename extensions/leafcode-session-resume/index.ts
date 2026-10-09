@@ -1,8 +1,13 @@
 /** One-shot, branch-aware self-resume reservations. No subprocess or external callback. */
 import { randomUUID } from "node:crypto";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
+import {
+  RESUME_ENTRY_TYPE,
+  resumeReservationFromBranch,
+  type ResumeReservation,
+} from "../../shared/session-resume.ts";
 
-export const RESUME_ENTRY_TYPE = "leafcode-session-resume";
+export { RESUME_ENTRY_TYPE, type ResumeReservation } from "../../shared/session-resume.ts";
 export const RESUME_CANCEL_COMMAND = "session-resume-cancel";
 const MAX_DELAY_SECONDS = 24 * 60 * 60;
 const MAX_MESSAGE_CHARS = 4_000;
@@ -13,16 +18,6 @@ type ResumeParams = {
   afterSeconds?: number;
   at?: string;
   message?: string;
-};
-export type ResumeReservation = {
-  version: 1;
-  sessionId: string;
-  id: string;
-  createdAt: string;
-  at: string;
-  message: string;
-  status: "scheduled" | "fired" | "cancelled" | "failed";
-  error?: string;
 };
 type Runtime = {
   key: string;
@@ -41,7 +36,16 @@ function runtimeKey(ctx: ExtensionContext): string {
   return JSON.stringify([ctx.cwd, ctx.sessionManager.getSessionId()]);
 }
 function ownsRuntime(runtime: Runtime): boolean {
-  return !runtime.disposed && runtimes.get(runtime.key) === runtime && runtimeKey(runtime.ctx) === runtime.key;
+  if (runtime.disposed || runtimes.get(runtime.key) !== runtime) return false;
+  // AgentSession.dispose() invalidates SDK getters without emitting session_shutdown.
+  // Timer/event entry points must not let that exception terminate the whole host.
+  try {
+    if (runtimeKey(runtime.ctx) === runtime.key) return true;
+  } catch {
+    // Keep the persisted reservation for a fresh session_start, never reuse this ctx.
+  }
+  dispose(runtime);
+  return false;
 }
 function clearTimer(runtime: Runtime): void {
   if (runtime.timer) clearTimeout(runtime.timer);
@@ -53,32 +57,16 @@ function dispose(runtime: Runtime): void {
   if (runtimes.get(runtime.key) === runtime) runtimes.delete(runtime.key);
 }
 
-function parseReservation(value: unknown, sessionId: string): ResumeReservation | undefined {
-  if (!value || typeof value !== "object") return undefined;
-  const record = value as Partial<ResumeReservation>;
-  if (record.version !== 1 || record.sessionId !== sessionId || typeof record.id !== "string" || !record.id ||
-      typeof record.createdAt !== "string" || !Number.isFinite(Date.parse(record.createdAt)) ||
-      typeof record.at !== "string" || !Number.isFinite(Date.parse(record.at)) ||
-      typeof record.message !== "string" || !record.message.trim() || record.message.length > MAX_MESSAGE_CHARS ||
-      !["scheduled", "fired", "cancelled", "failed"].includes(record.status ?? "")) return undefined;
-  const duration = Date.parse(record.at) - Date.parse(record.createdAt);
-  if (duration < 1_000 || duration > MAX_DELAY_SECONDS * 1_000) return undefined;
-  return record as ResumeReservation;
-}
 function readReservation(ctx: ExtensionContext): ResumeReservation | undefined {
-  const branch = ctx.sessionManager.getBranch();
-  for (let index = branch.length - 1; index >= 0; index--) {
-    const entry = branch[index];
-    if (entry.type === "custom" && entry.customType === RESUME_ENTRY_TYPE) {
-      // A malformed latest record fails closed; never revive an older reservation.
-      return parseReservation(entry.data, ctx.sessionManager.getSessionId());
-    }
-  }
-  return undefined;
+  return resumeReservationFromBranch(ctx.sessionManager.getBranch(), ctx.sessionManager.getSessionId());
 }
 function updateStatus(runtime: Runtime): void {
-  runtime.ctx.ui.setStatus(RESUME_ENTRY_TYPE, runtime.reservation?.status === "scheduled"
-    ? `再開予約: ${runtime.reservation.at}` : undefined);
+  try {
+    runtime.ctx.ui.setStatus(RESUME_ENTRY_TYPE, runtime.reservation?.status === "scheduled"
+      ? `再開予約: ${runtime.reservation.at}` : undefined);
+  } catch {
+    // Cosmetic TUI state is not reservation persistence or delivery authority.
+  }
 }
 function save(runtime: Runtime, reservation: ResumeReservation): void {
   runtime.pi.appendEntry(RESUME_ENTRY_TYPE, reservation);
@@ -139,7 +127,7 @@ function fire(runtime: Runtime): void {
     clearTimer(runtime);
     if (runtime.reservation) runtime.reservation = { ...runtime.reservation, status: "failed", error: String(error) };
     updateStatus(runtime);
-    console.warn("[session-resume] 再開予約の実行に失敗:", error);
+    console.warn("[session-resume] 再開予約の実行に失敗:", error instanceof Error ? error.name : "Error");
   }
 }
 

@@ -51,6 +51,7 @@ import { useComposerDraft } from "@/lib/use-composer-draft";
 import { ProjectFilePicker } from "@/components/ProjectFilePicker";
 import { SessionLabelBadge } from "@/components/SessionLabelBadge";
 import { TodoProgressPanel } from "@/components/task/TodoProgressPanel";
+import { SessionResumePanel } from "@/components/task/SessionResumePanel";
 import { ModelSelect, modelOptionForValue } from "@/components/ModelSelect";
 import { ThinkingSelect } from "@/components/ThinkingSelect";
 import { FastModeSelect } from "@/components/FastModeSelect";
@@ -259,6 +260,7 @@ import type {
   ModelOption,
   PermissionRequestDto,
   QuestionRequestDto,
+  SessionResumeDto,
   TaskDetail,
   TaskMessageHistory,
   TaskMessagePage,
@@ -387,6 +389,9 @@ function sameTaskDetail(a: TaskDetail | null, b: TaskDetail): boolean {
       (b as TaskDetailWithCompactionSuggestion).compactionSuggested &&
     a.goalLoop === b.goalLoop &&
     a.todos === b.todos &&
+    a.sessionResume?.id === b.sessionResume?.id &&
+    a.sessionResume?.at === b.sessionResume?.at &&
+    a.sessionResume?.message === b.sessionResume?.message &&
     a.permissionRequest?.id === b.permissionRequest?.id &&
     a.questionRequest?.id === b.questionRequest?.id
   );
@@ -1355,6 +1360,7 @@ export const TaskView = memo(function TaskView({
           contextUsage?: ContextUsageDto;
           goalLoop?: GoalLoopDto | null;
           todos?: TodoDto[];
+          sessionResume?: SessionResumeDto | null;
           error?: string;
           manualAbortedAssistantId?: string | null;
           hangRetryCount?: number;
@@ -1480,6 +1486,7 @@ export const TaskView = memo(function TaskView({
                 contextUsage: payload.contextUsage ?? base.contextUsage,
                 goalLoop: "goalLoop" in payload ? payload.goalLoop : base.goalLoop,
                 todos: payload.todos ?? base.todos,
+                sessionResume: "sessionResume" in payload ? payload.sessionResume : base.sessionResume,
               };
               // 表示に影響しないスナップショット（tool実行中のメッセージ進捗等）は
               // 参照を維持し、TaskView 全体の再レンダーを防ぐ。
@@ -4101,6 +4108,7 @@ export const TaskView = memo(function TaskView({
               />
             )}
             {task?.todos && <TodoProgressPanel todos={task.todos} />}
+            {!archived && <SessionResumePanel reservation={task?.sessionResume} />}
             {goalLoopVisible && !archived && (
               <GoalLoopPanel
                 loop={task?.goalLoop}

@@ -352,6 +352,7 @@ describe("sse-ready-buffer", () => {
         todos: [],
         contextUsage: { used: 1, limit: 2 },
         goalLoop: { id: "loop-1", status: "running" },
+        sessionResume: { id: "resume-1", at: "2026-10-08T10:32:53.000Z", message: "check" },
         compactionSuggested: true,
         permissionRequest: { id: "req-1" },
       },
@@ -366,6 +367,7 @@ describe("sse-ready-buffer", () => {
     expect(prepared).not.toHaveProperty("todos");
     expect(prepared).not.toHaveProperty("contextUsage");
     expect(prepared).not.toHaveProperty("goalLoop");
+    expect(prepared).not.toHaveProperty("sessionResume");
     expect(prepared).not.toHaveProperty("compactionSuggested");
 
     const hangIdle = preparePendingPayloadForReadyFlush(

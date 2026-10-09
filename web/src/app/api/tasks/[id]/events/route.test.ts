@@ -85,7 +85,10 @@ describe("/api/tasks/[id]/events", () => {
     mocks.localRuntimeBlocked.mockReturnValue(true);
     mocks.forwardTaskDetail.mockResolvedValue({
       ok: true,
-      detail: task({ messages: [], isStreaming: true, status: "working" }),
+      detail: task({
+        messages: [], isStreaming: true, status: "working",
+        sessionResume: { id: "resume-1", at: "2026-10-08T10:32:53.000Z", message: "結果を確認する" },
+      }),
     });
     mocks.forwardTaskPendingRequests.mockResolvedValue({
       ok: true, permissionRequest: { requestId: "req-1" },
@@ -100,6 +103,7 @@ describe("/api/tasks/[id]/events", () => {
     const payload = eventData(chunk);
     expect(payload.eventType).toBe("remote_poll");
     expect(payload.isStreaming).toBe(true);
+    expect(payload.sessionResume).toEqual({ id: "resume-1", at: "2026-10-08T10:32:53.000Z", message: "結果を確認する" });
     // The pending approval lives in the Backend, so it must come from there.
     expect(payload.permissionRequest).toEqual({ requestId: "req-1" });
     expect(payload.questionRequest).toBeNull();
@@ -217,7 +221,7 @@ describe("/api/tasks/[id]/events", () => {
     });
     const readyTaskSummary = { ...detail } as Record<string, unknown>;
     for (const key of [
-      "messages", "isStreaming", "isCompacting", "contextUsage", "compactionSuggested", "goalLoop", "todos",
+      "messages", "isStreaming", "isCompacting", "contextUsage", "compactionSuggested", "goalLoop", "todos", "sessionResume",
       "permissionRequest", "questionRequest", "manualAbortedAssistantId", "hangRetryCount",
     ]) delete readyTaskSummary[key];
     listener({
@@ -441,10 +445,10 @@ describe("/api/tasks/[id]/events", () => {
     });
     const updated = eventData(await readChunk(reader));
     expect(updated).toMatchObject({ eventType: "context_update", taskReused: true });
-    for (const field of ["task", "goalLoop", "todos", "permissionRequest", "questionRequest", "contextUsage", "messageHistory"]) {
+    for (const field of ["task", "goalLoop", "todos", "sessionResume", "permissionRequest", "questionRequest", "contextUsage", "messageHistory"]) {
       expect(updated).not.toHaveProperty(field);
     }
-    const fullEquivalent = { ...updated, goalLoop, todos, permissionRequest, questionRequest, contextUsage, messageHistory: ready.messageHistory };
+    const fullEquivalent = { ...updated, goalLoop, todos, sessionResume: null, permissionRequest, questionRequest, contextUsage, messageHistory: ready.messageHistory };
     const withMessageHistory = { ...updated, messageHistory: ready.messageHistory };
     expect(utf8ByteLength(withMessageHistory) - utf8ByteLength(updated)).toBeGreaterThan(0);
     expect(utf8ByteLength(updated)).toBeLessThan(utf8ByteLength(fullEquivalent));

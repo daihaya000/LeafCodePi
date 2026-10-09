@@ -26,6 +26,7 @@ import { normalizeTodos, type TodoItem } from "./state.ts";
 import { clipRequestText, judgeTodoNotNeeded } from "./todo-need.ts";
 import { clearTodoVisibility, publishTodoVisibility } from "./visibility.ts";
 import { buildGitFinalizeArgs, gitFinalizeCommand, GitFinalizeParams, GIT_FINALIZE_NAME, validateGitFinalizeAddPaths } from "./git-finalize.ts";
+import { resolveConfiguredGitCommitAuthor } from "./git-commit-author.ts";
 export { normalizeTodos } from "./state.ts";
 export type { TodoItem, TodoPriority, TodoStatus } from "./state.ts";
 
@@ -66,6 +67,7 @@ const EXEMPT_TOOLS = new Set([
   "watchdog_warn",
   "contact_supervisor",
   "subagent_wait",
+  "session_resume",
   "intercom",
   "jev_judge",
 ]);
@@ -495,7 +497,7 @@ export default function (pi: ExtensionAPI): void {
   pi.registerTool({
     name: GIT_FINALIZE_NAME,
     label: "Git Finalize",
-    description: "Run restricted Git status/diff/log/show/add/commit/push/fetch/rev_parse after ALL ToDos and review are completed. No arbitrary shell, argv, force, merge or cwd override. Uses the existing shell permission pipeline. For further changes, register a new in_progress ToDo.",
+    description: "Run restricted Git status/diff/log/show/add/commit/push/fetch/rev_parse after ALL ToDos and review are completed. Commits use the configured Git author; pass agent when known, otherwise the default agent is used. No arbitrary shell, argv, force, merge or cwd override. Uses the existing shell permission pipeline. For further changes, register a new in_progress ToDo.",
     parameters: GitFinalizeParams,
     ...{ exposure: "model-only" as const, executionMode: "sequential" as const,
       prepareLoadout: () => ({ hiddenDeclarations: finalizationReady() && ownedShell() ? [] : [GIT_FINALIZE_NAME] }) },
@@ -505,12 +507,14 @@ export default function (pi: ExtensionAPI): void {
       const native = ctx as typeof ctx & { executeTool?: (name: string, args: unknown, options: unknown) => Promise<{ isError: boolean; result: { content: unknown[]; details?: unknown } }> };
       if (typeof native.executeTool !== "function") throw Error("Native SDKの権限付き実行経路がありません。");
       const args = buildGitFinalizeArgs(params);
+      const input = asRecord(params);
+      const author = input?.operation === "commit" ? resolveConfiguredGitCommitAuthor(input.agent) : undefined;
       const task = gate;
       const executeGit = async (argv: readonly string[]) => {
         if (task !== gate || !finalizationReady() || signal?.aborted || !pi.getActiveTools().includes(shell)) {
           throw Error("ToDo状態・shell権限が変わったためGit操作を停止しました。");
         }
-        const command = gitFinalizeCommand(argv, shell);
+        const command = gitFinalizeCommand(argv, shell, author);
         closingCalls.set(toolCallId, { task, shell, command });
         return native.executeTool!(shell, { command, timeout: 30 }, { signal, onUpdate });
       };

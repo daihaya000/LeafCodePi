@@ -323,6 +323,12 @@ export type TodoProgressDto = {
   total: number;
 };
 
+export type SessionResumeDto = {
+  id: string;
+  at: string;
+  message: string;
+};
+
 export type TaskSummary = {
   id: string;
   kind?: "code" | "bot";
@@ -711,6 +717,8 @@ export type TaskDetail = TaskSummary & {
   };
   goalLoop?: GoalLoopDto | null;
   todos?: TodoDto[];
+  /** Persisted one-shot self-resume reservation, when scheduled. */
+  sessionResume?: SessionResumeDto | null;
   /**
    * Live tool label for collapsed Code cards / Room mirrors.
    * Present even when `messages` are omitted so cutover peeks stay cheap.

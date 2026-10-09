@@ -13,13 +13,14 @@ import {
   getTaskHangWatch,
   stopHangWatchdogForTests,
 } from "./hang-watchdog";
-import { abortLiveForHangWatchdog, abortTask, abortTaskSessionsAfterLeaseLoss, promptTask, archiveTask, autoArchiveOldTasks, evictIdleLiveSessions, destroyProject, destroyTask, getTaskDetail, isLiveBusyForReplace, isTaskRuntimeOwnedElsewhere, listActiveLlamaAgentModels, markTaskWorkingIfIdle, refreshLiveSessionsForAgentDefinition, reloadLiveSessionsContext, resetTaskSession, restoreTask, setBotPermissionMode, setBotTools, setTaskAgent, throwIfBusyForModelChange, throwIfBusyForPermissionChange, throwIfBusyForSkillPermissionChange, throwIfBusyForThinkingChange } from "./harness";
+import { abortLiveForHangWatchdog, abortTask, abortTaskSessionsAfterLeaseLoss, promptTask, archiveTask, autoArchiveOldTasks, evictIdleLiveSessions, destroyProject, destroyTask, getTaskDetail, isLiveBusyForReplace, isTaskRuntimeOwnedElsewhere, listActiveLlamaAgentModels, markTaskWorkingIfIdle, refreshLiveSessionsForAgentDefinition, reloadLiveSessionsContext, resetTaskSession, restoreTask, relieveRuntimeMemoryPressure, setBotPermissionMode, setBotTools, setTaskAgent, throwIfBusyForModelChange, throwIfBusyForPermissionChange, throwIfBusyForSkillPermissionChange, throwIfBusyForThinkingChange } from "./harness";
 import { taskRuntimeLeasePath } from "@/lib/task-runtime-lease";
 import { botTaskId, createBot, getBot, patchBot } from "@/lib/bots";
 import { setAgentEnabled } from "@/lib/agents";
 import { roomBotTaskId } from "@/lib/rooms";
 import { registerBackgroundWorkProvider } from "../../../../extensions/leafcode-subagents/src/api/background-work.ts";
 import { registerBackendMcpNativeSessionShutdownAction } from "../../../../backend/core/mcp-native-session.mjs";
+import { RESUME_ENTRY_TYPE, type ResumeReservation } from "@shared/session-resume";
 
 const GLOBAL_KEY = "__leafcodePiHarness";
 const previousHarness = (globalThis as Record<string, unknown>)[GLOBAL_KEY];
@@ -1164,6 +1165,43 @@ describe("evictIdleLiveSessions", () => {
     } finally {
       if (previousRegistry === undefined) delete globals[registryKey];
       else globals[registryKey] = previousRegistry;
+    }
+  });
+
+  it.each(["fired", "cancelled", "failed"] as const)("keeps reservations through idle/memory reaping without a browser, then releases %s ones", async (status) => {
+    const root = mkdtempSync(join(tmpdir(), "leafcode-pi-harness-resume-evict-"));
+    tempDirs.push(root);
+    process.env.LEAFCODE_PI_DATA_DIR = join(root, "data");
+    process.env.PI_CODING_AGENT_DIR = join(root, "agent");
+    const project = upsertProject({ name: "demo", rootPath: root });
+    const task = insertTask({ project, title: "reserved" });
+    const now = Date.now();
+    const events: string[] = [];
+    const reserved = idleLive(root, task.id, events, now - 7_200_000);
+    const reservation: ResumeReservation = {
+      version: 1, sessionId: `session-${task.id}`, id: "reservation-1",
+      createdAt: new Date(now - 3_600_000).toISOString(),
+      at: new Date(now + 60_000).toISOString(), message: "Check background work", status: "scheduled",
+    };
+    const branch = [{ type: "custom", customType: RESUME_ENTRY_TYPE, data: reservation }];
+    (reserved.session as { sessionManager: { getBranch: () => unknown[] } }).sessionManager.getBranch = () => branch;
+    const live = new Map([[task.id, reserved]]);
+    installFixtureHarness(live);
+    assert.deepEqual(await evictIdleLiveSessions(now, 60_000), []);
+    assert.deepEqual(await evictIdleLiveSessions(now + 120_000, 60_000), []);
+    assert.deepEqual(events, []);
+    const heapUsed = 10 * 1024 ** 3;
+    const memory = vi.spyOn(process, "memoryUsage").mockReturnValue({ heapUsed, heapTotal: heapUsed, rss: heapUsed, external: 0, arrayBuffers: 0 });
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      assert.deepEqual(await relieveRuntimeMemoryPressure(now), []);
+      assert.deepEqual(events, []);
+      branch.push({ type: "custom", customType: RESUME_ENTRY_TYPE, data: { ...reservation, status } });
+      assert.deepEqual(await relieveRuntimeMemoryPressure(now + 120_000), [task.id]);
+      assert.deepEqual(events, ["session_shutdown", "dispose"]);
+    } finally {
+      memory.mockRestore();
+      warn.mockRestore();
     }
   });
 });

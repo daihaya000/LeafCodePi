@@ -262,6 +262,7 @@ export function preparePendingPayloadForReadyFlush(
     delete next.messages;
     delete next.messageHistory;
     delete next.todos;
+    delete next.sessionResume;
     delete next.contextUsage;
     // Ready already delivered the authoritative Goal Loop DTO; a buffered
     // permission/hang snapshot must not rewind the panel to a prior status.
