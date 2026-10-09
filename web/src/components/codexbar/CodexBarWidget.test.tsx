@@ -99,7 +99,7 @@ function setServerSettings(value: object) {
 }
 
 describe("CodexBarWidget", () => {
-  it("shows used/total to the left of the summary percentage in either expansion state", async () => {
+  it("hides tokens when collapsed while retaining the label and percentage, and restores them on expansion", async () => {
     setServerSettings({ collapsed: false, providerCollapsed: {} });
     useCodexUsage.mockReturnValue({ usage: { ...usage, providers: [{ ...usage.providers[0], usedPercent: 12, tokenUsage: {
       input: 700, output: 100, cacheRead: 150, cacheWrite: 50, totalTokens: 1000, responses: 1, startedAt: null,
@@ -111,6 +111,11 @@ describe("CodexBarWidget", () => {
     expect(screen.queryByText(/実測|推定|tok\/1%/)).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: /Codex を最小化/ }));
     await waitFor(() => expect(screen.getByRole("button", { name: /Codex を展開/ })).toBeTruthy());
+    expect(screen.queryByText("6K/50K")).toBeNull();
+    const collapsedRow = screen.getByRole("button", { name: /Codex を展開/ });
+    expect(collapsedRow.textContent).toContain("Codex");
+    expect(collapsedRow.textContent).toContain("12%");
+    fireEvent.click(collapsedRow);
     expect(screen.getByText("6K/50K").nextElementSibling?.textContent).toBe("12%");
   });
   it("embeds estimates in existing quota rows without a duplicate token section", async () => {
@@ -168,14 +173,21 @@ describe("CodexBarWidget", () => {
     })) }, loadError: null, refreshing: false, refresh: vi.fn(), now: Date.now() });
     render(<CodexBarWidget />);
     expect((await screen.findByText("60K/100K")).nextElementSibling?.textContent).toBe("60%");
-    expect(screen.getByText("50K/50K").nextElementSibling?.textContent).toBe("100%");
-    expect(screen.getByText("10K/50K").nextElementSibling?.textContent).toBe("20%");
+    expect(screen.queryByText("50K/50K")).toBeNull();
+    expect(screen.queryByText("10K/50K")).toBeNull();
     const accountRow = screen.getByRole("button", { name: "仕事用 を展開" });
+    expect(accountRow.textContent).toContain("仕事用");
+    expect(accountRow.textContent).toContain("100%");
+    expect(screen.getByRole("button", { name: "個人用 を展開" }).textContent).toContain("20%");
     expect(accountRow.firstElementChild?.className).toContain("flex-1");
-    expect(screen.getByText("50K/50K").parentElement?.className).toContain("shrink-0");
     expect(screen.queryByText(/実測|推定|tok\/1%/)).toBeNull();
-    fireEvent.click(screen.getByRole("button", { name: "仕事用 を展開" }));
+    fireEvent.click(accountRow);
+    expect(screen.getByText("50K/50K").nextElementSibling?.textContent).toBe("100%");
+    expect(screen.getByText("50K/50K").parentElement?.className).toContain("shrink-0");
     expect(screen.getByText("60K/100K")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "仕事用 を最小化" }));
+    expect(screen.queryByText("50K/50K")).toBeNull();
+    expect(screen.getByRole("button", { name: "仕事用 を展開" }).textContent).toContain("100%");
     fireEvent.click(screen.getByRole("button", { name: "Codex を最小化" }));
     await waitFor(() => expect(screen.queryByText("50K/50K")).toBeNull());
     expect(screen.getByText("60K/100K")).toBeTruthy();

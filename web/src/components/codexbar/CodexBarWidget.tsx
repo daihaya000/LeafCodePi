@@ -567,7 +567,7 @@ function ProviderRow({
           </span>
         ) : (
           <span className="ml-auto flex shrink-0 items-baseline justify-end gap-x-1">
-            {(collapsed || (!hasWindows && !p.credits)) && <TokenEstimateInline estimate={summaryTokenEstimate(p)} now={now} />}
+            {!collapsed && !hasWindows && !p.credits && <TokenEstimateInline estimate={summaryTokenEstimate(p)} now={now} />}
             <span
               className={cx(
                 "shrink-0",
