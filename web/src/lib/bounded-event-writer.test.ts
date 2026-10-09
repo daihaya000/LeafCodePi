@@ -1,5 +1,5 @@
 import { afterEach,expect,it,vi } from "vitest";
-import { createBoundedEventWriter,readBoundedEventDiagnostics,serializeBoundedEvent,validateBoundedEvent } from "@backend-runtime/event-stream/bounded-writer";
+import { createBoundedEventWriter,readBoundedEventDiagnostics,serializeBoundedEvent,validateBoundedEvent,measureBoundedEvent } from "@backend-runtime/event-stream/bounded-writer";
 function make(options:any={}){let writer!:ReturnType<typeof createBoundedEventWriter>;const controller=new AbortController();const body=new ReadableStream<Uint8Array>({start(c){writer=createBoundedEventWriter(c,controller.signal,options);},pull(){writer.pull();},cancel(){writer.close();}},{highWaterMark:0});return{writer,controller,body};}
 afterEach(()=>{vi.useRealTimers();expect(readBoundedEventDiagnostics()).toMatchObject({writers:0,queuedBytes:0,queuedFrames:0,heartbeats:0,stallTimers:0});});
 it("no demand retains bounded frames and pull emits at most64KiB without reordering",async()=>{const x=make(),reader=x.body.getReader();x.writer.send("snapshot",{text:"x".repeat(150000)});expect(readBoundedEventDiagnostics().queuedBytes).toBeGreaterThan(150000);let text="";while(!text.endsWith("\n\n")||!text.includes("event: snapshot")){const item=await reader.read();expect(item.value!.length).toBeLessThanOrEqual(65536);text+=new TextDecoder().decode(item.value);}expect(text.startsWith(": connected\n\n")).toBe(true);expect(text).toContain('"text":"'+ "x".repeat(150000)+'"');await reader.cancel();});
@@ -14,6 +14,11 @@ it("non-materializing validation keeps serializer budgets and actual encoded byt
  for(const bad of[{data:String.fromCharCode(0).repeat(200)},{["x".repeat(257)]:1},{data:1n}]){expect(()=>validateBoundedEvent(bad,256)).toThrow();expect(()=>serializeBoundedEvent(bad,256)).toThrow();}
  const cycle:any={};cycle.self=cycle;expect(()=>validateBoundedEvent(cycle)).toThrow();
  expect(()=>validateBoundedEvent({text:"x".repeat(7*1024*1024)})).not.toThrow();
+});
+it("non-materializing measurement matches JSON UTF-8 bytes for public DTO values",()=>{
+ const values=[{text:'日本語😀\\\"'+String.fromCharCode(0,8,9,10,12,13,0xd800,0xdc00,0xd800,0xdc00)},["x",null,undefined,NaN,Infinity],{date:new Date("2026-01-01"),nested:{empty:"",missing:undefined},text:"x".repeat(32700)}];
+ for(const value of values)expect(measureBoundedEvent(value)).toBe(Buffer.byteLength(JSON.stringify(value)));
+ expect(()=>measureBoundedEvent({text:"x".repeat(257)},256)).toThrow();expect(()=>measureBoundedEvent({text:String.fromCharCode(0).repeat(200)},256)).toThrow();
 });
 it("tiny frames cannot bypass the per-consumer object count bound",async()=>{const x=make();for(let i=0;i<64;i++)x.writer.send("delta",{});expect(x.writer.closed).toBe(true);expect(readBoundedEventDiagnostics().queuedFrames).toBe(0);await x.body.cancel();});
 it("already aborted writers admit no timers and run late cleanup",async()=>{const c=new AbortController();c.abort();const w=createBoundedEventWriter({close(){}} as any,c.signal);const cleanup=vi.fn();w.onCleanup(cleanup);expect(cleanup).toHaveBeenCalledOnce();expect(w.closed).toBe(true);});

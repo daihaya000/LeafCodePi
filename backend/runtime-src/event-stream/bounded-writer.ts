@@ -2,8 +2,8 @@ const CHUNK=65536, FRAME=8*1024*1024, GLOBAL=16*1024*1024, MAX_QUEUED_FRAMES=64;
 const stats={writers:0,queuedBytes:0,peakQueuedBytes:0,queuedFrames:0,peakQueuedFrames:0,heartbeats:0,stallTimers:0,overflows:0};
 export const readBoundedEventDiagnostics=()=>({...stats,maxFrameBytes:FRAME,maxGlobalQueuedBytes:GLOBAL,maxQueuedFrames:MAX_QUEUED_FRAMES});
 /** Reject before allocating the complete encoded frame, including JSON string escaping. */
-function checkedEvent(value:unknown,max=FRAME,validationOnly=false):string {
- let budget=0,nodes=0;
+function checkedEvent(value:unknown,max=FRAME,validationOnly=false):{json:string;bytes:number} {
+ let budget=0,nodes=0,stringExtra=0;
  const stringBytes=(text:string)=>{
   if(text.length>max)throw new Error("Event size");
   let bytes=Buffer.byteLength(text)+2;
@@ -19,15 +19,18 @@ function checkedEvent(value:unknown,max=FRAME,validationOnly=false):string {
  };
  const json=JSON.stringify(value,(key,item)=>{
   if(++nodes>300000)throw new Error("Event complexity");
-  budget+=stringBytes(key)+(typeof item==="string"?stringBytes(item):16);
-  if(budget>max)throw new Error("Event size");return validationOnly&&typeof item==="string"?"":item;
+  const itemBytes=typeof item==="string"?stringBytes(item):16;budget+=stringBytes(key)+itemBytes;
+  if(budget>max)throw new Error("Event size");
+  if(validationOnly&&typeof item==="string"){stringExtra+=itemBytes-2;return "";}return item;
  });
  if(json===undefined)throw new Error("Invalid event");
- return json;
+ return {json,bytes:Buffer.byteLength(json)+stringExtra};
 }
 /** Validation visits the actual values/escaping budget but never copies payload strings into its output. */
 export function validateBoundedEvent(value:unknown,max=FRAME):void { checkedEvent(value,max,true); }
-export function serializeBoundedEvent(value:unknown,max=FRAME):string { return checkedEvent(value,max); }
+/** Exact encoded JSON size for public plain DTOs without materializing payload strings. */
+export function measureBoundedEvent(value:unknown,max=FRAME):number { return checkedEvent(value,max,true).bytes; }
+export function serializeBoundedEvent(value:unknown,max=FRAME):string { return checkedEvent(value,max).json; }
 export function createBoundedEventWriter(controller:ReadableStreamDefaultController<Uint8Array>,signal:AbortSignal,options:{stallMs?:number;heartbeatMs?:number;maxFrameBytes?:number}={}){
  const encoder=new TextEncoder(),queue:Uint8Array[]=[];let offset=0,demand=false,closed=false,queuedBytes=0;
  let stall:ReturnType<typeof setTimeout>|undefined,heartbeat:ReturnType<typeof setInterval>|undefined;const cleanups:Array<()=>void>=[];

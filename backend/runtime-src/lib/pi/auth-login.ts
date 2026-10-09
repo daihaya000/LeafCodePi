@@ -1,6 +1,6 @@
 import { EventEmitter } from "node:events";
 import { PROVIDER_AUTH_EVENT_LIMIT, PROVIDER_AUTH_STREAM_LIMIT, publicProviderLoginEvent } from "@shared/provider-auth-contract.mjs";
-import { serializeBoundedEvent } from "../../event-stream/bounded-writer";
+import { measureBoundedEvent, validateBoundedEvent } from "../../event-stream/bounded-writer";
 import { assertConfigurationOwner } from "@backend-core/configuration-command.mjs";
 import { randomUUID } from "node:crypto";
 import type { ModelRuntime } from "@earendil-works/pi-coding-agent";
@@ -81,12 +81,12 @@ export class ProviderLoginSession {
     // Retain public recovery state, not an ever-growing SDK event log. Progress/info
     // coalescing never evicts the pending prompt or current OAuth/device URL.
     let safe = publicProviderLoginEvent(event) as LoginSessionEvent | null;
-    let json: string;
-    try { if (!safe) throw new Error("Invalid event"); json = serializeBoundedEvent(safe, PROVIDER_AUTH_EVENT_LIMIT - 32); }
-    catch { safe = { type: "notify", event: { type: "info", message: "認証イベントが配信上限を超えました" } }; json = JSON.stringify(safe); }
+    let bytes: number;
+    try { if (!safe) throw new Error("Invalid event"); bytes = measureBoundedEvent(safe, PROVIDER_AUTH_EVENT_LIMIT - 32); }
+    catch { safe = { type: "notify", event: { type: "info", message: "認証イベントが配信上限を超えました" } }; bytes = Buffer.byteLength(JSON.stringify(safe)); }
     const key = safe.type === "notify" ? `notify:${safe.event.type}` : safe.type;
     this.history.delete(key);
-    this.history.set(key, { event: safe, bytes: Buffer.byteLength(json) });
+    this.history.set(key, { event: safe, bytes });
     this.events.emit("event", safe);
   }
 
@@ -173,7 +173,7 @@ export class ProviderLoginSession {
     const id = randomUUID();
     const candidate = publicProviderLoginEvent({ type: "prompt", id, prompt });
     if (!candidate) return Promise.reject(new Error("Invalid login prompt"));
-    try { serializeBoundedEvent(candidate, PROVIDER_AUTH_EVENT_LIMIT - 32); }
+    try { validateBoundedEvent(candidate, PROVIDER_AUTH_EVENT_LIMIT - 32); }
     catch { return Promise.reject(new Error("Login prompt exceeds limit")); }
     const dto = (candidate as Extract<LoginSessionEvent, { type: "prompt" }>).prompt;
     return new Promise<string>((resolve, reject) => {

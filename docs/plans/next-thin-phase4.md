@@ -1,6 +1,10 @@
 # Phase4 — ファイル配信・ストリーム移管
 
-## 今回の単位: Taskローカル画像・動画・音声
+## 最終状態
+
+**Phase4完了（末尾の有限な受入範囲）**。Phase0掲載14経路・15操作と互換HEAD7操作をBackend所有にした。ファイル解決・権限・読取・生成・購読はBackend、Nextはopaqueな有界中継。対象別負荷試験と実Next production API adapterの大容量・125秒接続試験で、配信資源の解放とメモリ閾値を確認した。以下の追加単位は移管時点の履歴で、当時の未完・未測定記載を保持する。
+
+## 初回単位: Taskローカル画像・動画・音声
 
 Phase0のPhase4対象は14経路・15操作。今回の移管は `tasks/[id]/image` GET、`tasks/[id]/media` GET/HEADの2経路・3操作。画像の従来のNext自動HEAD互換を維持するため、画像にも明示的なHEAD中継を設けた。Phase4全体は未完了。
 
@@ -146,6 +150,45 @@ Phase0のPhase4対象は14経路・15操作。今回の移管は `tasks/[id]/ima
 
 - 独立reviewでin-flightの旧ファイル読取後にTask metadataを再取得すると、新session IDで旧履歴をlabelし得る点を修正。読取開始時のTask rowと結果を組にし、session切替・不正UTF-8・window外persona/part IDの回帰テストを追加した。関連Web110件、native/protocol/所有権/build/Webなし起動40件、実Next統合1件の合計151件成功。Backend/Web全source型検査はともに成功。全Web test suiteや実provider/model networkは未実行。
 
-## 残り: Phase4最終受入
+## 最終追加単位: 生成profile・TTS・Provider SSEの実Next production
 
-Phase0の14経路・15操作はBackend所有で、対象別の大容量/Range/切断/再接続試験と今回のcold SSE/実Next production代表試験まで完了。全経路の証拠を一括レビューし、残るproduction経路（生成profile/TTS・Provider loginなど）とJSONの古い履歴getter/load-moreのSDK境界を混同せず整理する。現時点では全WebUI production構成・全経路同時条件の受入完了を宣言しない。
+- `generated-production-stream-integration.test.mjs` を追加。前回と同じ実API15経路・実import graph93 moduleのproduction buildを共通 `stream-production-test-support.mjs` へ抽出し、前回cold/file/Task/Bot試験も同じbuilderで再実行した。Nextは実route/relayをfixtureへ差し替えず `dev:false` のrequest handlerで実行し、Backendは実owner/native ingress。file relayのOrigin復元修正もこの実buildへ含めた。fakeにしたのは隔離TTS engineとSDKログインinteractionだけ。
+- profileは64MiB resourceを2並列×4巡、raw source計512MiB・gzip配信539,149,312bytes。32本文切断・16取得前取消し、HEAD、Range/If-Rangeを無視する全体200、auth/異Origin拒否、SHA256不変を確認。両process再起動後に小さなv1 archiveを復号し、日本語・base64 bytes・modes・auth.json除外を確認した。大きなarchiveをNext/試験consumerで全体bufferしていない。
+- TTSは64MiBを2並列×4巡、536,870,912bytes。32本文切断と受付済header待ち取消し1件、Range無視、private/set-cookie除外、clean EOF・complete/unknown receiptを確認。両process再起動後も同じIDを409にし、再受付でengineを呼ばない。engine計42呼出し・切断33件、最終接続0。実モデル・実credential・ユーザーデータ・ユーザーサービスは操作していない。
+- Providerは2接続・125,013ms・535,934,840bytes・各8heartbeat。32切断、paused socketのqueue overflow、producer継続、Last-Event-ID付き再接続で未回答prompt/callback復元、完了/done replay・回答内容非漏洩を確認。両process再起動後に旧sessionのsafe done(false)と新sessionを確認した。最終active/subscription/reader/drain waiter/queue/heartbeat/stall/listener/Next activeは0。意図的回復historyは4件/33,078encoded bytes、queue peak1,016,645bytes。
+- profileのFD/directory/compressor/metadata、TTS reader/held chunk/枠、共通file active/FD、engine接続も最終0。50ms間隔でBackend/NextのRSS・heap・externalを採取し、RSS128MiB・heap48MiB・external96MiB、steady heap8MiBの閾値を一切緩めず合格した。
+
+| 最終生成/Provider試験の増分bytes | Backend | 実Next production |
+| --- | ---: | ---: |
+| peak RSS | 125,308,928 | 108,503,040 |
+| peak heapUsed | 32,522,400 | 8,375,416 |
+| peak external | 98,846,966 | 89,575,305 |
+| 序盤/終盤windowの最低heap差 | 294,800 | -448 |
+
+- 原因: 最初の実Next試験ではsame-Originのprofile HEADが403。fixtureの実待受portをNextへ渡していなかった点に加え、NextURLが127.0.0.1をlocalhostへ正規化するため、従来relayの内部OriginとブラウザOriginが一致しなかった。fixtureを実portで起動し、file relayは有効なHTTP Hostからpublic authorityを復元する。scheme/queryは保持し、実Originを内部へ転送する。Origin自身を信頼してURLを作らず、userinfo/path/query/fragment/複数authority/不正portを含むHostは受付前400。業務bodyやファイル権限をNextで解釈しない。異Origin403・不正Host拒否をunit/実productionで維持した。
+- 原因: 統合負荷後のProvider送信中にBackend heap増分65,261,272、再計測65,202,240bytesとなり48MiB閾値へ抵触。回復historyのサイズ計測だけに大きなJSONを作る処理と、SSE文字列の追加結合copyが残っていた。public DTOの実escapingを検査しながらpayload文字列をmaterializeしないencoded JSON byte計測へ変更し、prompt事前検査も非copy化。送信は再利用encoderでprefix/JSON/suffixを1個のexact Uint8Arrayへ符号化する。実serialize・frame/queue制限・安全projectionは削除していない。最終のProvider heap peakは80,849,448bytes、baseline48,327,048bytes。GC/起動条件も変動するため、個別変更だけの因果効果は断定しない。
+- 共通writer変更後のcold/file/Task/Bot実production試験も再成功。269,584,138byte transcript、file536,870,912bytes、SSE125,005ms/550,064,919bytes、32SSE切断/8scan切断/16file切断、Range206/416/HEAD、再接続・再起動・SDK未load・SHA不変・資源0を再確認した。peak RSS Backend95,952,896/Next101,208,064、heap34,823,144/20,297,624、external68,154,518/71,609,240bytes、steady heap -160,248/-528bytes。
+- この最終単位はWeb131件、native/protocol/ownership/Backend build/Webなし起動122件、実Next production統合2件の**255件成功**。Backend/Web全source型チェック成功。現在のAPI所有権165経路/265操作に欠落・重複・未所有なし。旧AST検査のserialize文字列への依存も新しい計測/検査APIへ追随させ、検査を削除・skipしていない。
+
+## Phase4受入マトリクス
+
+全14経路のowner・拒否・取消し・資源上限をunit/nativeで確認。経路固有の負荷は実owner＋実relay/native HTTP試験、共通file/live/Provider transportは実Next production API fixtureでも確認した。
+
+| 対象（計14経路） | 配信契約・経路固有の証拠 | 実Next productionの証拠 |
+| --- | --- | --- |
+| Task image/media（2） | Range206/416/HEAD・1GiB・61切断 | 共通file、512MiB・Range/HEAD・16切断 |
+| Room files/images（2） | Range/HEAD・256MiB・32切断/24metadata取消し・再起動 | 共通file中継、両routeの実build |
+| Project icon/preview image（2） | Range/HEAD・256MiB・64切断・保存icon復旧/preview ID失効 | 共通file中継、両routeの実build |
+| Room/Bot-list events（2） | SSE65秒/68,930,073bytes・32切断・再接続/再起動・資源0 | 共通live中継、両routeの実build |
+| Task message-image（1） | 72MiB transcript・256MiB配信・32切断/24scan取消し・Range/HEAD・SHA不変 | 共通file中継、routeの実build |
+| profile（1） | incremental v1 gzip・生成Rangeなし・FD/metadata/compressor0 | 512MiB source/539,149,312bytes・32切断/16取消し・再起動/v1 |
+| TTS synthesize（1） | raw binary・生成Rangeなし・ID-only bounded receipt・受付後自動retryなし | 512MiB・32切断/header待ち取消し・complete/unknown再起動拒否 |
+| Task/Bot individual events（2） | fresh bootstrap/ready・readonly cold branch・control・foreign poll | 269,584,138byte履歴・125秒/550,064,919bytes・切断/停滞/再接続/再起動・資源0 |
+| Provider login events（1） | bounded current-state復旧・commandとsubscriber取消しの分離 | 125秒/535,934,840bytes・32切断/停滞・prompt/callback/done・再起動・資源0 |
+
+### 合格範囲と残る保証外
+
+- 受入条件「大容量配信・長時間接続でメモリ増大や処理残留がない」は、上記有限な負荷・切断・停止consumer・再接続・再起動条件の**配信層**について合格。ペイロード全量に比例するNext buffer、通知履歴の無制限増大、取消し後のFD/購読/queue/timer残留を持たない。意図的な有界cache・索引・receiptは残す。OS/GC/HTTP bufferを含む実測であり固定64KiBの使用量とは主張しない。
+- 無期限・全14経路同時の最大負荷・全WebUI pages/instrumentation/Proxyを含むproduction構成・実provider/model/engineの計算資源・電源断耐久・原子的directory/transcript snapshotは未検証/保証外。実API adapterのfixture buildは型検査を省略するが、別の全source型検査を成功させた。全Web test suiteの既存baseline問題を解消したとは主張しない。
+- JSONの古い履歴getter/load-moreは別契約で、既存SDK guard/cacheが残る。今回の512MiB readonly cold SSE readerの証拠を、そのJSON経路の巨大履歴・SDK hydration保証へ流用しない。既存owned live SDK sessionの業務状態増大も配信queueの上限とは別。
+- Phase4の移管・受入はここで終了。全WebUI構成やJSON履歴の追加最適化を、この完了のための未定義な追加条件にしない。

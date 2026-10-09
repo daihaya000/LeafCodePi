@@ -12,7 +12,7 @@ export function createProviderLoginStream(signal: AbortSignal, providerId: strin
   const body = new ReadableStream<Uint8Array>({
     start(controller) {
       stats.active++;
-      const queue: Uint8Array[] = [];
+      const queue: Uint8Array[] = [], encoder = new TextEncoder();
       let bytes = 0, demand = false, closed = false, ending = false, unsubscribe: (() => void) | undefined;
       let heartbeat: ReturnType<typeof setInterval> | undefined, stall: ReturnType<typeof setTimeout> | undefined;
       const stopStall = () => { if (stall) { clearTimeout(stall); stall = undefined; stats.stallTimers--; } };
@@ -48,7 +48,9 @@ export function createProviderLoginStream(signal: AbortSignal, providerId: strin
         try {
           const event = publicProviderLoginEvent(payload); if (!event) { close(); return; }
           const json = serializeBoundedEvent(event, PROVIDER_AUTH_EVENT_LIMIT - 32);
-          enqueue(new TextEncoder().encode(`event: ${event.type}\ndata: ${json}\n\n`));
+          const prefix = `event: ${event.type}\ndata: `, frame = new Uint8Array(prefix.length + Buffer.byteLength(json) + 2);
+          encoder.encodeInto(prefix, frame); encoder.encodeInto(json, frame.subarray(prefix.length));
+          frame[frame.length - 2] = 10; frame[frame.length - 1] = 10; enqueue(frame);
         } catch { stats.overflows++; close(); }
       };
       pull = () => { demand = true; pump(); }; cancel = close;
@@ -62,7 +64,7 @@ export function createProviderLoginStream(signal: AbortSignal, providerId: strin
         if (closed || ending) off(); else { unsubscribe = off; stats.subscriptions++; }
       } catch { send({ type: "done", ok: false }); finish(); return; }
       if (closed || ending) return;
-      stats.heartbeats++; heartbeat = setInterval(() => enqueue(new TextEncoder().encode(": ping\n\n")), timing.heartbeatMs ?? 15000); heartbeat.unref?.();
+      stats.heartbeats++; heartbeat = setInterval(() => enqueue(encoder.encode(": ping\n\n")), timing.heartbeatMs ?? 15000); heartbeat.unref?.();
     },
     pull() { pull(); }, cancel() { cancel(); },
   }, { highWaterMark: 0 });

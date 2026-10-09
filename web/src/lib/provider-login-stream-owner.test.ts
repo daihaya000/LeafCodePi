@@ -11,6 +11,6 @@ it("keeps the public Provider SSE route and Next transport free of auth session/
 });
 it("keeps Backend OAuth recovery bounded and separate from reader lifetime", () => {
   const owner = read("../../../backend/runtime-src/lib/pi/auth-login.ts"), transport = read("../../../backend/runtime-src/json-business/provider-login-stream.ts");
-  expect(owner).not.toContain("this.history.push"); expect(owner).toContain("PROVIDER_AUTH_STREAM_LIMIT"); expect(owner).toContain("serializeBoundedEvent"); expect(owner).toContain('this.history.delete("prompt")');
+  expect(owner).not.toContain("this.history.push"); expect(owner).toContain("PROVIDER_AUTH_STREAM_LIMIT"); expect(owner).toContain("measureBoundedEvent"); expect(owner).toContain("validateBoundedEvent"); expect(owner).toContain('this.history.delete("prompt")');
   expect(transport).toContain("GLOBAL_QUEUE_LIMIT"); expect(transport).toContain("PROVIDER_AUTH_BUFFER_LIMIT"); expect(transport).toContain("45000"); expect(transport).toContain("highWaterMark: 0"); expect(transport).not.toMatch(/cancelProviderLogin|session\.cancel|ensureRuntime|credential/);
 });

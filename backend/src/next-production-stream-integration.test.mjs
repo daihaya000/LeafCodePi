@@ -1,16 +1,17 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync, existsSync, copyFileSync, symlinkSync, openSync, writeSync, closeSync, createReadStream, utimesSync } from "node:fs";
+import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync, openSync, writeSync, closeSync, createReadStream, utimesSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join, resolve, dirname, relative } from "node:path";
-import { fork, spawn } from "node:child_process";
+import { join, resolve } from "node:path";
+import { fork } from "node:child_process";
 import { createRequire } from "node:module";
 import { get } from "node:http";
 import { setTimeout as delay } from "node:timers/promises";
 import { createHash } from "node:crypto";
+import { buildStreamProductionApp, PRODUCTION_STREAM_ROUTES } from "./stream-production-test-support.mjs";
 import { TaskLeaseService } from "../core/task-runtime-lease.mjs";
 import { runtimeAliases, runtimeExternals, assertBackendInputs } from "../../scripts/build-backend-runtime.mjs";
-const ROOT = resolve("."), require = createRequire(join(ROOT, "backend/package.json")), webRequire = createRequire(join(ROOT, "web/package.json")), { build } = require("esbuild"), ts = webRequire("typescript"), MIB = 1024 * 1024;
+const ROOT = resolve("."), require = createRequire(join(ROOT, "backend/package.json")), { build } = require("esbuild"), MIB = 1024 * 1024;
 const id = "11111111-1111-4111-8111-111111111111", token = "t".repeat(32);
 test("actual Next production adapter:256MiB cold branch,512MiB files,125sec SSE,cancel,Range,HEAD,reconnect/restart", { timeout: 300000 }, async t => {
   const dir = mkdtempSync(join(tmpdir(), "lcp-next-production-stream-")), app = join(dir, "next"), data = join(dir, "data"), agent = join(dir, "agent"), session = join(dir, "s.jsonl"), media = join(dir, "large.wav"), children = [], streams = [], samples = { backend: [], next: [] };
@@ -34,31 +35,9 @@ test("actual Next production adapter:256MiB cold branch,512MiB files,125sec SSE,
   assert.ok(foreign.acquireTaskLease("task")); t.after(() => foreign.releaseTaskLease("task"));
   writeFileSync(entry, ["export {openLiveEvents,readLiveEventDiagnostics} from " + JSON.stringify(join(ROOT, "backend/runtime-src/event-stream/index.ts")), "export {openTaskFileStream,readTaskFileStreamDiagnostics} from " + JSON.stringify(join(ROOT, "backend/runtime-src/file-stream/task-files.ts")), "export {readColdSnapshotDiagnostics} from " + JSON.stringify(join(ROOT, "backend/runtime-src/event-stream/cold-snapshot.ts"))].join(";\n"));
   const bundle = await build({ bundle: true, platform: "node", format: "esm", logLevel: "silent", entryPoints: [entry], outfile: owner, alias: runtimeAliases(), external: runtimeExternals(), tsconfig: join(ROOT, "backend/tsconfig.runtime.json"), banner: { js: 'import{createRequire as _require}from"node:module";const require=_require(' + JSON.stringify(join(ROOT, "backend/package.json")) + ');' }, metafile: true }); assertBackendInputs(bundle.metafile);
-  // Mirror only the REAL thin route modules and their production import graph. No
-  // mock route/relay/Next adapter, no instrumentation, and no user service/data changes.
-  const aliases = { "@": "web/src", "@shared": "shared", "@backend-runtime": "backend/runtime-src", "@backend-core": "backend/core" }, copied = new Set();
-  function copy(source) {
-    if (copied.has(source)) return; assert.ok(source.startsWith(ROOT + "\\") || source.startsWith(ROOT + "/")); copied.add(source);
-    const destination = join(app, "source", relative(ROOT, source)); mkdirSync(dirname(destination), { recursive: true }); copyFileSync(source, destination);
-    const info = ts.preProcessFile(readFileSync(source, "utf8"), true, true);
-    for (const { fileName: name } of info.importedFiles) {
-      let path; if (name.startsWith(".")) path = resolve(dirname(source), name); else { const key = Object.keys(aliases).find(k => name.startsWith(k + "/")); if (key) path = join(ROOT, aliases[key], name.slice(key.length + 1)); }
-      if (!path) continue;
-      const found = [path, path + ".ts", path + ".tsx", path + ".mjs", path + ".js", join(path, "index.ts")].find(p => existsSync(p)); assert.ok(found, "missing source " + path); copy(found);
-    }
-  }
-  const routes = ["tasks/[id]/events", "bots/[id]/events", "bots/events", "bots/rooms/[id]/events", "tasks/[id]/media", "tasks/[id]/image", "tasks/[id]/message-image", "bots/rooms/[id]/files/[file]", "bots/rooms/[id]/images/[file]", "browse/icon", "projects/[id]/icon", "link-preview/image", "profile", "tts/synthesize", "providers/[id]/login/events"];
-  for (const route of routes) { const source = join(ROOT, "web/src/app/api", route, "route.ts"); copy(source); const dest = join(app, "app/api", route, "route.ts"); mkdirSync(dirname(dest), { recursive: true }); copyFileSync(source, dest); }
-  assert.ok(![...copied].some(p => /[\\/]pi[\\/]harness\.ts$/.test(p)), "Next must not import harness");
-  writeFileSync(join(app, "app/layout.tsx"), 'export default function Layout({children}:{children:React.ReactNode}){return <html><body>{children}</body></html>}');
-  writeFileSync(join(app, "package.json"), JSON.stringify({ name: "leafcode-stream-production-fixture", version: "1.0.0", private: true }));
-  writeFileSync(join(app, "tsconfig.json"), JSON.stringify({ compilerOptions: { target: "ES2022", lib: ["dom", "esnext"], module: "esnext", moduleResolution: "bundler", jsx: "preserve", esModuleInterop: true, skipLibCheck: true, baseUrl: ".", paths: Object.fromEntries(Object.entries(aliases).map(([k,v]) => [k + "/*", ["source/" + v + "/*"]])) } }));
-  writeFileSync(join(app, "next.config.mjs"), "export default {experimental:{cpus:2},typescript:{ignoreBuildErrors:true}};");
-  // Temporary read-only dependency reference: never mutate the installed packages.
-  symlinkSync(join(ROOT, "web/node_modules"), join(app, "node_modules"), process.platform === "win32" ? "junction" : "dir");
   const env = { ...process.env, NODE_ENV: "production", NEXT_TELEMETRY_DISABLED: "1", LEAFCODE_PI_DATA_DIR: data, PI_CODING_AGENT_DIR: agent, APPDATA: join(dir, "appdata"), LEAFCODE_PI_DEFAULT_DIR: join(dir, "workspaces"), LEAFCODE_PI_BACKEND_TOKEN: token, LEAFCODE_PI_BACKEND_GENERATION: "", LEAFCODE_PI_BACKEND_GENERATION_FILE: "", LEAFCODE_PI_WEBUI_AUTH: "", LEAFCODE_PI_BACKEND_RUNTIME: "" };
-  await new Promise((resolve, reject) => { const c = spawn(process.execPath, [webRequire.resolve("next/dist/bin/next"), "build", "--webpack", app], { env: { ...env, LEAFCODE_PI_PROCESS_ROLE: "next" }, cwd: app, stdio: ["ignore", "pipe", "pipe"] }); children.push(c); let output = ""; for (const s of [c.stdout, c.stderr]) s.on("data", b => output = (output + b).slice(-20000)); c.once("exit", code => code === 0 ? resolve() : reject(Error(output))); });
-  t.diagnostic("actual Next production build: " + routes.length + " unchanged API routes / " + copied.size + " source modules");
+  const routes=PRODUCTION_STREAM_ROUTES, built=await buildStreamProductionApp(app,env,children);
+  t.diagnostic("actual Next production build: "+built.routes+" unchanged API routes / "+built.modules+" source modules");
   async function launch(role, extra = {}) {
     const c = fork(join(ROOT, "backend/src/next-production-stream-fixture.mjs"), [], { env: { ...env, ...extra, LEAFCODE_PI_PROCESS_ROLE: role === "backend" ? "backend" : "next", STREAM_PRODUCTION_ROLE: role, STREAM_PRODUCTION_BUNDLE: owner, STREAM_NEXT_PACKAGE: join(ROOT, "web/package.json"), STREAM_NEXT_APP: app }, stdio: ["ignore", "pipe", "pipe", "ipc"] }); children.push(c); let output = ""; for (const s of [c.stdout, c.stderr]) s.on("data", b => output = (output + b).slice(-20000));
     return await new Promise((resolve, reject) => { const timer = setTimeout(() => reject(Error(output || "fixture startup timeout")), 15000); c.on("message", m => { samples[role].push({ ...m, phase }); if (m.type === "ready") { clearTimeout(timer); resolve({ child: c, port: m.port }); } }); c.once("exit", code => { clearTimeout(timer); if (code) reject(Error(output)); }); });

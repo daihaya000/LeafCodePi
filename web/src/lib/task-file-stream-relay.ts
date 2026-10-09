@@ -7,6 +7,17 @@ import { BACKEND_PROTOCOL_HEADER, BACKEND_PROTOCOL_VERSION } from "@shared/backe
 import { backendBaseUrl, expectedBackendGeneration, isBackendGenerationCompatible, readBackendHealth } from "@/lib/backend-client";
 import { isWebUiRequestAuthorized, webUiAuthRequired } from "@/lib/webui-auth";
 const failure = (status: number, execution?: "not-started" | "unknown") => Response.json({ error: "Backendのファイル配信を利用できません", ...(execution ? { execution } : {}) }, { status, headers: { "cache-control": "private, no-store", "x-content-type-options": "nosniff" } });
+/** Next normalizes loopback URLs/bind hosts; Host retains the browser's authority. */
+function fileStreamRequestUrl(request: Request): URL | null {
+  const url = new URL(request.url), host = request.headers.get("host");
+  if (host === null) return url;
+  if (!host || host.length > 512 || /[\s\\/@?#,]/.test(host)) return null;
+  try {
+    const authority = new URL(`${url.protocol}//${host}/`);
+    if (!authority.hostname || authority.username || authority.password) return null;
+    url.host = authority.host; return url;
+  } catch { return null; }
+}
 /** Transport only: opaque path query, no filesystem/SDK/business input parsing and no response buffering. */
 export async function relayTaskFileStream(request: Request, route: string): Promise<Response> {
   const isTts = route === TTS_AUDIO_ROUTE; let handedOff = false;
@@ -20,7 +31,7 @@ export async function relayTaskFileStream(request: Request, route: string): Prom
   const expected = expectedBackendGeneration();
   if (expected) { const health = await readBackendHealth(); if (!health.ok || !isBackendGenerationCompatible(expected, health.body.runtimeGeneration)) return fail(503); }
   if (request.signal.aborted) return fail(400);
-  const original = new URL(request.url);
+  const original = fileStreamRequestUrl(request); if (!original) return fail(400);
   if (isTts && isCrossOriginRequest({ headers: request.headers, nextUrl: original })) return fail(403);
   let body: Uint8Array | undefined;
   if (isTts) {
