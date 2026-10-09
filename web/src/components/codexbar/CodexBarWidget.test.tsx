@@ -170,6 +170,9 @@ describe("CodexBarWidget", () => {
     expect((await screen.findByText("60K/100K")).nextElementSibling?.textContent).toBe("60%");
     expect(screen.getByText("50K/50K").nextElementSibling?.textContent).toBe("100%");
     expect(screen.getByText("10K/50K").nextElementSibling?.textContent).toBe("20%");
+    const accountRow = screen.getByRole("button", { name: "仕事用 を展開" });
+    expect(accountRow.firstElementChild?.className).toContain("flex-1");
+    expect(screen.getByText("50K/50K").parentElement?.className).toContain("shrink-0");
     expect(screen.queryByText(/実測|推定|tok\/1%/)).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "仕事用 を展開" }));
     expect(screen.getByText("60K/100K")).toBeTruthy();
@@ -304,7 +307,7 @@ describe("CodexBarWidget", () => {
 
     const accountLabel = await screen.findByText("仕事用");
     const serviceLabel = screen.getByText("Codex");
-    expect(serviceLabel.className).toContain("flex-auto");
+    expect(serviceLabel.className).toContain("flex-1");
     expect(accountLabel.className).toContain("flex-initial");
     expect(accountLabel.className).toContain("max-w-[40%]");
     expect(accountLabel.closest("button")?.className).toContain("min-w-0");

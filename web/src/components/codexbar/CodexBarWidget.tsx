@@ -537,7 +537,7 @@ function ProviderRow({
       >
         {!hideIcon && <ProviderIcon p={p} tone={showErrorOnly ? "danger" : tone} />}
         <span
-          className="min-w-0 flex-auto truncate font-semibold text-text"
+          className="min-w-0 flex-1 truncate font-semibold text-text"
           title={accountLabel ? `${label}（${accountLabel}）` : label}
         >
           {label}
@@ -566,7 +566,7 @@ function ProviderRow({
             <AlertTriangle className="h-3 w-3" /> エラー
           </span>
         ) : (
-          <span className="ml-auto flex min-w-0 items-baseline justify-end gap-x-1">
+          <span className="ml-auto flex shrink-0 items-baseline justify-end gap-x-1">
             {(collapsed || (!hasWindows && !p.credits)) && <TokenEstimateInline estimate={summaryTokenEstimate(p)} now={now} />}
             <span
               className={cx(
