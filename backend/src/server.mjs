@@ -511,7 +511,7 @@ export function createBackendServer({
         const url = new URL(origin);
         if (!["http:", "https:"].includes(url.protocol) || url.origin !== origin || typeof host !== "string" || !["0", "1"].includes(access)) throw new Error();
       } catch { sendJson(response, 400, { error: "Invalid business context", code: BACKEND_ERROR_CODES.badRequest }); return; }
-      if (((!peerFacing(businessPath) && process.env.LEAFCODE_PI_WEBUI_AUTH === "required") || businessPath === "peer-auth/import") && access !== "1") { sendJson(response, 403, { error: "WebUI access required", code: BACKEND_ERROR_CODES.unauthorized }); return; }
+      if (((!peerFacing(businessPath) && businessPath !== "health" && process.env.LEAFCODE_PI_WEBUI_AUTH === "required") || businessPath === "peer-auth/import") && access !== "1") { sendJson(response, 403, { error: "WebUI access required", code: BACKEND_ERROR_CODES.unauthorized }); return; }
       const command = jsonBusinessCommand(businessPath, request.method);
       const operationId = request.headers[JSON_BUSINESS_HEADERS.operation];
       if (command && (typeof operationId !== "string" || !/^[0-9a-f-]{36}$/.test(operationId))) { sendJson(response, 400, { error: "Invalid operation ID", code: BACKEND_ERROR_CODES.badRequest }); return; }

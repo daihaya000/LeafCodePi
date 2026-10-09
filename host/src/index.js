@@ -11,6 +11,9 @@ import { isThisModuleEntrypoint } from "./entry.js";
 import { selectProjectFolder } from "./select-folder.js";
 import { createLlamaControlServer, closeControlServer, listenControlServer } from "./llama-control-server.js";
 import { createHostBuildInfo } from "./build-info.js";
+import { createLlamaWebUiControl } from "./llama-webui-control.js";
+import { JSON_BUSINESS_PATH, JSON_BUSINESS_HEADERS } from "../../shared/json-business-contract.mjs";
+import { BACKEND_PROTOCOL_HEADER, BACKEND_PROTOCOL_VERSION } from "../../shared/backend-protocol.mjs";
 import { createLoopbackWebUiProxy, listenLoopbackWebUiProxy, closeLoopbackWebUiProxy } from "./loopback-webui-proxy.js";
 import { createLlamaServerService } from "./llama-server-service.js";
 import { awaitLockOwner, lockOwnerAlive, pidAlive, processStartKey, readLock, removeLock, writeLock } from "./lock.js";
@@ -1162,8 +1165,21 @@ function acquireLock() {
 async function startControlServer() {
   if (controlServer) return;
   const buildInfo = createHostBuildInfo({ repoRoot: REPO_ROOT, dataDir: DATA_DIR });
+  const llamaControl = createLlamaWebUiControl({ repoRoot: REPO_ROOT, dataDir: DATA_DIR, service: llamaServerService,
+    notifyChanged: async () => {
+      const env = backendService?.clientEnv(); if (!env?.LEAFCODE_PI_BACKEND_TOKEN) return;
+      const origin = new URL(WEBUI_URL);
+      await fetch((env.LEAFCODE_PI_BACKEND_URL ?? `http://127.0.0.1:${DEFAULT_BACKEND_PORT}`) + JSON_BUSINESS_PATH + "/health/cache", {
+        method: "POST", redirect: "error", signal: AbortSignal.timeout(1500), headers: {
+          authorization: `Bearer ${env.LEAFCODE_PI_BACKEND_TOKEN}`, [BACKEND_PROTOCOL_HEADER]: String(BACKEND_PROTOCOL_VERSION),
+          [JSON_BUSINESS_HEADERS.origin]: origin.origin, [JSON_BUSINESS_HEADERS.host]: origin.host, [JSON_BUSINESS_HEADERS.authorized]: "1",
+        },
+      }).then(response => response.body?.cancel());
+    },
+  });
   const server = createLlamaControlServer({
     controlPort: CONTROL_PORT,
+    onLlamaWebUiControl: input => llamaControl.handle(input),
     onBuildInfoRead: () => buildInfo.read(),
     onBuildInfoUpdate: (operationId) => buildInfo.update(operationId),
     onLlamaServerStatus: () => llamaServerService.status(),

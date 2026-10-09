@@ -3,9 +3,11 @@ import { homedir, tmpdir } from "node:os";
 import path from "node:path";
 import { NextRequest } from "next/server";
 import { afterEach, describe, expect, it } from "vitest";
-import {
+import { fileURLToPath } from "node:url";
+import { createLlamaModelCatalog } from "../../../../../../host/src/llama-model-catalog.js";
+const {
   defaultModelDir,
-  GET,
+  read: GET,
   isForbiddenModelDirectory,
   isLora,
   isMmProj,
@@ -13,7 +15,7 @@ import {
   knownModelDirectoryRoots,
   parseModelDirAllowlist,
   resetLlamaModelScanCacheForTests,
-} from "./route";
+} = createLlamaModelCatalog({ repoRoot: fileURLToPath(new URL("../../../../../../", import.meta.url)) });
 
 describe("model asset classification", () => {
   it("recognizes mmproj files even when the prefix is the model family", () => {

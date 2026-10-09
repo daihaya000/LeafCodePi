@@ -6,6 +6,17 @@ import http from "node:http";
 import { HOST_FOLDER_PATH, HOST_FOLDER_HEADER, HOST_FOLDER_BODY_LIMIT, publicHostFolderBody } from "../../shared/host-folder-contract.mjs";
 import { HOST_BUILD_INFO_PATH, HOST_BUILD_INFO_HEADER, HOST_BUILD_OPERATION_HEADER, HOST_BUILD_INFO_BODY_LIMIT, publicHostBuildInfo } from "../../shared/host-build-info-contract.mjs";
 
+import { HOST_LLAMA_PATH, HOST_LLAMA_HEADER, HOST_LLAMA_OPERATION_HEADER, HOST_LLAMA_BODY_LIMIT, HOST_LLAMA_RESPONSE_LIMIT, HOST_LLAMA_ROUTES, publicHostLlamaBody } from "../../shared/host-llama-contract.mjs";
+
+async function readLlamaBody(req) {
+  return new Promise(resolve => {
+    const chunks = []; let bytes = 0, settled = false;
+    const done = value => { if (settled) return; settled = true; req.off("data", data); req.off("end", end); req.off("error", error); req.off("aborted", error); req.once("error", () => {}); resolve(value); };
+    const data = chunk => { bytes += chunk.length; if (bytes > HOST_LLAMA_BODY_LIMIT) { done(null); req.resume(); } else chunks.push(chunk); };
+    const end = () => done(Buffer.concat(chunks)); const error = () => done(null);
+    req.on("data", data); req.once("end", end); req.once("error", error); req.once("aborted", error); req.resume();
+  });
+}
 const JSON_HEADERS = { "content-type": "application/json; charset=utf-8" };
 const LOCAL_CLIENT_REQUEST_HEADER = "x-leafcode-pi-local-client";
 const RESTART_RESPONSE_GRACE_MS = 100;
@@ -155,6 +166,26 @@ export function createLlamaControlServer(handlers) {
       }
       if (pathname.length > 1 && pathname.endsWith("/")) {
         pathname = pathname.slice(0, -1);
+      }
+
+      if (pathname.startsWith(HOST_LLAMA_PATH + "/")) {
+        const action = pathname.slice(HOST_LLAMA_PATH.length + 1), headers = { ...JSON_HEADERS, "cache-control": "private, no-store", "x-content-type-options": "nosniff" };
+        const send = (status, value) => { if (!res.destroyed) { res.writeHead(status, headers); res.end(JSON.stringify(value)); } };
+        if (origin || req.headers[HOST_LLAMA_HEADER] !== "1") { send(403, { error: "Private Host ingress is required" }); return; }
+        if (!Object.hasOwn(HOST_LLAMA_ROUTES, action) || !HOST_LLAMA_ROUTES[action].includes(method)) { send(405, { error: "Method not allowed" }); return; }
+        const operationId = req.headers[HOST_LLAMA_OPERATION_HEADER];
+        if (method === "POST" && (typeof operationId !== "string" || !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(operationId))) { send(400, { error: "Invalid operation ID" }); return; }
+        const body = method === "POST" ? await readLlamaBody(req) : undefined;
+        if (method === "POST" && body === null) { send(413, { error: "Invalid or oversized body" }); return; }
+        if (typeof handlers.onLlamaWebUiControl !== "function") { send(501, { error: "Host llama control unavailable" }); return; }
+        try {
+          const result = await handlers.onLlamaWebUiControl({ action, body, operationId, url: req.url });
+          if (!Number.isInteger(result?.status) || result.status < 200 || result.status > 599) throw new Error();
+          const projected = publicHostLlamaBody(action, result.body, result.status);
+          if (!projected || Buffer.byteLength(JSON.stringify(projected), "utf8") > HOST_LLAMA_RESPONSE_LIMIT) throw new Error();
+          send(result.status, projected);
+        } catch { send(503, { error: "Host llama control failed" }); }
+        return;
       }
 
       if (pathname === HOST_BUILD_INFO_PATH) {

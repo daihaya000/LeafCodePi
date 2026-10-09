@@ -8,14 +8,23 @@ import type { JsonBusinessInput } from "./index";
 import * as memory from "./handlers/memory-search/route";
 import * as usage from "./handlers/sysmon/usage/route";
 import * as unread from "./handlers/unread/route";
+import { getHealth, invalidateHealthCache } from "../lib/pi/harness";
+import { publicBackendHealthBody } from "@shared/backend-health-contract.mjs";
 const commands = createTaskCollectionCommands({ ledgerPath: () => join(dataDir(), "unread-command.json") });
 const unknown = "Backend参照・既読操作の処理結果を確認できません";
 type Handler = (request: Request) => Response | Promise<Response>;
 /** Search/sampling are read-only (no command ledger); unread PUT is serial durable admission. */
 export async function dispatchBackendInformationRequest(input: JsonBusinessInput, request: Request): Promise<JsonBusinessResult> {
   assertConfigurationOwner();
-  if (!input.authorized) return { status: 401, headers: {}, body: { error: "Unauthorized" } };
+  if (!input.authorized && input.route !== "health") return { status: 401, headers: {}, body: { error: "Unauthorized" } };
   if ((input.body?.byteLength ?? 0) > BACKEND_INFORMATION_BODY_LIMIT) return { status: 413, headers: {}, body: { error: "Request body is too large" } };
+  if (input.route === "health/cache") { invalidateHealthCache(); return { status: 200, headers: { "cache-control": "private, no-store" }, body: { ok: true } }; }
+  if (input.route === "health") {
+    try {
+      const body = publicBackendHealthBody(await getHealth(), 200, input.authorized || process.env.LEAFCODE_PI_WEBUI_AUTH !== "required");
+      return { status: body ? 200 : 503, headers: { "cache-control": "private, no-store" }, body: body ?? { error: "Backend health unavailable" } };
+    } catch { return { status: 503, headers: {}, body: { error: "Backend health unavailable" } }; }
+  }
   const invoke = async () => {
     try {
       const handlers = (input.route === "memory-search" ? memory : input.route === "sysmon/usage" ? usage : unread) as unknown as Record<string, Handler>;

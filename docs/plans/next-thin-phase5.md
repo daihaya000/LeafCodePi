@@ -48,6 +48,16 @@ Nextは画面・ブラウザ認証・入口制限・HTTP中継だけを担当す
 - 実Next productionの11 source filesのみをビルドし、Backendなし・Cookie認証・Origin拒否・Web停止中のHost受付済更新継続・Web再起動後metadata再読取・同じIDの409/一回だけのpullを11.3秒で確認。Gitは有限fake、receiptはTempの実ファイル、実資格情報・実Git pull・稼働サービス変更はなし。これは実SDK生成中のBackend継続受入ではない。
 - 初回Webの2失敗は、credential入りHost URLを新discovery helperが既定Hostへfallbackしていたため。credential/path/query/hashの指定はgeneric errorでfail-closedとし、別Hostへ業務を実行しない。既存2 owner回帰と新discoveryテストを含む213 filesを再検証した。初回fixture cleanupの終了済signal child待機も修正し、実Next停止・再起動試験を再完走した。レビューでUUIDのcanonical形と空日時の拒否も確認した。
 
+## 第4区切り: health診断・llama全入口のowner分離
+
+- `/api/health` はPhase0どおりNextのpublic readiness入口を維持し、SDK/version/model count/cacheはBackendのprivate JSON APIへ移管。匿名時はpath/warnings/任意fieldsを除去、private情報は既存Cookie/Bearer条件で公開。`startedAt` はNext起動世代を維持。Backend不在・世代不一致・応答停止時はSDK snapshotを偽造せず、`backendAvailable:false`・`engineOk:false`・version null/modelCount 0のedge readinessを200で返す。診断HTTPは1秒・128KiBに限定し、Hostの1.5秒probeをSDK待機で止めない。
+- llamaのstatus/start/stop、ensure-loaded、modelsをHost private `/webui/llama/*` へ移管。Nextはauth/Origin/method/byte/deadline・公開DTO/operation ID検査・一回のopaque HTTPのみ。Host側でlaunch設定検証・保存済モデル選択・allowlist内のbounded FS走査/cache・load coalescing・durable admissionを担当し、Next roleを副作用前に拒否する。
+- 入力64KiB/応答128KiB、Origin拒否/private marker/canonical UUIDをHostで再検査。start/stopは同時実行拒否、受付済同IDはHost owner再生成後も再実行しない。loadはHostに残りHTTP切断で取消さず、loadingモデルを再POSTせず同一server rootで共有。pendingはロード受付・待機終了であり、engineのロード完了を意味しない。起動/停止後のhealth cache invalidationもHost→Backendのprivate HTTPでbest effort通知し、Backend不在でHost制御を止めない。
+- pure llama settings/DTOを `shared/llama-server-settings.mjs` + `.d.mts` へ分離、旧Web/Backend pathはshared re-exportへ変更。元TSからのruntime emitとtype宣言を保持し、画面からBackend helperへのvalue importを除去。旧Webのモデルload実装は撤去、既存走査/load回帰はHost実装を直接検証する。
+- 禁止import gateは22 roots/90 runtime modulesへ拡張。Backend forced build/runtime型、Web source-only型、native210件成功。独立BackendがWeb source/packageなしでSDK/runtime APIを提供する既存fixtureも1/1成功（16.3秒）。
+- 実Next productionで4 API routes/113 source filesをbuildし、匿名/private health投影・Backend不在のreadiness・Hostモデル一覧・Web停止/再起動中のload保持と一回だけのload POSTを1/1成功（13.8秒）。Backend metadata callbackとllama engineは有限fake、Hostのreceipt/scanはTemp実ファイル。実資格情報・実model load・実provider/engine・稼働サービス変更はなく、実SDK生成継続の最終受入ではない。
+- 初回nativeのruntime attach2件はbundle build前の試験順序で失敗し、build後に再実行して成功。health fixtureの初回2件は継承したgeneration pinが原因で、fixture限定で明示的に空にし再検証。production copierは許可済HTTP依存undiciを拒否していたため修正した。レビューでSDK診断待ちがreadinessを阻害するリスクを確認し、1秒deadlineと停止Backend回帰を追加した。
+
 ## 残る作業
 
 - 画面で使うclient-safe helper/型と、Backend業務実装への互換re-exportを分離。実行グラフに残るBackend/SDK依存を特定して撤去し、旧helperの直接呼出しも整理する。

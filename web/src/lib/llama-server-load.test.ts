@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { ensureLlamaServerModelLoaded, LLAMA_ENSURE_LOADED_WAIT_MS } from "./llama-server-load";
+import { createLlamaModelLoader } from "../../../host/src/llama-model-load.js";
+const { ensureLoaded: ensureLlamaServerModelLoaded, waitMs: LLAMA_ENSURE_LOADED_WAIT_MS } = createLlamaModelLoader((...args: Parameters<typeof fetch>) => fetch(...args));
 
 const catalog = (models: Array<{ id: string; status: string }>) => ({
   ok: true,

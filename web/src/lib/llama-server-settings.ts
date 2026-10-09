@@ -1,2 +1,1 @@
-// Compatibility entrypoint. Implementation is owned by Backend.
-export * from "@backend-runtime/lib/llama-server-settings";
+export * from "@shared/llama-server-settings.mjs";

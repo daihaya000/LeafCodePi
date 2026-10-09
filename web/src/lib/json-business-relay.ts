@@ -76,7 +76,7 @@ export async function relayJsonBusiness(request: Request, route: string): Promis
   const mutates = jsonBusinessMutates(route, request.method), before = mutates ? "not-started" : undefined, unknown = mutates ? "unknown" : undefined;
   const authorized = isWebUiRequestAuthorized(request), original = new URL(request.url);
   const publicPeer = peerFacing(route);
-  if ((!publicPeer && webUiAuthRequired() || route === "peer-auth/import") && !authorized) return failure(401, "認証が必要です", before);
+  if ((!publicPeer && route !== "health" && webUiAuthRequired() || route === "peer-auth/import") && !authorized) return failure(401, "認証が必要です", before);
   if (request.method !== "GET" && isCrossOriginRequest({ headers: request.headers, nextUrl: original })) return failure(403, "許可されない接続元です", before);
   if (target.route === "prompts/transfer") {
     const loopback = ["127.0.0.1", "localhost", "::1", "[::1]"];
@@ -91,7 +91,7 @@ export async function relayJsonBusiness(request: Request, route: string): Promis
   if (!token) return failure(503, "Backendを利用できません", before);
   const expected = expectedBackendGeneration();
   if (expected) {
-    const health = await readBackendHealth();
+    const health = await readBackendHealth(route === "health" ? { timeoutMs: 1000 } : {});
     if (!health.ok || !isBackendGenerationCompatible(expected, health.body.runtimeGeneration)) return failure(503, "Backendの世代が一致しません", before);
   }
   let body: Uint8Array | undefined;

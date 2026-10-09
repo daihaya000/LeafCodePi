@@ -1,5 +1,6 @@
 import { publicTaskOperation } from "./task-collection-contract.mjs";
-export const BACKEND_INFORMATION_ROUTES = Object.freeze({ "memory-search": ["POST"], "sysmon/usage": ["GET"], unread: ["GET", "PUT"] });
+import { publicBackendHealthBody } from "./backend-health-contract.mjs";
+export const BACKEND_INFORMATION_ROUTES = Object.freeze({ "memory-search": ["POST"], "sysmon/usage": ["GET"], health: ["GET"], "health/cache": ["POST"], unread: ["GET", "PUT"] });
 export const BACKEND_INFORMATION_BODY_LIMIT = 4096;
 export function backendInformationTarget(path) { return Object.hasOwn(BACKEND_INFORMATION_ROUTES, path) ? { route: path, params: {} } : null; }
 const record = value => value && typeof value === "object" && !Array.isArray(value);
@@ -28,6 +29,8 @@ function systemUsage(value) {
 }
 export function publicBackendInformationBody(route, value, status, method) {
   if (!backendInformationTarget(route) || !record(value)) return null;
+  if (route === "health") return publicBackendHealthBody(value, status);
+  if (route === "health/cache") return value.ok === true ? { ok: true } : null;
   let out;
   if (status >= 400) { if (typeof value.error !== "string") return null; out = { error: value.error }; }
   else if (route === "memory-search") {
