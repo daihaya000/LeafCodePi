@@ -89,6 +89,17 @@ test("serializes readers, caps the queue and removes cancelled waiters", async (
   await Promise.all([running, ...queued]);
   const after = sessionLogIndexDiagnostics(); assert.equal(after.waiters, 0); assert.equal(after.readers, 0); assert.equal(after.descriptors, 0);
 });
+test("queue waiting is included in the eight-second request deadline", async (t) => {
+  const { file } = setup(t, [row("a", null)]);
+  t.mock.timers.enable({ apis: ["Date", "setTimeout"], now: 0 });
+  const running = read(file).catch((error) => error), queued = read(file).catch((error) => error);
+  t.mock.timers.tick(8_001);
+  const waitingResult = await queued;
+  assert.equal(waitingResult.code, "SESSION_INDEX_TIMEOUT"); assert.equal(waitingResult.status, 503);
+  const runningResult = await running;
+  assert.equal(runningResult.code, "SESSION_INDEX_TIMEOUT");
+  const after = sessionLogIndexDiagnostics(); assert.equal(after.waiters, 0); assert.equal(after.readers, 0); assert.equal(after.descriptors, 0);
+});
 test("frozen branch metadata cannot poison later readers and reserved fields fail closed", async (t) => {
   const { file } = setup(t, [row("a", null), row("b", "a")]);
   await read(file, (branch) => {

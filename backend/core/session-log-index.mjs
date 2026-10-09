@@ -21,13 +21,20 @@ function remember(key, index) {
 }
 export function resetSessionLogIndex() { indexes.clear(); cacheBytes = 0; }
 export function sessionLogIndexDiagnostics() { return { ...metrics, cacheBytes, cacheEntries: indexes.size, readers: Number(busy), waiters: waiters.length }; }
-async function acquire(signal) {
+async function acquire(signal, deadline) {
   signal?.throwIfAborted();
   if (busy) {
     if (waiters.length >= 16) throw fail("SESSION_INDEX_BUSY", 503);
     await new Promise((resolve, reject) => {
-      const abort = () => { const at = waiters.indexOf(ready); if (at >= 0) { waiters.splice(at, 1); reject(signal.reason); } };
-      const ready = () => { signal?.removeEventListener("abort", abort); resolve(); };
+      const cleanup = () => { clearTimeout(timer); signal?.removeEventListener("abort", abort); };
+      const refuse = (reason) => {
+        const at = waiters.indexOf(ready);
+        if (at >= 0) { waiters.splice(at, 1); cleanup(); reject(reason); }
+      };
+      const abort = () => refuse(signal.reason);
+      const ready = () => { cleanup(); resolve(); };
+      const timer = setTimeout(() => refuse(fail("SESSION_INDEX_TIMEOUT", 503)), Math.max(0, deadline - Date.now()));
+      timer.unref?.();
       waiters.push(ready); signal?.addEventListener("abort", abort, { once: true });
     });
   } else busy = true;
@@ -36,10 +43,12 @@ async function acquire(signal) {
 /** Cache only descriptor-verified offsets/ancestry and bounded scalar metadata, never payloads. */
 export async function readIndexedSession(path, { kind, classify, select, signal }) {
   path = resolve(path);
-  const key = `${kind}:${path}`, release = await acquire(signal);
+  // Queue waiting consumes the same budget as scanning/reading; admission never
+  // grants a fresh eight seconds to a request that has already timed out.
+  const deadline = Date.now() + 8_000;
+  const key = `${kind}:${path}`, release = await acquire(signal, deadline);
   let file;
   try {
-    const deadline = Date.now() + 8_000;
     const check = () => { signal?.throwIfAborted(); if (Date.now() > deadline) throw fail("SESSION_INDEX_TIMEOUT", 503); };
     check();
     if (await realpath(path) !== path) throw fail("SESSION_INDEX_PATH", 403);
