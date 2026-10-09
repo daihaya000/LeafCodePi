@@ -1,5 +1,6 @@
 import { NextRequest } from "next/server";
-import { relayJsonBusiness } from "@/lib/json-business-relay";
+import { relayTaskFileStream } from "@/lib/task-file-stream-relay";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
-export async function GET(request: NextRequest) { return relayJsonBusiness(request, "link-preview/image"); }
+export async function GET(request: NextRequest) { return relayTaskFileStream(request, "link-preview/image"); }
+export async function HEAD(request: NextRequest) { return relayTaskFileStream(request, "link-preview/image"); }

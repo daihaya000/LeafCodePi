@@ -39,6 +39,7 @@ export class AppStore {
   });
   listProjects(includeArchived?: boolean): ProjectDto[];
   getProject(id: string): ProjectDto | undefined;
+  getProjectIcon(id: string): string | undefined;
   upsertProject(input: { name?: string; rootPath: string; favorite?: boolean }): ProjectDto;
   patchProject(id: string, patch: ProjectPatch): ProjectDto | undefined;
   listTasks(includeArchived?: boolean, kind?: TaskKind): TaskSummary[];

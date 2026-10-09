@@ -18,10 +18,12 @@ test("native service transport refuses excess bodies and missing command IDs bef
  for(const[route,headers,body,status]of[["link-preview",f.headers,"x".repeat(32769),413],["translation/reasoning",f.headers,"{}",400],["translation/reasoning",{...f.headers,"x-leafcode-business-operation":id},"x".repeat(65537),413]])assert.equal((await fetch(f.base+"/"+route,{method:"POST",headers,body})).status,status);
  assert.equal(calls,0);
 });
-test("translation receipt and image wire exclude nested capabilities and invalid successes",async t=>{
- const f=await fixture(t,async input=>({status:200,body:input.route==="link-preview/image"?{image:{contentType:"image/png",base64:"iVBORw0KGgo=",url:"PRIVATE"}}:{translations:["日本語"],fallbacks:[false],operation:{id,execution:"complete",token:"PRIVATE"},token:"PRIVATE"}}));
- for(const route of["link-preview/image","translation/reasoning"]){const response=await fetch(f.base+"/"+route,{method:route.includes("translation")?"POST":"GET",headers:{...f.headers,"x-leafcode-business-operation":id},...(route.includes("translation")?{body:"{}"}:{})});assert.equal(response.status,200);assert.ok(!(await response.text()).includes("PRIVATE"));}
- const malformed=await fixture(t,async()=>({status:200,body:{image:{contentType:"image/svg+xml",base64:"AQID"}}}));assert.equal((await fetch(malformed.base+"/link-preview/image",{headers:malformed.headers})).status,503);
+test("translation receipts exclude nested capabilities; preview image cannot fall back to JSON",async t=>{
+ let calls=0;
+ const f=await fixture(t,async()=>{calls++;return{status:200,body:{translations:["日本語"],fallbacks:[false],operation:{id,execution:"complete",token:"PRIVATE"},token:"PRIVATE"}};});
+ const response=await fetch(f.base+"/translation/reasoning",{method:"POST",headers:{...f.headers,"x-leafcode-business-operation":id},body:"{}"});assert.equal(response.status,200);assert.ok(!(await response.text()).includes("PRIVATE"));
+ for(const method of ["GET","HEAD","POST"])assert.equal((await fetch(f.base+"/link-preview/image",{method,headers:f.headers})).status,404);
+ assert.equal(calls,1);
 });
 test("accepted translation finishes after client disconnect with no propagated cancellation/retry",async t=>{
  let entered=false,finished=0,release;const gate=new Promise(r=>{release=r;});

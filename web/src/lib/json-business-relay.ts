@@ -153,15 +153,6 @@ export async function relayJsonBusiness(request: Request, route: string): Promis
     if (botConversation?.route.endsWith("/prompt") && result.status < 400) wakeBackendTaskListeners(`bot:${botConversation.params.id}`, "prompt");
     const outputHeaders = new Headers(noStore);
     for (const [key, value] of Object.entries(result.headers)) outputHeaders.set(key, value);
-    if (route === "link-preview/image" && result.status < 400) {
-      const image = result.body?.image as { contentType: string; base64: string };
-      const bytes = new Uint8Array(Buffer.from(image.base64, "base64"));
-      outputHeaders.set("content-type", image.contentType);
-      outputHeaders.set("content-length", String(bytes.byteLength));
-      outputHeaders.set("cross-origin-resource-policy", "same-origin");
-      outputHeaders.set("referrer-policy", "no-referrer");
-      return new Response(bytes, { status: result.status, headers: outputHeaders });
-    }
     if (route === "tts/synthesize" && result.status < 400) {
       const audio = result.body?.audio as { contentType: string; base64: string };
       outputHeaders.set("content-type", audio.contentType);

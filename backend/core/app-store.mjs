@@ -165,6 +165,13 @@ export class AppStore {
 
   getProject(id) { return cloneForCaller(this.#readStore().projects.find((project) => project.id === id)); }
 
+  /** Immutable primitive for streamed assets; never expose a mutable cached record or clone its base64 payload. */
+  getProjectIcon(id) {
+    assertConfigurationOwner();
+    const icon = this.#readStore().projects.find((project) => project.id === id)?.icon;
+    return typeof icon === "string" ? icon : undefined;
+  }
+
   upsertProject(input) { assertConfigurationOwner(); return this.#mutate(() => this.#upsertProject(input)); }
 
   #upsertProject(input) {

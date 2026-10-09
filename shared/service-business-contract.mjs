@@ -2,7 +2,7 @@ import { publicTaskSummary, publicTaskOperation } from "./task-collection-contra
 /** Public DTOs for stored task views, bounded previews and local translation. No IO here. */
 export const SERVICE_BUSINESS_ROUTES = Object.freeze({
   "backend/tasks": ["GET"], "link-preview": ["POST"],
-  "link-preview/image": ["GET"], "translation/reasoning": ["POST"],
+  "translation/reasoning": ["POST"],
   "projects/[id]/explorer": ["GET"], "tasks/[id]/explorer": ["GET"],
 });
 export const PREVIEW_IMAGE_LIMIT = 2 * 1024 * 1024;

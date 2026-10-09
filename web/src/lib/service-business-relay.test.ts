@@ -9,10 +9,9 @@ it("preview keeps opaque URLs out of transport paths, has no ledger ID and proje
   const request=post("link-preview"),response=await relayJsonBusiness(request,"link-preview");expect(response.status).toBe(200);expect(await response.json()).toEqual({url:"https://example.com/",title:"日本語"});
   const[url,options]=fetcher.mock.calls[0];expect(url).not.toContain("token=");expect(new TextDecoder().decode(options.body)).toBe('{"url":"https://example.com/?token=PRIVATE"}');expect(new Headers(options.headers).has("x-leafcode-business-operation")).toBe(false);
 });
-it("registered image bytes are restored with private cache and same-origin/nosniff/no-referrer",async()=>{
-  fetcher.mockResolvedValue(Response.json({status:200,headers:{"cache-control":"private, max-age=300"},body:{image:{contentType:"image/png",base64:"iVBORw0KGgo=",url:"PRIVATE"}}}));
-  const response=await relayJsonBusiness(new Request("http://localhost/api/link-preview/image?id="+"a".repeat(32)),"link-preview/image");
-  expect([...new Uint8Array(await response.arrayBuffer())]).toEqual([137,80,78,71,13,10,26,10]);expect(response.headers.get("content-type")).toBe("image/png");expect(response.headers.get("content-length")).toBe("8");expect(response.headers.get("cache-control")).toBe("private, max-age=300");expect(response.headers.get("cross-origin-resource-policy")).toBe("same-origin");expect(response.headers.get("referrer-policy")).toBe("no-referrer");expect(response.headers.get("x-content-type-options")).toBe("nosniff");
+it("preview image has no legacy JSON/base64 fallback",async()=>{
+  expect((await relayJsonBusiness(new Request("http://localhost/api/link-preview/image"),"link-preview/image")).status).toBe(404);
+  expect(fetcher).not.toHaveBeenCalled();
 });
 it("translation requires an exact complete operation ACK and never retries failures",async()=>{
   fetcher.mockImplementationOnce(async(_url,options)=>Response.json({status:200,body:{translations:["日本語"],fallbacks:[false],operation:{id:new Headers(options.headers).get("x-leafcode-business-operation"),execution:"complete"}}}));
@@ -31,5 +30,5 @@ it("stalled request bodies time out and cancel the stream instead of admitting a
   const pending=relayJsonBusiness(req,"link-preview");await vi.advanceTimersByTimeAsync(2001);expect((await pending).status).toBe(408);expect(cancel).toHaveBeenCalled();expect(fetcher).not.toHaveBeenCalled();
 });
 it("malformed task/image/translation successes fail closed at the public boundary",async()=>{
-  for(const[route,body]of[["backend/tasks",{source:"backend",tasks:[{}]}],["link-preview/image",{image:{contentType:"image/svg+xml",base64:"AQID"}}],["translation/reasoning",{translations:[1]}]]as const){fetcher.mockResolvedValueOnce(Response.json({status:200,body}));expect((await relayJsonBusiness(route==="translation/reasoning"?post(route):new Request("http://localhost/api/"+route),route)).status).toBe(503);}
+  for(const[route,body]of[["backend/tasks",{source:"backend",tasks:[{}]}],["translation/reasoning",{translations:[1]}]]as const){fetcher.mockResolvedValueOnce(Response.json({status:200,body}));expect((await relayJsonBusiness(route==="translation/reasoning"?post(route):new Request("http://localhost/api/"+route),route)).status).toBe(503);}
 });

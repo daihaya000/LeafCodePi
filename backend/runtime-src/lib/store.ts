@@ -10,6 +10,7 @@ const store = new AppStore({ storePath, noProjectSessionDir, samePath, noProject
 
 export const listProjects = store.listProjects.bind(store);
 export const getProject = store.getProject.bind(store);
+export const getProjectIcon = store.getProjectIcon.bind(store);
 export const upsertProject = store.upsertProject.bind(store);
 export const patchProject = store.patchProject.bind(store);
 export const listTasks = store.listTasks.bind(store);

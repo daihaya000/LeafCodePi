@@ -28,7 +28,8 @@ test("preview DTO only exposes bounded metadata and opaque registered image IDs"
 });
 test("image wire is canonical bounded base64/raster-only and excludes source URLs", () => {
   const valid={image:{contentType:"image/png",base64:"iVBORw0KGgo=",url:"PRIVATE"}};
-  assert.deepEqual(publicServiceBusinessBody("link-preview/image",valid,200),{image:{contentType:"image/png",base64:"iVBORw0KGgo="}});
+  assert.equal(serviceBusinessTarget("link-preview/image"), null);
+  assert.equal(publicServiceBusinessBody("link-preview/image",valid,200), null);
   for(const image of [{contentType:"image/svg+xml",base64:"AQID"},{contentType:"image/png",base64:"AR=="},{contentType:"image/png",base64:""},{contentType:"image/png",base64:"A".repeat(4*Math.ceil(2*1024*1024/3)+4)}]) assert.equal(publicServiceBusinessBody("link-preview/image",{image},200),null);
 });
 test("translation batches/boolean alignment/complete receipts are deeply validated", () => {

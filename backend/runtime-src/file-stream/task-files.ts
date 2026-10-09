@@ -8,10 +8,11 @@ import { resolveTaskLocalFile } from "../lib/local-file";
 import { imageMimeFromBytes } from "../lib/raster-image";
 import { MAX_LOCAL_IMAGE_BYTES } from "../lib/local-image";
 import { openRoomAttachment, readRoomAttachmentDiagnostics } from "./room-attachments";
+import { openStoredImage, readLinkPreviewImageDiagnostics, type StoredImage } from "./stored-images";
 
 const CHUNK = 64 * 1024, MAX_ACTIVE = 32;
 const counters = { active: 0, descriptors: 0, peakActive: 0, bytesRead: 0 };
-export function readTaskFileStreamDiagnostics() { assertConfigurationOwner(); return { ...counters, ...readRoomAttachmentDiagnostics(), chunkBytes: CHUNK, maxActive: MAX_ACTIVE }; }
+export function readTaskFileStreamDiagnostics() { assertConfigurationOwner(); return { ...counters, ...readRoomAttachmentDiagnostics(), ...readLinkPreviewImageDiagnostics(), chunkBytes: CHUNK, maxActive: MAX_ACTIVE }; }
 type Input = { route: string; method: string; url: string; headers: Record<string, string>; authorized: boolean; signal: AbortSignal };
 const mimes: Record<string, string> = { ".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".gif": "image/gif", ".webp": "image/webp", ".avif": "image/avif", ".bmp": "image/bmp" };
 const fail = (method: string, status: number, error: string) => new Response(method === "HEAD" ? null : JSON.stringify({ error }), { status, headers: { "content-type": "application/json", "cache-control": "private, no-store", "x-content-type-options": "nosniff" } });
@@ -26,6 +27,7 @@ export async function openTaskFileStream(input: Input): Promise<Response> {
   if (input.signal.aborted) return fail(input.method, 400, "接続が中断されました");
   if (counters.active >= MAX_ACTIVE) return fail(input.method, 503, "ファイル配信が混雑しています");
   counters.active++; counters.peakActive = Math.max(counters.peakActive, counters.active);
+  let asset: StoredImage | undefined;
   let file: FileHandle | undefined, finished = false, closing: Promise<void> | undefined;
   const close = (): Promise<void> => {
     if (closing) return closing;
@@ -33,7 +35,7 @@ export async function openTaskFileStream(input: Input): Promise<Response> {
     input.signal.removeEventListener("abort", abort);
     closing = (async () => {
       try { await file?.close(); } catch { /* Peer cancellation must not escape. */ }
-      finally { if (file) counters.descriptors--; counters.active--; }
+      finally { asset?.release(); asset = undefined; if (file) counters.descriptors--; counters.active--; }
     })();
     return closing;
   };
@@ -41,7 +43,11 @@ export async function openTaskFileStream(input: Input): Promise<Response> {
   try {
     const path = new URL(input.url).searchParams.get("path") ?? "";
     let size: number, mime: string, cacheControl = "private, no-store", disposition = "inline";
-    if (target.kind === "files" || target.kind === "images") {
+    if (target.kind === "project-icon" || target.kind === "preview-image") {
+      const result = await openStoredImage(target.kind, target.id, input.url, input.signal);
+      if (!result.ok) { await close(); return fail(input.method, result.status, result.error); }
+      asset = result.image; size = asset.size; mime = asset.mime; cacheControl = asset.cacheControl;
+    } else if (target.kind === "files" || target.kind === "images") {
       const result = await openRoomAttachment(target.id, target.file!, target.kind, input.signal);
       if (!result.ok) { await close(); return fail(input.method, result.status, result.error); }
       file = result.file; size = result.size; mime = result.mime; counters.descriptors++;
@@ -67,10 +73,10 @@ export async function openTaskFileStream(input: Input): Promise<Response> {
       if (imageMimeFromBytes(header.subarray(0, read.bytesRead)) !== mime) { await close(); return fail(input.method, 415, "画像形式を確認できません"); }
     }
     if (input.signal.aborted) { await close(); return fail(input.method, 400, "接続が中断されました"); }
-    const stamp = await file.stat();
+    const stamp = await file?.stat();
     const rangeHeader = input.method === "HEAD" || input.headers["if-range"] !== undefined ? null : input.headers.range ?? null;
     const range = parseMediaRange(rangeHeader, size);
-    const headers: Record<string, string> = { "content-type": mime, "content-disposition": disposition, "accept-ranges": "bytes", "cache-control": cacheControl, "cross-origin-resource-policy": "same-origin", "x-content-type-options": "nosniff" };
+    const headers: Record<string, string> = { "content-type": mime, "content-disposition": disposition, "accept-ranges": "bytes", "cache-control": cacheControl, "cross-origin-resource-policy": "same-origin", "x-content-type-options": "nosniff", ...asset?.headers };
     if (!range) { await close(); return new Response(null, { status: 416, headers: { ...headers, "content-range": `bytes */${size}` } }); }
     headers["content-length"] = String(range.end - range.start + 1);
     if (rangeHeader !== null) headers["content-range"] = `bytes ${range.start}-${range.end}/${size}`;
@@ -82,13 +88,16 @@ export async function openTaskFileStream(input: Input): Promise<Response> {
       async pull(output) {
         if (finished) { output.error(new Error("File stream closed")); return; }
         try {
-          const current = await file!.stat();
-          if (current.size !== stamp.size || current.mtimeMs !== stamp.mtimeMs) throw new Error("File changed");
+          if (file && stamp) {
+            const current = await file.stat();
+            if (current.size !== stamp.size || current.mtimeMs !== stamp.mtimeMs) throw new Error("File changed");
+          }
           if (position > range.end) { await close(); output.close(); return; }
-          const bytes = Buffer.alloc(Math.min(CHUNK, range.end - position + 1));
-          const read = await file!.read(bytes, 0, bytes.length, position);
+          const length = Math.min(CHUNK, range.end - position + 1);
+          const bytes = asset ? asset.read(position, length) : Buffer.alloc(length);
+          const read = asset ? { bytesRead: bytes.length } : await file!.read(bytes, 0, bytes.length, position);
           if (finished) { output.error(new Error("File stream cancelled")); return; }
-          if (read.bytesRead !== bytes.length) throw new Error("File truncated");
+          if (read.bytesRead !== length) throw new Error("File truncated");
           position += read.bytesRead; counters.bytesRead += read.bytesRead;
           output.enqueue(bytes);
         } catch { await close(); output.error(new Error("File stream unavailable")); }

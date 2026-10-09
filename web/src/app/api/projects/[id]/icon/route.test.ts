@@ -2,18 +2,18 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { NextRequest } from "next/server";
 
-const store = vi.hoisted(() => ({ getProject: vi.fn() }));
+const store = vi.hoisted(() => ({ getProjectIcon: vi.fn() }));
 vi.mock("@/lib/store", () => store);
 
-import { GET } from "./route";
+import { openTaskFileStream } from "@backend-runtime/file-stream/task-files";
 import { projectIconUrl, withProjectIconUrls } from "@/lib/project-icon-url";
 
-const png = Buffer.from([0x89, 0x50, 0x4e, 0x47, 1, 2, 3]);
+const png = Buffer.from([0x89, 0x50, 0x4e, 0x47, 13, 10, 26, 10, 1, 2, 3]);
 const icon = `data:image/png;base64,${png.toString("base64")}`;
-const call = (url: string, id = "p1") => GET(new NextRequest(url), { params: Promise.resolve({ id }) });
+const call = (url: string, id = "p1") => openTaskFileStream({route:`projects/${encodeURIComponent(id)}/icon`,method:"GET",url,headers:{},authorized:true,signal:new AbortController().signal});
 
 describe("project icons", () => {
-  beforeEach(() => store.getProject.mockReset());
+  beforeEach(() => store.getProjectIcon.mockReset());
 
   it("lists a versioned URL instead of the data URL", () => {
     const [linked, plain, none] = withProjectIconUrls([
@@ -29,7 +29,7 @@ describe("project icons", () => {
   });
 
   it("serves the bytes, immutable for the current version", async () => {
-    store.getProject.mockReturnValue({ id: "p1", icon });
+    store.getProjectIcon.mockReturnValue(icon);
     const response = await call(`http://localhost${projectIconUrl("p1", icon)}`);
     expect(response.status).toBe(200);
     expect(response.headers.get("content-type")).toBe("image/png");
@@ -38,13 +38,14 @@ describe("project icons", () => {
   });
 
   it("does not cache a stale version and 404s without an image icon", async () => {
-    store.getProject.mockReturnValue({ id: "p1", icon });
+    store.getProjectIcon.mockReturnValue(icon);
     const stale = await call("http://localhost/api/projects/p1/icon?v=old");
     expect(stale.status).toBe(200);
     expect(stale.headers.get("cache-control")).toBe("private, no-cache");
-    store.getProject.mockReturnValue({ id: "p1", icon: null });
+    await stale.body!.cancel();
+    store.getProjectIcon.mockReturnValue(undefined);
     expect((await call("http://localhost/api/projects/p1/icon")).status).toBe(404);
-    store.getProject.mockReturnValue(undefined);
+    store.getProjectIcon.mockReturnValue(undefined);
     expect((await call("http://localhost/api/projects/x/icon", "x")).status).toBe(404);
   });
 });

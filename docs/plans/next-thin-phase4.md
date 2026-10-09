@@ -37,6 +37,18 @@ Phase0のPhase4対象は14経路・15操作。今回の移管は `tasks/[id]/ima
 - プロセスRSS/heap/externalを25msで採取。閾値RSS128MiB、heap64MiB、external96MiB。最終計測のRSS増分はBackend68,300,800 / relay52,830,208 bytes、heap13,973,472 / 3,963,568、external67,904,928 / 52,625,626 bytes。実Backend runtimeと実Next relay＋HTTP adapterであり、Next production server全体・SSEの長時間計測ではない。
 - 原因: メタデータbufferを要求ごとに再確保した版は、読取を64KiB刻みにした再検証でexternal増分124,825,632 bytesとなり96MiB閾値に抵触した（RSS増分73,805,824 bytes、heap17,041,632 bytes）。同時2枠でbufferを再利用し、閾値を緩めず再検証を通した。再利用bufferの合計も16MiB以下をassertする。\n- 原因: 最初のRoom再起動fixtureがSIGTERM終了済みchildをexitCodeだけで生存扱いし、cleanupが既に発生したexitを待ち30秒timeoutになった。signalCodeとIPC接続状態も確認するよう修正。再実行で再起動・cleanup成功、旧fixtureプロセス残留なしを確認した。
 
+## 追加単位: 保存Project icon・preview画像
+
+- `projects/[id]/icon` と `link-preview/image` のGETを共通private streamへ移管し、既存Next自動HEAD互換の明示HEADを追加。累計6経路・Phase0掲載7操作を移管済み（互換HEADは追加5操作）。Nextは各経路1回のopaque relayで、store・画像decode・network・本文全体bufferを持たない。
+- Project iconはBackend限定 `AppStore.getProjectIcon` でimmutable文字列だけを読む。既存CRUDのclone契約・mtime/ctime/ino再読込を維持する。base64は要求offsetの3byte/4文字境界に合わせ、1pull最大64KiBだけ復号（内部decode最大65,538bytes）。Range各alignment・suffix/416・HEAD・If-Range全体200を検証。現在versionのimmutable/private cache、旧versionのno-cache、日本語ID、ICO両MIMEを維持する。
+- icon/previewは2MiB以下。iconにcanonical base64・画像署名照合を追加し、保存上限を超える既存値・壊れた画像は拒否する。previewは既存128ID/8MiB cache/8同時fetch/6秒期限/public DNS・redirect・接続pin・認証情報非転送を再利用。画像本体は有界な既存Backend cacheにあるが、Nextへはbase64 JSONにせず64KiB刻みで転送する。
+- previewのprivate JSON登録とNext側base64復元を削除し、旧JSON ingressは404でfallbackしない。no-referrer/nosniff/same-origin/private 300秒cacheを維持。IDは一時的でBackend再起動後404、Project iconは保存情報から再取得できる。
+- preview fetchは待機者を参照カウントする。1人の切断は他の待機者を止めず、最後の取消しだけnetwork AbortSignalへ伝播する。取消しのopaque IDは期限内の再接続に利用可能。取消し済みjobのcleanupを待つ再接続も独立に取消せる。hot-reload由来の旧pendingは既存6秒期限で終わるが、新controllerで遡って取消す保証はない。
+- Web148件、native/契約/AST224件、AppStore CRUD/並行更新/immutable getter17件、Task/Room/asset実2段HTTP各1件の計392件成功。両型チェック成功。Task1GiB/61切断、Room256MiB/32切断＋24metadata取消しを再検証し、FD/active/待機は0。
+- assetは2MiBを両経路で4並列×32巡、計256MiB、64本文切断。Range/HEAD/auth/cache・再起動後の保存icon再取得とpreview ID失効を実証。最後の配信active/添付FD/preview fetch/待機/relay activeは0、意図的なpreview cacheは2MiB。
+- 修正後のasset計測でRSS増分Backend67,665,920 / relay41,099,264 bytes、heap17,259,376 / 4,784,128、external67,768,340 / 33,885,204。閾値RSS128MiB、heap48MiB、external96MiBを維持。実Backendと実Next relay＋HTTP adapterによる有限の計測。Next production全体、長時間SSE、実publicサイトのfetchは未測定（network取消しはsignal対応mockと既存public transport境界テストで確認）。
+- 原因: 初版は `getProject` が2MiB iconを含むproject全体を要求ごとにstructuredCloneし、反復配信でheap増分72,105,232bytes（閾値48MiB）、RSS106,430,464bytesとなった。immutable文字列専用getterで複製を避け、閾値を緩めず再検証した。旧JSON経路のテスト期待値200/503も、登録削除後の404へ更新した。
+
 ## 残り
 
-message-image、project icon、profile export、preview image、TTS binary、Task/Bot/Room/Provider SSE。既存のProvider SSE中継もPhase4の共通切断・再接続・長時間/停滞検証の対象にする。全対象の所有権と長時間SSEの有界性が確認できるまでPhase4の受入完了とはしない。
+message-image、profile export、TTS binary、Task/Bot/Room/Provider SSE。既存のProvider SSE中継もPhase4の共通切断・再接続・長時間/停滞検証の対象にする。全対象の所有権と長時間SSEの有界性が確認できるまでPhase4の受入完了とはしない。

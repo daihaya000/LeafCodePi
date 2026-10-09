@@ -4,9 +4,14 @@ import { pathToFileURL } from "node:url";
 import { createBackendServer, listenBackend } from "./server.mjs";
 import { Readable } from "node:stream";
 import { pipeline } from "node:stream/promises";
+import { readFileSync } from "node:fs";
 const role = process.env.FILE_FIXTURE_ROLE;
 let server, runtime, active = 0;
 if (role === "backend") {
+  if (process.env.FILE_FIXTURE_PREVIEW) {
+    const bytes = readFileSync(process.env.FILE_FIXTURE_PREVIEW), id = "a".repeat(32);
+    globalThis.__leafcodeLinkPreviews = { pages: new Map(), pending: new Map(), images: new Map([[id,{url:"https://fixture.invalid/image",expires:Date.now()+600000,data:{bytes,mime:"image/png"}}]]), activeImages:0, cachedImageBytes:bytes.length, imageReaders:0 };
+  }
   runtime = await import(pathToFileURL(process.env.FILE_FIXTURE_BUNDLE).href);
   server = createBackendServer({ token: process.env.LEAFCODE_PI_BACKEND_TOKEN, isReady: () => true, taskFileStreamAction: runtime.openTaskFileStream });
 } else {

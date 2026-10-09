@@ -7,7 +7,6 @@ import type { JsonBusinessInput } from "./index";
 import { dataDir } from "../lib/paths";
 import * as tasks from "./handlers/backend/tasks/route";
 import * as preview from "./handlers/link-preview/route";
-import * as image from "./handlers/link-preview/image/route";
 import * as translation from "./handlers/translation/reasoning/route";
 import * as projectExplorer from "./handlers/projects/[id]/explorer/route";
 import * as taskExplorer from "./handlers/tasks/[id]/explorer/route";
@@ -15,7 +14,7 @@ const commands = createTaskConversationCommands({ ledgerPath: () => join(dataDir
 type Handler = (request: Request) => Response | Promise<Response>;
 const handlers: Record<string, Handler> = {
   "backend/tasks": tasks.GET, "link-preview": preview.POST,
-  "link-preview/image": image.GET, "translation/reasoning": translation.POST,
+  "translation/reasoning": translation.POST,
 };
 export async function dispatchServiceBusinessRequest(input: JsonBusinessInput, request: Request): Promise<JsonBusinessResult> {
   assertConfigurationOwner();
@@ -34,7 +33,7 @@ export async function dispatchServiceBusinessRequest(input: JsonBusinessInput, r
   // Preview/task reads have no receipt. Translation may infer and persist Host cache/quality records.
   const response = input.route === "translation/reasoning" ? await commands.run({ operationId: input.operationId, handler: invoke }) : await invoke();
   return { status: response.status, headers: {
-    "cache-control": input.route === "link-preview/image" && response.status < 400 ? "private, max-age=300" : "private, no-store",
+    "cache-control": "private, no-store",
     "x-content-type-options": "nosniff",
   }, body: await response.json() };
 }

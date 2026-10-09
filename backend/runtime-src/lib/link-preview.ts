@@ -11,20 +11,23 @@ const MAX_ENTRIES = 128;
 const MAX_IMAGE_BYTES = 2 * 1024 * 1024;
 const MAX_CACHED_IMAGE_BYTES = 8 * 1024 * 1024;
 type ImageData = { bytes: Buffer; mime: string };
-type Thumbnail = { url: string; expires: number; data?: ImageData; pending?: Promise<ImageData | null> };
+type ImageJob = { controller: AbortController; readers: number; promise?: Promise<ImageData | null> };
+type Thumbnail = { url: string; expires: number; data?: ImageData; pending?: Promise<ImageData | null>; job?: ImageJob };
 type PreviewState = {
   pages: Map<string, { value: LinkPreview; expires: number }>;
   pending: Map<string, Promise<LinkPreview>>;
   images: Map<string, Thumbnail>;
   activeImages: number;
   cachedImageBytes: number;
+  imageReaders?: number;
 };
 const globalCache = globalThis as typeof globalThis & { __leafcodeLinkPreviews?: PreviewState };
 function previewState(): PreviewState {
   assertConfigurationOwner();
-  const state = globalCache.__leafcodeLinkPreviews ??= { pages: new Map(), pending: new Map(), images: new Map(), activeImages: 0, cachedImageBytes: 0 };
+  const state = globalCache.__leafcodeLinkPreviews ??= { pages: new Map(), pending: new Map(), images: new Map(), activeImages: 0, cachedImageBytes: 0, imageReaders: 0 };
 // Compatible with the existing hot-reload cache (which held only URLs and pending requests).
 state.cachedImageBytes ??= 0;
+state.imageReaders ??= 0;
   return state;
 }
 function discardImage(id: string) {
@@ -130,9 +133,23 @@ export async function getLinkPreview(value: string): Promise<LinkPreview> {
 }
 
 /** Opaque IDs only: the browser cannot turn this endpoint into an arbitrary remote-image proxy. */
-export async function getLinkPreviewImage(id: string): Promise<{ bytes: Buffer; mime: string } | null> {
+export function readLinkPreviewImageDiagnostics() { const state = previewState(); return { activePreviewFetches: state.activeImages, previewWaiters: state.imageReaders!, cachedPreviewBytes: state.cachedImageBytes }; }
+async function waitForImage(image: Thumbnail, signal?: AbortSignal): Promise<ImageData | null> {
+  if (signal?.aborted) return null;
+  const work = image.pending!, job = image.job;
+  previewState().imageReaders!++;
+  if (job) job.readers++;
+  let abort = () => {};
+  const cancelled = new Promise<null>(resolve => { abort = () => resolve(null); signal?.addEventListener("abort", abort, { once: true }); if (signal?.aborted) abort(); });
+  try { return await Promise.race([work, cancelled]); }
+  finally {
+    signal?.removeEventListener("abort", abort); previewState().imageReaders!--;
+    if (job && --job.readers === 0 && image.pending === work) job.controller.abort();
+  }
+}
+export async function getLinkPreviewImage(id: string, signal?: AbortSignal): Promise<{ bytes: Buffer; mime: string } | null> {
   assertConfigurationOwner();
-  if (!/^[a-f0-9]{32}$/.test(id)) return null;
+  if (signal?.aborted || !/^[a-f0-9]{32}$/.test(id)) return null;
   pruneImages();
   const image = previewState().images.get(id);
   if (!image) return null;
@@ -141,21 +158,28 @@ export async function getLinkPreviewImage(id: string): Promise<{ bytes: Buffer; 
     previewState().images.set(id, image);
     return image.data;
   }
-  if (image.pending) return image.pending.catch(() => null);
+  // A last-reader cancellation keeps the opaque URL valid for a later retry.
+  if (image.pending && image.job?.controller.signal.aborted) {
+    await waitForImage(image, signal);
+    if (signal?.aborted) return null;
+  }
+  if (image.pending) return waitForImage(image, signal);
   if (previewState().activeImages >= 8) return null;
   previewState().activeImages++;
+  const job: ImageJob = { controller: new AbortController(), readers: 0 };
+  image.job = job;
   const work = (async () => {
     const result = await fetchPublicWebBytes(image.url, {
       accept: "image/avif,image/webp,image/*", maxBytes: MAX_IMAGE_BYTES,
-      noSensitiveLinks: true, allowImageSignatures: true,
+      noSensitiveLinks: true, allowImageSignatures: true, signal: job.controller.signal,
     });
     const mime = imageMimeFromBytes(result.bytes);
     if (!mime) throw new Error("Unsupported thumbnail");
     const data = { bytes: result.bytes, mime };
     if (previewState().images.get(id) === image) cacheImage(image, data);
     return data;
-  })().catch(() => { if (previewState().images.get(id) === image) discardImage(id); return null; })
-    .finally(() => { previewState().activeImages--; delete image.pending; });
-  image.pending = work;
-  return work;
+  })().catch(() => { if (!job.controller.signal.aborted && previewState().images.get(id) === image) discardImage(id); return null; })
+    .finally(() => { previewState().activeImages--; delete image.pending; delete image.job; });
+  image.pending = job.promise = work;
+  return waitForImage(image, signal);
 }
