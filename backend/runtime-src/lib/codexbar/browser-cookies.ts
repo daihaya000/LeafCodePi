@@ -35,7 +35,7 @@ import {
   readChromiumCookiesFromProfile,
 } from "@/lib/codexbar/chromium-cookies";
 import { asRecord, atomicWriteText } from "@/lib/codexbar/utils";
-import { watchConfigurationPath } from "@backend-core/configuration-command.mjs";
+import { assertConfigurationOwner, watchConfigurationPath } from "@backend-core/configuration-command.mjs";
 
 const OPENCODE_DOMAIN = "opencode.ai";
 const QWEN_COOKIE_FILE = "home.qwencloud.com_cookies.txt";
@@ -501,6 +501,7 @@ function typesafeCookieFileText(session: BrowserCookieSession): string | null {
 }
 
 export function saveTypesafeCookieFile(text: string): void {
+  assertConfigurationOwner();
   if (!text.trim()) {
     throw Object.assign(new Error("cookie を入力してください"), { status: 400 });
   }
@@ -520,20 +521,17 @@ export function saveTypesafeCookieFile(text: string): void {
     );
   }
   const path = defaultTypesafeCookiePath();
-  mkdirSync(dirname(path), { recursive: true });
-  writeFileSync(path, cookieText, "utf8");
   try {
-    chmodSync(path, 0o600);
-  } catch {
-    // Windows ACL が権限を管理するため、chmod 失敗は保存エラーにしない。
-  }
+    atomicWriteText(path, cookieText, 0o600);
+  } catch { throw Object.assign(new Error("TypeSafe設定の処理結果を確認できません"), { status: 503 }); }
 }
 
 export function deleteTypesafeCookieFile(): void {
-  try {
-    unlinkSync(defaultTypesafeCookiePath());
-  } catch {
-    /* already absent */
+  assertConfigurationOwner();
+  try { unlinkSync(defaultTypesafeCookiePath()); }
+  catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "ENOENT")
+      throw Object.assign(new Error("TypeSafe設定の処理結果を確認できません"), { status: 503 });
   }
 }
 

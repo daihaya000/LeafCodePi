@@ -24,6 +24,8 @@ import { POST as selectTaskAgent } from "../app/api/tasks/[id]/agent/route";
 import { PUT as selectGoalAuto } from "../app/api/tasks/[id]/goal-loop-auto-model/route";
 import { GET as readTaskGoal, POST as startTaskGoal, PATCH as controlTaskGoal } from "../app/api/tasks/[id]/goal-loop/route";
 import { GET as activeTaskGoals } from "../app/api/goal-loop/active/route";
+import * as typesafeCookie from "../app/api/typesafe-cookie/route";
+import * as typesafeBaseline from "../app/api/typesafe-baseline/route";
 import { POST as roomPrompt } from "../app/api/bots/rooms/[id]/prompt/route";
 import { POST as roomCode } from "../app/api/bots/rooms/[id]/code/route";
 import { POST as roomRevert } from "../app/api/bots/rooms/[id]/revert/route";
@@ -71,6 +73,23 @@ beforeEach(() => {
 });
 afterEach(() => { vi.restoreAllMocks(); vi.unstubAllGlobals(); vi.unstubAllEnvs(); rmSync(root, { recursive: true, force: true }); });
 describe("JSON business ingress", () => {
+  it("TypeSafe six operations relay opaque bytes without credential reads/writes, matching mutation ACK and projecting private fields", async () => {
+    for (const [route, handlers] of [["typesafe-cookie", typesafeCookie], ["typesafe-baseline", typesafeBaseline]] as const) for (const method of ["GET", "POST", "DELETE"] as const) {
+      const body = method === "GET" ? undefined : '{"cookies":"fixture-secret","baselineUsd":25,"path":"forged"}';
+      const fields = route === "typesafe-cookie" ? { configured: method !== "DELETE" } : { baselineUsd: method === "DELETE" ? null : 25 };
+      fetcher.mockImplementationOnce(async (_url, init) => Response.json({ status: 200, headers: { "set-cookie": "PRIVATE" }, body: { ok: true, ...fields, cookies: "PRIVATE", path: "PRIVATE", organizationId: "PRIVATE", ...(method === "GET" ? {} : { operation: { id: new Headers(init.headers).get("x-leafcode-business-operation"), execution: "complete" } }) } }));
+      const response = await handlers[method](new NextRequest("http://localhost/api/" + route, { method, ...(body ? { body } : {}) }));
+      expect(response.status).toBe(200); expect(JSON.stringify(await response.json())).not.toContain("PRIVATE"); expect(response.headers.get("set-cookie")).toBeNull(); expect(response.headers.get("cache-control")).toContain("no-store");
+      if (body) expect(new TextDecoder().decode(fetcher.mock.calls.at(-1)![1].body)).toBe(body);
+    }
+    for (const ack of [undefined, { id: "11111111-0123-4321-abcd-eeeeeeeeeeee", execution: "complete" }]) {
+      fetcher.mockResolvedValueOnce(Response.json({ status: 200, body: { ok: true, configured: true, ...(ack ? { operation: ack } : {}) } }));
+      expect((await typesafeCookie.POST(new NextRequest("http://localhost", { method: "POST", body: "{}" }))).status).toBe(503);
+    }
+    const calls = fetcher.mock.calls.length;
+    for (const [fn, method] of [[typesafeBaseline.POST, "POST"], [typesafeCookie.DELETE, "DELETE"]] as const) expect((await fn(new NextRequest("http://localhost", { method, body: "x".repeat(4097) }))).status).toBe(413);
+    expect(fetcher).toHaveBeenCalledTimes(calls); expect(readdirSync(root)).toEqual([]);
+  });
   it("Room commands relay opaque input, require ACKs and project Room/composer/Code output without local files",async()=>{
     const id="11111111-0123-4321-abcd-eeeeeeeeeeee",context={params:Promise.resolve({id})},room={id,name:"authored 日本語",members:[],botRelayEnabled:false,createdAt:"fixture",updatedAt:"fixture",messages:[],token:"PRIVATE"};
     for(const [fn,body,result]of [[roomPrompt,'{"prompt":"日本語","fromBot":true,"relayEnvelope":"opaque"}',{room,routedBotIds:[],broadcast:true}],[roomCode,'{"action":"abort","botId":"forged"}',{requestId:"a".repeat(64),state:"cancelled"}],[roomRevert,'{"messageId":"stored"}',{room,text:"authored 日本語",images:[],files:[{uri:"data:text/plain;base64,YQ==",mime:"text/plain",name:"authored.txt",token:"PRIVATE"}],cancelledCodeRequests:1}]]as const){fetcher.mockImplementationOnce(async(_url,init)=>Response.json({status:200,body:{...result,operation:{id:new Headers(init.headers).get("x-leafcode-business-operation"),execution:"complete"}}}));const response=await fn(new NextRequest("http://localhost",{method:"POST",body}),context);expect(response.status).toBe(200);expect(JSON.stringify(await response.json())).not.toContain("PRIVATE");expect(new TextDecoder().decode(fetcher.mock.calls.at(-1)![1].body)).toBe(body);}

@@ -12,6 +12,7 @@
  * cookie 未登録時は、自アプリが実行した /v1/systemone 呼び出しの usage（input_tokens）を
  * 公開価格（$42 / 10億入力トークン、出力トークンは無料）で積算した「推定利用額」を表示する。
  */
+import { assertConfigurationOwner } from "@backend-core/configuration-command.mjs";
 import { existsSync, readFileSync, unlinkSync } from "node:fs";
 import { join } from "node:path";
 import { dataDir } from "@/lib/paths";
@@ -126,12 +127,13 @@ export function readTypesafeCreditBaseline(): number | null {
 }
 
 export function writeTypesafeCreditBaseline(baselineUsd: number | null): void {
+  assertConfigurationOwner();
   const path = typesafeSettingsPath();
   if (baselineUsd === null || !(baselineUsd > 0)) {
     try {
       unlinkSync(path);
-    } catch {
-      /* already absent */
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
     }
     return;
   }

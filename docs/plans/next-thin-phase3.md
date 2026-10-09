@@ -2,9 +2,9 @@
 
 ## 進捗・範囲
 
-Phase3全体は未完了。Phase0のBackend/Phase3/JSON分類は118経路・182操作。Git・Diff・コミット文生成13経路・14操作、定義管理14経路・25操作、Provider/モデル設定7経路・8操作、Provider認証JSON4経路・5操作、アカウント管理/資格情報9経路・19操作、利用量/クレジット3経路・5操作、Peer認証共有5経路・9操作、Workspaceファイル/次タスク提案3経路・3操作、Project lifecycle1経路・4操作、Task collection1経路・3操作、個別Task lifecycle2経路・4操作、Task履歴/検索/bookmark3経路・5操作、Task実行設定4経路・4操作、Task送信/対話応答3経路・3操作、Goal制御2経路・4操作、Task会話編集/昇格4経路・4操作、Task compaction2経路・2操作、Task進行補助4経路・5操作、Task監督/子実行2経路・2操作、Bot lifecycle2経路・5操作、Bot会話3経路・3操作、Bot Code2経路・5操作、Bot routine3経路・6操作、Bot sidebar/内線受信箱2経路・3操作、Room lifecycle2経路・5操作、Room会話コマンド3経路・3操作の合計103経路・158操作の境界を移管した。認証に付随するログインSSE 1経路・1操作も同じownerへ移管した（Phase3 JSONの集計には加算しない）。残る15経路・24操作には既存Backend中継も含まれ、受入条件の確認・残存業務処理の移管が必要。
+Phase3全体は未完了。Phase0のBackend/Phase3/JSON分類は118経路・182操作。Git・Diff・コミット文生成13経路・14操作、定義管理14経路・25操作、Provider/モデル設定7経路・8操作、Provider認証JSON4経路・5操作、アカウント管理/資格情報9経路・19操作、利用量/クレジット3経路・5操作、Peer認証共有5経路・9操作、Workspaceファイル/次タスク提案3経路・3操作、Project lifecycle1経路・4操作、Task collection1経路・3操作、個別Task lifecycle2経路・4操作、Task履歴/検索/bookmark3経路・5操作、Task実行設定4経路・4操作、Task送信/対話応答3経路・3操作、Goal制御2経路・4操作、Task会話編集/昇格4経路・4操作、Task compaction2経路・2操作、Task進行補助4経路・5操作、Task監督/子実行2経路・2操作、Bot lifecycle2経路・5操作、Bot会話3経路・3操作、Bot Code2経路・5操作、Bot routine3経路・6操作、Bot sidebar/内線受信箱2経路・3操作、Room lifecycle2経路・5操作、Room会話コマンド3経路・3操作、TypeSafe設定2経路・6操作の合計105経路・164操作の境界を移管した。認証に付随するログインSSE 1経路・1操作も同じownerへ移管した（Phase3 JSONの集計には加算しない）。残る13経路・18操作には既存Backend中継も含まれ、受入条件の確認・残存業務処理の移管が必要。
 
-以下は第1区切り（Git・Diff・コミット文生成）の記録。第2区切りの定義管理、第3区切りのProvider/モデル設定、第4区切りのProvider認証、第5区切りのアカウント管理/資格情報、第6区切りの利用量/クレジット、第7区切りのPeer認証共有、第8区切りのWorkspaceファイル/次タスク提案、第9区切りのProject lifecycle、第10区切りのTask collection、第11区切りの個別Task lifecycle、第12区切りのTask履歴/検索/bookmark、第13区切りのTask実行設定、第14区切りのTask送信/対話応答、第15区切りのGoal制御、第16区切りのTask会話編集/昇格、第17区切りのTask compaction、第18区切りのTask進行補助、第19区切りのTask監督/子実行、第20区切りのBot lifecycle、第21区切りのBot会話、第22区切りのBot Code、第23区切りのBot routine、第24区切りのBot sidebar/内線受信箱、第25区切りのRoom lifecycle、第26区切りのRoom会話コマンドは末尾に記載する。
+以下は第1区切り（Git・Diff・コミット文生成）の記録。第2区切りの定義管理、第3区切りのProvider/モデル設定、第4区切りのProvider認証、第5区切りのアカウント管理/資格情報、第6区切りの利用量/クレジット、第7区切りのPeer認証共有、第8区切りのWorkspaceファイル/次タスク提案、第9区切りのProject lifecycle、第10区切りのTask collection、第11区切りの個別Task lifecycle、第12区切りのTask履歴/検索/bookmark、第13区切りのTask実行設定、第14区切りのTask送信/対話応答、第15区切りのGoal制御、第16区切りのTask会話編集/昇格、第17区切りのTask compaction、第18区切りのTask進行補助、第19区切りのTask監督/子実行、第20区切りのBot lifecycle、第21区切りのBot会話、第22区切りのBot Code、第23区切りのBot routine、第24区切りのBot sidebar/内線受信箱、第25区切りのRoom lifecycle、第26区切りのRoom会話コマンド、第27区切りのTypeSafe設定は末尾に記載する。
 
 | 経路 | 操作 |
 | --- | --- |
@@ -443,3 +443,19 @@ Phase3全体は未完了。Phase0のBackend/Phase3/JSON分類は118経路・182�
 - Backend/Web型チェック、強制Backendビルド（7,260 KiB）成功。Webなし隔離Backend/実SDKでRoomファイル/PNG添付送信→固定日本語応答、hold→明示Room Stop/provider socket閉鎖、Room所有Codeのstate-only Goal開始/停止、1:1/別Room outbox保持、composer text/添付復元、再送/共有履歴追記、実再起動後の復元と6 IDのcomplete replay409を確認（14.1秒）。
 - 新規Room localhost responder3回（正常・hold/明示Stop・追記）。既存Bot3回/routine2回は不変。providerは固定textだけを返し、tool call/result・課金/外部生成/実通知・ユーザーSOUL/設定/資格情報/稼働サービスへの操作なし。並行差分7ファイルは保持する。
 - fixture修正: 新mutationにoperation IDが欠落し、追加Bot UUIDが既存「未知メンバー」fixtureと衝突していた。隔離Taskをseedし、Room Code contextを実型のconversation.requestId/participantIds/turn/maxTurnsへ修正して再実行成功。旧disconnect取消テストは新受付規約に合わせ、disconnectでは継続・明示Stopで取消を別々に検証。UTF-8拒否fixtureは有効NULでなく不正UTF-8 byteへ修正した。診断用fixture instrumentationは除去済み。
+
+## 第27区切り: TypeSafe cookie・基準残高（2経路・6操作）
+
+- `typesafe-cookie`・`typesafe-baseline`のGET/POST/DELETEをBackendへ移管。Nextの6操作は単一relayのみで、cookie読取/検証/保存/削除・基準残高の判断/永続化・usage/provider cache更新を実行しない。owner service/read/handlerとcommon cookie保存/削除・baseline writerを効果前にguardする。
+- 元の貼付けcookie入力形式・session_id/organization_id必須・TypeSafeドメイン/有効期限検証を維持し、追加auth/CSRF cookieは保存、他ドメインは除去。保存済み標準ファイルだけをGETのconfiguredに使用する。標準APPDATA/CodexBarパスはowner環境から決定し、callerのpath/accountIdを採用しない。cookie本文・組織ID・privateパスは応答/ledgerへ返さない。
+- cookie本文100万UTF-16文字の制限、有限かつ0より大きく100万USD以下のbaseline POST、DELETE後false/null、GETの既存欠落/破損時false/nullを維持する。legacy手動baselineが100万超でもGETは従来通り値を返す。cookie POST8 MiBは最大100万文字のJSON escape展開を収容し、その他4 KiB。wireはconfigured/baselineUsd/ok/ID-only receiptだけを投影し、NaN/InfinityをJSONのnullへ隠す前にowner GETで検証する。
+- serial `typesafe-settings-command.json`（0600・最大128件）は効果前unknown、処理終了後complete、同IDは実再起動後も409。GETはledgerを作らない。private cookie/基準残高/秘密hash/ファイルパスを記録しない。ACK不一致/欠落は503、受付済みdisconnectでも書込を取り消さず、自動再送/Next fallbackなし。bounded ledgerの期間を超える無制限exactly-onceやcache/ファイル/ledgerの原子性は約束しない。
+- 原因: 旧common DELETEはunlinkの全例外を「既に不存在」と握り潰し、削除できなくてもfalse/nullのsuccessを返せた。ENOENTだけを不存在と扱い、それ以外を503/unknownへ変更。保存後のcache例外もtyped 4xxを未実行refusalにせず503/unknownにし、diskに残った保存内容をGETで確認できる。実directory障害とpost-save cache例外で検証した。
+- cookie保存は共通の0600一時ファイル置換を使用し、初期書込からprivate権限を指定する。Windowsでは共通writerがrename不可時にcopyを使うため、常に原子的とは主張しない。write途中/権限/cache/receipt障害は結果不明として保存を偽装rollbackしない。usage cache期限切れ化と`default:typesafe`のprovider cache消去はownerで維持する。
+
+### 第27区切りの検証結果
+
+- owner/旧Backend handler/実Next BFF・Typesafe provider・account/usage/Chromium/runtime ownership回帰110件、provider cache4件、pure contract/実HTTP/AST130件、serial admission/configuration/build18件、Webなし独立Backend1件、計263件成功。全体スイートは再実行していない。
+- Backend/Web型チェック、強制Backendビルド（7,269 KiB）成功。隔離APPDATA/Backendでcookie保存→許可domain/追加CSRF保持/他domain除外→秘密非返却GET→削除、baseline保存/GET/削除/拒否/再保存、actual owner再起動→baseline59.5とcookie削除状態復元、7 IDのcomplete replay409を確認（15.2秒）。
+- TypeSafe判定/Console billing/課金・実資格情報/実baseline・ユーザーSOUL/サービス再起動への操作なし。固定localhost Bot3回/routine2回/Room3回は不変。fixture秘密値だけを隔離標準cookieファイルへ保存し、再起動前に削除した。並行差分7ファイルを保持する。
+- fixture修正: 旧Next handlerテストをBackend入口へ切替え（最初の相対import深度誤りをaliasで訂正）、HTTP boundテストにoperation IDを追加。GET異常数値fixtureをJSON化前に検証するよう修正。HTTP大body拒否の単発ECONNRESETは再実行で130/130成功。Webテストhelperのopaque DTO型とUUID型を明示し、型チェックも再実行成功。

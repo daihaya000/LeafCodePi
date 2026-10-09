@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { NextRequest } from "next/server";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { readTypesafeCreditBaseline } from "@/lib/codexbar/providers/typesafe";
-import { DELETE, GET, POST } from "./route";
+import { DELETE, GET, POST } from "@backend-runtime/json-business/handlers/typesafe-baseline/route";
 
 const previousAppData = process.env.APPDATA;
 let appData: string;

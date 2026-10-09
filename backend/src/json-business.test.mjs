@@ -11,6 +11,22 @@ async function fixture(t, options = {}) {
     "x-leafcode-backend-protocol": "1", "x-leafcode-business-origin": "http://localhost", "x-leafcode-business-host": "localhost", "x-leafcode-business-authorized": "1" } };
 }
 const request = (url, options = {}) => fetch(url, { ...options, signal: options.signal ?? AbortSignal.timeout(2000) });
+test("TypeSafe transport admits six operations, retains ID-only ACK and projects no cookie/organization/path; enforces baseline bounds before owner", async t => {
+  let calls = 0;
+  const f = await fixture(t, { jsonBusinessRequestAction: async input => {
+    calls++;
+    const fields = input.route === "typesafe-cookie" ? { configured: input.method !== "DELETE" } : { baselineUsd: input.method === "DELETE" ? null : 25 };
+    return { status: 200, headers: { "set-cookie": "PRIVATE" }, body: { ok: true, ...fields, cookies: "PRIVATE", organizationId: "PRIVATE", path: "PRIVATE", ...(input.method === "GET" ? {} : { operation: { id: input.operationId, execution: "complete" } }) } };
+  } });
+  for (const route of ["typesafe-cookie", "typesafe-baseline"]) for (const method of ["GET", "POST", "DELETE"]) {
+    const reply = await request(f.base + "/" + route, { method, headers: { ...f.headers, "x-leafcode-business-operation": "11111111-0123-4321-abcd-eeeeeeeeeeee" }, ...(method === "GET" ? {} : { body: '{"cookies":"fixture-only","baselineUsd":25}' }) });
+    assert.equal(reply.status, 200); const result = await reply.json(); assert.equal(result.status, 200); assert.equal(JSON.stringify(result).includes("PRIVATE"), false);
+    if (method !== "GET") assert.equal(result.body.operation.execution, "complete");
+  }
+  assert.equal(calls, 6);
+  assert.equal((await request(f.base + "/typesafe-baseline", { method: "POST", headers: { ...f.headers, "x-leafcode-business-operation": "11111111-0123-4321-abcd-eeeeeeeeeeee" }, body: "x".repeat(4097) })).status, 413);
+  assert.equal(calls, 6);
+});
 test("business transport enforces auth, protocol, readiness, method, context and body bound before execution", async t => {
   let calls = 0;
   const f = await fixture(t, { jsonBusinessRequestAction: async () => { calls++; return { status: 200, headers: {}, body: { ok: true, directory: "repo" } }; } });
