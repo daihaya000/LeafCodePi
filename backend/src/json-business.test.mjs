@@ -11,6 +11,11 @@ async function fixture(t, options = {}) {
     "x-leafcode-backend-protocol": "1", "x-leafcode-business-origin": "http://localhost", "x-leafcode-business-host": "localhost", "x-leafcode-business-authorized": "1" } };
 }
 const request = (url, options = {}) => fetch(url, { ...options, signal: options.signal ?? AbortSignal.timeout(2000) });
+test("browse transport keeps three opaque readonly operations, no ACK or disconnect suppression, and Host-only POST",async t=>{
+ let calls=0;const f=await fixture(t,{jsonBusinessRequestAction:async input=>{calls++;assert.equal(input.operationId,undefined);assert.ok(input.signal);assert.equal(new URL(input.url).searchParams.get("path"),"opaque");return{status:200,body:input.method==="POST"?{icon:"data:image/png;base64,AA==",name:"fixture.png",token:"PRIVATE"}:{path:"authorized",parent:null,entries:[],...(input.route==="browse/dirs"?{quickAccess:[],drives:[]}:{}),command:"PRIVATE"}};}});
+ for(const [route,method]of[["browse/dirs","GET"],["browse/icon","GET"],["browse/icon","POST"]]){const reply=await request(f.base+"/"+route+"?path=opaque",{method,headers:f.headers,...(method==="POST"?{body:'{"path":"opaque","command":"ignored"}'}:{})});assert.equal(reply.status,200);const result=await reply.json();assert.equal(result.status,200);assert.ok(!JSON.stringify(result).includes("PRIVATE"));}
+ assert.equal(calls,3);assert.equal((await request(f.base+"/browse/dirs",{method:"POST",headers:f.headers,body:"{}"})).status,405);assert.equal((await request(f.base+"/browse/icon",{method:"POST",headers:f.headers,body:"x".repeat(256*1024+1)})).status,413);assert.equal(calls,3);
+});
 test("information transport preserves opaque read-only POST, disconnect signal, unread receipt and bounded bodies without private fields",async t=>{
   let calls=0;const f=await fixture(t,{jsonBusinessRequestAction:async input=>{
     calls++;if(input.route==="memory-search"){assert.equal(input.operationId,undefined);assert.ok(input.signal);return{status:200,body:{results:[],databasePath:"PRIVATE"}};}

@@ -1,3 +1,4 @@
+import { assertConfigurationOwner } from "@backend-core/configuration-command.mjs";
 import { existsSync, realpathSync, statSync } from "node:fs";
 import { homedir } from "node:os";
 import { join, posix, resolve, win32 } from "node:path";
@@ -5,6 +6,7 @@ import { listProjects } from "@/lib/store";
 
 /** OneDrive is a trusted user folder even when it is moved outside the home directory. */
 export function oneDriveRoots(): string[] {
+  assertConfigurationOwner();
   const home = homedir();
   const candidates = [
     process.env.OneDrive,
@@ -28,6 +30,7 @@ export function oneDriveRoots(): string[] {
 
 /** Roots the directory browser may enumerate (home + OneDrive + registered projects). */
 export function browseAllowedRoots(): string[] {
+  assertConfigurationOwner();
   const roots = new Set<string>([resolve(homedir()), ...oneDriveRoots()]);
   for (const project of listProjects(true)) {
     roots.add(resolve(project.rootPath));
@@ -43,6 +46,7 @@ type BrowsePathOptions = {
 
 /** Return the authorized canonical path without making callers resolve/check it again. */
 export function resolveAllowedBrowsePath(target: string, options: BrowsePathOptions = {}): string | null {
+  assertConfigurationOwner();
   const pathApi = (options.platform ?? process.platform) === "win32" ? win32 : posix;
   const canonicalize = options.realpath ?? realpathSync.native;
   const within = (base: string, path: string) => {

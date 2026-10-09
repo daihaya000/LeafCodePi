@@ -8,6 +8,7 @@ import SysTrayImport from "systray2";
 import { bindHost, dataDir, DEFAULT_HOST_CONTROL_PORT, DEFAULT_LLAMA_SERVER_PORT, DEFAULT_WEBUI_PORT, readPort, shouldOpenBrowser as envAllowsBrowser, shouldRebindWebUi, shouldUseTray, webUiUrl, withQuietExperimentalWarnings } from "./config.js";
 import { readBrowserConfig, writeBrowserConfig } from "./browser-config.js";
 import { isThisModuleEntrypoint } from "./entry.js";
+import { selectProjectFolder } from "./select-folder.js";
 import { createLlamaControlServer, closeControlServer, listenControlServer } from "./llama-control-server.js";
 import { createLoopbackWebUiProxy, listenLoopbackWebUiProxy, closeLoopbackWebUiProxy } from "./loopback-webui-proxy.js";
 import { createLlamaServerService } from "./llama-server-service.js";
@@ -1193,6 +1194,7 @@ async function startControlServer() {
     },
     isLocalClientOrigin,
     onOpenExplorer: openProjectInExplorer,
+    onSelectFolder: selectProjectFolder,
     onTranslationStatus: () => translationService.status(),
     onTranslationStart: () => {
       void translationService.start().catch((err) => {
@@ -1332,6 +1334,7 @@ function onHostExit() {
 }
 
 async function main() {
+  process.env.LEAFCODE_PI_PROCESS_ROLE = "host";
   acquireLock();
   try {
     logWriter = createLogFileWriter(DATA_DIR);

@@ -1,0 +1,57 @@
+import { assertConfigurationOwner } from "@backend-core/configuration-command.mjs";
+import { closeSync, fstatSync, openSync, readSync } from "node:fs";
+import { basename, extname } from "node:path";
+
+/** プロジェクトアイコンとして受け付ける拡張子→MIME（PATCH /api/projects の検証と同一集合）。 */
+export const ICON_FILE_ERROR = "PNG・JPEG・GIF・WebP・ICO・EXE のファイルを選択してください。";
+
+const ICON_FILE_MIME = new Map([
+  [".png", "image/png"],
+  [".jpg", "image/jpeg"],
+  [".jpeg", "image/jpeg"],
+  [".gif", "image/gif"],
+  [".webp", "image/webp"],
+  [".ico", "image/x-icon"],
+]);
+
+/** アプリ内エクスプローラーで候補として表示するファイルか（EXEはWindowsのみ）。 */
+export function isIconCandidate(fileName: string, platform = process.platform): boolean {
+  const ext = extname(fileName).toLowerCase();
+  return ICON_FILE_MIME.has(ext) || (platform === "win32" && ext === ".exe");
+}
+
+export const MAX_ICON_FILE_BYTES = 2 * 1024 * 1024;
+
+export type IconFileResult = { ok: true; icon: string; name: string } | { ok: false; error: string };
+
+/** ホスト PC の画像ファイルをプロジェクトアイコン用の data URL へ変換する。 */
+export function readIconFileAsDataUrl(filePath: string): IconFileResult {
+  assertConfigurationOwner();
+  const mime = ICON_FILE_MIME.get(extname(filePath).toLowerCase());
+  if (!mime) return { ok: false, error: ICON_FILE_ERROR };
+  let fd: number | undefined;
+  try {
+    fd = openSync(filePath, "r");
+    const info = fstatSync(fd);
+    if (!info.isFile()) return { ok: false, error: "ファイルを選択してください。" };
+    if (info.size > MAX_ICON_FILE_BYTES) return { ok: false, error: "2 MB以下の画像を選択してください。" };
+    // Read from one handle and cap bytes even if a file grows after fstat.
+    const bytes = Buffer.alloc(MAX_ICON_FILE_BYTES + 1);
+    let size = 0;
+    while (size < bytes.length) {
+      const count = readSync(fd, bytes, size, bytes.length - size, null);
+      if (!count) break;
+      size += count;
+    }
+    if (size > MAX_ICON_FILE_BYTES) return { ok: false, error: "2 MB以下の画像を選択してください。" };
+    return {
+      ok: true,
+      icon: `data:${mime};base64,${bytes.subarray(0, size).toString("base64")}`,
+      name: basename(filePath),
+    };
+  } catch {
+    return { ok: false, error: "ファイルを読み込めませんでした。" };
+  } finally {
+    if (fd !== undefined) closeSync(fd);
+  }
+}

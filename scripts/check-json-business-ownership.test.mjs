@@ -10,7 +10,7 @@ const ts = createRequire(join(root, "backend/package.json"))("typescript");
 for (const [route, methods] of Object.entries(JSON_BUSINESS_ROUTES)) {
   test(`Next ${route} is transport only`, () => {
     const path = join(root, "web/src/app/api", route, "route.ts"), source = ts.createSourceFile(path, readFileSync(path, "utf8"), ts.ScriptTarget.Latest, true);
-    assert.deepEqual(source.statements.filter(ts.isImportDeclaration).map(n => n.moduleSpecifier.text).sort(), ["@/lib/json-business-relay", "next/server"].sort());
+    assert.deepEqual(source.statements.filter(ts.isImportDeclaration).map(n => n.moduleSpecifier.text).sort(), ["@/lib/json-business-relay", "next/server", ...(route === "browse/dirs" ? ["@/lib/host-folder-relay"] : [])].sort());
     for (const method of methods) {
       const handler = source.statements.find(n => ts.isFunctionDeclaration(n) && n.name?.text === method);
       assert.equal(handler?.body?.statements.length, 1);
@@ -29,6 +29,11 @@ for (const [route, methods] of Object.entries(JSON_BUSINESS_ROUTES)) {
           assert.equal(argument.templateSpans[index].expression.getText(source), `encodeURIComponent((await context.params).${parameter})`);
         });
       } else assert.equal(statement.expression.arguments[1].text, route);
+    }
+    if (route === "browse/dirs") {
+      const handler = source.statements.find(n=>ts.isFunctionDeclaration(n)&&n.name?.text==="POST");
+      assert.equal(handler.body.statements.length,1);
+      assert.equal(handler.body.statements[0].expression.expression.getText(source),"relayHostFolderSelection");
     }
     if (route === "mcp" || route.startsWith("mcp/")) {
       const owner = readFileSync(join(root, "backend/src/mcp-json-business.mjs"), "utf8"), server = readFileSync(join(root, "backend/src/server.mjs"), "utf8");

@@ -1,118 +1,27 @@
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
 import { NextRequest } from "next/server";
-import { afterAll, beforeEach, describe, expect, it, vi } from "vitest";
-
-const mocks = vi.hoisted(() => ({ execFile: vi.fn(), allowed: vi.fn() }));
-
-vi.mock("node:child_process", () => ({ execFile: mocks.execFile }));
-vi.mock("@/lib/browse-paths", () => ({ isAllowedBrowsePath: mocks.allowed }));
-
-import { ICON_FILE_ERROR } from "@/lib/icon-file";
-import { GET, POST } from "./route";
-
-const dir = mkdtempSync(join(tmpdir(), "leafcode-icon-route-"));
-const iconPath = join(dir, "app.ico");
-const exePath = join(dir, "tool.exe");
-writeFileSync(iconPath, Buffer.from([0, 0, 1, 0]));
-writeFileSync(exePath, "MZ");
-writeFileSync(join(dir, "notes.txt"), "text");
-writeFileSync(join(dir, ".hidden.png"), "x");
-mkdirSync(join(dir, "assets"));
-
-afterAll(() => {
-  rmSync(dir, { recursive: true, force: true });
+import { mkdtempSync,readdirSync,rmSync } from "node:fs";
+import { join } from "node:path";import { tmpdir } from "node:os";
+import { afterEach,beforeEach,expect,it,vi } from "vitest";
+import { GET,POST } from "./route";
+let root:string;const remote=vi.fn();
+beforeEach(()=>{root=mkdtempSync(join(tmpdir(),"leafcode-browse-bff-"));for(const [key,value] of Object.entries({LEAFCODE_PI_DATA_DIR:root,PI_CODING_AGENT_DIR:root,LEAFCODE_PI_PROCESS_ROLE:"next",LEAFCODE_PI_WEBUI_AUTH:"",LEAFCODE_PI_WEBUI_TOKEN:"",LEAFCODE_PI_BACKEND_TOKEN:"private-backend-token-1234567890123456789",LEAFCODE_PI_BACKEND_GENERATION:"",LEAFCODE_PI_BACKEND_GENERATION_FILE:"",LEAFCODE_PI_HOST_CONTROL_URL:"http://127.0.0.1:18775"}))vi.stubEnv(key,value);remote.mockReset();vi.stubGlobal("fetch",remote);});
+afterEach(()=>{expect(readdirSync(root)).toEqual([]);vi.unstubAllGlobals();vi.unstubAllEnvs();rmSync(root,{recursive:true,force:true});});
+it("GET keeps opaque query and canonical owner projection, without filesystem/command fallback",async()=>{
+ remote.mockResolvedValueOnce(Response.json({status:200,body:{path:"owner",parent:null,entries:[],secret:"PRIVATE"}}));
+ const result=await GET(new NextRequest("http://localhost/api/browse/icon?path=opaque%2Fselection"));expect(result.status).toBe(200);expect(JSON.stringify(await result.json())).not.toContain("PRIVATE");expect(remote.mock.calls[0][0]).toContain("?path=opaque%2Fselection");
+ remote.mockRejectedValueOnce(new Error("PRIVATE"));expect((await GET(new NextRequest("http://localhost"))).status).toBe(503);
+ vi.stubEnv("LEAFCODE_PI_BACKEND_TOKEN","");expect((await GET(new NextRequest("http://localhost"))).status).toBe(503);expect(remote).toHaveBeenCalledTimes(2);
 });
-
-function post(body: unknown): NextRequest {
-  return new NextRequest("http://localhost/api/browse/icon", { method: "POST", body: JSON.stringify(body) });
-}
-
-function list(path: string): NextRequest {
-  return new NextRequest(`http://localhost/api/browse/icon?path=${encodeURIComponent(path)}`);
-}
-
-const windowsOnly = process.platform !== "win32";
-
-describe("/api/browse/icon", () => {
-  beforeEach(() => {
-    mocks.execFile.mockReset();
-    mocks.allowed.mockReset().mockReturnValue(true);
-  });
-
-  it("lists folders first, then icon candidates only", async () => {
-    const response = await GET(list(dir));
-
-    expect(response.status).toBe(200);
-    const body = await response.json();
-    expect(body.path).toBe(dir);
-    expect(body.entries.map((entry: { name: string; kind: string }) => `${entry.kind}:${entry.name}`)).toEqual([
-      "dir:assets",
-      "file:app.ico",
-      ...(process.platform === "win32" ? ["file:tool.exe"] : []),
-    ]);
-  });
-
-  it("rejects folders outside the browse roots", async () => {
-    mocks.allowed.mockReturnValue(false);
-
-    expect((await GET(list(dir))).status).toBe(403);
-    expect((await POST(post({ path: iconPath }))).status).toBe(403);
-  });
-
-  it("returns a picked image as a data URL", async () => {
-    const response = await POST(post({ path: iconPath }));
-
-    expect(response.status).toBe(200);
-    expect(await response.json()).toEqual({ icon: "data:image/x-icon;base64,AAABAA==", name: "app.ico" });
-    expect(mocks.execFile).not.toHaveBeenCalled();
-  });
-
-  it("rejects a file that is not an icon image", async () => {
-    const response = await POST(post({ path: join(dir, "notes.txt") }));
-
-    expect(response.status).toBe(400);
-    expect(await response.json()).toEqual({ error: ICON_FILE_ERROR });
-  });
-
-  it("rejects relative paths", async () => {
-    expect((await POST(post({ path: "app.ico" }))).status).toBe(400);
-  });
-
-  it.skipIf(windowsOnly)("extracts a PNG icon from an executable without a dialog", async () => {
-    mocks.execFile.mockImplementation(
-      (_command: string, _args: string[], _options: unknown, callback: (error: unknown, result: { stdout: string }) => void) => {
-        callback(null, { stdout: "iVBORw==" });
-      },
-    );
-
-    const response = await POST(post({ path: exePath }));
-
-    expect(response.status).toBe(200);
-    expect(await response.json()).toEqual({ icon: "data:image/png;base64,iVBORw==", name: "tool.exe" });
-    expect(mocks.execFile).toHaveBeenCalledWith(
-      "powershell.exe",
-      ["-NoProfile", "-NonInteractive", "-EncodedCommand", expect.any(String)],
-      expect.objectContaining({ windowsHide: true, env: expect.objectContaining({ LEAFCODE_PI_ICON_FILE: exePath }) }),
-      expect.any(Function),
-    );
-    const encoded = mocks.execFile.mock.calls[0]?.[1]?.[3] as string;
-    const script = Buffer.from(encoded, "base64").toString("utf16le");
-    expect(script).toContain("ExtractAssociatedIcon");
-    expect(script).not.toContain("OpenFileDialog");
-  });
-
-  it.skipIf(windowsOnly)("reports an executable without an extractable icon", async () => {
-    mocks.execFile.mockImplementation(
-      (_command: string, _args: string[], _options: unknown, callback: (error: unknown, result: { stdout: string }) => void) => {
-        callback(null, { stdout: "" });
-      },
-    );
-
-    const response = await POST(post({ path: exePath }));
-
-    expect(response.status).toBe(400);
-    expect(await response.json()).toEqual({ error: "EXEからアイコンを取得できませんでした。" });
-  });
+it("POST enforces Origin/auth/bounds before one opaque owner call",async()=>{
+ const req=(body:string,headers:Record<string,string>={})=>new NextRequest("http://localhost/api/browse/icon",{method:"POST",body,headers});
+ expect((await POST(req("{}",{origin:"https://evil.example"}))).status).toBe(403);
+ vi.stubEnv("LEAFCODE_PI_WEBUI_AUTH","required");vi.stubEnv("LEAFCODE_PI_WEBUI_TOKEN","private-web-token-1234567890123456789");expect((await POST(req("{}"))).status).toBe(401);vi.stubEnv("LEAFCODE_PI_WEBUI_AUTH","");
+ expect((await POST(req("x".repeat(256*1024+1)))).status).toBe(413);expect(remote).not.toHaveBeenCalled();
+ remote.mockResolvedValueOnce(Response.json({status:200,body:{icon:"data:image/png;base64,AA==",name:"fixture.png",path:"PRIVATE",command:"PRIVATE"}}));
+ const response=await POST(req('{"path":"opaque","command":"ignored"}'));expect(response.status).toBe(200);const body=await response.json();expect(JSON.stringify(body)).not.toContain("PRIVATE");
+ expect(remote).toHaveBeenCalledOnce();const [url,options]=remote.mock.calls[0];expect(url).toContain("/internal/json-business/browse/icon");expect(new TextDecoder().decode(options.body)).toBe('{"path":"opaque","command":"ignored"}');
+ expect(options.headers["x-leafcode-business-operation"]).toBeUndefined();
+});
+it("POST unknown result is sanitized, never re-executed locally",async()=>{
+ remote.mockRejectedValueOnce(new Error("PRIVATE"));const response=await POST(new NextRequest("http://localhost",{method:"POST",body:"{}"}));expect(response.status).toBe(503);expect(JSON.stringify(await response.json())).not.toContain("PRIVATE");expect(remote).toHaveBeenCalledOnce();
 });
