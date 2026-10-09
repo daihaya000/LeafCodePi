@@ -26,6 +26,8 @@ export default defineConfig({
       const suffix = normalized.slice(prefix.length);
       // This Web transport remains remote; the Backend has a distinct local adapter.
       if (suffix === "lib/runtime-settings" || suffix === "lib/runtime-settings.ts") return null;
+      // The Next event relay needs page metadata helpers absent from Backend task-history.
+      if (suffix === "lib/task-history" || suffix === "lib/task-history.ts") return null;
       const target = join(runtimeSource, suffix.endsWith(".ts") ? suffix : `${suffix}.ts`);
       return existsSync(target) ? target : null;
     },
