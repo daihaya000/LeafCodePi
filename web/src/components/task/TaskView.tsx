@@ -3624,34 +3624,18 @@ export const TaskView = memo(function TaskView({
               {usageStats("shrink-0")}
             </div>
           </div>
-          <div className="@min-[500px]/task:hidden">
-            <Button
-              variant="ghost"
-              size="icon"
-              aria-label="セッション内を検索"
-              title="セッション内を検索"
-              aria-pressed={find.open}
-              className={cx("h-11 w-11", find.open && "bg-surface-2 text-text")}
-              disabled={!task}
-              onClick={toggleFind}
-            >
-              <Search className="h-4 w-4" />
-            </Button>
-          </div>
-          <div className="hidden @min-[500px]/task:flex">
-            <Button
-              variant="ghost"
-              size="icon"
-              aria-label="タイトルを生成"
-              title="会話内容からタイトルを生成"
-              className="h-9 w-9"
-              disabled={!task || archived || titleBusy}
-              busy={titleBusy}
-              onClick={() => void refreshTitle()}
-            >
-              {!titleBusy && <WandSparkles className="h-4 w-4" />}
-            </Button>
-          </div>
+          <Button
+            variant="ghost"
+            size="icon"
+            aria-label="タイトルを生成"
+            title="会話内容からタイトルを生成"
+            className="h-11 w-11 @min-[500px]/task:h-9 @min-[500px]/task:w-9"
+            disabled={!task || archived || titleBusy}
+            busy={titleBusy}
+            onClick={() => void refreshTitle()}
+          >
+            {!titleBusy && <WandSparkles className="h-4 w-4" />}
+          </Button>
         </div>
         <div aria-label="タスクの状態" className="col-span-1 col-start-1 row-start-2 flex min-w-0 items-center gap-x-2 overflow-hidden text-xs text-muted @max-[500px]/task:-translate-y-0.5">
           <span aria-label="プロジェクトアイコン" className="inline-flex shrink-0">{iconFor(taskId, 24, task ?? undefined)}</span>
@@ -3697,7 +3681,7 @@ export const TaskView = memo(function TaskView({
             aria-pressed={find.open}
             disabled={!task}
             className={cx(
-              "h-9 w-9 @max-[500px]/task:hidden",
+              "h-11 w-11 @min-[500px]/task:h-9 @min-[500px]/task:w-9",
               find.open && "bg-surface-2 text-text",
             )}
             onClick={toggleFind}
@@ -3728,20 +3712,6 @@ export const TaskView = memo(function TaskView({
           >
             {!compacting && <Shrink className="h-4 w-4" />}
           </Button>
-          <div className="@min-[500px]/task:hidden">
-            <Button
-              variant="ghost"
-              size="icon"
-              aria-label="タイトルを生成"
-              title="会話内容からタイトルを生成"
-              className="h-11 w-11"
-              disabled={!task || archived || titleBusy}
-              busy={titleBusy}
-              onClick={() => void refreshTitle()}
-            >
-              {!titleBusy && <WandSparkles className="h-4 w-4" />}
-            </Button>
-          </div>
           {canManageSupervisor && (
             <label
               title={supervisor ? `監督: ${supervisor.name}` : hasSupervisor ? "委任を解除" : working ? "Botへ引き継ぐ" : "タスク実行中にBotへ引き継げます"}

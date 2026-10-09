@@ -2032,7 +2032,7 @@ describe("TaskView draft submission", () => {
     );
   });
 
-  it("places title generation before the Bot control and read-aloud after it", async () => {
+  it("keeps title generation in the title row and read-aloud after the Bot control", async () => {
     const delegatedTask = { ...task, kind: "code" as const, status: "working" as const, supervisorBotId: "bot-1" };
     saveTaskSessionCache({ task: delegatedTask, messages: [], isStreaming: true, isCompacting: false });
     mocks.botFor.mockImplementation((id) => id === "bot-1" ? { id, name: "監督Bot" } : undefined);
@@ -2042,11 +2042,11 @@ describe("TaskView draft submission", () => {
     const botControl = selector.closest("label");
     // The compaction and TTS controls appear only after the settings fetch settles.
     const compact = await screen.findByRole("button", { name: "コンテキスト圧縮" });
-    const generateTitle = screen.getByRole("group", { name: "タスク操作" })
-      .querySelector('button[aria-label="タイトルを生成"]');
+    const generateTitle = screen.getByRole("button", { name: "タイトルを生成" });
+    const header = screen.getByRole("heading", { name: task.title }).closest("header")!;
     const tts = await screen.findByRole("switch", { name: "読み上げ" });
-    expect(generateTitle?.parentElement?.previousElementSibling).toBe(compact);
-    expect(botControl?.previousElementSibling).toBe(generateTitle?.parentElement);
+    expect(generateTitle.parentElement).toBe(header.firstElementChild);
+    expect(botControl?.previousElementSibling).toBe(compact);
     expect(tts.previousElementSibling).toBe(botControl);
   });
 
@@ -2195,12 +2195,17 @@ describe("TaskView draft submission", () => {
     }
     const actions = screen.getByRole("group", { name: "タスク操作" });
     const botControl = screen.getByRole("combobox", { name: "Codeタスクを監督するBot" }).closest("label");
-    const wideButton = header.firstElementChild?.querySelector('button[aria-label="タイトルを生成"]');
-    const narrowButton = actions.querySelector('button[aria-label="タイトルを生成"]');
-    expect(wideButton?.parentElement?.className).toContain("hidden @min-[500px]/task:flex");
-    expect(narrowButton?.parentElement?.className).toContain("@min-[500px]/task:hidden");
-    expect(heading.parentElement?.contains(wideButton!)).toBe(false);
-    expect(narrowButton!.compareDocumentPosition(botControl!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    const generateButton = screen.getByRole("button", { name: "タイトルを生成" });
+    expect(generateButton.parentElement).toBe(header.firstElementChild);
+    expect(generateButton.className).not.toContain("hidden");
+    expect(generateButton.className).toContain("h-11 w-11");
+    expect(heading.parentElement?.contains(generateButton)).toBe(false);
+    expect(actions.contains(generateButton)).toBe(false);
+    const searchButton = screen.getByRole("button", { name: "セッション内を検索" });
+    expect(actions.firstElementChild).toBe(searchButton);
+    expect(searchButton.className).not.toContain("hidden");
+    expect(searchButton.className).toContain("h-11 w-11");
+    expect(searchButton.compareDocumentPosition(botControl!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     fireEvent.click(heading);
     expect(screen.queryByRole("textbox", { name: "セッションタイトル" })).toBeNull();
     fireEvent.doubleClick(heading);
@@ -2211,6 +2216,26 @@ describe("TaskView draft submission", () => {
     fireEvent.keyDown(screen.getByRole("heading", { name: title }), { key: "Enter" });
     expect(screen.getByRole("textbox", { name: "セッションタイトル" })).toBeTruthy();
     expect(mocks.sendJson).not.toHaveBeenCalled();
+  });
+
+  it.each([false, true])("keeps title generation above search regardless of mdUp=%s", (mdUp) => {
+    render(<TaskView taskId={task.id} mdUp={mdUp} />);
+
+    const generateButton = screen.getByRole("button", { name: "タイトルを生成" });
+    const searchButton = screen.getByRole("button", { name: "セッション内を検索" });
+    const header = screen.getByRole("heading", { name: task.title }).closest("header")!;
+    const actions = screen.getByRole("group", { name: "タスク操作" });
+    expect(generateButton.parentElement).toBe(header.firstElementChild);
+    expect(actions.firstElementChild).toBe(searchButton);
+    for (const button of [generateButton, searchButton]) {
+      expect(button.className).not.toContain("hidden");
+      expect(button.className).toContain("@min-[500px]/task:h-9");
+      expect(button.className).toContain("@min-[500px]/task:w-9");
+    }
+    fireEvent.click(searchButton);
+    expect(searchButton.getAttribute("aria-pressed")).toBe("true");
+    fireEvent.click(searchButton);
+    expect(searchButton.getAttribute("aria-pressed")).toBe("false");
   });
 
   it("edits the title and turns automatic updates off", async () => {
