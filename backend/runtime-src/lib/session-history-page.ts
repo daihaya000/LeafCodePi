@@ -46,6 +46,8 @@ export async function readSessionHistoryPage(path: string, before: string | null
       const visible = branch.filter((row) => row.role !== null);
       const end = cursor === null ? visible.length : visible.findLastIndex((row) => row.id === cursor);
       if (end < 0) throw new InvalidTaskMessageCursorError();
+      // Before the first visible row there is no page and no marker state to hydrate.
+      if (end === 0) return { ids: [], ordinals: new Map<string, number>(), wanted: [], hasMore: false, nextCursor: null };
       let start = Math.max(0, end - (Number.isSafeInteger(limit) && limit > 0 ? limit : TASK_MESSAGE_PAGE_SIZE));
       if (start > 0 && visible[start]?.role !== "user") {
         for (let at = start - 1; at >= 0; at--) if (visible[at].role === "user") { start = at; break; }

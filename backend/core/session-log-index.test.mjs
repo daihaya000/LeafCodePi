@@ -47,6 +47,31 @@ test("refuses changes during selection, malformed header and excessive page size
   await assert.rejects(read(file, (branch) => ({ ids: branch.map((r) => r.id) })), { code: "SESSION_PAGE_LIMIT" });
   assert.equal(SESSION_PAGE_MAX_BYTES, 16 * 1024 * 1024); assert.equal(SESSION_INDEX_MAX_BYTES, 8 * 1024 * 1024);
 });
+test("reports selected-row corruption during a warm read as a generation conflict", async (t) => {
+  const { file } = setup(t, [row("a", null)]); await read(file);
+  const original = readFileSync(file, "utf8");
+  await assert.rejects(read(file, (branch) => {
+    writeFileSync(file, original.replace('"content":"a"', '"content":xxx'));
+    return { ids: [branch[0].id] };
+  }), { code: "SESSION_INDEX_CHANGED", status: 409 });
+  assert.equal(sessionLogIndexDiagnostics().cacheEntries, 0);
+  assert.equal(sessionLogIndexDiagnostics().descriptors, 0);
+});
+test("a warm row replaced with null or invalid UTF-8 also yields 409 and evicts its index", async (t) => {
+  const { file } = setup(t, [row("a", null)]), original = readFileSync(file);
+  const start = original.indexOf(10) + 1, end = original.indexOf(10, start);
+  for (const mode of ["null", "utf8"]) {
+    writeFileSync(file, original); await read(file);
+    await assert.rejects(read(file, (branch) => {
+      const changed = Buffer.from(original);
+      if (mode === "utf8") changed[start] = 255;
+      else { changed.fill(32, start, end); changed.write("null", start); }
+      writeFileSync(file, changed); return { ids: [branch[0].id] };
+    }), { code: "SESSION_INDEX_CHANGED", status: 409 });
+    assert.equal(sessionLogIndexDiagnostics().cacheEntries, 0);
+    assert.equal(sessionLogIndexDiagnostics().descriptors, 0);
+  }
+});
 test("bounds LRU entries and releases readers on cancellation and malformed JSON", async (t) => {
   const { root, file } = setup(t, [row("a", null)]);
   for (let i = 0; i < 6; i++) { const copy = join(root, `${i}.jsonl`); writeFileSync(copy, readFileSync(file)); await read(copy); }

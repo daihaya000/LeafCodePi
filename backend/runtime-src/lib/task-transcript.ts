@@ -28,9 +28,10 @@ export async function readTaskTranscriptPage(id:string,before:string|null,limit:
  try{return await readSessionHistoryPage(task.sessionFile,before,limit,signal);}
  catch(error){
   // Only admitted legacy files use the SDK migration path. Never fall back after a budget/race refusal.
-  if((error as {code?:string}).code!=="SESSION_INDEX_LEGACY")throw error;
+  if((error as {code?:string}|null)?.code!=="SESSION_INDEX_LEGACY")throw error;
+  signal?.throwIfAborted();
   assertSessionLoadAllowed(task.sessionFile);
-  const read=await readTaskTranscript(id);return read.ok?pageTaskMessages(read.messages,before,limit):read;
+  const read=await readTaskTranscript(id);signal?.throwIfAborted();return read.ok?pageTaskMessages(read.messages,before,limit):read;
  }
 }
 export function resetTaskTranscriptCache(){recentReads.clear();}

@@ -68,6 +68,12 @@ describe("indexed cold history projection", () => {
     const { file, expected } = setup([user("old"), { type: "message", message: { role: "user", timestamp: 4, content: [{ type: "text", text: "image" }, { type: "image", mimeType: "image/png", data: "AAAA" }] } }, assistant("tail")]);
     expect(await readSessionHistoryPage(file, null, 3)).toEqual({ ...pageTaskMessages(expected, null, 3), messages: stripImageDataFromMessages(expected) });
   });
+  it("does not hydrate hidden markers when the page before the first message is empty", async () => {
+    const { file } = setup([{ type: "custom_message", customType: "leafcode-pi.agent-switch", content: "switch", details: { previousAgent: "old", nextAgent: "new" } }, user("first"), assistant("tail")]);
+    await readSessionHistoryPage(file, null, 2); const before = sessionLogIndexDiagnostics();
+    expect(await readSessionHistoryPage(file, "e1", 2)).toEqual({ messages: [], messageHistory: { hasMore: false, nextCursor: null } });
+    const after = sessionLogIndexDiagnostics(); expect(after.parsedRows).toBe(before.parsedRows); expect(after.selectedBytes).toBe(before.selectedBytes);
+  });
   it("restores selected throughput and rejects other-branch cursors", async () => {
     const { file } = setup([
       user("old"), assistant("answer", { timestamp: 1000 }),

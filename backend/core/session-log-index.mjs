@@ -121,13 +121,22 @@ export async function readIndexedSession(path, { kind, classify, select, signal 
         if (bytesRead !== n) throw fail("SESSION_INDEX_CHANGED", 409);
         position += n;
       }
+      check();
       metrics.selectedBytes += row.length;
-      const entry = JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(buffer.subarray(0, row.length))); metrics.parsedRows++;
-      if (entry.id !== id) throw fail("SESSION_INDEX_CHANGED", 409);
+      let entry;
+      try { entry = JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(buffer.subarray(0, row.length))); metrics.parsedRows++; }
+      catch (error) {
+        // Indexed rows were valid JSON on this descriptor generation. A decode/parse
+        // failure now is a concurrent rewrite, not a generic 500 or a legacy fallback.
+        if (error instanceof SyntaxError || error instanceof TypeError) throw fail("SESSION_INDEX_CHANGED", 409);
+        throw error;
+      }
+      if (entry?.id !== id) throw fail("SESSION_INDEX_CHANGED", 409);
       entries.push(entry);
     }
     check();
     if (generation(await file.stat({ bigint: true })) !== index.version || generation(await stat(path, { bigint: true })) !== index.version || await realpath(path) !== path) throw fail("SESSION_INDEX_CHANGED", 409);
+    check();
     remember(key, index);
     return { entries, selection };
   } catch (error) { if (error?.code === "SESSION_INDEX_CHANGED" || error?.code === "ENOENT") forget(key); throw error; }
