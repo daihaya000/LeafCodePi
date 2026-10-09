@@ -86,9 +86,27 @@ export default function(api) {
   await new Promise(done=>compactProvider.listen(0,"127.0.0.1",done));
   t.after(async()=>{compactProvider.closeAllConnections();await new Promise(done=>compactProvider.close(done));});
   const compactBase=`http://127.0.0.1:${compactProvider.address().port}/v1`;
+  // Independent direct-generation responder: fixed text only, no tools, no external provider.
+  let helperRequests=0,helperHoldEntered=false,helperHoldClosed=false;
+  const helperTitle="Fixture generated title 日本語",helperAnswer="Fixture assistance response 日本語";
+  const helperProvider=createServer((req,res)=>{
+    let raw="";req.setEncoding("utf8");req.on("data",chunk=>{raw+=chunk;});req.on("end",()=>{
+      helperRequests++;const input=JSON.parse(raw);assert.ok(!input.tools?.length);
+      if(raw.includes("FIXTURE-HOLD-PROGRESS")){helperHoldEntered=true;res.on("close",()=>{helperHoldClosed=true;});return;}
+      const system=input.messages.find(message=>message.role==="system")?.content ?? "";
+      const content=system.includes("タイトル")?helperTitle:helperAnswer;
+      res.writeHead(200,{"content-type":"text/event-stream"});
+      const packet=(delta,finish,usage)=>({id:"fixture-helper",object:"chat.completion.chunk",created:1,model:"fixture-helper",choices:[{index:0,delta,finish_reason:finish}],...(usage?{usage}:{})});
+      res.write("data: "+JSON.stringify(packet({role:"assistant",content},null))+"\n\n");
+      res.write("data: "+JSON.stringify(packet({},"stop",{prompt_tokens:100,completion_tokens:10,total_tokens:110}))+"\n\n");res.end("data: [DONE]\n\n");
+    });
+  });
+  await new Promise(done=>helperProvider.listen(0,"127.0.0.1",done));
+  t.after(async()=>{helperProvider.closeAllConnections();await new Promise(done=>helperProvider.close(done));});
+  const helperBase=`http://127.0.0.1:${helperProvider.address().port}/v1`;
   writeFileSync(join(agent,"settings.json"),JSON.stringify({compaction:{keepRecentTokens:256},packages:[]}));
   // Ordinary prompt still targets the unreachable endpoint. Only explicit compaction uses the local responder.
-  writeFileSync(join(agent,"models.json"),JSON.stringify({providers:{"fixture-local":{baseUrl:"http://127.0.0.1:9/v1",apiKey:"fixture-only-not-a-real-key",api:"openai-completions",models:[{id:"fixture-model",name:"Fixture",reasoning:true,input:["text"],contextWindow:32768,maxTokens:1024,cost:{input:0,output:0,cacheRead:0,cacheWrite:0}}]},"fixture-compactor":{baseUrl:compactBase,apiKey:"fixture-only-not-a-real-key",api:"openai-completions",models:[{id:"fixture-compactor",name:"Fixture compactor",reasoning:false,input:["text"],contextWindow:32768,maxTokens:4096,cost:{input:0,output:0,cacheRead:0,cacheWrite:0}}]}}}));
+  writeFileSync(join(agent,"models.json"),JSON.stringify({providers:{"fixture-local":{baseUrl:"http://127.0.0.1:9/v1",apiKey:"fixture-only-not-a-real-key",api:"openai-completions",models:[{id:"fixture-model",name:"Fixture",reasoning:true,input:["text"],contextWindow:32768,maxTokens:1024,cost:{input:0,output:0,cacheRead:0,cacheWrite:0}}]},"fixture-helper":{baseUrl:helperBase,apiKey:"fixture-only-not-a-real-key",api:"openai-completions",models:[{id:"fixture-helper",name:"Fixture helper",reasoning:false,input:["text"],contextWindow:32768,maxTokens:4096,cost:{input:0,output:0,cacheRead:0,cacheWrite:0}}]},"fixture-compactor":{baseUrl:compactBase,apiKey:"fixture-only-not-a-real-key",api:"openai-completions",models:[{id:"fixture-compactor",name:"Fixture compactor",reasoning:false,input:["text"],contextWindow:32768,maxTokens:4096,cost:{input:0,output:0,cacheRead:0,cacheWrite:0}}]}}}));
   const individualSessionFile = join(fixture, "individual-session.jsonl");
   writeFileSync(individualSessionFile, [JSON.stringify({ type: "session", version: 3, id: "isolated-session", cwd: fixture, timestamp: new Date().toISOString() }), ...Array.from({ length: 205 }, (_, i) => JSON.stringify({ type: "message", id: `ui${i}`, parentId: i ? `ui${i-1}` : null, timestamp: new Date().toISOString(), message: { role: "user", content: [{ type: "text", text: `isolated line ${i}` }], timestamp: i } }))].join("\n") + "\n", "utf8");
   const compactSessionFile=join(fixture,"fixture-compaction-session.jsonl");
@@ -352,6 +370,21 @@ export default function(api) {
   assert.equal(promoted.status,200,JSON.stringify(promoted));assert.equal(promoted.body.operation.execution,"complete");assert.equal(promoted.body.task.directory,promotionDestination);assert.equal(promoted.body.project.rootPath,promotionDestination);assert.notEqual(promoted.body.task.sessionFile,promotionSessionFile);
   assert.equal(existsSync(promotionSource),false);assert.equal(readFileSync(join(promotionDestination,"keep-promotion.txt"),"utf8"),"fixture workspace 日本語");
   const sessionLedger=readFileSync(join(data,"task-session-command.json"),"utf8");assert.ok(!sessionLedger.includes("isolated line"));assert.ok(!sessionLedger.includes(promotionDestination));assert.ok(!sessionLedger.includes("ui50"));
+  // Real direct-generation reads history without altering the agent's conversation/Goal/permissions.
+  const helperModel={providerID:"fixture-helper",modelID:"fixture-helper"},assistanceSourceBefore=readFileSync(individualSessionFile,"utf8");
+  const assistanceProgressId="aaaaaaaa-9012-4321-abcd-eeeeeeeeeeee",assistanceNextId="abababab-9012-4321-abcd-eeeeeeeeeeee",assistanceTitleId="bcbcbcbc-9012-4321-abcd-eeeeeeeeeeee",assistancePatchId="cdcdcdcd-9012-4321-abcd-eeeeeeeeeeee",assistanceLabelId="dededede-9012-4321-abcd-eeeeeeeeeeee",assistanceAdviceId="efefefef-9012-4321-abcd-eeeeeeeeeeee",assistanceCancelId="fafafafa-9012-4321-abcd-eeeeeeeeeeee";
+  const assistanceProgress=await business("tasks/individual-task/progress",{question:"Fixture progress 日本語",model:helperModel},"",{"x-leafcode-business-operation":assistanceProgressId});assert.equal(assistanceProgress.status,200,JSON.stringify(assistanceProgress));assert.equal(assistanceProgress.body.answer,helperAnswer);assert.equal(assistanceProgress.body.working,false);assert.equal(assistanceProgress.body.operation.execution,"complete");
+  const assistanceNext=await business("tasks/individual-task/next-action",{model:helperModel,previousSuggestions:["old"]},"",{"x-leafcode-business-operation":assistanceNextId});assert.equal(assistanceNext.status,200,JSON.stringify(assistanceNext));assert.equal(assistanceNext.body.suggestion,helperAnswer);
+  const assistanceTitle=await business("tasks/individual-task/title",{model:helperModel},"",{"x-leafcode-business-operation":assistanceTitleId});assert.equal(assistanceTitle.status,200,JSON.stringify(assistanceTitle));assert.equal(assistanceTitle.body.title,helperTitle);
+  const assistanceLabel=await business("tasks/individual-task/title",{labelOnly:true},"",{"x-leafcode-business-operation":assistanceLabelId});assert.equal(assistanceLabel.status,200,JSON.stringify(assistanceLabel));
+  const assistanceAdvice=await business("tasks/individual-task/permission/advice",{requestId:"fixture-expired",command:"FORGED",allow:true},"",{"x-leafcode-business-operation":assistanceAdviceId});assert.equal(assistanceAdvice.status,404);assert.equal(helperRequests,3);
+  const progressController=new AbortController(),pendingProgress=fetch(`${base}/internal/json-business/tasks/individual-task/progress`,{method:"POST",headers:{...businessHeaders,"x-leafcode-business-operation":assistanceCancelId},body:JSON.stringify({question:"FIXTURE-HOLD-PROGRESS",model:helperModel}),signal:progressController.signal}).catch(()=>null);
+  const helperWait=Date.now()+2000;while(!helperHoldEntered&&Date.now()<helperWait)await delay(10);assert.ok(helperHoldEntered);progressController.abort();await pendingProgress;
+  const helperCloseWait=Date.now()+2000;while(!helperHoldClosed&&Date.now()<helperCloseWait)await delay(10);assert.ok(helperHoldClosed,"Progress disconnect did not cancel real SDK provider");
+  const manualTitle="Fixture manual title 日本語";
+  const assistancePatch=await business("tasks/individual-task/title",{title:`  ${manualTitle}  `},"",{"x-leafcode-business-operation":assistancePatchId},"PATCH");assert.equal(assistancePatch.status,200,JSON.stringify(assistancePatch));assert.equal(assistancePatch.body.title,manualTitle);assert.equal(assistancePatch.body.task.titleAutoUpdate,false);
+  assert.equal(readFileSync(individualSessionFile,"utf8"),assistanceSourceBefore);assert.equal(helperRequests,4);
+  const assistanceLedger=readFileSync(join(data,"task-assistance-command.json"),"utf8");for(const privateText of [manualTitle,helperTitle,"Fixture progress",individualSessionFile,"fixture-expired","FIXTURE-HOLD-PROGRESS"])assert.ok(!assistanceLedger.includes(privateText));
   // Actual SDK admission targets only the unreachable localhost fixture model, never a paid provider or tool.
   const conversationPromptId="abababab-5678-4321-abcd-eeeeeeeeeeee";
   const fixturePrompt="Fixture local-only conversation request";
@@ -440,6 +473,10 @@ export default function(api) {
   for(const [path,id] of [["tasks/compaction-task/compact",compactSuccessId],["tasks/compaction-task/compact",compactCancelId],["tasks/compaction-task/compact/abort",compactAbortId],["tasks/compaction-task/compact/abort",compactColdAbortId]]){
     const replay=await fetch(`${restartedBase}/internal/json-business/${path}`,{method:"POST",headers:{...businessHeaders,"x-leafcode-business-operation":id},body:JSON.stringify({customInstructions:"NO-REPLAY"}),signal:AbortSignal.timeout(3000)});assert.equal((await replay.json()).status,409);
   }
+  for(const [action,id,method] of [["progress",assistanceProgressId,"POST"],["progress",assistanceCancelId,"POST"],["next-action",assistanceNextId,"POST"],["title",assistanceTitleId,"POST"],["title",assistanceLabelId,"POST"],["title",assistancePatchId,"PATCH"],["permission/advice",assistanceAdviceId,"POST"]]){
+    const replay=await fetch(`${restartedBase}/internal/json-business/tasks/individual-task/${action}`,{method,headers:{...businessHeaders,"x-leafcode-business-operation":id},body:"{}",signal:AbortSignal.timeout(3000)});assert.equal(replay.status,200);const result=await replay.json();assert.equal(result.status,409);assert.equal(result.body.operation.execution,id===assistanceCancelId?"unknown":"complete");
+  }
+  const assistanceRestored=JSON.parse(readFileSync(join(data,"store.json"),"utf8")).tasks.find(task=>task.id==="individual-task");assert.equal(assistanceRestored.title,"Fixture manual title 日本語");assert.equal(assistanceRestored.titleAutoUpdate,false);assert.equal(helperRequests,4);
   const compactAfterRestart=await fetch(`${restartedBase}/internal/json-business/tasks/compaction-task`,{headers:businessHeaders,signal:AbortSignal.timeout(5000)});const restoredCompaction=(await compactAfterRestart.json()).body.task;assert.ok(JSON.stringify(restoredCompaction.messages).includes(compactSummary));assert.equal(restoredCompaction.isCompacting,false);assert.equal(compactRequests,2);
   for(const [path,id] of [["tasks/individual-task/fork",forkOperation],[`tasks/${forkTaskId}/revert`,revertOperation],[`tasks/${forkTaskId}/unrevert`,unrevertOperation],["tasks/session-promotion-task/promote",promotionOperation]]) {
     const replay=await fetch(`${restartedBase}/internal/json-business/${path}`,{method:"POST",headers:{...businessHeaders,"x-leafcode-business-operation":id},body:JSON.stringify({entryId:"ui0",destinationPath:promotionDestination}),signal:AbortSignal.timeout(5000)});assert.equal((await replay.json()).status,409);

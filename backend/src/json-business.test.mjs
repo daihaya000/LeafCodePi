@@ -40,6 +40,26 @@ test("session transport enforces 4KiB, authorized context and operation IDs for 
  }
  assert.equal(calls,4);
 });
+test("assistance transport scopes signals/budgets and rejects malformed successful DTO",async t=>{
+ let calls=0;const f=await fixture(t,{jsonBusinessRequestAction:async input=>{
+  calls++;assert.equal(Boolean(input.signal),input.route.endsWith("/progress"));
+  return {status:400,body:{error:"owner validation",operation:{id:input.operationId,execution:"complete"}}};
+ }});
+ const headers={...f.headers,"x-leafcode-business-operation":"aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"};
+ for(const [action,limit] of [["progress",32000],["title",32000],["next-action",320000],["permission/advice",4096]]){
+  assert.equal((await request(`${f.base}/tasks/t/${action}`,{method:"POST",headers,body:"x".repeat(limit+1)})).status,413);
+  const admitted=await request(`${f.base}/tasks/t/${action}`,{method:"POST",headers,body:"opaque 日本語"});assert.equal(admitted.status,200);assert.equal((await admitted.json()).status,400);
+ }
+ assert.equal(calls,4);
+ const invalid=await fixture(t,{jsonBusinessRequestAction:async()=>({status:200,body:{answer:"missing fields"}})});assert.equal((await request(`${invalid.base}/tasks/t/progress`,{method:"POST",headers:{...invalid.headers,"x-leafcode-business-operation":headers["x-leafcode-business-operation"]},body:"{}"})).status,503);
+});
+test("only assistance progress cancellation reaches an admitted owner on HTTP disconnect",async t=>{
+ let entered=false,cancelled=false;
+ const f=await fixture(t,{jsonBusinessRequestAction:async input=>{entered=true;await new Promise(done=>input.signal.addEventListener("abort",()=>{cancelled=true;done();},{once:true}));return {status:502,body:{error:"cancelled",operation:{id:input.operationId,execution:"unknown"}}};}});
+ const controller=new AbortController(),pending=request(`${f.base}/tasks/t/progress`,{method:"POST",headers:{...f.headers,"x-leafcode-business-operation":"aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"},body:"{}",signal:controller.signal}).catch(()=>null);
+ for(let i=0;i<100&&!entered;i++)await delay(5);assert.ok(entered);controller.abort();await pending;
+ for(let i=0;i<100&&!cancelled;i++)await delay(5);assert.ok(cancelled);
+});
 test("compaction transport preserves escaped-focus budget and rejects oversized abort/malformed SDK success",async t=>{
  let calls=0;
  const f=await fixture(t,{jsonBusinessRequestAction:async input=>{

@@ -24,6 +24,10 @@ import { POST as selectTaskAgent } from "../app/api/tasks/[id]/agent/route";
 import { PUT as selectGoalAuto } from "../app/api/tasks/[id]/goal-loop-auto-model/route";
 import { GET as readTaskGoal, POST as startTaskGoal, PATCH as controlTaskGoal } from "../app/api/tasks/[id]/goal-loop/route";
 import { GET as activeTaskGoals } from "../app/api/goal-loop/active/route";
+import { POST as askProgress } from "../app/api/tasks/[id]/progress/route";
+import { POST as suggestNextAction } from "../app/api/tasks/[id]/next-action/route";
+import { POST as generateTitle, PATCH as editTitle } from "../app/api/tasks/[id]/title/route";
+import { POST as permissionAdvice } from "../app/api/tasks/[id]/permission/advice/route";
 import { POST as compactSession } from "../app/api/tasks/[id]/compact/route";
 import { POST as abortCompaction } from "../app/api/tasks/[id]/compact/abort/route";
 import { TASK_COMPACTION_BODY_LIMIT } from "@shared/task-compaction-contract.mjs";
@@ -48,6 +52,26 @@ beforeEach(() => {
 });
 afterEach(() => { vi.restoreAllMocks(); vi.unstubAllGlobals(); vi.unstubAllEnvs(); rmSync(root, { recursive: true, force: true }); });
 describe("JSON business ingress", () => {
+  it("all five assistance handlers relay opaque bodies and require matching ACK with deep DTO scrubbing",async()=>{
+    const context={params:Promise.resolve({id:"bot:fixture"})},task={id:"bot:fixture",status:"idle",title:"日本語",token:"PRIVATE"},model={providerID:"p",modelID:"m",token:"PRIVATE"};
+    for(const [action,handler,method] of [["progress",askProgress,"POST"],["next-action",suggestNextAction,"POST"],["title",generateTitle,"POST"],["title",editTitle,"PATCH"],["permission/advice",permissionAdvice,"POST"]] as const){
+      const body='{"opaqueInvalidDomainInput":"日本語","allow":true}',result={task,title:"日本語",source:"direct",answer:"answer",question:"q",working:true,snapshotAt:1,suggestion:"next",suggestions:["next"],advice:"advice",model};
+      fetcher.mockImplementationOnce(async(_url,init)=>Response.json({status:200,body:{...result,operation:{id:new Headers(init.headers).get("x-leafcode-business-operation"),execution:"complete"},token:"PRIVATE"},headers:{"set-cookie":"PRIVATE"}}));
+      const response=await handler(new NextRequest(`http://localhost/api/tasks/t/${action}`,{method,body}),context);expect(response.status).toBe(200);expect(JSON.stringify(await response.json())).not.toContain("PRIVATE");expect(new TextDecoder().decode(fetcher.mock.calls.at(-1)![1].body)).toBe(body);expect(fetcher.mock.calls.at(-1)![0]).toContain(`/tasks/bot%3Afixture/${action}`);
+      for(const operation of [undefined,{id:"aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee",execution:"complete"}]){fetcher.mockResolvedValueOnce(Response.json({status:200,body:{...result,operation}}));const failed=await handler(new NextRequest(`http://localhost/api/tasks/t/${action}`,{method,body:"{}"}),context);expect(failed.status).toBe(503);expect((await failed.json()).execution).toBe("unknown");}
+    }
+    expect(fetcher).toHaveBeenCalledTimes(15);expect(readdirSync(root)).toEqual([]);
+  });
+  it("assistance byte budgets and auth/Origin refuse before forwarding; Next never parses title/question",async()=>{
+    const context={params:Promise.resolve({id:"t"})};
+    expect((await askProgress(new NextRequest("http://localhost/api/tasks/t/progress",{method:"POST",body:"x".repeat(32001)}),context)).status).toBe(413);
+    expect((await suggestNextAction(new NextRequest("http://localhost/api/tasks/t/next-action",{method:"POST",body:"x".repeat(320001)}),context)).status).toBe(413);
+    expect((await permissionAdvice(new NextRequest("http://localhost/api/tasks/t/permission/advice",{method:"POST",body:"x".repeat(4097)}),context)).status).toBe(413);
+    expect((await editTitle(new NextRequest("http://localhost/api/tasks/t/title",{method:"PATCH",body:"{}",headers:{origin:"https://evil.test"}}),context)).status).toBe(403);
+    vi.stubEnv("LEAFCODE_PI_WEBUI_AUTH","required");expect((await generateTitle(new NextRequest("http://localhost/api/tasks/t/title",{method:"POST",body:"{}"}),context)).status).toBe(401);expect(fetcher).not.toHaveBeenCalled();
+    vi.stubEnv("LEAFCODE_PI_WEBUI_AUTH","");fetcher.mockImplementationOnce(async(_url,init)=>Response.json({status:400,body:{error:"owner validation",operation:{id:new Headers(init.headers).get("x-leafcode-business-operation"),execution:"complete"}}}));
+    expect((await generateTitle(new NextRequest("http://localhost/api/tasks/t/title",{method:"POST",body:"not JSON"}),context)).status).toBe(400);expect(new TextDecoder().decode(fetcher.mock.calls[0][1].body)).toBe("not JSON");expect(readdirSync(root)).toEqual([]);
+  });
   it("actual compaction start/abort relay opaque focus, preserve cancellation state and require matching ACK",async()=>{
     const context={params:Promise.resolve({id:"bot:fixture"})},task={id:"bot:fixture",status:"idle",isStreaming:false,isCompacting:true,messages:[],token:"PRIVATE"};
     for(const [action,handler] of [["compact",compactSession],["compact/abort",abortCompaction]] as const){

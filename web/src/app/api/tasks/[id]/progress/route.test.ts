@@ -1,7 +1,10 @@
 import { NextRequest } from "next/server";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { DEFAULT_LLAMA_SERVER_SETTINGS } from "@/lib/llama-server-settings";
-import { POST } from "./route";
+import { POST } from "@backend-runtime/json-business/handlers/tasks/[id]/progress/route";
+import { afterEach } from "vitest";
+beforeEach(() => { vi.stubEnv("LEAFCODE_PI_PROCESS_ROLE", "backend"); vi.stubEnv("LEAFCODE_PI_BACKEND_RUNTIME", "attach"); });
+afterEach(() => vi.unstubAllEnvs());
 
 const mocks = vi.hoisted(() => ({
   readTaskProgressSnapshot: vi.fn(),

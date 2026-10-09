@@ -7,6 +7,7 @@ import { streamProviderLoginEvents } from "./provider-login-events.mjs";
 import { PROVIDER_AUTH_EVENTS_PATH } from "../../shared/provider-auth-contract.mjs";
 import { readConfigurationBody } from "./configuration-body.mjs";
 import { JSON_BUSINESS_PATH, JSON_BUSINESS_ROUTES, JSON_BUSINESS_HEADERS, jsonBusinessTarget, jsonBusinessBodyLimit, JSON_BUSINESS_RESPONSE_LIMIT, jsonBusinessMutates, jsonBusinessCommand, publicJsonBusinessResult } from "../../shared/json-business-contract.mjs";
+import { taskAssistanceCancelsOnDisconnect } from "../../shared/task-assistance-contract.mjs";
 import { peerFacing, PEER_AUTHORIZATION_HEADER } from "../../shared/peer-contract.mjs";
 import { CONFIGURATION_PATH, CONFIGURATION_ROUTES, CONFIGURATION_HEADERS, configurationTarget, configurationBodyLimit } from "../../shared/configuration-contract.mjs";
 export { BACKEND_PROMPT_BODY_LIMIT_BYTES } from "./json-body.mjs";
@@ -485,7 +486,7 @@ export function createBackendServer({
       try {
         const result = publicJsonBusinessResult(businessPath, await jsonBusinessRequestAction({ route: businessPath, method: request.method,
           url: `${origin}/api/${businessPath}${target.search}`, headers, authorized: access === "1", body, operationId,
-          signal: jsonBusinessMutates(businessPath, request.method) ? undefined : controller.signal }), request.method);
+          signal: jsonBusinessMutates(businessPath, request.method) && !taskAssistanceCancelsOnDisconnect(businessPath) ? undefined : controller.signal }), request.method);
         if (!result || Buffer.byteLength(JSON.stringify(result), "utf8") > JSON_BUSINESS_RESPONSE_LIMIT) throw new Error("Invalid business result");
         sendJson(response, 200, result);
       } catch { if (!response.destroyed) sendJson(response, 503, { error: "Business request failed", code: BACKEND_ERROR_CODES.internal }); }

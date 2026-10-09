@@ -3,6 +3,7 @@ import { providerAuthTarget, publicAuthOperation } from "@shared/provider-auth-c
 import { publicConfigurationMutation } from "@shared/configuration-contract.mjs";
 import { usageExternalCommand, publicUsageOperation } from "@shared/usage-contract.mjs";
 import { peerFacing, PEER_AUTHORIZATION_HEADER } from "@shared/peer-contract.mjs";
+import { taskAssistanceTarget } from "@shared/task-assistance-contract.mjs";
 import { taskCompactionTarget } from "@shared/task-compaction-contract.mjs";
 import { taskSessionTarget } from "@shared/task-session-contract.mjs";
 import { taskGoalLoopTarget } from "@shared/task-goal-loop-contract.mjs";
@@ -108,7 +109,7 @@ export async function relayJsonBusiness(request: Request, route: string): Promis
       if (providerAuthTarget(route)) {
         const operation = publicAuthOperation(result.body?.operation);
         if (!operation || operation.id !== operationId) return failure(503, "Backendの認証操作結果を確認できません", unknown);
-      } else if (taskCollectionTarget(route) || taskLifecycleTarget(route) || taskHistoryTarget(route) || taskExecutionSettingsTarget(route) || taskConversationTarget(route) || taskGoalLoopTarget(route) || taskSessionTarget(route) || taskCompactionTarget(route)) {
+      } else if (taskCollectionTarget(route) || taskLifecycleTarget(route) || taskHistoryTarget(route) || taskExecutionSettingsTarget(route) || taskConversationTarget(route) || taskGoalLoopTarget(route) || taskSessionTarget(route) || taskCompactionTarget(route) || taskAssistanceTarget(route)) {
         const operation = publicTaskOperation(result.body?.operation);
         if (!operation || operation.id !== operationId) return failure(503, "Backendのタスク操作結果を確認できません", unknown);
       } else if (projectTarget(route)) {

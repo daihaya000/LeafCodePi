@@ -11,6 +11,8 @@ import { usageTarget } from "@shared/usage-contract.mjs";
 import { dispatchUsageRequest } from "./usage";
 import { peerTarget } from "@shared/peer-contract.mjs";
 import { dispatchPeerRequest } from "./peer";
+import { taskAssistanceTarget, taskAssistanceCancelsOnDisconnect } from "@shared/task-assistance-contract.mjs";
+import { dispatchTaskAssistanceRequest } from "./task-assistance";
 import { taskCompactionTarget } from "@shared/task-compaction-contract.mjs";
 import { dispatchTaskCompactionRequest } from "./task-compaction";
 import { taskSessionTarget } from "@shared/task-session-contract.mjs";
@@ -59,10 +61,12 @@ export async function dispatchJsonBusinessRequest(input: JsonBusinessInput): Pro
   const target = jsonBusinessTarget(input.route);
   if (!target) return { status: 404, headers: {}, body: { error: "Unknown business route" } };
   if (!JSON_BUSINESS_ROUTES[target.route].includes(input.method)) return { status: 405, headers: {}, body: { error: "Method not allowed" } };
-  const signal = jsonBusinessMutates(input.route, input.method) ? undefined : input.signal;
+  const signal = jsonBusinessMutates(input.route, input.method) && !taskAssistanceCancelsOnDisconnect(input.route) ? undefined : input.signal;
   const request = configurationRequest(new Request(input.url, { method: input.method, headers: input.headers,
     signal, ...(input.body?.byteLength ? { body: new Uint8Array(input.body).slice().buffer } : {}) }), input.authorized);
   if (input.method !== "GET" && isCrossOriginRequest(request)) return { status: 403, headers: {}, body: { error: "Cross-origin request refused" } };
+  const assistance = taskAssistanceTarget(input.route);
+  if (assistance) return dispatchTaskAssistanceRequest(input, request, assistance);
   const compaction = taskCompactionTarget(input.route);
   if (compaction) return dispatchTaskCompactionRequest(input, request, compaction);
   const session = taskSessionTarget(input.route);
