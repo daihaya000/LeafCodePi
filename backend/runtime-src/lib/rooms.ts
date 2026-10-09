@@ -48,6 +48,7 @@ export function issueRoomRelayEnvelope(roomId: string, sourceBotId: string, targ
 
 /** Validate then claim: single-use, durable across workers/restarts. */
 export function consumeRoomRelayEnvelope(roomId: string, token: string): Omit<RoomRelayEnvelope, "parentId" | "consumed" | "expiresAt"> | undefined {
+  assertConfigurationOwner();
   return consumeRelayEnvelope({ roomId, token }, relayDeps);
 }
 
@@ -238,6 +239,7 @@ export function roomImageRejection(images: PromptImageInput[]): string | undefin
   return undefined;
 }
 export function saveRoomImages(roomId: string, messageId: string, images: PromptImageInput[]): RoomImage[] {
+  assertConfigurationOwner();
   assertId(roomId);
   assertId(messageId);
   mkdirSync(join(roomDataRoot(roomId), "images"), { recursive: true });
@@ -271,6 +273,7 @@ export function roomFileRejection(files: PromptFileInput[]): string | undefined 
   return undefined;
 }
 export function saveRoomFiles(roomId: string, messageId: string, files: PromptFileInput[]): RoomFile[] {
+  assertConfigurationOwner();
   assertId(roomId);
   assertId(messageId);
   mkdirSync(join(roomDataRoot(roomId), "files"), { recursive: true });
@@ -306,6 +309,7 @@ export function roomRequestFiles(roomId: string, messageId: string): PromptFileI
  * Bot sessions keep their own history: only the shared room transcript is rewound.
  */
 export function revertRoomTo(id: string, messageId: string): { text: string; requestId: string; requestIds: string[]; images: RoomImage[]; files: RoomFile[] } | undefined {
+  assertConfigurationOwner();
   return withRoomLock(id, () => {
     const room = readRoom(id);
     const index = room?.messages.findIndex((item) => item.id === messageId) ?? -1;

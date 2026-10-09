@@ -25,6 +25,12 @@ test("business transport enforces auth, protocol, readiness, method, context and
   assert.equal((await request(`${unavailable.base}/git/init`, { method: "POST", headers: unavailable.headers })).status, 503);
   assert.equal(calls, 0);
 });
+test("Room conversation transport admits opaque commands, never forwards disconnect cancellation and bounds composer/Code",async t=>{
+ let calls=0;const f=await fixture(t,{jsonBusinessRequestAction:async input=>{calls++;assert.equal(input.signal,undefined);assert.ok(input.operationId);return {status:409,body:{error:"owner refusal",operation:{id:input.operationId,execution:"complete"},token:"PRIVATE"}};}});
+ const headers={...f.headers,"x-leafcode-business-operation":"aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"},base=f.base+"/bots/rooms/11111111-0123-4321-abcd-eeeeeeeeeeee";
+ for(const action of ["prompt","code","revert"]){const path=base+"/"+action;assert.equal((await request(path,{method:"POST",headers:f.headers,body:"{}"})).status,400);const response=await request(path,{method:"POST",headers,body:"opaque"});assert.equal(response.status,200);assert.ok(!JSON.stringify(await response.json()).includes("PRIVATE"));if(action!=="prompt")assert.equal((await request(path,{method:"POST",headers,body:"x".repeat(4097)})).status,413);}
+ assert.equal(calls,3);
+});
 test("Room lifecycle transport preserves two reads/five operations and enforces opaque byte-bounded commands",async t=>{
  const room={id:"11111111-0123-4321-abcd-eeeeeeeeeeee",name:"Authored 日本語",members:[],botRelayEnabled:false,createdAt:"fixture",updatedAt:"fixture",messages:[]};let reads=0,writes=0;
  const f=await fixture(t,{jsonBusinessRequestAction:async input=>{if(input.method==="GET"){reads++;return {status:200,body:input.route==="bots/rooms"?{rooms:[room]}:{room}};}writes++;assert.equal(input.signal,undefined);assert.ok(input.operationId);assert.equal(new TextDecoder().decode(input.body),"opaque");return {status:input.method==="POST"?201:200,body:{...(input.method==="DELETE"?{ok:true}:{room}),operation:{id:input.operationId,execution:"complete"}}};}});

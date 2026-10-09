@@ -24,6 +24,9 @@ import { POST as selectTaskAgent } from "../app/api/tasks/[id]/agent/route";
 import { PUT as selectGoalAuto } from "../app/api/tasks/[id]/goal-loop-auto-model/route";
 import { GET as readTaskGoal, POST as startTaskGoal, PATCH as controlTaskGoal } from "../app/api/tasks/[id]/goal-loop/route";
 import { GET as activeTaskGoals } from "../app/api/goal-loop/active/route";
+import { POST as roomPrompt } from "../app/api/bots/rooms/[id]/prompt/route";
+import { POST as roomCode } from "../app/api/bots/rooms/[id]/code/route";
+import { POST as roomRevert } from "../app/api/bots/rooms/[id]/revert/route";
 import { GET as roomCollection, POST as createRoom } from "../app/api/bots/rooms/route";
 import { GET as readRoom, PATCH as patchRoom, DELETE as deleteRoom } from "../app/api/bots/rooms/[id]/route";
 import { GET as botSidebar } from "../app/api/bots/sidebar/route";
@@ -68,6 +71,12 @@ beforeEach(() => {
 });
 afterEach(() => { vi.restoreAllMocks(); vi.unstubAllGlobals(); vi.unstubAllEnvs(); rmSync(root, { recursive: true, force: true }); });
 describe("JSON business ingress", () => {
+  it("Room commands relay opaque input, require ACKs and project Room/composer/Code output without local files",async()=>{
+    const id="11111111-0123-4321-abcd-eeeeeeeeeeee",context={params:Promise.resolve({id})},room={id,name:"authored 日本語",members:[],botRelayEnabled:false,createdAt:"fixture",updatedAt:"fixture",messages:[],token:"PRIVATE"};
+    for(const [fn,body,result]of [[roomPrompt,'{"prompt":"日本語","fromBot":true,"relayEnvelope":"opaque"}',{room,routedBotIds:[],broadcast:true}],[roomCode,'{"action":"abort","botId":"forged"}',{requestId:"a".repeat(64),state:"cancelled"}],[roomRevert,'{"messageId":"stored"}',{room,text:"authored 日本語",images:[],files:[{uri:"data:text/plain;base64,YQ==",mime:"text/plain",name:"authored.txt",token:"PRIVATE"}],cancelledCodeRequests:1}]]as const){fetcher.mockImplementationOnce(async(_url,init)=>Response.json({status:200,body:{...result,operation:{id:new Headers(init.headers).get("x-leafcode-business-operation"),execution:"complete"}}}));const response=await fn(new NextRequest("http://localhost",{method:"POST",body}),context);expect(response.status).toBe(200);expect(JSON.stringify(await response.json())).not.toContain("PRIVATE");expect(new TextDecoder().decode(fetcher.mock.calls.at(-1)![1].body)).toBe(body);}
+    fetcher.mockResolvedValueOnce(Response.json({status:200,body:{room,routedBotIds:[]}}));expect((await roomPrompt(new NextRequest("http://localhost",{method:"POST",body:"{}"}),context)).status).toBe(503);
+    const calls=fetcher.mock.calls.length;for(const fn of [roomCode,roomRevert])expect((await fn(new NextRequest("http://localhost",{method:"POST",body:"x".repeat(4097)}),context)).status).toBe(413);expect(fetcher).toHaveBeenCalledTimes(calls);expect(readdirSync(root)).toEqual([]);
+  });
   it("Room lifecycle relays five operations/opaque bytes with encoded IDs and ACKs, never local room IO",async()=>{
     const id="11111111-0123-4321-abcd-eeeeeeeeeeee",context={params:Promise.resolve({id})},room={id,name:"authored 日本語",members:[],botRelayEnabled:false,createdAt:"fixture",updatedAt:"fixture",messages:[],token:"PRIVATE"};
     for(const [method,fn,body,result] of [["GET",roomCollection,undefined,{rooms:[room]}],["POST",createRoom,'{"name":"日本語","codeAutoApprove":true}',{room}],["GET",readRoom,undefined,{room}],["PATCH",patchRoom,'{"resetMessages":true}',{room}],["DELETE",deleteRoom,'{"id":"forged"}',{ok:true}]]as const){

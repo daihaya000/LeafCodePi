@@ -64,7 +64,7 @@ import { getTaskDetail } from "@/lib/pi/harness";
 import { getTask } from "@/lib/store";
 import { MAX_PROMPT_IMAGE_TOTAL_BYTES, MAX_PROMPT_TEXT_CHARS } from "@/lib/prompt-images";
 import { GET as events } from "../events/route";
-import { POST } from "./route";
+import { POST } from "@backend-runtime/json-business/handlers/bots/rooms/[id]/prompt/route";
 import { PATCH } from "@backend-runtime/json-business/handlers/bots/rooms/[id]/route";
 
 function snapshot(taskId: string, eventType: string, patch: Partial<TaskDetail>) {
@@ -124,54 +124,6 @@ afterEach(async () => {
   state.promptTask.mockReset();
   state.abortTask.mockReset();
   vi.restoreAllMocks();
-});
-
-describe("room prompt ownership", () => {
-  it("forwards the whole body after the cutover and replays the owner's answer", async () => {
-    state.localRuntimeBlocked.mockReturnValue(true);
-    const { room } = setup(["A"]);
-    state.forwardRoomPrompt.mockResolvedValue({
-      ok: true,
-      result: { status: 200, body: { room: { id: room.id }, routedBotIds: ["a"], broadcast: true } },
-    });
-
-    const response = await send(room.id, "調べて", { broadcast: true });
-
-    expect(response.status).toBe(200);
-    await expect(response.json()).resolves.toMatchObject({ routedBotIds: ["a"], broadcast: true });
-    expect(state.forwardRoomPrompt).toHaveBeenCalledWith(room.id, { prompt: "調べて", broadcast: true });
-    // Nothing local: the owner appended the turn and started the sessions.
-    expect(getRoom(room.id)!.messages).toHaveLength(0);
-    expect(state.promptTask).not.toHaveBeenCalled();
-  });
-
-  it("replays an owner refusal with its status instead of reporting a transport failure", async () => {
-    state.localRuntimeBlocked.mockReturnValue(true);
-    const { room } = setup(["A"]);
-    state.forwardRoomPrompt.mockResolvedValue({
-      ok: true,
-      result: { status: 403, body: { error: "A valid server relay envelope is required" } },
-    });
-
-    const response = await send(room.id, "調べて", { fromBot: true });
-
-    expect(response.status).toBe(403);
-    await expect(response.json()).resolves.toEqual({ error: "A valid server relay envelope is required" });
-    expect(getRoom(room.id)!.messages).toHaveLength(0);
-  });
-
-  it("reports an unreachable Backend without falling back to the local ladder", async () => {
-    state.localRuntimeBlocked.mockReturnValue(true);
-    const { room } = setup(["A"]);
-    state.forwardRoomPrompt.mockResolvedValue({ ok: false, reason: "unreachable" });
-
-    const response = await send(room.id, "調べて");
-
-    expect(response.status).toBe(502);
-    await expect(response.json()).resolves.toMatchObject({ error: "Backendへ転送できません", reason: "unreachable" });
-    expect(getRoom(room.id)!.messages).toHaveLength(0);
-    expect(state.promptTask).not.toHaveBeenCalled();
-  });
 });
 
 describe("room mention responses", () => {
@@ -315,28 +267,18 @@ describe("room mention responses", () => {
     await vi.waitFor(() => expect(getRoom(room.id)?.messages.some((message) => message.status === "done")).toBe(true));
   });
 
-  it("aborts opener selection and avoids routing when the request is cancelled", async () => {
-    const { room } = setup(["Designer", "Planner"]);
-    const request = new AbortController();
-    let openerSignal: AbortSignal | undefined;
+  it("accepted HTTP disconnect does not abort the owner opener or lose the durable user message", async () => {
+    const { room } = setup(["Designer", "Planner"]), request = new AbortController();
+    let openerSignal: AbortSignal | undefined, release!: () => void;
     state.resolveRoomOpener.mockImplementationOnce(async (options: { signal?: AbortSignal }) => {
-      openerSignal = options.signal;
-      await new Promise<void>((resolve) => {
-        if (options.signal?.aborted) resolve();
-        else options.signal?.addEventListener("abort", () => resolve(), { once: true });
-      });
-      return undefined;
+      openerSignal = options.signal; await new Promise<void>(resolve => { release = resolve; }); return undefined;
     });
-
     const pending = send(room.id, "残作業も進めて", {}, request.signal);
     await vi.waitFor(() => expect(state.resolveRoomOpener).toHaveBeenCalled());
-    request.abort();
-    const response = await pending;
-
-    expect(response.status).toBe(200);
-    expect(openerSignal?.aborted).toBe(true);
+    request.abort(); expect(openerSignal?.aborted).toBe(false); release();
+    expect((await pending).status).toBe(200);
+    expect(getRoom(room.id)?.messages[0].text).toBe("残作業も進めて");
     expect(state.promptTask).not.toHaveBeenCalled();
-    expect(getRoom(room.id)?.messages.some((message) => message.status === "working")).toBe(false);
   });
 
   it("aborts pending opener selection when the Room is stopped", async () => {

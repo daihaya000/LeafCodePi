@@ -1,3 +1,4 @@
+import { assertConfigurationOwner } from "@backend-core/configuration-command.mjs";
 import { getBot } from "@/lib/bots";
 import { jsonError } from "@/lib/pi/harness";
 import { cancelRoomCodeRequests } from "@/lib/pi/bot-code-relay";
@@ -18,11 +19,12 @@ export type RoomPromptResult = { status: number; body: unknown };
 /**
  * One Room prompt, from validation to routing.
  *
- * The whole ladder lives here because the owning WebUI route and the Backend owner both serve it:
- * appending turns, consuming the relay envelope, steering and starting sessions are owner work, so
- * after the cutover the WebUI forwards the same body and replays the owner's answer unchanged.
+ * Backend-only ladder for appending turns, claiming relay envelopes, steering and starting sessions.
+ * Both Backend transports use this owner entry; Next never reads attachments or executes this ladder.
  */
 export async function handleRoomPrompt(roomId: string, body: RoomPromptBody | null, options: { signal?: AbortSignal } = {}): Promise<RoomPromptResult> {
+  assertConfigurationOwner();
+  let effectsStarted = false;
   try {
     const id = roomId;
     const room = getRoom(id);
@@ -35,11 +37,12 @@ export async function handleRoomPrompt(roomId: string, body: RoomPromptBody | nu
       if (typeof body?.prompt !== "string" || !body.prompt.trim()) return { status: 400, body: { error: "Prompt is required" } };
       // Only a server-issued, single-use envelope can establish source, targets, depth, and turn.
       // Client fromBot / turnId / sourceBotId / depth are never trusted.
+      effectsStarted = true;
       const envelope = typeof body.relayEnvelope === "string" ? consumeRoomRelayEnvelope(id, body.relayEnvelope) : undefined;
       if (!envelope) return { status: 403, body: { error: "A valid server relay envelope is required" } };
       const prompt = body.prompt.trim();
       const userMessage = appendRoomMessage(id, { role: "user", text: prompt, sourceBotId: envelope.sourceBotId, relayTurnId: envelope.turnId, relayDepth: envelope.depth });
-      if (!userMessage) return { status: 404, body: { error: "Room not found" } };
+      if (!userMessage) return { status: 503, body: { error: "Room会話の処理結果を確認できません" } };
       const targets = envelope.targetBotIds.map((botId) => getBot(botId)).filter((bot): bot is BotDto => Boolean(bot));
       const responses = targets.map((bot) => appendRoomMessage(id, { role: "assistant", botId: bot.id, botName: bot.name, text: "", status: "working", sourceBotId: envelope.sourceBotId, relayTurnId: envelope.turnId, relayDepth: envelope.depth, relayParentMessageId: userMessage.id })).filter((item): item is RoomMessage => Boolean(item));
       for (const [index, bot] of targets.entries()) { const response = responses[index]; if (response) void runRoomBot(room, bot, prompt, response.id, userMessage.id); }
@@ -58,10 +61,11 @@ export async function handleRoomPrompt(roomId: string, body: RoomPromptBody | nu
     if (fileRejection) return { status: 400, body: { error: fileRejection } };
     if (!body.prompt.trim() && images.length === 0 && files.length === 0) return { status: 400, body: { error: "Prompt is required" } };
     const prompt = body.prompt.trim();
+    effectsStarted = true;
     settleStaleRoomTurns(id);
     if (isRoomStopRequest(prompt)) {
       const userMessage = appendRoomMessage(id, { role: "user", text: prompt });
-      if (!userMessage) return { status: 404, body: { error: "Room not found" } };
+      if (!userMessage) return { status: 503, body: { error: "Room会話の処理結果を確認できません" } };
       const stopped = await stopRoomTurns(id);
       const cancelledHandoffs = cancelPendingRoomHandoffs(id);
       return { status: 200, body: { room: getRoom(id), routedBotIds: [], stopped: true, stoppedTurns: stopped, cancelledHandoffs } };
@@ -71,7 +75,7 @@ export async function handleRoomPrompt(roomId: string, body: RoomPromptBody | nu
     if (settleRoomHandoffs(id) > 0) void deliverReadyRoomHandoffs(id).catch(() => console.error("Room handoff delivery failed"));
     const supersededRequestId = latestRoomRequest(getRoom(id) ?? room)?.id;
     const userMessage = appendRoomMessage(id, { role: "user", text: prompt });
-    if (!userMessage) return { status: 404, body: { error: "Room not found" } };
+    if (!userMessage) return { status: 503, body: { error: "Room会話の処理結果を確認できません" } };
     abortPendingRoomOpeners(id);
     // A newer user turn supersedes prior Code outbox jobs (same finality as revert).
     if (supersededRequestId) {
@@ -131,7 +135,8 @@ export async function handleRoomPrompt(roomId: string, body: RoomPromptBody | nu
     void runRoomFanOut(room, pending, prompt, responses.map((response) => response.id), userMessage.id).catch(() => console.error("Room fan-out failed"));
     return { status: 200, body: { room: getRoom(id), routedBotIds: pending.map((bot) => bot.id), steeredBotIds: [...steered], broadcast: routed.broadcast } };
   } catch (error) {
+    if (effectsStarted) return { status: 503, body: { error: "Room会話の処理結果を確認できません" } };
     const { error: message, status } = jsonError(error);
-    return { status, body: { error: message } };
+    return { status, body: { error: status >= 500 ? "Room会話の処理結果を確認できません" : message } };
   }
 }
