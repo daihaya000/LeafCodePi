@@ -1,54 +1,8 @@
-import { NextRequest, NextResponse } from "next/server";
-import { compactTask, jsonError } from "@/lib/pi/harness";
-import { isPromptTextWithinSize } from "@/lib/prompt-images";
-import { forwardTaskCompact } from "@/lib/backend-forward";
-import { localRuntimeBlocked } from "@/lib/pi/runtime-ownership";
-
+import { NextRequest } from "next/server";
+import { relayJsonBusiness } from "@/lib/json-business-relay";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
-/** Compaction LLM calls can take several minutes. */
 export const maxDuration = 300;
-
-export async function POST(
-  req: NextRequest,
-  { params }: { params: Promise<{ id: string }> },
-) {
-  try {
-    const { id } = await params;
-    const parsed: unknown = await req.json().catch(() => null);
-    const body = parsed && typeof parsed === "object" && !Array.isArray(parsed)
-      ? parsed as { customInstructions?: unknown }
-      : null;
-    if (!body) {
-      return NextResponse.json({ error: "リクエストボディが不正です" }, { status: 400 });
-    }
-    if (body.customInstructions !== undefined && typeof body.customInstructions !== "string") {
-      return NextResponse.json({ error: "customInstructions must be a string" }, { status: 400 });
-    }
-    // This text is embedded directly into the compaction summarization prompt (see
-    // AgentSession.compact -> generateSummary's "Additional focus"), so it needs the same
-    // bound as every other endpoint that feeds user text straight into a model call.
-    if (
-      typeof body?.customInstructions === "string" &&
-      !isPromptTextWithinSize(body.customInstructions)
-    ) {
-      return NextResponse.json({ error: "本文プロンプトが長すぎます" }, { status: 413 });
-    }
-    const customInstructions = typeof body?.customInstructions === "string"
-      ? body.customInstructions
-      : undefined;
-    // Summarization runs inside the owner's session; after the cutover this process must not start it.
-    if (localRuntimeBlocked()) {
-      const forwarded = await forwardTaskCompact(id, customInstructions);
-      if (!forwarded.ok) {
-        return NextResponse.json({ error: "圧縮に失敗しました" }, { status: forwarded.status ?? 502 });
-      }
-      return NextResponse.json({ task: forwarded.task });
-    }
-    const task = await compactTask(id, customInstructions);
-    return NextResponse.json({ task });
-  } catch (error) {
-    const { error: message, status } = jsonError(error);
-    return NextResponse.json({ error: message }, { status });
-  }
+export async function POST(req: NextRequest, context: { params: Promise<{ id: string }> }) {
+  return relayJsonBusiness(req, `tasks/${encodeURIComponent((await context.params).id)}/compact`);
 }

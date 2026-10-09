@@ -46,9 +46,6 @@ export {
   refreshLiveSessionsForAgentDefinition,
   handoffTaskToBot,
   releaseTaskFromBot,
-  // Compaction summarizes inside the session, so only the owner may run or stop it.
-  compactTask,
-  abortTaskCompaction,
 } from "@/lib/pi/harness";
 // Stopping a Bot Code request also updates the outbox, which the owning process must do.
 export { cancelBotCodeRequests, isRoomDelegatedCodeTask, stopBotCodeRequest } from "@/lib/pi/bot-code-relay";
@@ -84,6 +81,8 @@ export { isGoalLoopSessionOwned, readGoalLoopState } from "@/lib/pi/goal-loop-st
 export { startGoalLoopWithSelection } from "@/lib/pi/goal-loop-start";
 export { startBotGoalLoop } from "@/lib/pi/bot-goal-loop-start";
 export { handleTaskPrompt } from "@/lib/pi/task-prompt";
+// Compaction guards run before loading a session or touching its summarizer/abort state.
+export { compactTask, abortTaskCompaction } from "../task-compaction";
 // Tree edits and workspace promotion are guarded before SDK/cache/filesystem effects.
 export { forkTask, revertTask, unrevertTask, promoteTask } from "../task-session";
 // PRIVATE startup API: the provider must share the harness's bundled module instance.

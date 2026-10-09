@@ -11,6 +11,8 @@ import { usageTarget } from "@shared/usage-contract.mjs";
 import { dispatchUsageRequest } from "./usage";
 import { peerTarget } from "@shared/peer-contract.mjs";
 import { dispatchPeerRequest } from "./peer";
+import { taskCompactionTarget } from "@shared/task-compaction-contract.mjs";
+import { dispatchTaskCompactionRequest } from "./task-compaction";
 import { taskSessionTarget } from "@shared/task-session-contract.mjs";
 import { dispatchTaskSessionRequest } from "./task-session";
 import { taskGoalLoopTarget } from "@shared/task-goal-loop-contract.mjs";
@@ -61,6 +63,8 @@ export async function dispatchJsonBusinessRequest(input: JsonBusinessInput): Pro
   const request = configurationRequest(new Request(input.url, { method: input.method, headers: input.headers,
     signal, ...(input.body?.byteLength ? { body: new Uint8Array(input.body).slice().buffer } : {}) }), input.authorized);
   if (input.method !== "GET" && isCrossOriginRequest(request)) return { status: 403, headers: {}, body: { error: "Cross-origin request refused" } };
+  const compaction = taskCompactionTarget(input.route);
+  if (compaction) return dispatchTaskCompactionRequest(input, request, compaction);
   const session = taskSessionTarget(input.route);
   if (session) return dispatchTaskSessionRequest(input, request, session);
   const goal = taskGoalLoopTarget(input.route);

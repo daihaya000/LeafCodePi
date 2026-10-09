@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { spawn, spawnSync } from "node:child_process";
 import { randomBytes } from "node:crypto";
+import { createServer } from "node:http";
 import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
@@ -69,15 +70,34 @@ export default function(api) {
   }
 }
 `,"utf8");
-  // Fixture-only catalog. Selection/session settings never prompt this unreachable endpoint.
-  writeFileSync(join(agent,"models.json"),JSON.stringify({providers:{"fixture-local":{baseUrl:"http://127.0.0.1:9/v1",apiKey:"fixture-only-not-a-real-key",api:"openai-completions",models:[{id:"fixture-model",name:"Fixture",reasoning:true,input:["text"],contextWindow:32768,maxTokens:1024,cost:{input:0,output:0,cacheRead:0,cacheWrite:0}}]}}}));
+  // Fixture-only local SSE responder exercises the real SDK summarizer and abort without paid/external generation.
+  let compactRequests=0,compactHoldEntered=false,compactHoldClosed=false,compactFocusSeen=false;
+  const compactFocus="Fixture compaction authored 日本語",compactSummary="Fixture durable compaction summary 日本語";
+  const compactProvider=createServer((req,res)=>{
+    let text="";req.setEncoding("utf8");req.on("data",chunk=>{text+=chunk;});req.on("end",()=>{
+      compactRequests++;compactFocusSeen ||= text.includes(compactFocus);
+      if(text.includes("FIXTURE-HOLD-COMPACTION")){compactHoldEntered=true;res.on("close",()=>{compactHoldClosed=true;});return;}
+      res.writeHead(200,{"content-type":"text/event-stream"});
+      const packet=(choices,usage)=>({id:"fixture-summary",object:"chat.completion.chunk",created:1,model:"fixture-compactor",choices,...(usage?{usage}:{})});
+      res.write("data: "+JSON.stringify(packet([{index:0,delta:{role:"assistant",content:compactSummary},finish_reason:null}]))+"\n\n");
+      res.write("data: "+JSON.stringify(packet([{index:0,delta:{},finish_reason:"stop"}],{prompt_tokens:100,completion_tokens:10,total_tokens:110}))+"\n\n");res.end("data: [DONE]\n\n");
+    });
+  });
+  await new Promise(done=>compactProvider.listen(0,"127.0.0.1",done));
+  t.after(async()=>{compactProvider.closeAllConnections();await new Promise(done=>compactProvider.close(done));});
+  const compactBase=`http://127.0.0.1:${compactProvider.address().port}/v1`;
+  writeFileSync(join(agent,"settings.json"),JSON.stringify({compaction:{keepRecentTokens:256},packages:[]}));
+  // Ordinary prompt still targets the unreachable endpoint. Only explicit compaction uses the local responder.
+  writeFileSync(join(agent,"models.json"),JSON.stringify({providers:{"fixture-local":{baseUrl:"http://127.0.0.1:9/v1",apiKey:"fixture-only-not-a-real-key",api:"openai-completions",models:[{id:"fixture-model",name:"Fixture",reasoning:true,input:["text"],contextWindow:32768,maxTokens:1024,cost:{input:0,output:0,cacheRead:0,cacheWrite:0}}]},"fixture-compactor":{baseUrl:compactBase,apiKey:"fixture-only-not-a-real-key",api:"openai-completions",models:[{id:"fixture-compactor",name:"Fixture compactor",reasoning:false,input:["text"],contextWindow:32768,maxTokens:4096,cost:{input:0,output:0,cacheRead:0,cacheWrite:0}}]}}}));
   const individualSessionFile = join(fixture, "individual-session.jsonl");
   writeFileSync(individualSessionFile, [JSON.stringify({ type: "session", version: 3, id: "isolated-session", cwd: fixture, timestamp: new Date().toISOString() }), ...Array.from({ length: 205 }, (_, i) => JSON.stringify({ type: "message", id: `ui${i}`, parentId: i ? `ui${i-1}` : null, timestamp: new Date().toISOString(), message: { role: "user", content: [{ type: "text", text: `isolated line ${i}` }], timestamp: i } }))].join("\n") + "\n", "utf8");
+  const compactSessionFile=join(fixture,"fixture-compaction-session.jsonl");
+  writeFileSync(compactSessionFile,[{type:"session",version:3,id:"fixture-compaction-session",cwd:fixture,timestamp:new Date().toISOString()},...Array.from({length:32},(_,i)=>({type:"message",id:`compact-${i}`,parentId:i?`compact-${i-1}`:null,timestamp:new Date().toISOString(),message:i%2?{role:"assistant",content:[{type:"text",text:"Fixture history decision ".repeat(100)}],api:"openai-completions",provider:"fixture-compactor",model:"fixture-compactor",usage:{input:100,output:10,cacheRead:0,cacheWrite:0,totalTokens:110,cost:{input:0,output:0,cacheRead:0,cacheWrite:0,total:0}},stopReason:"stop",timestamp:i}:{role:"user",content:"Fixture history goal ".repeat(100),timestamp:i}}))].map(row=>JSON.stringify(row)).join("\n")+"\n");
   const promotionSource = join(fixture,"workspaces","session-promotion-source"), promotionDestination = join(fixture,"session-promoted");
   mkdirSync(promotionSource,{recursive:true});writeFileSync(join(promotionSource,"keep-promotion.txt"),"fixture workspace 日本語");
   const promotionSessionFile=join(promotionSource,"promotion-session.jsonl");
   writeFileSync(promotionSessionFile,[{type:"session",version:3,id:"promotion-session",cwd:promotionSource,timestamp:new Date().toISOString()},{type:"message",id:"promotion-input",parentId:null,timestamp:new Date().toISOString(),message:{role:"user",content:"promotion authored text",timestamp:1}}].map(row=>JSON.stringify(row)).join("\n")+"\n");
-  writeFileSync(join(data, "store.json"), JSON.stringify({ version: 1, projects: [{ id: "fixture-project", name: "Fixture", rootPath: join(fixture, "workspaces"), archived: false, createdAt: "2026-01-01T00:00:00.000Z", updatedAt: "2026-01-01T00:00:00.000Z" }], tasks: [{id:"session-promotion-task",projectId:null,projectName:"",title:"Fixture promotion",directory:promotionSource,isolation:"current_folder",status:"idle",sessionId:"promotion-session",sessionFile:promotionSessionFile,providerID:"fixture-local",modelID:"fixture-model",createdAt:new Date().toISOString(),updatedAt:new Date().toISOString()}, {
+  writeFileSync(join(data, "store.json"), JSON.stringify({ version: 1, projects: [{ id: "fixture-project", name: "Fixture", rootPath: join(fixture, "workspaces"), archived: false, createdAt: "2026-01-01T00:00:00.000Z", updatedAt: "2026-01-01T00:00:00.000Z" }], tasks: [{id:"compaction-task",projectId:"fixture-project",projectName:"Fixture",title:"Fixture compaction",directory:fixture,isolation:"current_folder",status:"idle",sessionId:"fixture-compaction-session",sessionFile:compactSessionFile,providerID:"fixture-compactor",modelID:"fixture-compactor",createdAt:new Date().toISOString(),updatedAt:new Date().toISOString()}, {id:"session-promotion-task",projectId:null,projectName:"",title:"Fixture promotion",directory:promotionSource,isolation:"current_folder",status:"idle",sessionId:"promotion-session",sessionFile:promotionSessionFile,providerID:"fixture-local",modelID:"fixture-model",createdAt:new Date().toISOString(),updatedAt:new Date().toISOString()}, {
     id: "independent-task", projectId: null, projectName: "test", title: "Backend-owned task", directory: fixture,
     isolation: "current_folder", status: "idle", sessionId: null, sessionFile: null,
     createdAt: "2026-01-01T00:00:00.000Z", updatedAt: new Date().toISOString(),
@@ -301,6 +321,17 @@ export default function(api) {
   assert.equal((await business("goal-loop/active",undefined)).body.taskIds.includes("individual-task"),false);
   assert.equal((await business(goalPath,{action:"start",goal:goalText},"",{"x-leafcode-business-operation":goalStartId})).status,409);
   const goalLedger=readFileSync(join(data,"task-goal-loop-command.json"),"utf8");assert.ok(!goalLedger.includes(goalText));assert.ok(!goalLedger.includes("PRIVATE-GOAL-TOKEN"));
+  // Compaction start and abort are real concurrent HTTP/SDK operations. Cold abort must not hydrate a session.
+  const compactColdAbortId="aaaaaaaa-8901-4321-abcd-eeeeeeeeeeee",compactCancelId="abababab-8901-4321-abcd-eeeeeeeeeeee",compactAbortId="bcbcbcbc-8901-4321-abcd-eeeeeeeeeeee",compactSuccessId="cdcdcdcd-8901-4321-abcd-eeeeeeeeeeee";
+  const coldCompactAbort=await business("tasks/compaction-task/compact/abort",{},"",{"x-leafcode-business-operation":compactColdAbortId});assert.equal(coldCompactAbort.status,404);assert.equal(compactRequests,0);
+  const compactCancelled=business("tasks/compaction-task/compact",{customInstructions:"FIXTURE-HOLD-COMPACTION"},"",{"x-leafcode-business-operation":compactCancelId});
+  const compactWait=Date.now()+3000;while(!compactHoldEntered&&Date.now()<compactWait)await delay(10);assert.ok(compactHoldEntered,"Fixture summarizer was not entered");
+  const compactAborted=await business("tasks/compaction-task/compact/abort",{},"",{"x-leafcode-business-operation":compactAbortId});assert.equal(compactAborted.status,200,JSON.stringify(compactAborted));assert.equal(compactAborted.body.operation.execution,"complete");
+  const cancelledCompaction=await compactCancelled;assert.equal(cancelledCompaction.status,400,JSON.stringify(cancelledCompaction));assert.equal(cancelledCompaction.body.operation.execution,"complete");
+  const closeWait=Date.now()+1000;while(!compactHoldClosed&&Date.now()<closeWait)await delay(10);assert.ok(compactHoldClosed);assert.ok(!readFileSync(compactSessionFile,"utf8").includes('"type":"compaction"'));
+  const compactCompleted=await business("tasks/compaction-task/compact",{customInstructions:compactFocus},"",{"x-leafcode-business-operation":compactSuccessId});assert.equal(compactCompleted.status,200,JSON.stringify(compactCompleted));assert.equal(compactCompleted.body.operation.execution,"complete");assert.equal(compactCompleted.body.task.isCompacting,false);assert.ok(JSON.stringify(compactCompleted.body.task.messages).includes(compactSummary));assert.ok(compactFocusSeen);assert.equal(compactRequests,2);
+  const persistedCompaction=readFileSync(compactSessionFile,"utf8").trim().split("\n").map(line=>JSON.parse(line)).filter(row=>row.type==="compaction");assert.equal(persistedCompaction.length,1);assert.equal(persistedCompaction[0].summary,compactSummary);
+  const compactLedger=readFileSync(join(data,"task-compaction-command.json"),"utf8");assert.ok(!compactLedger.includes(compactFocus));assert.ok(!compactLedger.includes("FIXTURE-HOLD-COMPACTION"));
   // State-only Goal commands may retain the SDK task lease; the real Stop settles it before tree edits.
   const beforeTreeStop=await business("tasks/individual-task/abort",{},"",{"x-leafcode-business-operation":"aaaaaaaa-7890-4321-abcd-eeeeeeeeeeee"});assert.equal(beforeTreeStop.status,200,JSON.stringify(beforeTreeStop));
   // Real SessionManager operations: branch/revert/restore/promotion need no model generation or tool.
@@ -406,6 +437,10 @@ export default function(api) {
   const settingsReplay = await fetch(`${restartedBase}/internal/json-business/tasks/individual-task/model`,{method:"POST",headers:{...businessHeaders,"x-leafcode-business-operation":taskSettingsModelId},body:JSON.stringify({model:"fixture-local::fixture-model"}),signal:AbortSignal.timeout(3000)}); assert.equal((await settingsReplay.json()).status,409);
   const autoReplay = await fetch(`${restartedBase}/internal/json-business/tasks/individual-task/goal-loop-auto-model`,{method:"PUT",headers:{...businessHeaders,"x-leafcode-business-operation":taskSettingsAutoId},body:JSON.stringify({enabled:true}),signal:AbortSignal.timeout(3000)}); assert.equal((await autoReplay.json()).status,409);
   const disableAuto = await fetch(`${restartedBase}/internal/json-business/tasks/individual-task/goal-loop-auto-model`,{method:"PUT",headers:{...businessHeaders,"x-leafcode-business-operation":"abababab-5678-4321-abcd-eeeeeeeeeeee"},body:JSON.stringify({enabled:false}),signal:AbortSignal.timeout(3000)}); assert.equal((await disableAuto.json()).body.enabled,false); assert.equal(JSON.parse(readFileSync(savedPath,"utf8"))["goal-loop-auto-model:individual-task"],undefined);
+  for(const [path,id] of [["tasks/compaction-task/compact",compactSuccessId],["tasks/compaction-task/compact",compactCancelId],["tasks/compaction-task/compact/abort",compactAbortId],["tasks/compaction-task/compact/abort",compactColdAbortId]]){
+    const replay=await fetch(`${restartedBase}/internal/json-business/${path}`,{method:"POST",headers:{...businessHeaders,"x-leafcode-business-operation":id},body:JSON.stringify({customInstructions:"NO-REPLAY"}),signal:AbortSignal.timeout(3000)});assert.equal((await replay.json()).status,409);
+  }
+  const compactAfterRestart=await fetch(`${restartedBase}/internal/json-business/tasks/compaction-task`,{headers:businessHeaders,signal:AbortSignal.timeout(5000)});const restoredCompaction=(await compactAfterRestart.json()).body.task;assert.ok(JSON.stringify(restoredCompaction.messages).includes(compactSummary));assert.equal(restoredCompaction.isCompacting,false);assert.equal(compactRequests,2);
   for(const [path,id] of [["tasks/individual-task/fork",forkOperation],[`tasks/${forkTaskId}/revert`,revertOperation],[`tasks/${forkTaskId}/unrevert`,unrevertOperation],["tasks/session-promotion-task/promote",promotionOperation]]) {
     const replay=await fetch(`${restartedBase}/internal/json-business/${path}`,{method:"POST",headers:{...businessHeaders,"x-leafcode-business-operation":id},body:JSON.stringify({entryId:"ui0",destinationPath:promotionDestination}),signal:AbortSignal.timeout(5000)});assert.equal((await replay.json()).status,409);
   }

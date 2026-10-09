@@ -24,6 +24,9 @@ import { POST as selectTaskAgent } from "../app/api/tasks/[id]/agent/route";
 import { PUT as selectGoalAuto } from "../app/api/tasks/[id]/goal-loop-auto-model/route";
 import { GET as readTaskGoal, POST as startTaskGoal, PATCH as controlTaskGoal } from "../app/api/tasks/[id]/goal-loop/route";
 import { GET as activeTaskGoals } from "../app/api/goal-loop/active/route";
+import { POST as compactSession } from "../app/api/tasks/[id]/compact/route";
+import { POST as abortCompaction } from "../app/api/tasks/[id]/compact/abort/route";
+import { TASK_COMPACTION_BODY_LIMIT } from "@shared/task-compaction-contract.mjs";
 import { POST as forkSession } from "../app/api/tasks/[id]/fork/route";
 import { POST as revertSession } from "../app/api/tasks/[id]/revert/route";
 import { POST as unrevertSession } from "../app/api/tasks/[id]/unrevert/route";
@@ -45,6 +48,26 @@ beforeEach(() => {
 });
 afterEach(() => { vi.restoreAllMocks(); vi.unstubAllGlobals(); vi.unstubAllEnvs(); rmSync(root, { recursive: true, force: true }); });
 describe("JSON business ingress", () => {
+  it("actual compaction start/abort relay opaque focus, preserve cancellation state and require matching ACK",async()=>{
+    const context={params:Promise.resolve({id:"bot:fixture"})},task={id:"bot:fixture",status:"idle",isStreaming:false,isCompacting:true,messages:[],token:"PRIVATE"};
+    for(const [action,handler] of [["compact",compactSession],["compact/abort",abortCompaction]] as const){
+      const body='{"customInstructions":"日本語","model":"forged","unknownField":42}';
+      fetcher.mockImplementationOnce(async(_url,init)=>Response.json({status:200,body:{task,operation:{id:new Headers(init.headers).get("x-leafcode-business-operation"),execution:"complete"},token:"PRIVATE"}}));
+      const response=await handler(new NextRequest(`http://localhost/api/tasks/bot%3Afixture/${action}`,{method:"POST",body}),context);expect(response.status).toBe(200);
+      const dto=await response.json();expect(dto.task.isCompacting).toBe(true);expect(JSON.stringify(dto)).not.toContain("PRIVATE");expect(new TextDecoder().decode(fetcher.mock.calls.at(-1)![1].body)).toBe(body);expect(fetcher.mock.calls.at(-1)![0]).toContain(`/tasks/bot%3Afixture/${action}`);
+      for(const operation of [undefined,{id:"aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee",execution:"complete"}]){
+        fetcher.mockResolvedValueOnce(Response.json({status:200,body:{task,operation}}));const failed=await handler(new NextRequest(`http://localhost/api/tasks/t/${action}`,{method:"POST",body:"{}"}),context);expect(failed.status).toBe(503);expect((await failed.json()).execution).toBe("unknown");
+      }
+    }
+    expect(fetcher).toHaveBeenCalledTimes(6);expect(readdirSync(root)).toEqual([]);
+  });
+  it("compaction start supports escaped 32k focus, abort stays 4KiB, and auth/Origin precede forwarding",async()=>{
+    const context={params:Promise.resolve({id:"t"})};
+    expect((await compactSession(new NextRequest("http://localhost/api/tasks/t/compact",{method:"POST",body:"x".repeat(TASK_COMPACTION_BODY_LIMIT+1)}),context)).status).toBe(413);
+    expect((await abortCompaction(new NextRequest("http://localhost/api/tasks/t/compact/abort",{method:"POST",body:"x".repeat(4097)}),context)).status).toBe(413);
+    expect((await compactSession(new NextRequest("http://localhost/api/tasks/t/compact",{method:"POST",body:"{}",headers:{origin:"https://evil.test"}}),context)).status).toBe(403);
+    vi.stubEnv("LEAFCODE_PI_WEBUI_AUTH","required");expect((await abortCompaction(new NextRequest("http://localhost/api/tasks/t/compact/abort",{method:"POST",body:"{}"}),context)).status).toBe(401);expect(fetcher).not.toHaveBeenCalled();expect(readdirSync(root)).toEqual([]);
+  });
   it("session routes relay opaque bodies, require matching ACKs, retain draft/project warning and reject private fields",async()=>{
     const context={params:Promise.resolve({id:"bot:fixture"})},task={id:"bot:fixture",status:"idle",token:"PRIVATE"},detail={...task,isStreaming:false,messages:[]};
     for(const [action,handler] of [["fork",forkSession],["revert",revertSession],["unrevert",unrevertSession],["promote",promoteSession]] as const) {

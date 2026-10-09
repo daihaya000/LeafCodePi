@@ -2,9 +2,9 @@
 
 ## 進捗・範囲
 
-Phase3全体は未完了。Phase0のBackend/Phase3/JSON分類は118経路・182操作。Git・Diff・コミット文生成13経路・14操作、定義管理14経路・25操作、Provider/モデル設定7経路・8操作、Provider認証JSON4経路・5操作、アカウント管理/資格情報9経路・19操作、利用量/クレジット3経路・5操作、Peer認証共有5経路・9操作、Workspaceファイル/次タスク提案3経路・3操作、Project lifecycle1経路・4操作、Task collection1経路・3操作、個別Task lifecycle2経路・4操作、Task履歴/検索/bookmark3経路・5操作、Task実行設定4経路・4操作、Task送信/対話応答3経路・3操作、Goal制御2経路・4操作、Task会話編集/昇格4経路・4操作の合計78経路・119操作の境界を移管した。認証に付随するログインSSE 1経路・1操作も同じownerへ移管した（Phase3 JSONの集計には加算しない）。残る40経路・63操作には既存Backend中継も含まれ、受入条件の確認・残存業務処理の移管が必要。
+Phase3全体は未完了。Phase0のBackend/Phase3/JSON分類は118経路・182操作。Git・Diff・コミット文生成13経路・14操作、定義管理14経路・25操作、Provider/モデル設定7経路・8操作、Provider認証JSON4経路・5操作、アカウント管理/資格情報9経路・19操作、利用量/クレジット3経路・5操作、Peer認証共有5経路・9操作、Workspaceファイル/次タスク提案3経路・3操作、Project lifecycle1経路・4操作、Task collection1経路・3操作、個別Task lifecycle2経路・4操作、Task履歴/検索/bookmark3経路・5操作、Task実行設定4経路・4操作、Task送信/対話応答3経路・3操作、Goal制御2経路・4操作、Task会話編集/昇格4経路・4操作、Task compaction2経路・2操作の合計80経路・121操作の境界を移管した。認証に付随するログインSSE 1経路・1操作も同じownerへ移管した（Phase3 JSONの集計には加算しない）。残る38経路・61操作には既存Backend中継も含まれ、受入条件の確認・残存業務処理の移管が必要。
 
-以下は第1区切り（Git・Diff・コミット文生成）の記録。第2区切りの定義管理、第3区切りのProvider/モデル設定、第4区切りのProvider認証、第5区切りのアカウント管理/資格情報、第6区切りの利用量/クレジット、第7区切りのPeer認証共有、第8区切りのWorkspaceファイル/次タスク提案、第9区切りのProject lifecycle、第10区切りのTask collection、第11区切りの個別Task lifecycle、第12区切りのTask履歴/検索/bookmark、第13区切りのTask実行設定、第14区切りのTask送信/対話応答、第15区切りのGoal制御、第16区切りのTask会話編集/昇格は末尾に記載する。
+以下は第1区切り（Git・Diff・コミット文生成）の記録。第2区切りの定義管理、第3区切りのProvider/モデル設定、第4区切りのProvider認証、第5区切りのアカウント管理/資格情報、第6区切りの利用量/クレジット、第7区切りのPeer認証共有、第8区切りのWorkspaceファイル/次タスク提案、第9区切りのProject lifecycle、第10区切りのTask collection、第11区切りの個別Task lifecycle、第12区切りのTask履歴/検索/bookmark、第13区切りのTask実行設定、第14区切りのTask送信/対話応答、第15区切りのGoal制御、第16区切りのTask会話編集/昇格、第17区切りのTask compactionは末尾に記載する。
 
 | 経路 | 操作 |
 | --- | --- |
@@ -283,4 +283,18 @@ Phase3全体は未完了。Phase0のBackend/Phase3/JSON分類は118経路・182�
 - Backend/Web typecheck、Backend強制ビルド7,092 KiB成功。Webのない隔離実Backendで100件の祖先だけを分岐し、元ファイル不変、巻戻し→復元、実workspace/SessionManager昇格・元workspace削除・保存後の実再起動、全4 operation IDのreplay拒否、cold復元markerの消去、移動先ファイル保持とledger非記録を確認（10.5秒）。有料生成・実tool実行・稼働ユーザーTask/資格情報/サービスへの操作は行わない。
 - 原因: 旧境界期待値とfixture前提。Next SDK入口19→16を反映し、Web typecheckの新owner alias参照を相対参照へ修正。事前fixture workspaceのmkdirを再帰化し、state-only Goal command後は実Stopでleaseを解放してからforkする。
 - 既存制約（今回未修正）: SDK `branch()/navigateTree()`は次のappendまで選択leafをメモリ内だけで保持するため、巻戻し後に何もappendせずBackendを再起動すると旧branchの履歴へ戻る。実fixtureで100→50→再起動100を観測し、SDK実装を確認した。保存済みundo markerと再起動後の復元/marker消去は確認済み。選択leafの永続化を本移管の成功条件・成果として偽装しない。
-- 開始時の他者差分7ファイルを保持し、既存SDK routing待機timeoutを解消したとは扱わない。Phase3全体は未完了で、compaction・進行補助・supervisor・Bot業務等40経路・63操作が残る。
+- 開始時の他者差分7ファイルを保持し、既存SDK routing待機timeoutを解消したとは扱わない。第16区切り時点ではPhase3全体は未完了で、compaction・進行補助・supervisor・Bot業務等40経路・63操作が残る。
+
+## 第17区切り: Task compaction（2経路・2操作）
+
+- `tasks/[id]/compact`と`tasks/[id]/compact/abort` POSTをBackendへ移管。Nextは単一relay returnとparamsのencodeのみ。入力の形/型・32,000 Unicode code points上限、圧縮/取消・SDKモデル選択/設定・checkpoint・Task詳細はownerが担当する。開始の`maxDuration=300`と5分の中継timeout、中止の既存10秒timeoutを維持する。
+- 開始はJSON control escapeの最悪値192,000 bytesも許容する192 KiB、中止は4 KiBの実byte上限。ASCII/日本語/絵文字/制御文字の最大値と超過を検証し、Nextでfocusを解釈しない。HTTPのmodel/account/Agent/Bot/内部権限指定はSDKへ渡さず、既存の設定済みsummarizer・single-pass・Jev/モデルfallback・history不足/既圧縮/取消/busy拒否を維持する。
+- 専用`lib/task-compaction.ts`とBackend runtime entryにowner guardを設け、Nextをcold session生成/cache/FS/model/abortより前に拒否する。中止はcold Taskをhydrateせず、live session不在は404。専用`task-compaction-command.json`のconcurrent admissionにより、圧縮がprovider待機中でも中止を受付する。128件ledger、実行前unknown checkpoint、再起動後replay拒否、disconnect非取消とACK照合を再利用する。
+- 深いTaskDetail/summary/checkpoint UIとisCompactingを投影し、任意SDK/資格情報/ヘッダーを除去する。不正なSDK成功DTOはcheckpoint前に503/unknown。completeは要求処理の終了であり、abort後に非協調providerが終了したことや原子的保存・無期限exactly-onceを保証しない。abort ACK時にisCompacting=trueでも既存SDK状態を保持し、偽の完了へ書き換えない。
+
+### 第17区切りの検証結果
+
+- owner/2 relay handler/実BFF/ownership50件、SDK/controller/モデル/Jev/single-pass58件、Core/契約/HTTP transport/AST/bundle111件、独立fixture1件、重複なしの対象220件が成功。全体スイートは今回再実行していない。
+- Backend/Web typecheck、Backend強制ビルド7,097 KiB成功。Webなしの隔離実Backend/SDK/ローカルSSE responderで、cold abort404・provider待機中の実中止・socket切断・取消400・取消時checkpointなし、その後の圧縮成功・focus反映・1件のSDK checkpoint保存とUI表示・ledger非記録・実再起動後のsummary/非圧縮中状態・開始/中止双方のreplay拒否を確認（11.1秒）。応答はfixture専用の固定textで、有料/外部生成・実tool実行・稼働ユーザーTask/資格情報/サービスへの操作は行わない。
+- 原因: 境界検証の既存SDK入口数が移管後に減少するため、16→14と対象ルート一覧を更新した。レビューで検出したtestの行末空白を除去し、差分検査と対象テストを再実行した。
+- 並行差分7ファイルと第16区切りで記録したSDK selected-leaf永続化の既存制約を保持する。既存SDK routing timeoutを今回解消したとは扱わない。Phase3全体は未完了で、進行補助・supervisor・Bot業務等38経路・61操作が残る。

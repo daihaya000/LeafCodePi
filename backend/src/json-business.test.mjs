@@ -40,6 +40,18 @@ test("session transport enforces 4KiB, authorized context and operation IDs for 
  }
  assert.equal(calls,4);
 });
+test("compaction transport preserves escaped-focus budget and rejects oversized abort/malformed SDK success",async t=>{
+ let calls=0;
+ const f=await fixture(t,{jsonBusinessRequestAction:async input=>{
+  calls++;assert.equal(input.signal,undefined);
+  if(input.route.endsWith("/abort"))return {status:200,body:{task:{id:"t"}}};
+  assert.ok(input.body.byteLength>4096);return {status:400,headers:{},body:{error:"owner focus validation",operation:{id:input.operationId,execution:"complete"}}};
+ }});
+ const headers={...f.headers,"x-leafcode-business-operation":"aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"},url=`${f.base}/tasks/t/compact`;
+ assert.equal((await request(url,{method:"POST",headers,body:"x".repeat(192*1024+1)})).status,413);assert.equal((await request(url+"/abort",{method:"POST",headers,body:"x".repeat(4097)})).status,413);assert.equal(calls,0);
+ const focus=JSON.stringify({customInstructions:"\u0000".repeat(32000)});const admitted=await request(url,{method:"POST",headers,body:focus});assert.equal(admitted.status,200);assert.equal((await admitted.json()).status,400);
+ assert.equal((await request(url+"/abort",{method:"POST",headers,body:"{}"})).status,503);assert.equal(calls,2);
+});
 test("Goal transport distinguishes start/control budgets and nullable reads from malformed command success",async t=>{
  let calls=0;
  const f=await fixture(t,{jsonBusinessRequestAction:async input=>{calls++;if(input.method==="GET")return {status:200,headers:{},body:{loop:null}};if(input.body.length>4096)return {status:400,headers:{},body:{error:"opaque large start",operation:{id:input.operationId,execution:"complete"}}};return {status:200,headers:{},body:{loop:null,operation:{id:input.operationId,execution:"complete"}}};}});
