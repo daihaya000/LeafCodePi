@@ -19,7 +19,7 @@ import {
   blockedWhenClosedReason,
   buildStateNote,
   buildStopMessage,
-  classifyClosingShellCommand,
+  classifyReviewShellCommand,
   isShellTool,
 } from "./enforcement.ts";
 import { normalizeTodos, type TodoItem } from "./state.ts";
@@ -33,6 +33,8 @@ export type TodoDetails = {
   todos: TodoItem[];
   updatedAt: string;
   error?: string;
+  /** Independent of item statuses; exposed before a report, not only at settlement. */
+  reviewRequired?: boolean;
 };
 
 const MAX_TODOS = 100;
@@ -367,8 +369,8 @@ export default function (pi: ExtensionAPI): void {
     const action = classifyToolForTodoGate(event.toolName, event.input);
     if (action === "allow" || !gateEnabled()) return;
     const shellPhase = isShellTool(event.toolName)
-      ? classifyClosingShellCommand(asRecord(event.input)?.command, event.toolName) : undefined;
-    const requiresReview = action === "block" && shellPhase !== "confirmation";
+      ? classifyReviewShellCommand(asRecord(event.input)?.command, event.toolName) : undefined;
+    const requiresReview = action === "block" && shellPhase !== "confirmation" && shellPhase !== "verification";
 
     // Use one admission path both before and after awaiting the shared judgment.
     // The list may have completed, or other waiting calls may have spent the waiver budget.
@@ -453,7 +455,7 @@ export default function (pi: ExtensionAPI): void {
   // Keeps the live list in front of the model on every request (survives compaction).
   pi.on("context", (event) => {
     if (!gateEnabled()) return;
-    const note = gate.openedThisTask ? buildStateNote(todos)
+    const note = gate.openedThisTask ? buildStateNote(todos, gate.reviewRequired)
       : gate.waived && gate.waivedMutations < WAIVER_MUTATION_LIMIT ? undefined
         : "[ToDo開始ゲート] 変更・shell・委譲・未分類ツールは未公開。複数手順の作業は先に todowrite で1件を in_progress に登録すると解放される。質問・説明・単発の判定には起票不要。ツールが必要なら実行を推測せず先に起票する。";
     if (!note) return;
@@ -539,6 +541,7 @@ export default function (pi: ExtensionAPI): void {
       "Call todowrite directly, not inside codemode. Direct tool results preserve the list for reload and UI.",
       "After all ToDos and review are completed, normal bash/powershell are hidden and blocked. Use git_finalize for restricted Git commit/confirmation, or register a new in_progress ToDo before further work.",
       "Update the list at every step: mark the finished item completed and set the next item in_progress when you start it. Never batch status changes to the end of the task.",
+      "Before the final report, resolve any reviewRequired warning returned by todowrite. Completed item statuses alone do not prove review completion. Recognized direct verification commands preserve a review; edits, opaque scripts and unsupported shell commands require re-review.",
       "Skip the list for a question, explanation, single lookup, discussion, standalone judgment call, control-tool use, or one small self-contained action. If the ToDo gate stops a tool call anyway, register the list and retry the call.",
     ],
     // The gate opens from execute(); serialize this tool so a same-batch edit
@@ -591,12 +594,17 @@ export default function (pi: ExtensionAPI): void {
       const details = {
         todos: [...todos],
         updatedAt: new Date().toISOString(),
+        reviewRequired: gate.reviewRequired,
       } satisfies TodoDetails;
+      // Report the hidden audit state now, before the model emits a final answer. The
+      // settlement hook remains a bounded fallback, not the first place it is discovered.
+      const closingNote = gate.openedThisTask && !hasInProgress() && !todos.some((todo) => todo.status === "pending")
+        ? buildStateNote(todos, gate.reviewRequired) : undefined;
       publishVisibility(ctx);
       refreshVisibility();
       updateTui(ctx, todos);
       return {
-        content: [{ type: "text", text: `${todoSummary(todos)} を更新しました。` }],
+        content: [{ type: "text", text: `${todoSummary(todos)} を更新しました。${closingNote ? `\n${closingNote}` : ""}` }],
         details,
       };
     },

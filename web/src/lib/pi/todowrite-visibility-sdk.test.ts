@@ -125,6 +125,45 @@ it("hides mutations on the actual first request, reveals only after a valid acti
   await session.prompt("Another request");
 }, 20_000);
 
+it("finishes a review containing shell verification with exactly one final report and no ToDo continuation", async () => {
+  const { session, faux, gitRuns } = await fixture({ shell: true });
+  faux.setResponses([
+    call("todowrite", { todos: work }),
+    call("codemode", { code: "return await tools.future_mutation({});" }),
+    call("todowrite", { todos: review }),
+    call("codemode", { code: 'return await tools.powershell({command: "cd web; npx vitest run src/example.test.ts --reporter=dot"});' }),
+    call("todowrite", { todos: done }),
+    () => fauxAssistantMessage("Final report"),
+  ]);
+  await session.prompt("Implement, review and verify the change");
+  expect(gitRuns()).toBe(1);
+  expect(session.messages.filter((message) => message.role === "assistant" && message.stopReason !== "toolUse")).toHaveLength(1);
+  expect(session.messages.some((message) => message.role === "custom" && message.customType === "leafcode-todowrite-stop")).toBe(false);
+  const lastTodo = session.messages.filter((message) => message.role === "toolResult" && message.toolName === "todowrite").at(-1);
+  expect(lastTodo?.role === "toolResult" && lastTodo.details).toMatchObject({ reviewRequired: false });
+}, 20_000);
+
+it("exposes stale review completion in the tool result and request before the final report", async () => {
+  const { session, faux } = await fixture();
+  faux.setResponses([
+    call("todowrite", { todos: review }),
+    call("codemode", { code: "return await tools.future_mutation({});" }),
+    call("todowrite", { todos: done }),
+    (context) => {
+      const result = context.messages.filter((message) => message.role === "toolResult" && message.toolName === "todowrite").at(-1);
+      expect(JSON.stringify(result)).toContain("最終報告はまだ行わない");
+      expect(JSON.stringify(context.messages.at(-1))).toContain("レビュー未完了");
+      // Correct the audit without emitting a provisional completion report or rerunning tests.
+      return call("todowrite", { todos: review });
+    },
+    call("todowrite", { todos: done }),
+    fauxAssistantMessage("Final report"),
+  ]);
+  await session.prompt("Review a change and handle a subsequent mutation");
+  expect(session.messages.filter((message) => message.role === "assistant" && message.stopReason !== "toolUse")).toHaveLength(1);
+  expect(session.messages.some((message) => message.role === "custom" && message.customType === "leafcode-todowrite-stop")).toBe(false);
+}, 20_000);
+
 it("filters native/deferred discovery and the real codemode catalog before todo creation, including reload", async () => {
   const { session, faux, runs } = await fixture();
   for (const reload of [false, true]) {

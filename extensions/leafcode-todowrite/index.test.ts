@@ -3,7 +3,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import registerTodowrite, { normalizeTodos, todowriteTestSeams } from "./index.ts";
 import { JEV_NOUL_JUDGE_KEY, type JevNoulJudge, type JevNoulRequest } from "./jev-bridge.ts";
 import { TODO_JEV_TIMEOUT_MS, TODO_REQUEST_MAX_CHARS } from "./todo-need.ts";
-import { classifyClosingShellCommand, isClosingShellCommand, isNonReviewShellCommand } from "./enforcement.ts";
+import { classifyClosingShellCommand, classifyReviewShellCommand, isClosingShellCommand, isNonReviewShellCommand } from "./enforcement.ts";
 
 type Handler = (event: any, ctx: ExtensionContext) => unknown;
 type TodoTool = {
@@ -11,7 +11,7 @@ type TodoTool = {
   exposure?: string;
   prepareLoadout?: (loadout: { declared: readonly { name: string }[] }) => { hiddenDeclarations: string[] };
   promptGuidelines?: string[];
-  execute: (...args: any[]) => Promise<{ details?: { error?: string; todos?: unknown[] } }>;
+  execute: (...args: any[]) => Promise<{ details?: { error?: string; todos?: unknown[]; reviewRequired?: boolean } }>;
 };
 
 type FixtureOptions = {
@@ -123,6 +123,68 @@ describe("normalizeTodos", () => {
 });
 
 describe("todowrite review regressions", () => {
+  it.each([
+    ["cd web; npx vitest run src/example.test.ts --reporter=dot", "powershell"],
+    ["cd 'repo path'; npx tsc --noEmit; npx eslint src/example.ts", "bash"],
+    ["npx --no-install vitest run; git diff --check", "powershell"],
+  ])("keeps an active review valid during verification without extra continuations: %s", async (command, shell) => {
+    const run = fixture();
+    await run.writeTodos([{ id: "work", content: "Work", status: "in_progress", priority: "high" }]);
+    run.callTool("edit");
+    await run.writeTodos([{ id: "review", content: "Review", status: "in_progress", priority: "high" }]);
+    const before = run.checkpoint.mock.calls.length;
+    expect(run.callTool(shell, { command })).toBeUndefined();
+    expect(run.checkpoint.mock.calls.length).toBe(before);
+    const result = await run.writeTodos([{ id: "review", content: "Review", status: "completed", priority: "high" }]);
+    expect(result.details).toMatchObject({ reviewRequired: false });
+    expect(classifyReviewShellCommand(command, shell)).toBe("verification");
+    expect(isClosingShellCommand(command, shell)).toBe(false);
+    expect(run.emit("agent_before_settle", { outcome: "completed" })).toBeUndefined();
+    // Verification is not a closing-phase permission exception.
+    expect(run.callTool(shell, { command })?.block).toBe(true);
+  });
+  it.each(["npx vitest run; git merge origin/main", "git merge origin/main; npx vitest run"])("keeps a mixed verification/merge command review-affecting: %s", (command) => {
+    expect(classifyReviewShellCommand(command, "powershell")).toBe("merge");
+    expect(isNonReviewShellCommand(command, "powershell")).toBe(false);
+  });
+  it("does not bypass the task-start gate with a recognized verification command", () => {
+    const run = fixture();
+    expect(run.callTool("powershell", { command: "npx vitest run" })?.block).toBe(true);
+  });
+  it("surfaces stale review completion before a final report, and retains the audit until re-review", async () => {
+    const run = fixture();
+    const review = { id: "review", content: "Review", status: "in_progress", priority: "high" };
+    await run.writeTodos([review]);
+    run.callTool("edit");
+    const result = await run.writeTodos([{ ...review, status: "completed" }]);
+    expect(result.details).toMatchObject({ reviewRequired: true });
+    expect(JSON.stringify(result)).toContain("最終報告はまだ行わない");
+    const context = run.emit("context", { messages: [] });
+    expect(JSON.stringify(context)).toContain("レビュー未完了");
+    expect(run.emit("agent_before_settle", { outcome: "completed" })).toMatchObject({ continue: true });
+    await run.writeTodos([review]);
+    await run.writeTodos([{ ...review, status: "completed" }]);
+    expect(run.emit("agent_before_settle", { outcome: "completed" })).toBeUndefined();
+    expect(run.emit("context", { messages: [] })).toBeUndefined();
+  });
+  it.each([
+    "npx vitest run --update", "npx vitest run '-u'", "npx vitest run --watch", "npx vitest run --outputFile=source.ts",
+    'npx eslint "--fix" src/example.ts', "npx eslint --output-file source.ts src/example.ts",
+    "npx tsc --noEmit false", "npx tsc --noEmit 'false'", "npx tsc --noEmit --noEmit=false",
+    "npx tsc --noEmit '--noEmit=false'", "npx tsc --noEmit --noEmit false",
+    "npx tsc --noEmit --emitDeclarationOnly", "npx tsc --noEmit --outDir src",
+    "npx eslint @args", "constructor", "toString", "npm run test", "python modify.py",
+    "npx vitest run; Remove-Item source.ts", "npx vitest run > source.ts",
+    "npx vitest run &&", "npx vitest run | sort --output=source.ts", "npx vitest run $args",
+  ])("keeps unsupported or potentially modifying checks review-affecting: %s", async (command) => {
+    const run = fixture();
+    const review = { id: "review", content: "Review", status: "in_progress", priority: "high" };
+    await run.writeTodos([review]);
+    expect(run.callTool("powershell", { command })).toBeUndefined();
+    const result = await run.writeTodos([{ ...review, status: "completed" }]);
+    expect(result.details).toMatchObject({ reviewRequired: true });
+    expect(classifyReviewShellCommand(command, "powershell")).toBeUndefined();
+  });
   it("writes review checkpoints only on audit transitions, not on repeated mutations", async () => {
     const run = fixture();
     await run.writeTodos([{ content: "Work", status: "in_progress", priority: "high" }]);
