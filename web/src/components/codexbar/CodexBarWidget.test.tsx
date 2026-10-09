@@ -99,16 +99,19 @@ function setServerSettings(value: object) {
 }
 
 describe("CodexBarWidget", () => {
-  it("displays token measurements on the expanded provider row", async () => {
+  it("shows used/total to the left of the summary percentage in either expansion state", async () => {
     setServerSettings({ collapsed: false, providerCollapsed: {} });
-    useCodexUsage.mockReturnValue({ usage: { ...usage, providers: [{ ...usage.providers[0], tokenUsage: {
+    useCodexUsage.mockReturnValue({ usage: { ...usage, providers: [{ ...usage.providers[0], usedPercent: 12, tokenUsage: {
       input: 700, output: 100, cacheRead: 150, cacheWrite: 50, totalTokens: 1000, responses: 1, startedAt: null,
-      windows: [{ id: "5h", title: "5時間", sampledTokens: 1000, sampledPercent: 2, tokensPerPercent: 500, estimatedRemainingTokens: 44000 }],
+      windows: [{ id: "provider", title: "利用枠", sampledTokens: 1000, sampledPercent: 2, tokensPerPercent: 500, estimatedRemainingTokens: 44000 }],
     } }] }, loadError: null, refreshing: false, refresh: vi.fn(), now: Date.now() });
     render(<CodexBarWidget />);
-    await waitFor(() => expect(screen.getByText("≈44K")).toBeTruthy());
+    const ratio = await screen.findByText("6K/50K");
+    expect(ratio.nextElementSibling?.textContent).toBe("12%");
+    expect(screen.queryByText(/実測|推定|tok\/1%/)).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: /Codex を最小化/ }));
-    await waitFor(() => expect(screen.queryByText("≈44K")).toBeNull());
+    await waitFor(() => expect(screen.getByRole("button", { name: /Codex を展開/ })).toBeTruthy());
+    expect(screen.getByText("6K/50K").nextElementSibling?.textContent).toBe("12%");
   });
   it("embeds estimates in existing quota rows without a duplicate token section", async () => {
     setServerSettings({ collapsed: false, providerCollapsed: {} });
@@ -127,41 +130,52 @@ describe("CodexBarWidget", () => {
     const hook = { usage: data, loadError: null, refreshing: false, refresh: vi.fn(), now };
     useCodexUsage.mockReturnValue(hook);
     const { rerender } = render(<CodexBarWidget />);
-    const remaining = await screen.findByText("残≈27.9M tok");
-    expect(remaining.parentElement?.parentElement?.textContent).toContain("5時間");
-    expect(remaining.parentElement?.parentElement?.textContent).toContain("39%");
-    expect(screen.getAllByText("残≈27.9M tok")).toHaveLength(1);
-    expect(screen.getByText("残≈43.3M tok")).toBeTruthy();
-    expect(screen.getByText("残≈549M tok")).toBeTruthy();
-    expect(screen.getByText("246M tok").closest("div")?.textContent).toBe("実測 246M tok");
-    expect(screen.queryByText(/tok\/1%/)).toBeNull();
+    const ratio = await screen.findByText("17.6M/45.5M");
+    expect(ratio.parentElement?.textContent).toContain("5時間");
+    expect(ratio.nextElementSibling?.textContent).toBe("39%");
+    expect(screen.getAllByText("17.6M/45.5M")).toHaveLength(1);
+    expect(screen.getByText("462M/505M").nextElementSibling?.textContent).toBe("91%");
+    expect(screen.getByText("461M/1.01B").nextElementSibling?.textContent).toBe("46%");
+    expect(screen.queryByText("246M tok")).toBeNull();
+    expect(screen.queryByText(/実測|推定|tok\/1%|残≈/)).toBeNull();
     expect(screen.getByTitle(/455,000 tok\/1%/)).toBeTruthy();
     expect(screen.getByText("$32.00 / $70.00").closest("div")?.className).toContain("flex-wrap");
     useCodexUsage.mockReturnValue({ ...hook, now: now + 60000 });
     rerender(<CodexBarWidget />);
-    expect(screen.queryByText("残≈27.9M tok")).toBeNull();
-    expect(screen.getByText("残≈43.3M tok")).toBeTruthy();
+    expect(screen.queryByText("17.6M/45.5M")).toBeNull();
+    expect(screen.getByText("462M/505M")).toBeTruthy();
   });
-  it("shows combined tokens even when every account child is collapsed", async () => {
+  it("never presents a display-only balance as a calibrated account quota", async () => {
+    setServerSettings({ collapsed: false, providerCollapsed: {} });
+    useCodexUsage.mockReturnValue({ usage: { ...usage, providers: [{ ...usage.providers[0], usedPercent: 12, usageDisplayOnly: true,
+      windows: [{ id: "provider", title: "利用枠", usedPercent: 12, resetsAt: null, windowMinutes: 300 }],
+      credits: { title: "クレジット", used: 1, limit: 2, balance: 1 },
+      tokenUsage: { input: 1000, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 1000, responses: 1, startedAt: null,
+        windows: [{ id: "provider", title: "利用枠", sampledTokens: 1000, sampledPercent: 2, tokensPerPercent: 500, estimatedRemainingTokens: 44000 },
+          { id: "credits", title: "クレジット", sampledTokens: 1000, sampledPercent: 2, tokensPerPercent: 500, estimatedRemainingTokens: 25000 }] },
+    }] }, loadError: null, refreshing: false, refresh: vi.fn(), now: Date.now() });
+    render(<CodexBarWidget />);
+    expect(await screen.findByText("50%")).toBeTruthy();
+    expect(screen.queryByText("6K/50K")).toBeNull();
+    expect(screen.queryByText("25K/50K")).toBeNull();
+  });
+  it("shows the combined ratio at the parent percentage without borrowing one account's values", async () => {
     setServerSettings({ collapsed: false, providerCollapsed: { "acc-a::openai-codex": true, "acc-b::openai-codex": true } });
     const tokenUsage = { input: 700, output: 300, cacheRead: 0, cacheWrite: 0, totalTokens: 1000, responses: 1, startedAt: null,
-      windows: [{ id: "5h", title: "5時間", sampledTokens: 1000, sampledPercent: 2, tokensPerPercent: 500, estimatedRemainingTokens: 40000 }] };
+      windows: [{ id: "provider", title: "利用枠", sampledTokens: 1000, sampledPercent: 2, tokensPerPercent: 500, estimatedRemainingTokens: 40000 }] };
     useCodexUsage.mockReturnValue({ usage: { ...accountUsage, providers: accountUsage.providers.map((provider, index) => ({ ...provider,
-      tokenUsage: index === 0 ? tokenUsage : { ...tokenUsage, totalTokens: 2000, windows: [{ ...tokenUsage.windows[0], estimatedRemainingTokens: 20000 }] },
+      tokenUsage: { ...tokenUsage, windows: [{ ...tokenUsage.windows[0], estimatedRemainingTokens: index === 0 ? 0 : 40000 }] },
     })) }, loadError: null, refreshing: false, refresh: vi.fn(), now: Date.now() });
     render(<CodexBarWidget />);
-    expect(await screen.findByText("3K tok")).toBeTruthy();
-    expect(screen.getByText("≈60K")).toBeTruthy();
-    expect(screen.queryByText(/tok\/1%/)).toBeNull();
-    expect(screen.queryByText("1K tok")).toBeNull();
-    expect(screen.getByRole("button", { name: "仕事用 を展開" })).toBeTruthy();
+    expect((await screen.findByText("60K/100K")).nextElementSibling?.textContent).toBe("60%");
+    expect(screen.getByText("50K/50K").nextElementSibling?.textContent).toBe("100%");
+    expect(screen.getByText("10K/50K").nextElementSibling?.textContent).toBe("20%");
+    expect(screen.queryByText(/実測|推定|tok\/1%/)).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "仕事用 を展開" }));
-    expect(await screen.findByText("1K tok")).toBeTruthy();
-    expect(screen.queryByText(/tok\/1%/)).toBeNull();
-    expect(screen.getByTitle(/500 tok\/1%/)).toBeTruthy();
-    expect(screen.getByText("3K tok")).toBeTruthy();
+    expect(screen.getByText("60K/100K")).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Codex を最小化" }));
-    await waitFor(() => expect(screen.queryByText("3K tok")).toBeNull());
+    await waitFor(() => expect(screen.queryByText("50K/50K")).toBeNull());
+    expect(screen.getByText("60K/100K")).toBeTruthy();
   });
   beforeEach(() => {
     localStorage.clear();

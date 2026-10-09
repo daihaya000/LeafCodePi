@@ -31,7 +31,11 @@ export function aggregateTokenUsage(group: CodexBarProviderGroup): {
     const entries = quotaAccounts.map((row) => row.provider?.tokenUsage?.windows.find((entry) => entry.id === window.id));
     const unready = entries.find((entry) => !entry || (entry.status !== undefined && entry.status !== "ready") ||
       entry.tokensPerPercent === null || entry.estimatedRemainingTokens === null ||
-      !Number.isFinite(entry.estimatedRemainingTokens) || entry.estimatedRemainingTokens < 0);
+      !Number.isFinite(entry.tokensPerPercent) || entry.tokensPerPercent <= 0 ||
+      !Number.isFinite(entry.estimatedRemainingTokens) || entry.estimatedRemainingTokens < 0 ||
+      !Number.isFinite(entry.estimatedTotalTokens ?? entry.tokensPerPercent * 100) ||
+      (entry.estimatedTotalTokens ?? entry.tokensPerPercent * 100) <= 0 ||
+      entry.estimatedRemainingTokens > (entry.estimatedTotalTokens ?? entry.tokensPerPercent * 100));
     const complete = entries.every((entry) => entry !== undefined) && unready === undefined;
     const deadlines = entries.flatMap((entry) => entry?.validUntil ? [Date.parse(entry.validUntil)] : []);
     const invalidDeadline = deadlines.some((deadline) => !Number.isFinite(deadline));
@@ -44,6 +48,8 @@ export function aggregateTokenUsage(group: CodexBarProviderGroup): {
       sampledTokens: 0, sampledPercent: 0, tokensPerPercent: null,
       estimatedRemainingTokens: status === "ready"
         ? entries.reduce((sum, entry) => sum + entry!.estimatedRemainingTokens!, 0) : null,
+      estimatedTotalTokens: status === "ready"
+        ? entries.reduce((sum, entry) => sum + (entry!.estimatedTotalTokens ?? entry!.tokensPerPercent! * 100), 0) : null,
     };
   });
   return { usage, measuredAccounts: measured.length, totalAccounts: accounts.length };

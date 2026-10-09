@@ -23,7 +23,7 @@ describe("aggregateTokenUsage", () => {
     const result = aggregateTokenUsage(source)!;
     expect(result).toMatchObject({ measuredAccounts: 2, totalAccounts: 2,
       usage: { input: 2400, output: 600, totalTokens: 3000, responses: 2,
-        windows: [{ status: "ready", estimatedRemainingTokens: 60000, tokensPerPercent: null }] } });
+        windows: [{ status: "ready", estimatedRemainingTokens: 60000, estimatedTotalTokens: 100000, tokensPerPercent: null }] } });
     expect(source).toEqual(before);
     expect(source.provider.tokenUsage).toBeUndefined();
   });
@@ -66,6 +66,19 @@ describe("aggregateTokenUsage", () => {
     source.accountRows[1].provider!.usageDisplayOnly = true;
     expect(aggregateTokenUsage(source)!.usage).toMatchObject({ totalTokens: 3000,
       windows: [{ estimatedRemainingTokens: 40000 }] });
+  });
+  it("sums explicit capacities instead of recalibrating from the parent average", () => {
+    const a = measurement(), b = measurement(2000, 20000);
+    a.windows[0].estimatedTotalTokens = 50000;
+    b.windows[0].estimatedTotalTokens = 100000;
+    expect(aggregateTokenUsage(group(a, b))!.usage.windows[0]).toMatchObject({
+      status: "ready", estimatedRemainingTokens: 60000, estimatedTotalTokens: 150000, tokensPerPercent: null,
+    });
+  });
+  it.each([0, -1, Infinity, NaN, 39999])("withholds the aggregate when one capacity is invalid: %s", (capacity) => {
+    const bad = measurement();
+    bad.windows[0].estimatedTotalTokens = capacity;
+    expect(aggregateTokenUsage(group(measurement(), bad))!.usage.windows[0].estimatedTotalTokens).toBeNull();
   });
   it("does not invent a measured zero before any account reports telemetry", () => {
     expect(aggregateTokenUsage(group(undefined, undefined))).toBeNull();

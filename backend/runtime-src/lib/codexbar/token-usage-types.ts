@@ -20,6 +20,8 @@ export type TokenUsageEstimate = {
   sampledPercent: number;
   tokensPerPercent: number | null;
   estimatedRemainingTokens: number | null;
+  /** Display-only sum of independent account capacities; otherwise rate × 100. */
+  estimatedTotalTokens?: number | null;
 };
 
 export type ProviderTokenUsage = TokenUsageTotals & {

@@ -15,7 +15,7 @@ import {
 } from "lucide-react";
 import { cx, timeAgo } from "@/components/ui";
 import { useCodexUsage } from "@/components/codexbar/use-codex-usage";
-import { TokenUsageDetails, TokenEstimateInline } from "@/components/codexbar/TokenUsageDetails";
+import { TokenEstimateInline, summaryTokenEstimate } from "@/components/codexbar/TokenUsageDetails";
 import type { TokenUsageEstimate } from "@/lib/codexbar/token-usage-types";
 import { aggregateTokenUsage } from "@/lib/codexbar/aggregate-token-usage";
 import {
@@ -335,7 +335,6 @@ function CreditsRow({ credits, estimate, now }: { credits: CodexBarCredits; esti
           </div>
         </>
       )}
-      {percent === null && <TokenEstimateInline estimate={estimate} now={now} />}
       {credits.balance !== null && (
         <div className="text-right text-[10px] text-faint">
           残高 {formatCreditAmount(credits.balance)}
@@ -567,15 +566,18 @@ function ProviderRow({
             <AlertTriangle className="h-3 w-3" /> エラー
           </span>
         ) : (
-          <span
-            className={cx(
-              "ml-auto shrink-0",
-              p.stale && tone === "ok" ? "text-warning" : textClass[tone],
-            )}
-            title={p.stale ? "直近の取得値（stale）" : undefined}
-          >
-            {p.stale && "古い "}
-            {p.usedPercent === null ? "—" : `${Math.round(p.usedPercent)}%`}
+          <span className="ml-auto flex min-w-0 items-baseline justify-end gap-x-1">
+            {(collapsed || (!hasWindows && !p.credits)) && <TokenEstimateInline estimate={summaryTokenEstimate(p)} now={now} />}
+            <span
+              className={cx(
+                "shrink-0",
+                p.stale && tone === "ok" ? "text-warning" : textClass[tone],
+              )}
+              title={p.stale ? "直近の取得値（stale）" : undefined}
+            >
+              {p.stale && "古い "}
+              {p.usedPercent === null ? "—" : `${Math.round(p.usedPercent)}%`}
+            </span>
           </span>
         )}
         {canExpand &&
@@ -603,7 +605,7 @@ function ProviderRow({
               percent={w.usedPercent}
               resetsAt={w.resetsAt}
               now={now}
-              estimate={p.tokenUsage?.windows.find((estimate) => estimate.id === w.id)}
+              estimate={p.usageDisplayOnly ? undefined : p.tokenUsage?.windows.find((estimate) => estimate.id === w.id)}
             />
           ))}
           {!hasWindows && p.usedPercent !== null && (
@@ -614,7 +616,7 @@ function ProviderRow({
               )}
             </div>
           )}
-          {p.credits && <CreditsRow credits={p.credits} now={now} estimate={p.tokenUsage?.windows.find((estimate) => estimate.id === "credits")} />}
+          {p.credits && <CreditsRow credits={p.credits} now={now} estimate={p.usageDisplayOnly ? undefined : p.tokenUsage?.windows.find((estimate) => estimate.id === "credits")} />}
           {p.id in RESET_CREDIT_PROVIDERS &&
             (p.resetCreditsAvailable ?? 0) > 0 &&
             onRedeemReset && (
@@ -632,12 +634,6 @@ function ProviderRow({
       ) : (
         <div className={contentIndent}>
           <UsageBar tone={tone} percent={p.usedPercent} />
-        </div>
-      )}
-      {!collapsed && p.tokenUsage && (
-        <div className={contentIndent}>
-          <TokenUsageDetails usage={p.tokenUsage} now={now}
-            hiddenWindowIds={showErrorOnly ? [] : [...p.windows.map((window) => window.id), ...(p.credits ? ["credits"] : [])]} />
         </div>
       )}
     </li>
@@ -668,7 +664,12 @@ function ProviderGroupRow({
   onRedeemReset: (provider: CodexBarProvider) => void;
 }) {
   const p = group.provider;
-  const tokenUsage = collapsed ? null : aggregateTokenUsage(group);
+  const tokenUsage = aggregateTokenUsage(group);
+  const quotaRows = group.accountRows.filter((row) => row.configured && row.provider && !row.provider.usageDisplayOnly);
+  const summaries = quotaRows.map((row) => summaryTokenEstimate(row.provider!));
+  const summaryId = summaries[0]?.id;
+  const summaryEstimate = summaryId && summaries.every((entry) => entry?.id === summaryId)
+    ? tokenUsage?.usage.windows.find((entry) => entry.id === summaryId) : undefined;
   const tone = usageTone(p);
   const label = providerLabel(group.id);
   const planBadge = group.accountRows.length === 0
@@ -693,15 +694,18 @@ function ProviderGroupRow({
             {planBadge}
           </span>
         )}
-        <span
-          className={cx(
-            "ml-auto shrink-0",
-            p.stale && tone === "ok" ? "text-warning" : textClass[tone],
-          )}
-          title={p.stale ? "直近の取得値（stale）" : undefined}
-        >
-          {p.stale && "古い "}
-          {p.usedPercent === null ? "—" : `${Math.round(p.usedPercent)}%`}
+        <span className="ml-auto flex min-w-0 items-baseline justify-end gap-x-1">
+          <TokenEstimateInline estimate={summaryEstimate} now={now} />
+          <span
+            className={cx(
+              "shrink-0",
+              p.stale && tone === "ok" ? "text-warning" : textClass[tone],
+            )}
+            title={p.stale ? "直近の取得値（stale）" : undefined}
+          >
+            {p.stale && "古い "}
+            {p.usedPercent === null ? "—" : `${Math.round(p.usedPercent)}%`}
+          </span>
         </span>
         {collapsed ? (
           <ChevronRight className="h-3.5 w-3.5 shrink-0 text-faint" />
@@ -735,9 +739,6 @@ function ProviderGroupRow({
             );
           })}
         </ul>
-      )}
-      {tokenUsage && (
-        <TokenUsageDetails usage={tokenUsage.usage} now={now} combined={tokenUsage} />
       )}
     </li>
   );
