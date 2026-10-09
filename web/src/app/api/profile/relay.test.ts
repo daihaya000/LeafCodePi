@@ -1,0 +1,5 @@
+import { expect,it,vi } from "vitest";import { NextRequest } from "next/server";
+const file=vi.hoisted(()=>vi.fn());const configuration=vi.hoisted(()=>vi.fn());vi.mock("@/lib/task-file-stream-relay",()=>({relayTaskFileStream:file}));vi.mock("@/lib/configuration-relay",()=>({relayConfiguration:configuration}));
+import {GET,HEAD,POST,PATCH,PUT,DELETE} from "./route";
+it.each(["GET","HEAD"])("%s delegates opaque query and Range to file transport",async method=>{const req=new NextRequest("http://localhost/api/profile?backups",{method,headers:{range:"bytes=1-2"}}),response=new Response(null);file.mockResolvedValueOnce(response);expect(await(method==="GET"?GET:HEAD)(req)).toBe(response);expect(file).toHaveBeenLastCalledWith(req,"profile");});
+it.each(["POST","PATCH","PUT","DELETE"])("%s preserves configuration ownership",async method=>{const req=new NextRequest("http://localhost/api/profile",{method}),response=new Response(null);configuration.mockResolvedValueOnce(response);expect(await({POST,PATCH,PUT,DELETE}[method as "POST"])(req)).toBe(response);expect(configuration).toHaveBeenLastCalledWith(req,"profile");});

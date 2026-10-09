@@ -21,7 +21,7 @@ export async function relayTaskFileStream(request: Request, route: string): Prom
   const cleanup = () => { clearTimeout(timer); request.signal.removeEventListener("abort", abort); controller.abort(); };
   try {
     const headers: Record<string, string> = { authorization: `Bearer ${token}`, [BACKEND_PROTOCOL_HEADER]: String(BACKEND_PROTOCOL_VERSION), [JSON_BUSINESS_HEADERS.origin]: original.origin, [JSON_BUSINESS_HEADERS.host]: request.headers.get("host") ?? original.host, [JSON_BUSINESS_HEADERS.authorized]: authorized ? "1" : "0", "accept-encoding": "identity" };
-    for (const name of ["range", "if-range"]) { const value = request.headers.get(name); if (value !== null) headers[name] = value; }
+    for (const name of ["range", "if-range", "origin"]) { const value = request.headers.get(name); if (value !== null) headers[name] = value; }
     const source = await fetch(`${backendBaseUrl()}${TASK_FILE_STREAM_PATH}/${route}${original.search}`, { method: request.method, headers, signal: controller.signal, redirect: "error", cache: "no-store" });
     clearTimeout(timer);
     if (source.headers.get(BACKEND_PROTOCOL_HEADER) !== String(BACKEND_PROTOCOL_VERSION) || source.headers.has("content-encoding") || source.status < 200 || source.status >= 500 && source.status !== 503) {

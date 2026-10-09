@@ -465,7 +465,7 @@ export function createBackendServer({
       const controller = new AbortController(), disconnect = () => controller.abort();
       response.once("close", disconnect); request.socket.once("end", disconnect);
       const headers = { host };
-      for (const key of isLive ? ["last-event-id"] : ["range", "if-range"]) if (typeof request.headers[key] === "string") headers[key] = request.headers[key];
+      for (const key of isLive ? ["last-event-id"] : ["range", "if-range", "origin"]) if (typeof request.headers[key] === "string") headers[key] = request.headers[key];
       try {
         const source = await action({ route: selectedPath, method: request.method, url: `${origin}/api/${selectedPath}${target.search}`, headers, authorized: access === "1", signal: controller.signal });
         await writeFileStream(response, source, controller.signal, request.method, isLive ? { headerNames: LIVE_EVENT_HEADERS } : {});

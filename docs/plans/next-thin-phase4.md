@@ -82,6 +82,19 @@ Phase0のPhase4対象は14経路・15操作。今回の移管は `tasks/[id]/ima
 - 最終active/添付FD/image reader/待機/image FD/保持image/保持base64/relay activeは0。意図的な16MiB scan bufferと20,390bytes metadata indexは有界で残す。最終測定RSS増分はBackend16,232,448 / relay21,962,752bytes、heap6,861,664 / 1,995,952、external13,633,593 / 18,279,899。閾値RSS128MiB/heap48MiB/external96MiBを維持。
 - 原因: 初版は毎回全行をJSON解析し、反復配信でheap増分66,440,184bytes（48MiB超）、RSS105,250,816bytesになった。image dataではなく世代検証済みoffset/branch metadataだけを有界cacheし、対象行のみの再読込で閾値を緩めず再検証した。
 
+## 追加単位: profile export・backup一覧
+
+- `profile` GET/gzip、`?backups` GET/JSON、互換HEADを共通file-streamへ移管。累計10経路・Phase0掲載11操作（追加HEAD7操作）。Nextはquery/Range/Originをopaque中継し、profile lib/FS/SDK・全archive bufferを持たない。POST/PATCH/PUT/DELETEの設定mutation契約は変更しない。
+- Backendの既存portable policyを共用し、v1 gzip JSONのformat/version/createdAt/files(base64)/modesを維持する。auth.json・accounts等の既存除外対象を維持。Unicode名/内容、空file、3byte境界、mode、旧exportとの同一files/modes、再起動後のexportを確認した。
+- gzipは生成型でサイズ/validatorが未確定のため、Range・If-Rangeは全体200、Accept-Ranges:none、Content-Lengthなし。部分gzip/206/再開は提供しない。HEADはinventoryと同じヘッダーだけ返し、内容読取/圧縮なし。private no-store/attachment/nosniff/same-origin、既存transferのloopbackまたはaccess gate・Origin検証を維持した。
+- 元内容240MiB/50,000fileは従来上限を保持。展開JSON384MiB/gzip256MiBは既存import上限にも合わせる。inventoryは推定8MiB/stream、depth32、key4096文字、8秒、全生成120秒の追加制約。directoryをopendirで逐次走査し、canonical rootを要求、symlink/junctionを辿らず、FD dev/ino/size/mtimeNs/ctimeNsとnamed pathを開始/終了で検証する。原子的directory snapshotは保証しない。制限超過/IO/変更はヘッダー前413/403/503、本文開始後はstream failureで不完全archiveを成功扱いしない。
+- 共有32配信枠の内側にprofile最大2枠（待機なし）。1resource FDずつ、48KiB入力→最大64KiB base64入力、gzip chunk64KiBとbounded pipeline、Web HWM0で配信。spool/一時archive/全内容JSON/gzipSyncを使わない。切断でgenerator/FD/opendir/gzip/pipeline/admission/metadataを解放する。Native45秒drain timeoutも維持。
+- backup一覧はownerで最大512件/512文字name、応答JSON64KiB以内に制限し、mtime順/name/createdAtだけ返す。新規のbackups副作用や読取によるbackup生成はない。
+- 原因: 旧GETはNextで全ファイルbase64・全JSON・gzipSync・archiveの複数copyを作っていた。新しいexport専用generator/pipelineへ分離し、既存mutation backup/rollback用sync exportは今回の配信経路で使わない。
+- 関連Web85件、native/server・configuration/file AST109件、実2段HTTP1件の計195件成功。Backend/Web source型チェック成功。途中のWeb source tscは別セッションのStringIterator test型エラーで失敗したが、その修正後に全sourceを再検証して成功。全suite/Next productionは未測定。
+- 隔離64MiB incompressible resourceを2並列×4巡、元内容512MiB、gzip539,146,296bytes転送。32本文切断・16inventory取消し後、active/FD/directory/compressor/metadata/relayは全0。source SHA256不変、Range全体200/HEAD/auth/Origin、両プロセス再起動後のv1 export・backup一覧を確認。実モデル・ユーザーデータ・ユーザーサービス操作はなし。
+- 最大RSS増分Backend58,716,160 / relay22,216,704bytes、heap30,171,408 / 6,099,048、external38,948,100 / 13,774,216。RSS128MiB/heap48MiB/external96MiBの閾値は維持した。SSE/無期限接続・実Next productionの受入は残る。
+
 ## 残り
 
-profile export、TTS binary、Task/Bot個別SSE・Provider SSE。既存のProvider SSE中継もPhase4の共通切断・再接続・長時間/停滞検証の対象にする。全対象の所有権と長時間SSEの有界性が確認できるまでPhase4の受入完了とはしない。
+TTS binary、Task/Bot個別SSE・Provider SSE。既存のProvider SSE中継もPhase4の共通切断・再接続・長時間/停滞検証の対象にする。全対象の所有権と長時間SSEの有界性が確認できるまでPhase4の受入完了とはしない。

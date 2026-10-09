@@ -1,5 +1,5 @@
 import {  ConfigurationRequest as NextRequest, ConfigurationResponse as NextResponse  } from "../../http";
-import { createProfileBackup, exportProfile, importProfileWithBackup, listProfileBackups, resetProfile, restoreProfile, restoreProfilePackages } from "@/lib/profile";
+import { createProfileBackup, importProfileWithBackup, resetProfile, restoreProfile, restoreProfilePackages } from "@/lib/profile";
 import { MAX_ARCHIVE_BYTES } from "@/lib/profile-limits";
 
 /** multipart framing slack on top of the archive limit */
@@ -21,31 +21,6 @@ function profileMutationUnavailable() {
     error: "設定の変更・パッケージ復元はBackendでの実行が必要です",
     code: "RUNTIME_NOT_OWNED",
   }, { status: 503 });
-}
-
-function profileFilename(): string {
-  return `leafcode-pi-profile-${new Date().toISOString().replaceAll(/[:.]/g, "-")}.lcp.gz`;
-}
-
-export async function GET(request: NextRequest) {
-  try {
-    if (request.nextUrl.searchParams.has("backups")) {
-      return NextResponse.json({ backups: listProfileBackups() }, { headers: { "cache-control": "no-store" } });
-    }
-    const { archive } = exportProfile();
-    return new NextResponse(new Uint8Array(archive).slice().buffer, {
-      headers: {
-        "content-type": "application/gzip",
-        "content-disposition": `attachment; filename="${profileFilename()}"`,
-        "cache-control": "no-store",
-      },
-    });
-  } catch (error) {
-    return NextResponse.json(
-      { error: error instanceof Error ? error.message : "設定のエクスポートに失敗しました" },
-      { status: 500 },
-    );
-  }
 }
 
 /**

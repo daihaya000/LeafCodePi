@@ -7,7 +7,7 @@ const profile = vi.hoisted(() => ({
 }));
 vi.mock("@/lib/profile", () => profile);
 // Use the real ownership policy, including Backend identity, rather than a boolean mock.
-import { DELETE, GET, PATCH, POST, PUT } from "@backend-runtime/configuration/handlers/profile/route";
+import { DELETE, PATCH, POST, PUT } from "@backend-runtime/configuration/handlers/profile/route";
 
 const url = "http://127.0.0.1:3010/api/profile";
 const summary = { fileCount: 1, bytes: 12 };
@@ -79,15 +79,6 @@ describe("/api/profile ownership", () => {
     expect(await (await PATCH(jsonRequest("PATCH", { action: "restore-packages" }))).json()).toEqual({ ok: true, packageCount: 2 });
     expect(profile.resetProfile).toHaveBeenCalledOnce(); expect(profile.restoreProfilePackages).toHaveBeenCalledOnce();
     expect(profile.createProfileBackup).not.toHaveBeenCalled();
-  });
-
-  it("client export/list remain available without live config mutation", async () => {
-    const exported = await GET(new NextRequest(url));
-    expect(exported.status).toBe(200); expect(await exported.text()).toBe("fixture-archive");
-    expect(exported.headers.get("content-type")).toBe("application/gzip");
-    expect(await (await GET(new NextRequest(`${url}?backups`))).json()).toEqual({ backups: [{ name: "fixture.lcp.gz" }] });
-    expect(profile.importProfileWithBackup).not.toHaveBeenCalled(); expect(profile.restoreProfile).not.toHaveBeenCalled();
-    expect(profile.resetProfile).not.toHaveBeenCalled(); expect(profile.restoreProfilePackages).not.toHaveBeenCalled();
   });
 
   it("client backup-only PATCH writes no live settings and does not restore packages", async () => {

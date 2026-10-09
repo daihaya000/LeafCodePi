@@ -15,7 +15,7 @@ for (const [route, methods] of Object.entries(CONFIGURATION_ROUTES)) {
     const source = ts.createSourceFile(path, text, ts.ScriptTarget.Latest, true);
     const imports = source.statements.filter(ts.isImportDeclaration).map((node) => node.moduleSpecifier.text);
     assert.deepEqual([...new Set(imports)].sort(), (route === "profile"
-      ? ["next/server", "@/lib/configuration-relay", "@/lib/profile"]
+      ? ["next/server", "@/lib/configuration-relay", "@/lib/task-file-stream-relay"]
       : ["next/server", "@/lib/configuration-relay"]).sort());
     for (const method of methods) {
       const handler = source.statements.find((node) => ts.isFunctionDeclaration(node) && node.name?.text === method);

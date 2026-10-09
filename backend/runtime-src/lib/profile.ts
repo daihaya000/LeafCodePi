@@ -60,6 +60,8 @@ const ALLOWED_AGENT_FILES = new Set<string>([...AGENT_FILES, ...LEGACY_AUTH_AGEN
 const ALLOWED_DATA_FILES = new Set<string>([...DATA_FILES, ...LEGACY_AUTH_DATA_FILES]);
 const DATA_DIRECTORIES = ["settings"] as const;
 
+export const PROFILE_EXPORT_POLICY = Object.freeze({ format: PROFILE_FORMAT, version: PROFILE_VERSION, maxContentBytes: MAX_CONTENT_BYTES, maxExpandedBytes: MAX_EXPANDED_BYTES, maxFiles: MAX_PROFILE_FILES, agentFiles: AGENT_FILES, agentDirectories: EXPORTED_AGENT_DIRECTORIES, dataFiles: DATA_FILES, dataDirectories: DATA_DIRECTORIES });
+
 type ProfileArchive = {
   format: typeof PROFILE_FORMAT;
   version: typeof PROFILE_VERSION;
