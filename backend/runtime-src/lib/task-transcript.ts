@@ -20,10 +20,11 @@ export async function readTaskTranscript(id:string,{maxAgeMs=0}:{maxAgeMs?:numbe
 /** Pagination must happen before cold history hydration, not after opening a full SDK manager. */
 export async function readTaskTranscriptPage(id:string,before:string|null,limit:number,signal?:AbortSignal):Promise<SessionHistoryPage|Extract<TaskTranscriptRead,{ok:false}>>{
  assertConfigurationOwner();
+ signal?.throwIfAborted();
  const task=getTask(id);if(!task)return{ok:false,status:404,body:{error:"タスクが見つかりません"}};
  const live=(globalThis as typeof globalThis&{__leafcodePiHarness?:{live:Map<string,{leaseLost?:boolean}>}}).__leafcodePiHarness?.live.get(id);
- if(task.status!=="archived"&&live&&!live.leaseLost){const read=await readTaskTranscript(id);return read.ok?pageTaskMessages(read.messages,before,limit):read;}
- if(!task.sessionFile)return{messages:[],messageHistory:{hasMore:false,nextCursor:null}};
+ if(task.status!=="archived"&&live&&!live.leaseLost){const read=await readTaskTranscript(id);signal?.throwIfAborted();return read.ok?pageTaskMessages(read.messages,before,limit):read;}
+ if(!task.sessionFile)return pageTaskMessages([],before,limit);
  try{return await readSessionHistoryPage(task.sessionFile,before,limit,signal);}
  catch(error){
   // Only admitted legacy files use the SDK migration path. Never fall back after a budget/race refusal.

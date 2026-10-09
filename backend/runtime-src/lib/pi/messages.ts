@@ -148,9 +148,15 @@ export const MAX_UI_TOOL_OUTPUT_CHARS = 20_000;
 export const UI_TOOL_OUTPUT_OMISSION = "\n…（以降省略）";
 
 export function truncateUiToolOutput(text: string): string {
-  return text.length > MAX_UI_TOOL_OUTPUT_CHARS
-    ? `${Array.from(text).slice(0, MAX_UI_TOOL_OUTPUT_CHARS).join("")}${UI_TOOL_OUTPUT_OMISSION}`
-    : text;
+  if (text.length <= MAX_UI_TOOL_OUTPUT_CHARS) return text;
+  // Iterate only the visible prefix; Array.from(text) allocated every code point
+  // of multi-MiB results before throwing almost all of them away.
+  const prefix: string[] = [];
+  for (const char of text) {
+    prefix.push(char);
+    if (prefix.length === MAX_UI_TOOL_OUTPUT_CHARS) break;
+  }
+  return `${prefix.join("")}${UI_TOOL_OUTPUT_OMISSION}`;
 }
 
 function contentBlocks(content: unknown): unknown[] {

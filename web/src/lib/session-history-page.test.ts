@@ -56,6 +56,14 @@ describe("indexed cold history projection", () => {
     const { file, expected } = setup([user("older"), user("recent"), assistant("tail", { id: 7 })]);
     expect(await readSessionHistoryPage(file, null, 1)).toEqual(pageTaskMessages(expected, null, 1));
   });
+  it("normalizes cursor whitespace exactly like live history", async () => {
+    const { file, expected } = setup([user("old"), user("recent"), assistant("tail")]);
+    expect(await readSessionHistoryPage(file, " e1 ", 1)).toEqual(pageTaskMessages(expected, " e1 ", 1));
+  });
+  it("preserves part IDs for prototype-like persisted entry IDs", async () => {
+    const { file, expected } = setup([{ ...user("old"), id: "root" }, { ...user("recent"), id: "__proto__", parentId: "root" }, { ...assistant("tail"), id: "constructor", parentId: "__proto__" }]);
+    expect(await readSessionHistoryPage(file, null, 1)).toEqual(pageTaskMessages(expected, null, 1));
+  });
   it("preserves images as lazy placeholders without retaining base64 in the projector", async () => {
     const { file, expected } = setup([user("old"), { type: "message", message: { role: "user", timestamp: 4, content: [{ type: "text", text: "image" }, { type: "image", mimeType: "image/png", data: "AAAA" }] } }, assistant("tail")]);
     expect(await readSessionHistoryPage(file, null, 3)).toEqual({ ...pageTaskMessages(expected, null, 3), messages: stripImageDataFromMessages(expected) });

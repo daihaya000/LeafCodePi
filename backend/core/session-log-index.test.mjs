@@ -21,6 +21,7 @@ test("caches only offsets and parses selected rows on repeated requests without 
   for (let i = 0; i < 5; i++) await read(file);
   const after = sessionLogIndexDiagnostics();
   assert.equal(after.scannedBytes, diagnostics.scannedBytes); assert.equal(after.parsedRows - diagnostics.parsedRows, 5);
+  assert.equal(after.branchBuilds, diagnostics.branchBuilds, "warm requests reuse the validated branch");
   assert.ok(after.cacheBytes < 2048); assert.equal(after.descriptors, 0); assert.equal(after.readers, 0);
   assert.deepEqual(readFileSync(file), before);
 });
@@ -62,6 +63,24 @@ test("serializes readers, caps the queue and removes cancelled waiters", async (
   await assert.rejects(read(file), { code: "SESSION_INDEX_BUSY", status: 503 });
   await Promise.all([running, ...queued]);
   const after = sessionLogIndexDiagnostics(); assert.equal(after.waiters, 0); assert.equal(after.readers, 0); assert.equal(after.descriptors, 0);
+});
+test("frozen branch metadata cannot poison later readers and reserved fields fail closed", async (t) => {
+  const { file } = setup(t, [row("a", null), row("b", "a")]);
+  await read(file, (branch) => {
+    assert.ok(Object.isFrozen(branch)); assert.ok(Object.isFrozen(branch[0]));
+    assert.throws(() => { branch[0].offset = 0; }, TypeError);
+    assert.throws(() => { branch.reverse(); }, TypeError);
+    return { ids: [branch.at(-1).id] };
+  });
+  assert.equal((await read(file)).entries[0].id, "b");
+  await assert.rejects(readIndexedSession(file, { kind: "poison", classify: () => ({ offset: 0 }), select: () => ({ ids: [] }) }), { code: "SESSION_INDEX_METADATA", status: 500 });
+  assert.equal(sessionLogIndexDiagnostics().readers, 0);
+});
+test("reused row buffer never exposes bytes from the preceding longer row", async (t) => {
+  const { file } = setup(t, [row("a", null, "long output".repeat(10_000)), row("b", "a", "短文😀")]);
+  const all = await read(file, (branch) => ({ ids: branch.map((item) => item.id) }));
+  assert.equal(all.entries[1].message.content, "短文😀");
+  assert.equal((await read(file)).entries[0].message.content, "短文😀");
 });
 test("256MiB repeated history reads stay below the unchanged 48MiB heap-growth ceiling", async (t) => {
   const { file } = setup(t);

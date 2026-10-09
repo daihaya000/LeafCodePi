@@ -10,7 +10,7 @@ const indexes = new Map();
 let cacheBytes = 0, busy = false;
 const waiters = [];
 let lineBuffer;
-const metrics = { scannedBytes: 0, parsedRows: 0, selectedBytes: 0, cacheHits: 0, descriptors: 0 };
+const metrics = { scannedBytes: 0, parsedRows: 0, selectedBytes: 0, cacheHits: 0, branchBuilds: 0, descriptors: 0 };
 const fail = (code, status = 413) => Object.assign(new Error("Session history cannot be read within the safe budget"), { code, status });
 const generation = (s) => [s.dev, s.ino, s.size, s.mtimeNs, s.ctimeNs].join(":");
 function forget(key) { const prior = indexes.get(key); if (prior) { cacheBytes -= prior.bytes; indexes.delete(key); } }
@@ -64,10 +64,12 @@ export async function readIndexedSession(path, { kind, classify, select, signal 
           (entry.parentId !== null && (typeof entry.parentId !== "string" || entry.parentId.length > 512)) || rows.has(entry.id)) throw fail("SESSION_INDEX_STRUCTURE", 409);
         const metadata = classify(entry);
         // Classifiers are internal; scalar-only metadata prevents accidental transcript retention.
-        if (!metadata || Object.values(metadata).some((v) => v !== null && !["string", "number", "boolean"].includes(typeof v))) throw fail("SESSION_INDEX_METADATA", 500);
-        bytes += 320 + 2 * (entry.id.length + (entry.parentId?.length ?? 0) + JSON.stringify(metadata).length);
+        if (!metadata || ["id", "parentId", "offset", "length"].some((key) => Object.hasOwn(metadata, key)) ||
+          Object.values(metadata).some((v) => v !== null && !["string", "number", "boolean"].includes(typeof v))) throw fail("SESSION_INDEX_METADATA", 500);
+        // Include the cached branch array + membership Set in the metadata budget.
+        bytes += 416 + 2 * (entry.id.length + (entry.parentId?.length ?? 0) + JSON.stringify(metadata).length);
         if (bytes > SESSION_INDEX_MAX_BYTES || rows.size >= MAX_ENTRIES) throw fail("SESSION_INDEX_ENTRY_LIMIT");
-        rows.set(entry.id, { id: entry.id, parentId: entry.parentId, offset: end - length, length, ...metadata }); leaf = entry.id;
+        rows.set(entry.id, Object.freeze({ ...metadata, id: entry.id, parentId: entry.parentId, offset: end - length, length })); leaf = entry.id;
       };
       while (position < Number(before.size)) {
         check();
@@ -86,31 +88,32 @@ export async function readIndexedSession(path, { kind, classify, select, signal 
       }
       emit(position);
       if (!header) throw fail("SESSION_INDEX_LEGACY", 409);
-      index = { version: generation(before), rows, leaf, bytes };
+      const branch = [], activeIds = new Set();
+      for (let id = leaf; id; ) {
+        const row = rows.get(id);
+        if (!row || activeIds.has(id)) throw fail("SESSION_INDEX_STRUCTURE", 409);
+        activeIds.add(id); branch.push(row); id = row.parentId;
+      }
+      branch.reverse(); metrics.branchBuilds++;
+      index = { version: generation(before), rows, branch: Object.freeze(branch), activeIds, bytes };
       check();
       if (generation(await file.stat({ bigint: true })) !== index.version || generation(await stat(path, { bigint: true })) !== index.version || await realpath(path) !== path) throw fail("SESSION_INDEX_CHANGED", 409);
       remember(key, index);
     } else metrics.cacheHits++;
-    const branch = [], seen = new Set();
-    for (let id = index.leaf; id; ) {
-      const row = index.rows.get(id);
-      if (!row || seen.has(id)) throw fail("SESSION_INDEX_STRUCTURE", 409);
-      seen.add(id); branch.push(row); id = row.parentId;
-    }
-    branch.reverse();
-    const selection = select(branch);
+    const selection = select(index.branch);
     const selected = [...new Set(selection.ids)];
     let total = 0;
     for (const id of selected) {
       const row = index.rows.get(id);
-      if (!row || !seen.has(id)) throw fail("SESSION_INDEX_SELECTION", 409);
+      if (!row || !index.activeIds.has(id)) throw fail("SESSION_INDEX_SELECTION", 409);
       total += row.length;
       if (total > SESSION_PAGE_MAX_BYTES) throw fail("SESSION_PAGE_LIMIT");
     }
     const entries = [];
     for (const id of selected) {
       check();
-      const row = index.rows.get(id), buffer = Buffer.allocUnsafe(row.length);
+      // The reader lease also owns this reusable buffer; no per-row Buffer allocation.
+      const row = index.rows.get(id), buffer = lineBuffer;
       let position = 0;
       while (position < row.length) {
         check(); const n = Math.min(65536, row.length - position);
@@ -119,7 +122,7 @@ export async function readIndexedSession(path, { kind, classify, select, signal 
         position += n;
       }
       metrics.selectedBytes += row.length;
-      const entry = JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(buffer)); metrics.parsedRows++;
+      const entry = JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(buffer.subarray(0, row.length))); metrics.parsedRows++;
       if (entry.id !== id) throw fail("SESSION_INDEX_CHANGED", 409);
       entries.push(entry);
     }

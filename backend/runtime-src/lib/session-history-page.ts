@@ -10,7 +10,7 @@ import { restoreThroughputFromEntries, THROUGHPUT_CUSTOM_TYPE } from "./token-th
 import type { UiMessage } from "./types";
 
 type Metadata = {
-  raw: boolean; role: string | null; prefix: string | null; agent: boolean; goal: boolean;
+  raw: boolean; role: string | null; agent: boolean; goal: boolean;
   intercom: boolean; userReset: boolean; customReset: boolean; compactionReset: boolean;
   resumeReset: boolean; startedAt: number | null; throughputAt: number | null;
 };
@@ -28,7 +28,7 @@ function classify(entry: any): Metadata {
   const intercom = isIntercomMessageMarker(raw);
   const role = !visible ? null : raw.role === "custom" ? (goalLoopUiPrompt(raw) !== null ? "user" : "assistant") : raw.role;
   return {
-    raw: Boolean(raw), role, prefix: typeof raw?.id === "string" && raw.id ? raw.id : null,
+    raw: Boolean(raw), role,
     agent: isAgentSwitchMarker(raw), goal: isGoalLoopTurnMarker(raw), intercom,
     userReset: raw?.role === "user", customReset: raw?.role === "custom" && !intercom,
     compactionReset: raw?.role === "compactionSummary",
@@ -39,11 +39,12 @@ function classify(entry: any): Metadata {
 }
 /** Read-only UI history is independent of the model's summary + verbatim recent context. */
 export async function readSessionHistoryPage(path: string, before: string | null = null, limit = TASK_MESSAGE_PAGE_SIZE, signal?: AbortSignal): Promise<SessionHistoryPage> {
+  const cursor = before?.trim() || null;
   const { entries, selection } = await readIndexedSession(path, {
-    kind: "ui-history-v1", classify, signal,
-    select(branch: SessionIndexRow<Metadata>[]) {
+    kind: "ui-history-v2", classify, signal,
+    select(branch: readonly SessionIndexRow<Metadata>[]) {
       const visible = branch.filter((row) => row.role !== null);
-      const end = before === null ? visible.length : visible.findLastIndex((row) => row.id === before);
+      const end = cursor === null ? visible.length : visible.findLastIndex((row) => row.id === cursor);
       if (end < 0) throw new InvalidTaskMessageCursorError();
       let start = Math.max(0, end - (Number.isSafeInteger(limit) && limit > 0 ? limit : TASK_MESSAGE_PAGE_SIZE));
       if (start > 0 && visible[start]?.role !== "user") {
@@ -71,8 +72,8 @@ export async function readSessionHistoryPage(path: string, before: string | null
         if (row.startedAt !== null) starts.add(row.startedAt);
       }
       for (const row of branch) if (row.throughputAt !== null && starts.has(row.throughputAt)) include.add(row.id);
-      const ordinals: Record<string, number> = {}; let ordinal = 0;
-      for (const row of branch) { if (include.has(row.id)) ordinals[row.id] = ordinal; if (row.raw) ordinal++; }
+      const ordinals = new Map<string, number>(); let ordinal = 0;
+      for (const row of branch) { if (include.has(row.id)) ordinals.set(row.id, ordinal); if (row.raw) ordinal++; }
       return { ids: branch.filter((row) => include.has(row.id)).map((row) => row.id), ordinals,
         wanted: [...wanted], hasMore: start > 0, nextCursor: start > 0 ? page[0]?.id ?? null : null };
     },
@@ -82,7 +83,7 @@ export async function readSessionHistoryPage(path: string, before: string | null
     const message = rawMessage(entry); if (!message) continue;
     // Avoid caching base64 data URLs in the UI projector. Images load through the existing image endpoint.
     const content = Array.isArray(message.content) ? message.content.map((part: any) => part?.type === "image" && part.data ? { ...part, data: "AA==" } : part) : message.content;
-    const item = { ...message, id: typeof message.id === "string" && message.id ? message.id : `msg-${selection.ordinals[entry.id]}`, content };
+    const item = { ...message, id: typeof message.id === "string" && message.id ? message.id : `msg-${selection.ordinals.get(entry.id)}`, content };
     raw.push(item); if (piRawMessageProjectsToUi(item)) entryIds.set(item, entry.id);
   }
   const projected = projectPiMessages(raw), ids = [...entryIds.values()], wanted = new Set(selection.wanted);
