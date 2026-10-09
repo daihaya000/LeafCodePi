@@ -69,6 +69,19 @@ Phase0のPhase4対象は14経路・15操作。今回の移管は `tasks/[id]/ima
 - Task1GiB/61切断、Room256MiB/32切断+24metadata取消しも再検証し、配信/FD/待機/中継activeは0。
 - 原因: 従来NextのRoom snapshot整形/購読を廃止してownerへ移す必要があった。独立レビューではBot一覧からtask_dirtyを落とす互換性欠落を検出し、owner購読を追加してclient hubと再検証した。初期fixtureの停滞判定は接続前の古いactive=0を見ていたため、接続1の採取後にpauseを判定する形へ修正した。
 
+## 追加単位: Task message-image
+
+- `tasks/[id]/message-image` GETと互換HEADを共通file-streamへ移管。累計9経路・Phase0掲載10操作（互換HEAD追加6操作）。Nextはopaque中継のみで、Task detail全JSONの取得・SDK読取・画像選択・base64全体復号を廃止した。
+- BackendでTask登録、messageId/partId（trim後512文字以下）、現在branchへの所属、実UIのentry row ID/msg-N-image-index、user/表示custom画像を検証する。compaction前の履歴とhidden context markerもordinalへ反映する。別branch、stripped画像、assistantの未投影画像を漏らさない。
+- owned liveは既存private `__leafcodePiHarness.live` のindexed SessionManager getLeafId/getEntryだけを読む。getBranchの全コピー、ensureLive、SDK/session hydration・投影image cacheは使わない。live rewindの未永続leafを優先し、例外時に別branch/coldへfallbackしない。archived/foreign/coldは登録sessionFileの同一canonical FDからreadonlyで読む。
+- coldはv3 JSONLのみ（legacyは409、移行・session rewrite・slimmingなし）。FD dev/ino・size/mtimeNs/ctimeNsとcanonical名を開始/終了で検証し、変更時409。原子的snapshotは保証しない。最大512MiB file、16MiB/line、100,000 entryかつ推定index8MiB、8秒scan期限。大きすぎる既存履歴は413/503になる制約がある。
+- scan/readは64KiB刻み、1reader/最大32待機、16MiB reuse buffer。取消しでFD/待機/枠を解放する。FD世代とoffset/ancestryだけを最大4件/合計推定8MiB cacheし、本文・base64・SDK objectはcacheしない。安定世代の再要求では対象行だけ読み、same-size rewrite・inode交換・追記は世代を無効化する。
+- 画像は新しく8MiB以下、canonical base64/末尾padding bit/登録raster MIME・署名を照合（SVG等は415）。全保持base64は32MiBまで。1pull最大64KiBだけ復号、内部3byte alignmentのdecode最大65,538bytes。全画像復号やNext全体bufferはない。private no-store/inline/nosniff/same-origin、Range206/416・suffix・If-Range全体200・HEADを共通実装で維持する。
+- 関連Web43件、native/file server+契約/AST91件、実message-image2段HTTP1件の計135件成功。Backend/Web source型チェック成功。通常Web全体は前単位同様、生成済みNext型の既存エラーを含むためsource専用configで検証した。全suite・Next production全体は未測定。
+- 約72MiBの隔離履歴（compactionを含む）から2MiB画像を4並列×32巡、計256MiB配信。32本文切断、24scan/待機取消し、Range/HEAD/auth、画像branch変更、Backend/relay再起動後のbranch拒否と復元を確認。session SHA256は読取の前後で不変。実モデル/ユーザーデータ/ユーザーサービスは操作していない。
+- 最終active/添付FD/image reader/待機/image FD/保持image/保持base64/relay activeは0。意図的な16MiB scan bufferと20,390bytes metadata indexは有界で残す。最終測定RSS増分はBackend16,232,448 / relay21,962,752bytes、heap6,861,664 / 1,995,952、external13,633,593 / 18,279,899。閾値RSS128MiB/heap48MiB/external96MiBを維持。
+- 原因: 初版は毎回全行をJSON解析し、反復配信でheap増分66,440,184bytes（48MiB超）、RSS105,250,816bytesになった。image dataではなく世代検証済みoffset/branch metadataだけを有界cacheし、対象行のみの再読込で閾値を緩めず再検証した。
+
 ## 残り
 
-message-image、profile export、TTS binary、Task/Bot個別SSE・Provider SSE。既存のProvider SSE中継もPhase4の共通切断・再接続・長時間/停滞検証の対象にする。全対象の所有権と長時間SSEの有界性が確認できるまでPhase4の受入完了とはしない。
+profile export、TTS binary、Task/Bot個別SSE・Provider SSE。既存のProvider SSE中継もPhase4の共通切断・再接続・長時間/停滞検証の対象にする。全対象の所有権と長時間SSEの有界性が確認できるまでPhase4の受入完了とはしない。
