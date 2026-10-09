@@ -2,7 +2,15 @@ import { gunzipSync, gzipSync } from "node:zlib";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { EventEmitter } from "node:events";
+import { getPackageDir } from "@earendil-works/pi-coding-agent";
+import { afterEach, describe, expect, it, vi } from "vitest";
+
+const { spawnMock } = vi.hoisted(() => ({ spawnMock: vi.fn() }));
+vi.mock("node:child_process", async (importOriginal) => ({
+  ...await importOriginal<typeof import("node:child_process")>(),
+  spawn: spawnMock,
+}));
 import { createProfileBackup, exportProfile, listProfileBackups, importProfile, importProfileWithBackup, resetProfile, restoreProfile, restoreProfilePackages } from "@/lib/profile";
 
 const roots: string[] = [];
@@ -14,6 +22,8 @@ function directory(): string {
 }
 
 afterEach(() => {
+  vi.unstubAllEnvs();
+  spawnMock.mockReset();
   while (roots.length) rmSync(roots.pop()!, { recursive: true, force: true });
 });
 
@@ -139,6 +149,26 @@ describe("profile", () => {
 
     await expect(restoreProfilePackages(options, async (path) => { calls.push(path); })).resolves.toEqual({ packageCount: 2 });
     expect(calls).toEqual([agentDir]);
+  });
+
+  it("restores packages with the installed ESM SDK CLI without requiring its entry", async () => {
+    vi.stubEnv("PI_PACKAGE_DIR", "");
+    const agentDir = join(directory(), "agent");
+    mkdirSync(agentDir, { recursive: true });
+    writeFileSync(join(agentDir, "settings.json"), JSON.stringify({ packages: ["npm:example"] }), "utf8");
+    const cliPath = join(getPackageDir(), "dist", "bundle", "cli.js");
+    expect(existsSync(cliPath)).toBe(true);
+    spawnMock.mockImplementation(() => {
+      const child = Object.assign(new EventEmitter(), {
+        stdout: new EventEmitter(), stderr: new EventEmitter(), kill: vi.fn(),
+      });
+      queueMicrotask(() => child.emit("close", 0));
+      return child;
+    });
+
+    await expect(restoreProfilePackages({ agentDir })).resolves.toEqual({ packageCount: 1 });
+    expect(spawnMock).toHaveBeenCalledWith(process.execPath, [cliPath, "update", "--extensions"],
+      expect.objectContaining({ cwd: agentDir, shell: false }));
   });
 
   it("backs up current configuration before replacing it", () => {

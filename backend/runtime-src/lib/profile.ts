@@ -1,5 +1,5 @@
 import { spawn } from "node:child_process";
-import { createRequire } from "node:module";
+import { getPackageDir } from "@earendil-works/pi-coding-agent";
 import { assertConfigurationOwner, watchConfigurationPath, markConfigurationRecovery, markConfigurationExternalWrite } from "@backend-core/configuration-command.mjs";
 import { gzipSync, gunzipSync } from "node:zlib";
 import {
@@ -108,9 +108,8 @@ type PiUpdateCommand = {
  * depend on a separately installed global `pi` command.
  */
 function piUpdateCommand(): PiUpdateCommand {
-  const require = createRequire(import.meta.url);
-  const sdkEntry = require.resolve("@earendil-works/pi-coding-agent");
-  const cliCandidates = [join(dirname(sdkEntry), "bundle", "cli.js")];
+  // The SDK only exposes an ESM import condition; require.resolve cannot resolve it.
+  const cliCandidates = [join(getPackageDir(), "dist", "bundle", "cli.js")];
   const cliPath = cliCandidates.find((candidate) => existsSync(candidate));
   if (cliPath) {
     return { command: process.execPath, args: [cliPath, "update", "--extensions"] };
