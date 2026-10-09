@@ -8,41 +8,17 @@ import type { LoginOptions } from "@earendil-works/pi-ai";
 import { CredentialSynchronizationError } from "@earendil-works/pi-coding-agent";
 import { forwardOAuthCallback, getOAuthCallbackTarget, type OAuthCallbackTarget } from "./oauth-callback";
 
-export type AuthTypeDto = "api_key" | "oauth";
+import type { AuthTypeDto } from "@shared/ui-owner-dtos";
+export type { AuthTypeDto } from "@shared/ui-owner-dtos";
 
-export type LoginPromptDto =
-  | { type: "text"; message: string; placeholder?: string }
-  | { type: "secret"; message: string; placeholder?: string }
-  | {
-      type: "select";
-      message: string;
-      options: { id: string; label: string; description?: string }[];
-    }
-  | { type: "manual_code"; message: string; placeholder?: string };
+import type { LoginPromptDto } from "@shared/ui-owner-dtos";
+export type { LoginPromptDto } from "@shared/ui-owner-dtos";
 
-export type LoginNotifyDto =
-  | { type: "info"; message: string; links?: { url: string; label?: string }[] }
-  | { type: "auth_url"; url: string; instructions?: string; callbackUrl?: string }
-  | {
-      type: "device_code";
-      userCode: string;
-      verificationUri: string;
-      intervalSeconds?: number;
-      expiresInSeconds?: number;
-    }
-  | { type: "progress"; message: string };
+import type { LoginNotifyDto } from "@shared/ui-owner-dtos";
+export type { LoginNotifyDto } from "@shared/ui-owner-dtos";
 
-export type LoginSessionEvent =
-  | {
-      type: "started";
-      providerId: string;
-      authType: AuthTypeDto;
-      accountId?: string | null;
-    }
-  | { type: "notify"; event: LoginNotifyDto }
-  | { type: "prompt"; id: string; prompt: LoginPromptDto }
-  | { type: "done"; ok: true; warning?: string }
-  | { type: "done"; ok: false; error: string };
+import type { LoginSessionEvent } from "@shared/ui-owner-dtos";
+export type { LoginSessionEvent } from "@shared/ui-owner-dtos";
 
 type PendingPrompt = {
   id: string;

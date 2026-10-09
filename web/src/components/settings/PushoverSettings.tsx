@@ -4,7 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import { Badge, Button } from "@/components/ui";
 import { getJson, sendJson } from "@/lib/client";
 import { setNotificationDeliveryEnabled, useNotificationDeliveryEnabled } from "@/lib/notification-delivery-client";
-import type { PushoverSettingsDto, PushoverSettingsPatch } from "@/lib/pushover-config";
+import type { PushoverSettingsDto, PushoverSettingsPatch } from "@shared/ui-owner-dtos";
 
 const fieldClass = "min-h-11 min-w-0 w-full rounded-lg border border-border bg-surface-2 px-3 text-sm text-text outline-none focus:border-border-strong disabled:opacity-50";
 

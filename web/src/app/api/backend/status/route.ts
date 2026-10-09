@@ -5,7 +5,6 @@ import {
   isBackendGenerationCompatible,
   readBackendHealth,
 } from "@/lib/backend-client";
-import { webOwnsRuntime } from "@/lib/backend-relay";
 import { isWebUiRequestAuthorized, webUiAuthRequired } from "@/lib/webui-auth";
 
 export const runtime = "nodejs";
@@ -32,7 +31,7 @@ export async function GET(req: Request) {
     url: status.url,
     // This WebUI is always the Backend's client: it never owns the runtime, so there is no hand-over
     // left to report. The ownership is still exposed for diagnostics.
-    ownsRuntime: webOwnsRuntime(),
+    ownsRuntime: false,
     backend: health.ok
       ? {
           reachable: true,

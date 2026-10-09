@@ -10,14 +10,14 @@ import type {
   AccountCredentialKind,
   AccountProviderId,
   AccountRecord,
-} from "@/lib/accounts";
+} from "@shared/ui-owner-dtos";
 import type {
   LoginNotifyDto,
   LoginPromptDto,
   LoginSessionEvent,
-} from "@/lib/pi/auth-login";
+} from "@shared/ui-owner-dtos";
 import type { ProviderAuthDto } from "@/lib/types";
-import type { AccountRoutingMode } from "@/lib/provider-routing";
+import type { AccountRoutingMode } from "@shared/ui-owner-dtos";
 import {
   creditUsageParts,
   formatCreditAmount,

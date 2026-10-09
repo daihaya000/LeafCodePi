@@ -7,7 +7,7 @@ import { Users, X } from "lucide-react";
 import { getJson, sendJson } from "@/lib/client";
 import { notifyBotSidebarChanged } from "@/lib/events";
 import { markRead } from "@/lib/bot-unread";
-import type { SkillDto } from "@/lib/skills";
+import type { SkillDto } from "@shared/ui-owner-dtos";
 import { decideNotification } from "@/lib/notify";
 import { useNotificationDeliveryEnabled } from "@/lib/notification-delivery-client";
 import type { BotDto, QuestionRequestDto, RoomAttention, RoomDto, RoomHandoffState, RoomMessage } from "@/lib/types";

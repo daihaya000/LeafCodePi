@@ -7,12 +7,8 @@ import { atomicWrite } from "@/lib/extensions";
 /** Must match extensions/leafcode-tts/index.ts CONFIG_FILE. */
 export const TTS_CONFIG_FILE = "tts.json";
 
-export type TtsConfigDto = {
-  enabled: boolean;
-  voice: string;
-  rate: number;
-  url: string;
-};
+import type { TtsConfigDto } from "@shared/ui-owner-dtos";
+export type { TtsConfigDto } from "@shared/ui-owner-dtos";
 
 const DEFAULT_CONFIG: TtsConfigDto = {
   enabled: false,
@@ -60,10 +56,8 @@ export function normalizeTtsConfig(raw: Partial<TtsConfigDto> | null | undefined
   };
 }
 
-export type TtsHostCapabilities = {
-  hostPlatform: NodeJS.Platform;
-  sapiAvailable: boolean;
-};
+import type { TtsHostCapabilities } from "@shared/ui-owner-dtos";
+export type { TtsHostCapabilities } from "@shared/ui-owner-dtos";
 
 export function ttsHostCapabilities(
   platform: NodeJS.Platform = process.platform,
@@ -74,7 +68,8 @@ export function ttsHostCapabilities(
   };
 }
 
-export type TtsSettingsDto = TtsConfigDto & TtsHostCapabilities;
+import type { TtsSettingsDto } from "@shared/ui-owner-dtos";
+export type { TtsSettingsDto } from "@shared/ui-owner-dtos";
 
 function readStoredTtsConfig(): StoredTtsConfig {
   assertConfigurationOwner();

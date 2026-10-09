@@ -4,7 +4,7 @@ import { relayConfiguration } from "@/lib/configuration-relay";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-export function GET(request?: NextRequest) {
+export function GET(request: NextRequest) {
   return relayConfiguration(request ?? new Request("http://127.0.0.1/api/settings/llama-server-config", { method: "GET" }), "settings/llama-server-config");
 }
 

@@ -29,30 +29,14 @@ import { MAX_SETTING_VALUE_CHARS, invalidateSettingsFileCache, readSettingsFile,
 import { dataDir } from "@/lib/paths";
 import { assertConfigurationOwner } from "@backend-core/configuration-command.mjs";
 
-export type TransferScope = "settings" | "credentials" | "all";
-type AuthEntries = Record<string, Record<string, unknown>>;
-type CookieName = "anthropic" | "opencode" | "ollama";
-type AccountBackup = {
-  record: AccountRecord;
-  auth: AuthEntries;
-  cookies: Partial<Record<CookieName, string>>;
-  openrouterManagementKey?: string;
-  opencodeWorkspaceId?: string;
-  peer?: PeerConfig;
-};
-type CredentialBackup = {
-  defaultAuth: AuthEntries;
-  accounts: AccountBackup[];
-  sharedCookies: Partial<Record<CookieName | "typesafe", string>>;
-};
-export type SettingsBackup = {
-  format: "leafcode-pi-settings";
-  version: 1;
-  scope: TransferScope;
-  exportedAt: string;
-  settings?: Record<string, string | number>;
-  credentials?: CredentialBackup;
-};
+import type { TransferScope } from "@shared/ui-owner-dtos";
+export type { TransferScope } from "@shared/ui-owner-dtos";
+import type { AuthEntries } from "@shared/ui-owner-dtos";
+import type { CookieName } from "@shared/ui-owner-dtos";
+import type { AccountBackup } from "@shared/ui-owner-dtos";
+import type { CredentialBackup } from "@shared/ui-owner-dtos";
+import type { SettingsBackup } from "@shared/ui-owner-dtos";
+export type { SettingsBackup } from "@shared/ui-owner-dtos";
 
 const cookieNames: CookieName[] = ["anthropic", "opencode", "ollama"];
 const MAX_ARCHIVE_BYTES = 20 * 1024 * 1024;

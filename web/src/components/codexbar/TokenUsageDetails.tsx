@@ -1,5 +1,5 @@
 import type { CodexBarProvider } from "@/lib/codexbar";
-import type { TokenUsageEstimate } from "@/lib/codexbar/token-usage-types";
+import type { TokenUsageEstimate } from "@shared/ui-owner-dtos";
 
 const detailed = new Intl.NumberFormat("ja-JP", { maximumFractionDigits: 2 });
 const compact = new Intl.NumberFormat("en-US", { notation: "compact", maximumSignificantDigits: 3 });

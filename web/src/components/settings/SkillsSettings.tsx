@@ -4,7 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import { Badge, Button, Switch } from "@/components/ui";
 import { getJson, sendJson } from "@/lib/client";
 import { SKILL_GROUPS, type SkillGroupDefinition } from "@/lib/skill-groups";
-import type { SkillScope } from "@/lib/skills";
+import type { SkillScope } from "@shared/ui-owner-dtos";
 
 type SkillDto = {
   id: string;

@@ -11,7 +11,7 @@ export function nextUiRoots(root = ROOT) {
       if (entry.isDirectory()) { if (realpathSync(path) !== path) throw Error("UI directories cannot redirect to owner code"); walk(path); continue; }
       if (!/\.[jt]sx?$/.test(path) || /\.test\.[jt]sx?$/.test(path)) continue;
       const source = readFileSync(path, "utf8"), rel = relative(web, path).replaceAll("\\", "/");
-      if (/^app\/(?:.*\/)?(page|layout|loading|error|not-found|global-error|template|default)\.[jt]sx?$/.test(rel) || /^\s*["']use client["']/.test(source)) roots.push("web/src/" + rel);
+      if (/^app\/(?:.*\/)?(page|layout|loading|error|not-found|global-error|template|default)\.[jt]sx?$/.test(rel) || /^(?:\s|\/\*[\s\S]*?\*\/|\/\/[^\r\n]*(?:\r?\n|$))*["']use client["']/.test(source)) roots.push("web/src/" + rel);
     }
   }
   walk(web); return roots.sort();

@@ -16,7 +16,7 @@ import {
 import { cx, timeAgo } from "@/components/ui";
 import { useCodexUsage } from "@/components/codexbar/use-codex-usage";
 import { TokenEstimateInline, summaryTokenEstimate } from "@/components/codexbar/TokenUsageDetails";
-import type { TokenUsageEstimate } from "@/lib/codexbar/token-usage-types";
+import type { TokenUsageEstimate } from "@shared/ui-owner-dtos";
 import { aggregateTokenUsage } from "@/lib/codexbar/aggregate-token-usage";
 import {
   useCodexProviders,

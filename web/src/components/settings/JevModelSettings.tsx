@@ -4,7 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { GripVertical } from "lucide-react";
 import { Badge, Button, Switch, cx } from "@/components/ui";
 import { ReorderButtons } from "@/components/settings/ProviderModelsPanel";
-import type { ProviderModelsRow } from "@/lib/provider-models";
+import type { ProviderModelsRow } from "@shared/ui-owner-dtos";
 import { ProviderIcon } from "@/components/ProviderIcon";
 import { getJson, sendJson } from "@/lib/client";
 import { jevModelKey, type JevCatalogModel } from "@/lib/jev-model-catalog";

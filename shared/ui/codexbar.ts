@@ -6,7 +6,7 @@
  */
 
 import { providerIconSrc as piProviderIconSrc } from "@shared/ui/provider-icons";
-import type { ProviderTokenUsage } from "@backend-runtime/lib/codexbar/token-usage-types";
+import type { ProviderTokenUsage } from "@shared/ui-owner-dtos";
 
 export const CODEXBAR_SCHEMA = "codexbar.usage-snapshot/v1";
 

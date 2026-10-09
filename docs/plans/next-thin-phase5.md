@@ -69,11 +69,19 @@ Nextは画面・ブラウザ認証・入口制限・HTTP中継だけを担当す
 - 実Next productionで実UI page/layout全体をbuildし、既存MainLayoutClient・思考dropdownをrender。匿名SSRはBackend設定読取0、Cookie callerだけowner値を受け、Web停止/再起動後は更新したowner snapshotを表示、internal token非露出・Next data directory未生成を1/1成功（18.2秒）。有限fake設定ownerであり実provider/SDK生成継続の最終受入ではない。初回fixtureはResponseでないowner返値、次はRSCでnull-prototype DTOを渡す問題で失敗し、契約修正後に再検証した。
 - Backend SDK関数のimportはWeb alias誤解決を避けてrelativeへ変更。並行harness差分とは異なるimport1行だけを隔離展開・限定stageし、他者のoverload実装は含めない。実サービス停止/再起動、実資格情報、課金生成、installed package変更は行わない。
 
+## 第6区切り: 全Next入口・型閉包の境界と本番workspace独立化
+
+- 全165 route棚卸しで、status診断のownership表示が未使用のBot count・Backend ownership moduleまでimportしていた。Nextの診断は常にclientなので `ownsRuntime:false` とし、業務互換relayを本番閉包から除去。秘密・認証・generation診断の契約は維持。
+- `check-next-entry-boundary` はAPI/render/client/proxy/instrumentationに加えmetadata routeを自動発見し、312 roots/165 routes/583 runtime modulesを検査。type-only import/export/import queryと隣接.d.mtsまで含む649 modulesもWeb/sharedだけに制限。非literal・間接loader、builtin loader、code評価・owner escape・symlink・path referenceを回帰で拒否。個別transport22 rootsだけの検査ではなく、全本番入口をbuild前に検査する。
+- public DTO28型を `shared/ui-owner-dtos.ts` に移管。Backend/Coreは元pathで型をimport/re-exportし、UIは直接sharedを参照する。型本体28個と38ファイルのruntime emit（EOL正規化後）がHEADと同一。型経由で設定・認証・SDK・ストアのownerソースをNextへ持ち込まない。
+- mirrorからBackend/Core/runtime-src/extensionコピーを撤去し、旧mirror残骸もprune。対象owner checkoutへのoverlapとweb内のreserved path拒否は維持し、checkout・node_modules・既存.nextは侵さない。本番型検査は自動発見した入口だけを起点とし、unused compatibility/test wrapperとowner aliasを除外。Web buildはBackendバージョン検査・extension installを呼ばず、これらのHost担当処理は保持。不要serverExternalPackagesのSDK/provider/native例外も除去。
+- 実Next生成後の型検査で19 optional request署名の不適合を検出し、16 routeファイルの引数型だけrequiredへ修正（runtime emit同一）。build-webは並列precheck後に生成route型も再検査し、compiler欠落・生成型失敗をfail-closed/既存build復旧とする。
+- ba589faa＋自分の差分だけの隔離でBackend forced build/runtime型、native109件、関連Web68 files/535 tests成功。build後型gate追加の最新境界回帰11件も成功。広域全Web suiteの成功とはしない。追加した既存service-independence試験のimage HTTP envelope期待は `undefined !== 404` で失敗し、未変更HEADの別Tempでも同じ行・同じ失敗を再現したため無関係修正せず記録。既存SettingsView localhost通信拒否ログも保持。
+- full production mirrorにはBackend/extension sourceもSDK/provider/SQLite/jiti package pathも置かず、全165 API・実UIをNext build。build前/生成後のstrict型成功、179 NFT traceにowner/SDK/nativeなし。匿名status401、認証callerのowner snapshot・秘密非露出、Web停止中の独立Backend readiness、Web再起動後の応答、Backend不在時の失敗表示、Next data未生成を1/1成功（57.0秒）。有限設定owner callbackであり実SDK生成継続の最終受入ではない。初回の生成型不適合とfixture自身のhealth URL/protocol誤り、native fixture cleanup失敗、status旧mock期待を修正して再検証した。
+
 ## 残る作業
 
-- 画面で使うclient-safe helper/型と、Backend業務実装への互換re-exportを分離。実行グラフに残るBackend/SDK依存を特定して撤去し、旧helperの直接呼出しも整理する。
-- API/Proxy/画面の本番value import graph全体への禁止import検査を追加し、ブラウザ認証・入口制限・opaque transportだけを残す。テスト専用のBackend owner検証を本番グラフへ混ぜない。
-- Web manifest/lockfile/build mirrorから不要SDK/provider/SQLite等を除去。残存client import/型依存・テスト依存を調べずにpackageだけ削除しない。
+- Web manifest/lockfileから不要SDK/provider/SQLite等を除去し、HostのSDK version gate/updater同期をBackend専有に変更する。テストのSDK依存はBackend側へ解決/分離する。installed packageと稼働サービスは今回変更していない。
 - 隔離した実Backend/実Nextで、生成実行中のWeb停止/再起動、Backend PID/世代/SDK session/lease継続、再接続後の履歴・完了結果・受付済operationの非再実行を確認する。register関数だけの子プロセス試験は、この最終受入の代用にしない。
 
 実資格情報・課金生成・稼働サービスの停止/再起動は検証に使わない。他セッションのharness/GoalLoop/provider-overload差分を混ぜない。

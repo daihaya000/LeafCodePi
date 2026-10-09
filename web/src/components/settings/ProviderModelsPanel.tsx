@@ -10,7 +10,7 @@ import {
   THINKING_LEVEL_LABELS,
   isThinkingLevel,
 } from "@/lib/thinking-levels";
-import type { ProviderModelRow, ProviderModelsRow } from "@/lib/provider-models";
+import type { ProviderModelRow, ProviderModelsRow } from "@shared/ui-owner-dtos";
 import type { ThinkingLevel } from "@/lib/types";
 
 type DragState =

@@ -16,7 +16,7 @@ import {
   type TtsVoiceOption,
   type TtsVoicesDto,
 } from "@/lib/tts-backends";
-import type { TtsConfigDto, TtsSettingsDto } from "@/lib/tts-config";
+import type { TtsConfigDto, TtsSettingsDto } from "@shared/ui-owner-dtos";
 import { speakText, stopSpeaking } from "@/lib/tts-playback";
 import {
   MAX_PLAYBACK_RATE,

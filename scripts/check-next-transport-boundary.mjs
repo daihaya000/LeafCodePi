@@ -62,7 +62,7 @@ function generationReaderOnly(file, ts) {
   assert.equal(reads, 1, "Backend transport requires one named generation reader");
 }
 
-export function checkNextTransportBoundary(root = ROOT, ts = defaultParser(), roots = NEXT_TRANSPORT_ROOTS, kind = "transport") {
+export function checkNextTransportBoundary(root = ROOT, ts = defaultParser(), roots = NEXT_TRANSPORT_ROOTS, kind = "transport", collectFiles = false) {
   root = realpathSync(root);
   const web = realpathSync(resolve(root, "web/src")), shared = realpathSync(resolve(root, "shared"));
   assert.equal(web, resolve(root, "web/src"), "Next source root cannot redirect to owner code");
@@ -75,12 +75,13 @@ export function checkNextTransportBoundary(root = ROOT, ts = defaultParser(), ro
     assert.ok(!/\.d\.[cm]?ts$/.test(canonical), `Declaration files are not executable dependencies: ${normalize(file)}`);
     if (visited.has(canonical)) return;
     visited.add(canonical);
-    if (kind === "ui" && /\.(css|svg|png|jpg|webp)$/.test(canonical)) return;
+    if (kind !== "transport" && /\.(css|svg|png|jpg|webp)$/.test(canonical)) return;
     const source = readFileSync(canonical, "utf8");
     for (const specifier of startupImports(source, normalize(relative(root, canonical)), ts)) {
       if (EXTERNALS.has(specifier)) continue;
-      if (kind === "ui" && ["react", "react-dom", "lucide-react", "next-themes", "next/dynamic", "next/image", "next/link", "next/navigation", "next/headers", "react-markdown", "remark-gfm"].includes(specifier)) continue;
-      if (kind === "ui" && canonical === resolve(web, "app/layout.tsx") && specifier === "node:os") {
+      if (kind !== "transport" && ["react", "react-dom", "lucide-react", "next-themes", "next/dynamic", "next/image", "next/link", "next/navigation", "next/headers", "next/og", "react-markdown", "remark-gfm"].includes(specifier)) continue;
+      if (kind === "entry" && canonical === resolve(web, "lib/http-compression-fix.ts") && specifier === "node:http") continue;
+      if (kind !== "transport" && canonical === resolve(web, "app/layout.tsx") && specifier === "node:os") {
         const syntax = ts.createSourceFile(canonical, source, ts.ScriptTarget.Latest, true);
         const imports = syntax.statements.filter(n => ts.isImportDeclaration(n) && n.moduleSpecifier.text === "node:os");
         assert.equal(imports.length, 1, "UI hostname permits only a static named import");
@@ -103,7 +104,7 @@ export function checkNextTransportBoundary(root = ROOT, ts = defaultParser(), ro
     }
   }
   for (const entry of roots) visit(resolve(root, entry));
-  return { roots: roots.length, modules: visited.size };
+  return { roots: roots.length, modules: visited.size, ...(collectFiles ? { files: [...visited].map(p => normalize(relative(root, p))).sort() } : {}) };
 }
 
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {

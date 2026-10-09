@@ -11,7 +11,8 @@ import { dataDir } from "@/lib/paths";
 import { hasLastGoodUsage, type CodexBarProvider } from "@/lib/codexbar";
 import type { AccountProviderId } from "@/lib/accounts";
 
-export type AccountRoutingMode = "integrated" | "separate";
+import type { AccountRoutingMode } from "@shared/ui-owner-dtos";
+export type { AccountRoutingMode } from "@shared/ui-owner-dtos";
 
 export const ACCOUNT_ROUTING_PROVIDER_IDS: readonly AccountProviderId[] = [
   "openai",

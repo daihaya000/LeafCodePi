@@ -191,24 +191,20 @@ export function syncMirror(options = {}) {
     throw new Error(`The build mirror (${mirrorRoot}) must not live inside the project (${sourceDir}) or contain it.`);
   }
 
-  // Transitional runtime imports are copied as source, never as dependencies.
-  // Keep their original relative-import layout inside the mirror.
+  // Removing owner copies must not remove the collision/overlap protections for those owners.
+  for (const name of ["backend", "backend-core", "backend-runtime", "extensions"]) {
+    if (existsSync(join(sourceDir, name))) throw new Error(`web/${name} is reserved; owner sources cannot enter the Web workspace`);
+  }
+  for (const name of ["backend", "extensions"]) {
+    const owner = resolve(dirname(sourceDir), name);
+    const normalized = process.platform === "win32" ? owner.toLowerCase() : owner;
+    if (target === normalized || target.startsWith(normalized + sep) || normalized.startsWith(target.endsWith(sep) ? target : target + sep)) {
+      throw new Error(`The build mirror must not overlap the checkout ${name} directory`);
+    }
+  }
+  // Production Next needs shared contracts only. Backend and extension code never enter this workspace.
   const extras = [
     { name: "shared", path: ["shared"], source: join(dirname(sourceDir), "shared") },
-    { name: "backend/core", path: ["backend", "core"], source: join(dirname(sourceDir), "backend", "core") },
-    { name: "backend/runtime-src", path: ["backend", "runtime-src"], source: join(dirname(sourceDir), "backend", "runtime-src") },
-    {
-      name: "extensions/leafcode-subagents",
-      path: ["extensions", "leafcode-subagents"],
-      source: join(dirname(sourceDir), "extensions", "leafcode-subagents"),
-      include: new Set(["src/api/background-work.ts"]),
-    },
-    {
-      name: "extensions/leafcode-todowrite",
-      path: ["extensions", "leafcode-todowrite"],
-      source: join(dirname(sourceDir), "extensions", "leafcode-todowrite"),
-      include: new Set(["visibility.ts"]),
-    },
   ];
   const reservedNames = [...new Set(extras.map((extra) => extra.path[0]))];
   for (const extra of extras) {

@@ -13,26 +13,11 @@ import { isJevModel } from "@/lib/jev-model-catalog";
 import type { Api, Model } from "@earendil-works/pi-ai";
 import type { ModelOption, ThinkingLevel } from "@/lib/types";
 
-export type ProviderModelRow = {
-  id: string;
-  name: string;
-  enabled: boolean;
-  contextWindow?: number;
-  thinkingLevels?: ThinkingLevel[];
-  defaultThinkingLevel?: ThinkingLevel;
-};
+import type { ProviderModelRow } from "@shared/ui-owner-dtos";
+export type { ProviderModelRow } from "@shared/ui-owner-dtos";
 
-export type ProviderModelsRow = {
-  id: string;
-  name: string;
-  enabled: boolean;
-  models: ProviderModelRow[];
-  /** 設定対象のログインアカウント。未指定は共有プロバイダ設定。 */
-  accountId?: string;
-  accountLabel?: string;
-  /** 統合行に含まれるログインアカウント。 */
-  accountIds?: string[];
-};
+import type { ProviderModelsRow } from "@shared/ui-owner-dtos";
+export type { ProviderModelsRow } from "@shared/ui-owner-dtos";
 
 type RuntimeModel = { id: string; name?: string; provider?: string };
 

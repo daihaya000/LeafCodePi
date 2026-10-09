@@ -58,7 +58,7 @@ import {
 } from "@/lib/task-history";
 import { readTaskTtsEnabled, speakText, stopSpeaking, subscribeTaskTtsEnabled, writeTaskTtsEnabled } from "@/lib/tts-playback";
 import { detectTtsBackend, getTtsBackend, type TtsVoiceOption, type TtsVoicesDto } from "@/lib/tts-backends";
-import type { TtsConfigDto } from "@/lib/tts-config";
+import type { TtsConfigDto } from "@shared/ui-owner-dtos";
 import { BOT_CODE_SESSION_CHANGED_EVENT, BOT_DEFAULT_TOOL_NAMES, BOT_TOOL_NAMES, type BotDto, type BotIntercomInboxDto, type BotToolName, type ModelOption, type PermissionRequestDto, type QuestionRequestDto, type RoutineDto, type TaskMessageHistory, type TaskMessagePage, type TaskSummary, type ThinkingLevel, type UiMessage, type UiPart } from "@/lib/types";
 
 /** Transport failures in a row before the composer stops claiming a turn is still being sent. */

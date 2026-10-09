@@ -8,10 +8,11 @@ import { isMirroredNextCliReady, resolveMirrorRoot, syncMirror } from "./web-bui
 import { checkNextStartupBoundary } from "./check-next-startup-boundary.mjs";
 import { checkNextTransportBoundary } from "./check-next-transport-boundary.mjs";
 import { checkNextUiBoundary } from "./check-next-ui-boundary.mjs";
+import { checkNextEntryBoundary, productionTypeConfig } from "./check-next-entry-boundary.mjs";
 import { DEFAULT_HOST_CONTROL_PORT, dataDir, readPort } from "../host/src/config.js";
 import { hasSsListeningPort, parseListeningPids, parseLsofListeningPids, parseSsListeningPids } from "../host/src/port-plan.js";
 import { runPortSnapshot } from "../host/src/port-scanner.js";
-import { assertInstalledPiVersions, assertPiDependencyVersions, PI_SDK_PACKAGE } from "../shared/pi-dependencies.mjs";
+import { assertInstalledPiVersions, PI_SDK_PACKAGE } from "../shared/pi-dependencies.mjs";
 
 /**
  * Single entry point for the production WebUI build, shared by `npm run build`
@@ -529,7 +530,7 @@ export function typecheckInvocation(mirrorRoot, deps = {}) {
   const exists = deps.existsSync ?? existsSync;
   const tsc = join(mirrorRoot, "node_modules", "typescript", "bin", "tsc");
   if (!exists(tsc)) return null;
-  const config = join(mirrorRoot, "tsconfig.build.json");
+  const config = join(mirrorRoot, "tsconfig.production.json");
   return {
     command: deps.execPath ?? process.execPath,
     args: [tsc, "--noEmit", "--project", config],
@@ -537,7 +538,7 @@ export function typecheckInvocation(mirrorRoot, deps = {}) {
   };
 }
 
-/** Turbopack 16.3.1 cannot trace the Pi SDK's QuickJS WASM; use webpack unless explicitly diagnosing it. */
+/** Keep the verified production bundler default; the Next graph no longer contains SDK WASM. */
 export function nextBuildArgs(nextBin, env = process.env) {
   return [nextBin, "build", ...(env.LEAFCODE_PI_USE_WEBPACK === "0" ? [] : ["--webpack"])];
 }
@@ -551,8 +552,7 @@ export async function main(argv = process.argv.slice(2)) {
     return 1;
   }
 
-  assertPiDependencyVersions(WEB_DIR, join(REPO_ROOT, "backend"));
-  ensureExtensionDependencies();
+  // Backend/extension provisioning belongs to Host startup, never a Web rebuild.
   const mirror = syncMirror({ sourceDir: WEB_DIR });
   console.error(
     `[build-web] workspace ${mirror.mirrorRoot} (copied ${mirror.copied}, unchanged ${mirror.unchanged}, removed ${mirror.removed}, ${mirror.durationMs}ms)`,
@@ -563,6 +563,8 @@ export async function main(argv = process.argv.slice(2)) {
   checkNextStartupBoundary(REPO_ROOT, ts);
   checkNextTransportBoundary(REPO_ROOT, ts);
   checkNextUiBoundary(REPO_ROOT, ts);
+  const boundary = checkNextEntryBoundary(REPO_ROOT, ts);
+  writeFileSync(join(mirror.mirrorRoot, "tsconfig.production.json"), JSON.stringify(productionTypeConfig(boundary.entries), null, 2), "utf8");
 
   const nextBin = join(mirror.mirrorRoot, "node_modules", "next", "dist", "bin", "next");
   if (!existsSync(nextBin)) {
@@ -594,7 +596,9 @@ export async function main(argv = process.argv.slice(2)) {
   // tsc gate runs beside it: same verdict, no serial 15s.
   const typecheck = typecheckInvocation(mirror.mirrorRoot);
   if (!typecheck) {
-    console.error("[build-web] typescript is missing in the build workspace; skipping the typecheck gate");
+    console.error("[build-web] typescript is missing; refusing an unchecked production build");
+    settleFailedBuild(mirror.distDir);
+    return 1;
   }
   const typecheckPromise = typecheck
     ? spawnPiped(typecheck.command, typecheck.args, typecheck.options)
@@ -611,6 +615,14 @@ export async function main(argv = process.argv.slice(2)) {
     if (status === 0 && typecheckStatus !== 0) {
       console.error("[build-web] typecheck failed; discarding the build");
       status = typecheckStatus;
+    }
+  }
+  // Next generates route signatures during build. The parallel precheck cannot validate those.
+  if (status === 0) {
+    const generatedTypesStatus = await spawnPiped(typecheck.command, typecheck.args, typecheck.options);
+    if (generatedTypesStatus !== 0) {
+      console.error("[build-web] generated route typecheck failed; discarding the build");
+      status = generatedTypesStatus;
     }
   }
   if (status !== 0) {

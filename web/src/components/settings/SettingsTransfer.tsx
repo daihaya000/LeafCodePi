@@ -6,7 +6,7 @@ import { Button, cx } from "@/components/ui";
 import { SettingsDisclosure, TransferActions } from "@/components/settings/TransferControls";
 import { getJson, sendJson } from "@/lib/client";
 import { prepareServerSettingsImport, refreshServerSettings } from "@/lib/setting-sync";
-import type { SettingsBackup, TransferScope } from "@/lib/pi/settings-transfer";
+import type { SettingsBackup, TransferScope } from "@shared/ui-owner-dtos";
 
 // 設定エクスポートは構成のみ、ここはPi/プロバイダー/アカウントの認証だけを出力する。
 // インポートは旧版で出力した「設定のみ」「両方」のJSONも受け付ける。

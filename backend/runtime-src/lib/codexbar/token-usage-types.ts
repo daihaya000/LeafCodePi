@@ -1,29 +1,9 @@
 /** Client-safe, additive telemetry. These are observed tokens, not a contractual quota. */
-export type TokenUsageTotals = {
-  input: number;
-  output: number;
-  cacheRead: number;
-  cacheWrite: number;
-  totalTokens: number;
-  responses: number;
-  startedAt: string | null;
-};
+import type { TokenUsageTotals } from "@shared/ui-owner-dtos";
+export type { TokenUsageTotals } from "@shared/ui-owner-dtos";
 
-export type TokenUsageEstimate = {
-  /** Optional for compatibility with older API snapshots. */
-  status?: "calibrating" | "ready" | "stale" | "expired" | "unsupported" | "invalid";
-  /** Earlier of upstream freshness expiry and quota reset. */
-  validUntil?: string | null;
-  id: string;
-  title: string;
-  sampledTokens: number;
-  sampledPercent: number;
-  tokensPerPercent: number | null;
-  estimatedRemainingTokens: number | null;
-  /** Display-only sum of independent account capacities; otherwise rate × 100. */
-  estimatedTotalTokens?: number | null;
-};
+import type { TokenUsageEstimate } from "@shared/ui-owner-dtos";
+export type { TokenUsageEstimate } from "@shared/ui-owner-dtos";
 
-export type ProviderTokenUsage = TokenUsageTotals & {
-  windows: TokenUsageEstimate[];
-};
+import type { ProviderTokenUsage } from "@shared/ui-owner-dtos";
+export type { ProviderTokenUsage } from "@shared/ui-owner-dtos";

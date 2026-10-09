@@ -167,82 +167,46 @@ test("syncMirror isolates shared contracts per checkout and prunes removed contr
   }
 });
 
-test("syncMirror preserves relative imports for transitional runtime sources", () => {
+test("syncMirror excludes Backend and extension owners and prunes their old mirrored copies", () => {
   const { root, source, mirror } = sandbox();
   try {
     mkdirSync(source, { recursive: true });
-    const backend = join(root, "backend");
-    for (const dir of ["core", "src", "node_modules"]) mkdirSync(join(backend, dir), { recursive: true });
-    writeFileSync(join(backend, "core", "manager.mjs"), "export class Manager {}\n");
-    writeFileSync(join(backend, "src", "entry.mjs"), "server\n");
-    writeFileSync(join(backend, "node_modules", "secret"), "dependency\n");
-    const subagentsApi = join(root, "extensions", "leafcode-subagents", "src", "api");
-    mkdirSync(join(subagentsApi, "node_modules"), { recursive: true });
-    writeFileSync(join(subagentsApi, "background-work.ts"), "export const registry = true;\n");
-    writeFileSync(join(subagentsApi, "capability-ceiling.ts"), "not needed by the WebUI\n");
-    writeFileSync(join(subagentsApi, "node_modules", "secret"), "dependency\n");
-    const staleExtension = join(mirror, "extensions", "leafcode-subagents", "src", "agents", "stale.ts");
-    mkdirSync(dirname(staleExtension), { recursive: true });
-    writeFileSync(staleExtension, "stale mirrored source\n");
-    mkdirSync(join(mirror, "backend-core"), { recursive: true });
-    writeFileSync(join(mirror, "backend-core", "stale.mjs"), "legacy mirror layout\n");
-
+    for (const dir of ["backend/core", "backend/runtime-src/lib", "extensions/leafcode-subagents/src/api", "extensions/leafcode-todowrite"]) {
+      mkdirSync(join(root, dir), { recursive: true });
+      writeFileSync(join(root, dir, "owner.ts"), "export const owner = true;\n");
+      mkdirSync(join(mirror, dir), { recursive: true });
+      writeFileSync(join(mirror, dir, "old.ts"), "legacy mirrored owner\n");
+    }
+    mkdirSync(join(root, "shared"), { recursive: true });
+    writeFileSync(join(root, "shared", "wire.mjs"), "export const contract = true;\n");
     syncMirror({ sourceDir: source, mirrorRoot: mirror });
-
-    assert.equal(readFileSync(join(mirror, "backend", "core", "manager.mjs"), "utf8"), "export class Manager {}\n");
-    assert.equal(existsSync(join(mirror, "backend", "src", "entry.mjs")), false);
-    assert.equal(existsSync(join(mirror, "backend", "core", "node_modules")), false);
-    assert.equal(existsSync(join(mirror, "backend-core")), false);
-    assert.equal(existsSync(staleExtension), false);
-    const mirroredApi = join(mirror, "extensions", "leafcode-subagents", "src", "api");
-    assert.equal(readFileSync(join(mirroredApi, "background-work.ts"), "utf8"), "export const registry = true;\n");
-    assert.equal(existsSync(join(mirroredApi, "capability-ceiling.ts")), false);
-    assert.equal(existsSync(join(mirroredApi, "node_modules")), false);
-  } finally {
-    rmSync(root, { recursive: true, force: true });
-  }
+    assert.equal(existsSync(join(mirror, "backend")), false);
+    assert.equal(existsSync(join(mirror, "extensions")), false);
+    assert.equal(readFileSync(join(mirror, "shared", "wire.mjs"), "utf8"), "export const contract = true;\n");
+    assert.equal(syncMirror({ sourceDir: source, mirrorRoot: mirror }).copied, 0);
+    assert.equal(existsSync(join(root, "backend/core/owner.ts")), true);
+    assert.equal(existsSync(join(root, "extensions/leafcode-todowrite/owner.ts")), true);
+  } finally { rmSync(root, { recursive: true, force: true }); }
 });
 
-test("syncMirror copies only the ToDo visibility bridge and keeps sibling runtime sources", () => {
+test("syncMirror protects excluded owner source paths from overlap and reserved collisions", () => {
   const { root, source, mirror } = sandbox();
   try {
-    mkdirSync(join(source, "src", "lib", "pi"), { recursive: true });
-    const importPath = "@extensions/leafcode-todowrite/visibility";
-    writeFileSync(join(source, "src", "lib", "pi", "deferred-tools.ts"), `import '${importPath}';\n`);
-    const extension = join(root, "extensions", "leafcode-todowrite");
-    mkdirSync(join(extension, "node_modules"), { recursive: true });
-    writeFileSync(join(extension, "visibility.ts"), "export const visible = true;\n");
-    writeFileSync(join(extension, "index.ts"), "not needed by the WebUI\n");
-    writeFileSync(join(extension, "node_modules", "secret"), "dependency\n");
-    const subagentsApi = join(root, "extensions", "leafcode-subagents", "src", "api");
-    mkdirSync(subagentsApi, { recursive: true });
-    writeFileSync(join(subagentsApi, "background-work.ts"), "export const registry = true;\n");
-
-    syncMirror({ sourceDir: source, mirrorRoot: mirror });
-
-    // @extensions resolves inside the mirror, with a checkout-sibling fallback for development.
-    const config = JSON.parse(readFileSync(join(REPO_ROOT, "web", "tsconfig.json"), "utf8"));
-    assert.deepEqual(config.compilerOptions.paths["@extensions/*"], ["./extensions/*", "../extensions/*"]);
-    const deferredTools = readFileSync(join(REPO_ROOT, "backend", "runtime-src", "lib", "pi", "deferred-tools.ts"), "utf8");
-    assert.ok(deferredTools.includes(`from "${importPath}"`));
-    const mirroredBridge = resolve(mirror, config.compilerOptions.paths["@extensions/*"][0].replace("*", "leafcode-todowrite/visibility.ts"));
-    const mirroredExtension = dirname(mirroredBridge);
-    assert.equal(readFileSync(mirroredBridge, "utf8"), "export const visible = true;\n");
-    assert.notEqual(statSync(join(extension, "visibility.ts")).ino, statSync(mirroredBridge).ino);
-    assert.equal(existsSync(join(mirroredExtension, "index.ts")), false);
-    assert.equal(existsSync(join(mirroredExtension, "node_modules")), false);
-    assert.equal(syncMirror({ sourceDir: source, mirrorRoot: mirror }).copied, 0);
-    assert.equal(existsSync(join(mirror, "extensions", "leafcode-subagents", "src", "api", "background-work.ts")), true);
-
-    writeFileSync(join(extension, "visibility.ts"), "export const visible = false;\n");
-    syncMirror({ sourceDir: source, mirrorRoot: mirror });
-    assert.equal(readFileSync(mirroredBridge, "utf8"), "export const visible = false;\n");
-    rmSync(join(extension, "visibility.ts"));
-    syncMirror({ sourceDir: source, mirrorRoot: mirror });
-    assert.equal(existsSync(mirroredBridge), false);
-  } finally {
-    rmSync(root, { recursive: true, force: true });
-  }
+    mkdirSync(source, { recursive: true });
+    for (const name of ["backend", "extensions"]) {
+      const owner = join(root, name);
+      mkdirSync(owner, { recursive: true });
+      writeFileSync(join(owner, "keep.ts"), "owner stays unchanged\n");
+      for (const target of [owner, join(owner, "build")]) assert.throws(() => syncMirror({ sourceDir: source, mirrorRoot: target }), /must not overlap/);
+      assert.equal(readFileSync(join(owner, "keep.ts"), "utf8"), "owner stays unchanged\n");
+    }
+    for (const name of ["backend", "backend-core", "backend-runtime", "extensions"]) {
+      mkdirSync(join(source, name));
+      assert.throws(() => syncMirror({ sourceDir: source, mirrorRoot: mirror }), /reserved/);
+      rmSync(join(source, name), { recursive: true });
+    }
+    assert.equal(existsSync(mirror), false);
+  } finally { rmSync(root, { recursive: true, force: true }); }
 });
 
 test("syncMirror rejects shared path collisions before changing sources", () => {
@@ -1006,7 +970,7 @@ test("typecheckInvocation gates the build with the mirror's production tsconfig"
   assert.equal(invocation.command, "node-exe");
   assert.equal(invocation.args[1], "--noEmit");
   assert.equal(invocation.args[2], "--project");
-  assert.equal(invocation.args[3], join("C:/mirror", "tsconfig.build.json"));
+  assert.equal(invocation.args[3], join("C:/mirror", "tsconfig.production.json"));
   assert.match(invocation.args[0], /typescript[\\/]bin[\\/]tsc$/);
   assert.equal(invocation.options.cwd, "C:/mirror");
 });

@@ -15,9 +15,6 @@ vi.mock("@/lib/backend-client", () => ({
   isBackendGenerationCompatible: (expected: string, running: string | null | undefined) =>
     !expected || expected === running,
 }));
-vi.mock("@/lib/backend-relay", () => ({
-  webOwnsRuntime: vi.fn(() => true),
-}));
 vi.mock("@/lib/webui-auth", () => ({
   webUiAuthRequired: mocks.webUiAuthRequired,
   isWebUiRequestAuthorized: mocks.isWebUiRequestAuthorized,
@@ -59,8 +56,8 @@ describe("GET /api/backend/status", () => {
     expect(body).toEqual({
       configured: true,
       url: "http://127.0.0.1:18776",
-      // This WebUI is always the Backend's client; the flag stays for diagnostics.
-      ownsRuntime: true,
+      // Next is always the Backend's client, including unmarked unit-test environments.
+      ownsRuntime: false,
       backend: {
         reachable: true,
         ready: true,
@@ -99,7 +96,7 @@ describe("GET /api/backend/status", () => {
     await expect(response.json()).resolves.toEqual({
       configured: true,
       url: "http://127.0.0.1:18776",
-      ownsRuntime: true,
+      ownsRuntime: false,
       backend: { reachable: false, ready: false, status: null, reason: "unreachable" },
     });
   });

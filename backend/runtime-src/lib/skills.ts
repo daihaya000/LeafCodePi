@@ -29,21 +29,14 @@ import type { BotSkillsConfig } from "@/lib/types";
 import { bundledExtensionEntries } from "@/lib/extensions";
 import { filterSkillsByState as coreFilterSkillsByState, filterSkillsForBot as coreFilterSkillsForBot } from "@backend-core/skill-filters.mjs";
 
-export type SkillSource = "pi" | "bundled";
+import type { SkillSource } from "@shared/ui-owner-dtos";
+export type { SkillSource } from "@shared/ui-owner-dtos";
 
-export type SkillScope = "code" | "bot";
+import type { SkillScope } from "@shared/ui-owner-dtos";
+export type { SkillScope } from "@shared/ui-owner-dtos";
 
-export type SkillDto = {
-  id: string;
-  name: string;
-  description?: string;
-  /** Backward-compatible alias for the Code setting. */
-  enabled: boolean;
-  codeEnabled: boolean;
-  botEnabled: boolean;
-  filePath: string;
-  source: SkillSource;
-};
+import type { SkillDto } from "@shared/ui-owner-dtos";
+export type { SkillDto } from "@shared/ui-owner-dtos";
 
 export type SkillListResult = {
   skills: SkillDto[];

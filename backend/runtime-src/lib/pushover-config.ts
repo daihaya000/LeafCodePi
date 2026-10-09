@@ -16,14 +16,10 @@ export function savePushoverNotificationEnabled(enabled: boolean): void {
 }
 
 export type PushoverCredentials = { token?: string; user?: string; device?: string };
-export type PushoverSettingsDto = {
-  hasToken: boolean;
-  hasUser: boolean;
-  device: string;
-  enabled: boolean;
-  envManaged: { token: boolean; user: boolean; device: boolean };
-};
-export type PushoverSettingsPatch = { token?: string | null; user?: string | null; device?: string | null; enabled?: boolean };
+import type { PushoverSettingsDto } from "@shared/ui-owner-dtos";
+export type { PushoverSettingsDto } from "@shared/ui-owner-dtos";
+import type { PushoverSettingsPatch } from "@shared/ui-owner-dtos";
+export type { PushoverSettingsPatch } from "@shared/ui-owner-dtos";
 
 export class PushoverEnvManagedError extends Error {}
 

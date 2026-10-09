@@ -1,11 +1,5 @@
-export type PeerConfig = {
-  version: 1;
-  peerUrl: string;
-  peerAccountId: string | null;
-  providers: string[];
-  token: string;
-  createdAt: string;
-};
+import type { PeerConfig } from "../../shared/ui-owner-dtos";
+export type { PeerConfig } from "../../shared/ui-owner-dtos";
 export type PeerConfigInput = Omit<PeerConfig, "version" | "createdAt"> & { version?: 1; createdAt?: string };
 export function peerConfigPath(accountDir: string): string;
 export function normalizePeerUrl(value: unknown): string | null;

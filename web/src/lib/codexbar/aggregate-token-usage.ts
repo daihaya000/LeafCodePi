@@ -1,5 +1,5 @@
 import type { CodexBarProviderGroup } from "@/lib/codexbar";
-import type { ProviderTokenUsage, TokenUsageEstimate } from "./token-usage-types";
+import type { ProviderTokenUsage, TokenUsageEstimate } from "@shared/ui-owner-dtos";
 
 /** Display-only sums; never calibrate against the parent's average usage percentage. */
 export function aggregateTokenUsage(group: CodexBarProviderGroup): {

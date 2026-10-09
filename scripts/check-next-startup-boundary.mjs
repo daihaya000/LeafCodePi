@@ -36,6 +36,15 @@ export function startupImports(source, path = "instrumentation.ts", ts = default
         literal(node.arguments[0]);
       }
     }
+    // Fail closed on loader aliases, computed/global loaders and runtime code compilation.
+    if (ts.isIdentifier(node) && ["require", "eval", "Function"].includes(node.text)) {
+      const directRequire = node.text === "require" && ts.isCallExpression(node.parent) && node.parent.expression === node;
+      assert.ok(directRequire, `${path}: indirect module loading or code evaluation is forbidden`);
+    }
+    if ((ts.isPropertyAccessExpression(node) && ["require", "getBuiltinModule", "eval", "Function"].includes(node.name.text))
+      || (ts.isElementAccessExpression(node) && ts.isStringLiteralLike(node.argumentExpression) && ["require", "getBuiltinModule", "eval", "Function"].includes(node.argumentExpression.text))) {
+      assert.fail(`${path}: indirect module loading or code evaluation is forbidden`);
+    }
     ts.forEachChild(node, visit);
   }
   visit(file);

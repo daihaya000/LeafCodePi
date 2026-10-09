@@ -21,17 +21,8 @@ import { hasActiveTaskLease } from "./task-runtime-lease";
  * （store.json は閉じた型のため触らない）。
  */
 
-export type AccountProviderId =
-  | "openai"
-  | "openai-codex"
-  | "anthropic"
-  | "ollama-cloud"
-  | "openrouter"
-  | "commandcode"
-  | "cursor"
-  | "opencode"
-  | "opencode-go"
-  | "orcarouter";
+import type { AccountProviderId } from "@shared/ui-owner-dtos";
+export type { AccountProviderId } from "@shared/ui-owner-dtos";
 
 export const ACCOUNT_PROVIDER_IDS: readonly AccountProviderId[] = [
   "openai",
@@ -65,21 +56,8 @@ export function isAccountOnlyProvider(
   return (ACCOUNT_ONLY_PROVIDER_IDS as readonly string[]).includes(providerId);
 }
 
-export type AccountRecord = {
-  id: string;
-  label: string;
-  /** モデル選択・ルーティングで使用するアカウントか。 */
-  enabled: boolean;
-  /** Expiring Codex reset credits: default ON; explicit false disables for this account. */
-  codexResetAutoConsume?: boolean;
-  /** Claude subscription reset grants: default ON; requires account claude.ai cookies. */
-  anthropicResetAutoConsume?: boolean;
-  /** このアカウントでログイン可能なプロバイダー（作成時に確定、変更不可）。 */
-  providers: AccountProviderId[];
-  note?: string;
-  createdAt: string;
-  updatedAt: string;
-};
+import type { AccountRecord } from "@shared/ui-owner-dtos";
+export type { AccountRecord } from "@shared/ui-owner-dtos";
 
 type AccountsFile = {
   version: 1;
@@ -167,7 +145,8 @@ export function accountStoredProviders(
 }
 
 /** 保存済み資格情報の種類（サブスク OAuth / API キー）。 */
-export type AccountCredentialKind = "oauth" | "api_key";
+import type { AccountCredentialKind } from "@shared/ui-owner-dtos";
+export type { AccountCredentialKind } from "@shared/ui-owner-dtos";
 
 /** auth.json の中身（provider ごとに 1 エントリだけ持つ）。 */
 function readAccountAuthEntries(
