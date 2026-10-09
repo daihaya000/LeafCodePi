@@ -193,17 +193,32 @@ export function toolResultText(result: unknown): string {
  */
 const imageDataUrlCache = new Map<string, string>();
 const IMAGE_DATA_URL_CACHE_MAX_ENTRIES = 16;
+const IMAGE_DATA_URL_CACHE_MAX_BYTES = 8 * 1024 * 1024;
+let imageDataUrlCacheBytes = 0;
+
+/** Conservative UTF-16 payload estimate; never expose cached image data or keys. */
+export function readImageDataUrlCacheDiagnostics(): { entries: number; bytes: number; maxBytes: number } {
+  return { entries: imageDataUrlCache.size, bytes: imageDataUrlCacheBytes, maxBytes: IMAGE_DATA_URL_CACHE_MAX_BYTES };
+}
+export function resetImageDataUrlCacheForTests(): void { imageDataUrlCache.clear(); imageDataUrlCacheBytes = 0; }
 
 function imageDataUrl(mime: string, data: string): string {
+  const prefix = `data:${mime};base64,`;
+  // Count both retained strings, even when V8 shares their backing storage.
+  const bytes = 2 * (mime.length + 1 + data.length + prefix.length + data.length);
+  // Oversized images still render, but never create/hash an equally large cache key.
+  if (bytes > IMAGE_DATA_URL_CACHE_MAX_BYTES) return `${prefix}${data}`;
   const key = `${mime}\u0000${data}`;
   const cached = imageDataUrlCache.get(key);
   if (cached) return cached;
-  const url = `data:${mime};base64,${data}`;
-  if (imageDataUrlCache.size >= IMAGE_DATA_URL_CACHE_MAX_ENTRIES) {
-    const oldest = imageDataUrlCache.keys().next().value;
-    if (oldest !== undefined) imageDataUrlCache.delete(oldest);
+  const url = `${prefix}${data}`;
+  while (imageDataUrlCache.size >= IMAGE_DATA_URL_CACHE_MAX_ENTRIES || imageDataUrlCacheBytes + bytes > IMAGE_DATA_URL_CACHE_MAX_BYTES) {
+    const oldest = imageDataUrlCache.entries().next().value;
+    if (!oldest) break;
+    imageDataUrlCacheBytes -= 2 * (oldest[0].length + oldest[1].length);
+    imageDataUrlCache.delete(oldest[0]);
   }
-  imageDataUrlCache.set(key, url);
+  imageDataUrlCache.set(key, url); imageDataUrlCacheBytes += bytes;
   return url;
 }
 
