@@ -3,6 +3,7 @@ import { providerAuthTarget, publicAuthOperation } from "@shared/provider-auth-c
 import { publicConfigurationMutation } from "@shared/configuration-contract.mjs";
 import { usageExternalCommand, publicUsageOperation } from "@shared/usage-contract.mjs";
 import { peerFacing, PEER_AUTHORIZATION_HEADER } from "@shared/peer-contract.mjs";
+import { ttsBusinessTarget } from "@shared/tts-business-contract.mjs";
 import { backendInformationTarget } from "@shared/backend-information-contract.mjs";
 import { mcpBusinessTarget } from "@shared/mcp-business-contract.mjs";
 import { typesafeSettingsTarget } from "@shared/typesafe-settings-contract.mjs";
@@ -28,7 +29,7 @@ import { projectTarget, publicProjectOperation } from "@shared/project-contract.
 import { isCrossOriginRequest } from "@/lib/same-origin";
 import { backendBaseUrl, expectedBackendGeneration, isBackendGenerationCompatible, readBackendHealth } from "@/lib/backend-client";
 import { isWebUiRequestAuthorized, webUiAuthRequired } from "@/lib/webui-auth";
-import { JSON_BUSINESS_PATH, JSON_BUSINESS_ROUTES, JSON_BUSINESS_HEADERS, jsonBusinessTarget, jsonBusinessBodyLimit, JSON_BUSINESS_RESPONSE_LIMIT,
+import { JSON_BUSINESS_PATH, JSON_BUSINESS_ROUTES, JSON_BUSINESS_HEADERS, jsonBusinessTarget, jsonBusinessBodyLimit, jsonBusinessResponseLimit,
   jsonBusinessTimeout, jsonBusinessMutates, jsonBusinessCommand, publicJsonBusinessResult } from "@shared/json-business-contract.mjs";
 import { BACKEND_PROTOCOL_HEADER, BACKEND_PROTOCOL_VERSION } from "@shared/backend-protocol.mjs";
 
@@ -107,7 +108,7 @@ export async function relayJsonBusiness(request: Request, route: string): Promis
   try {
     const response = await fetch(`${backendBaseUrl()}${JSON_BUSINESS_PATH}/${route}${original.search}`, { method: request.method, headers,
       ...(body?.byteLength ? { body: new Uint8Array(body).slice().buffer } : {}), signal: controller.signal });
-    const bytes = await boundedBytes(response, JSON_BUSINESS_RESPONSE_LIMIT);
+    const bytes = await boundedBytes(response, jsonBusinessResponseLimit(route));
     if (!bytes) return failure(503, "Backendの応答が大きすぎます", unknown);
     const value = JSON.parse(new TextDecoder().decode(bytes));
     if (!response.ok) {
@@ -120,7 +121,7 @@ export async function relayJsonBusiness(request: Request, route: string): Promis
       if (providerAuthTarget(route)) {
         const operation = publicAuthOperation(result.body?.operation);
         if (!operation || operation.id !== operationId) return failure(503, "Backendの認証操作結果を確認できません", unknown);
-      } else if (taskCollectionTarget(route) || taskLifecycleTarget(route) || taskHistoryTarget(route) || taskExecutionSettingsTarget(route) || taskConversationTarget(route) || taskGoalLoopTarget(route) || taskSessionTarget(route) || taskCompactionTarget(route) || taskAssistanceTarget(route) || taskSupervisionTarget(route) || botLifecycleTarget(route) || botConversationTarget(route) || botCodeTarget(route) || botRoutineTarget(route) || botOverviewTarget(route) || roomLifecycleTarget(route) || roomConversationTarget(route) || typesafeSettingsTarget(route) || mcpBusinessTarget(route) || backendInformationTarget(route)) {
+      } else if (taskCollectionTarget(route) || taskLifecycleTarget(route) || taskHistoryTarget(route) || taskExecutionSettingsTarget(route) || taskConversationTarget(route) || taskGoalLoopTarget(route) || taskSessionTarget(route) || taskCompactionTarget(route) || taskAssistanceTarget(route) || taskSupervisionTarget(route) || botLifecycleTarget(route) || botConversationTarget(route) || botCodeTarget(route) || botRoutineTarget(route) || botOverviewTarget(route) || roomLifecycleTarget(route) || roomConversationTarget(route) || typesafeSettingsTarget(route) || mcpBusinessTarget(route) || backendInformationTarget(route) || ttsBusinessTarget(route)) {
         const operation = publicTaskOperation(result.body?.operation);
         if (!operation || operation.id !== operationId) return failure(503, "Backendのタスク操作結果を確認できません", unknown);
       } else if (projectTarget(route)) {
@@ -140,6 +141,11 @@ export async function relayJsonBusiness(request: Request, route: string): Promis
     if (botConversation?.route.endsWith("/prompt") && result.status < 400) wakeBackendTaskListeners(`bot:${botConversation.params.id}`, "prompt");
     const outputHeaders = new Headers(noStore);
     for (const [key, value] of Object.entries(result.headers)) outputHeaders.set(key, value);
+    if (route === "tts/synthesize" && result.status < 400) {
+      const audio = result.body?.audio as { contentType: string; base64: string };
+      outputHeaders.set("content-type", audio.contentType);
+      return new Response(new Uint8Array(Buffer.from(audio.base64, "base64")), { status: result.status, headers: outputHeaders });
+    }
     return result.status === 304 ? new Response(null, { status: 304, headers: outputHeaders })
       : Response.json(result.body, { status: result.status, headers: outputHeaders });
   } catch { return failure(503, "Backendの応答を確認できません。変更処理は自動再実行しません", unknown); }

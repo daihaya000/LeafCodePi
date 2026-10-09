@@ -594,6 +594,30 @@ export default function(api) {
   const iconList=await business("browse/icon",undefined,"?path="+encodeURIComponent(browseRoot));assert.equal(iconList.status,200,JSON.stringify(iconList));assert.deepEqual(iconList.body.entries.map(e=>e.name),["assets","fixture.ico"]);
   const extracted=await business("browse/icon",{path:browseIcon,command:"ignored",roots:["forged"]});assert.equal(extracted.status,200,JSON.stringify(extracted));assert.deepEqual(extracted.body,{icon:"data:image/x-icon;base64,AAABAA==",name:"fixture.ico"});assert.deepEqual(readFileSync(browseIcon),Buffer.from([0,0,1,0]));assert.equal(extracted.body.operation,undefined);
   assert.equal((await business("browse/icon",{path:"relative.ico"})).status,400);assert.equal((await fetch(base+"/internal/json-business/browse/dirs",{method:"POST",headers:businessHeaders,body:"{}"})).status,405);
+  // Real owner-only TTS uses a tiny localhost binary responder, never a paid/native speech engine.
+  const ttsCalls=[],ttsAudio=Buffer.from([82,73,70,70,0,1,2,255]);
+  const ttsEngine=createServer((request,response)=>{
+    let raw="";request.setEncoding("utf8");request.on("data",chunk=>{raw+=chunk;});request.on("end",()=>{
+      assert.equal(request.url,"/v1/audio/speech");const payload=JSON.parse(raw);ttsCalls.push(payload);
+      if(payload.input==="FIXTURE-TTS-FAIL"){response.writeHead(500);response.end("PRIVATE ENGINE FAILURE");return;}
+      response.writeHead(200,{"content-type":"audio/wav"});response.end(ttsAudio);
+    });
+  });
+  await new Promise(resolve=>ttsEngine.listen(0,"127.0.0.1",resolve));t.after(()=>{ttsEngine.closeAllConnections();return new Promise(resolve=>ttsEngine.close(resolve));});
+  const ttsUrl=`http://127.0.0.1:${ttsEngine.address().port}/v1/audio/speech`;
+  const saveTts=async enabled=>{
+    const reply=await fetch(base+"/internal/configuration/settings/tts",{method:"PATCH",headers:{...configHeaders,"x-leafcode-configuration-operation":enabled?"abababab-2345-4321-abcd-eeeeeeeeeeee":"cdcdcdcd-2345-4321-abcd-eeeeeeeeeeee"},body:JSON.stringify({enabled,url:ttsUrl,voice:"fixture-global"})});assert.equal(reply.status,200);return reply.json();
+  };
+  const ttsIds=Array.from({length:4},(_,index)=>String(index+5).repeat(8)+"-2345-4321-abcd-eeeeeeeeeeee");
+  await saveTts(false);
+  const disabledTts=await business("tts/synthesize",{text:"日本語"},"",{"x-leafcode-business-operation":ttsIds[0]});assert.equal(disabledTts.status,400);assert.equal(disabledTts.body.operation.execution,"complete");assert.equal(ttsCalls.length,0);
+  await saveTts(true);
+  const ttsVoices=await business("settings/tts/voices",undefined);assert.deepEqual(ttsVoices.body,{voices:[]});assert.equal(ttsCalls.length,0);
+  const globalTts=await business("tts/synthesize",{text:" 日本語 ",voice:"FORGED",url:"http://forged.invalid",config:{enabled:false}},"",{"x-leafcode-business-operation":ttsIds[1]});assert.equal(globalTts.status,200,JSON.stringify(globalTts));assert.deepEqual(Buffer.from(globalTts.body.audio.base64,"base64"),ttsAudio);assert.equal(globalTts.body.audio.contentType,"audio/wav");assert.equal(ttsCalls[0].voice,"fixture-global");assert.equal(ttsCalls[0].input,"日本語");
+  const ttsBotPatch=await business("bots/"+lifecycleBot.id,{ttsVoice:"fixture-bot"},"",{"x-leafcode-business-operation":"44444444-3456-4321-abcd-eeeeeeeeeeee"},"PATCH");assert.equal(ttsBotPatch.status,200);
+  const botTts=await business("tts/synthesize",{text:"Bot日本語",botId:lifecycleBot.id},"",{"x-leafcode-business-operation":ttsIds[2]});assert.equal(botTts.status,200,JSON.stringify(botTts));assert.equal(ttsCalls[1].voice,"fixture-bot");assert.deepEqual(Buffer.from(botTts.body.audio.base64,"base64"),ttsAudio);
+  const failedTts=await business("tts/synthesize",{text:"FIXTURE-TTS-FAIL"},"",{"x-leafcode-business-operation":ttsIds[3]});assert.equal(failedTts.status,502);assert.equal(failedTts.body.operation.execution,"unknown");assert.ok(!JSON.stringify(failedTts).includes("PRIVATE"));
+  const ttsLedger=readFileSync(join(data,"tts-synthesis-command.json"),"utf8");assert.equal(JSON.parse(ttsLedger).operations.length,4);assert.ok(!/日本語|fixture-global|fixture-bot|audio|http|FORGED/.test(ttsLedger));assert.equal(ttsCalls.length,3);
   // Owner-only information: real native read-only SQLite, bounded sampling and durable monotonic read markers.
   const memoryResult=await business("memory-search",{query:"Backend memory",databasePath:join(fixture,"forged.db"),target:"forged"});assert.equal(memoryResult.status,200,JSON.stringify(memoryResult));assert.equal(memoryResult.body.results[0].content,"Fixture Backend memory 日本語");assert.equal(memoryResult.body.operation,undefined);assert.deepEqual(readFileSync(memoryFile),memoryBytes);assert.equal(existsSync(join(fixture,"forged.db")),false);
   const usageResult=await business("sysmon/usage",undefined);assert.equal(usageResult.status,200,JSON.stringify(usageResult));assert.equal(usageResult.body.available,true);assert.equal(usageResult.body.schema,"sysmon.usage/v1");assert.ok(Number.isFinite(usageResult.body.memory.usedBytes));assert.deepEqual(usageResult.body.gpus,[]);assert.equal((await business("sysmon/usage",undefined)).body.generatedAt,usageResult.body.generatedAt);
@@ -623,6 +647,11 @@ export default function(api) {
   assert.equal(restored?.value, "100", stderr);
   const restartedMcp=await fetch(restartedBase+"/internal/json-business/mcp",{headers:businessHeaders});const restoredMcp=await restartedMcp.json();assert.equal(restoredMcp.status,200,JSON.stringify(restoredMcp));assert.ok(restoredMcp.body.servers.some(row=>row.name==="n8n"&&row.enabled===false));
   for(const [route,method,id]of [["mcp","POST",mcpIds[0]],["mcp/n8n","PATCH",mcpIds[1]],["mcp/n8n/auth","POST",mcpIds[2]],["mcp/n8n/auth","POST",mcpIds[3]],["mcp/n8n/auth","DELETE",mcpIds[4]],["mcp/n8n/auth","POST",mcpIds[5]]]){const reply=await fetch(restartedBase+"/internal/json-business/"+route,{method,headers:{...businessHeaders,"x-leafcode-business-operation":id},body:"{}"});assert.equal(reply.status,200);const result=await reply.json();assert.equal(result.status,409,JSON.stringify(result));assert.equal(result.body.operation.execution,route.endsWith("/auth")?"unknown":"complete");}
+  const restartedTtsConfigReply=await fetch(restartedBase+"/internal/configuration/settings/tts",{headers:configHeaders});assert.equal((await restartedTtsConfigReply.json()).url,ttsUrl);
+  for(const [index,id]of ttsIds.entries()){
+    const reply=await fetch(restartedBase+"/internal/json-business/tts/synthesize",{method:"POST",headers:{...businessHeaders,"x-leafcode-business-operation":id},body:'{"text":"NO-REPLAY"}'});assert.equal(reply.status,200);const result=await reply.json();assert.equal(result.status,409,JSON.stringify(result));assert.equal(result.body.operation.execution,index===3?"unknown":"complete");
+  }
+  assert.equal(ttsCalls.length,3);
   const restartedBrowseReply=await fetch(restartedBase+"/internal/json-business/browse/dirs?path="+encodeURIComponent(browseRoot),{headers:businessHeaders}),restartedBrowse=await restartedBrowseReply.json();assert.equal(restartedBrowse.status,200,JSON.stringify(restartedBrowse));assert.deepEqual(restartedBrowse.body.entries,browsed.body.entries);
   const restartedIconReply=await fetch(restartedBase+"/internal/json-business/browse/icon",{method:"POST",headers:businessHeaders,body:JSON.stringify({path:browseIcon})}),restartedIcon=await restartedIconReply.json();assert.equal(restartedIcon.status,200);assert.deepEqual(restartedIcon.body,extracted.body);
   const restartedUnreadReply=await fetch(restartedBase+"/internal/json-business/unread",{headers:businessHeaders}),restartedUnread=await restartedUnreadReply.json();assert.equal(restartedUnread.status,200);assert.deepEqual(restartedUnread.body.markers,markers);

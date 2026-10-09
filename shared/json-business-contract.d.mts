@@ -6,6 +6,7 @@ export function jsonBusinessTarget(path: string): { route: string; params: Recor
 export function jsonBusinessBodyLimit(path: string, method?: string): number;
 export function jsonBusinessCommand(path: string, method: string): boolean;
 export const JSON_BUSINESS_RESPONSE_LIMIT: number;
+export function jsonBusinessResponseLimit(route:string):number;
 export function jsonBusinessTimeout(route: string): number;
 export function jsonBusinessMutates(route: string, method: string): boolean;
 export type JsonBusinessResult = { status: number; headers: Record<string, string>; body: Record<string, unknown> | null };

@@ -1,3 +1,4 @@
+import { assertConfigurationOwner } from "@backend-core/configuration-command.mjs";
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { dataDir } from "@/lib/paths";
@@ -76,6 +77,7 @@ export function ttsHostCapabilities(
 export type TtsSettingsDto = TtsConfigDto & TtsHostCapabilities;
 
 function readStoredTtsConfig(): StoredTtsConfig {
+  assertConfigurationOwner();
   try {
     const file = ttsConfigPath();
     if (!existsSync(file)) return { config: { ...DEFAULT_CONFIG }, allowCustomUrl: false };
@@ -94,6 +96,7 @@ export function writeTtsConfig(
   input: Partial<TtsConfigDto>,
   options: { allowCustomUrl?: boolean } = {},
 ): TtsConfigDto {
+  assertConfigurationOwner();
   const current = readStoredTtsConfig();
   const next = normalizeTtsConfig({
     enabled: typeof input.enabled === "boolean" ? input.enabled : current.config.enabled,

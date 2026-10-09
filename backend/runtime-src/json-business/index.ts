@@ -11,6 +11,8 @@ import { usageTarget } from "@shared/usage-contract.mjs";
 import { dispatchUsageRequest } from "./usage";
 import { peerTarget } from "@shared/peer-contract.mjs";
 import { dispatchPeerRequest } from "./peer";
+import { ttsBusinessTarget } from "@shared/tts-business-contract.mjs";
+import { dispatchTtsBusinessRequest } from "./tts";
 import { browseTarget } from "@shared/browse-contract.mjs";
 import { dispatchBrowseRequest } from "./browse";
 import { backendInformationTarget } from "@shared/backend-information-contract.mjs";
@@ -87,6 +89,7 @@ export async function dispatchJsonBusinessRequest(input: JsonBusinessInput): Pro
   const request = configurationRequest(new Request(input.url, { method: input.method, headers: input.headers,
     signal, ...(input.body?.byteLength ? { body: new Uint8Array(input.body).slice().buffer } : {}) }), input.authorized);
   if (input.method !== "GET" && isCrossOriginRequest(request)) return { status: 403, headers: {}, body: { error: "Cross-origin request refused" } };
+  if (ttsBusinessTarget(input.route)) return dispatchTtsBusinessRequest(input, request);
   if (browseTarget(input.route)) return dispatchBrowseRequest(input, request);
   if (backendInformationTarget(input.route)) return dispatchBackendInformationRequest(input, request);
   const typesafeSettings = typesafeSettingsTarget(input.route);
