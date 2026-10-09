@@ -3,7 +3,7 @@ import { ConfigurationRequest as NextRequest, ConfigurationResponse as NextRespo
 import { getBot } from "@/lib/bots";
 
 import { isSafeUnauthenticatedTtsUrl, readTtsConfig } from "@/lib/tts-config";
-import { synthesizeTts, TtsSynthesizeError } from "@/lib/tts-synthesize";
+import { openTtsEngineAudio, TtsSynthesizeError } from "@/lib/tts-synthesize";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -42,9 +42,9 @@ export async function POST(req: NextRequest) {
   }
   let attempted = false;
   try {
-    const { audio, contentType } = await synthesizeTts(text, config.url, bot?.ttsVoice || config.voice, { onStart: () => { attempted = true; } });
-    // Private JSON wire. The Web transport restores the raw audio response.
-    return NextResponse.json({ audio: { contentType, base64: audio.toString("base64") } });
+    const response = await openTtsEngineAudio(text, config.url, bot?.ttsVoice || config.voice, { onStart: () => { attempted = true; } });
+    if (!response.ok) { await response.body?.cancel().catch(() => {}); throw new TtsSynthesizeError("合成エンジンの結果を確認できません", 502); }
+    return response;
   } catch (error) {
     if (attempted && error instanceof TtsSynthesizeError && error.status < 500) return NextResponse.json({ error: "音声合成の結果を確認できません" }, { status: 503 });
     if (error instanceof TtsSynthesizeError) {

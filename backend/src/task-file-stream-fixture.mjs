@@ -20,7 +20,7 @@ if (role === "backend") {
     const controller = new AbortController(), abort = () => controller.abort();
     res.once("close", abort); req.socket.once("end", abort); active++;
     try {
-      const request = new Request("http://localhost" + req.url, { method: req.method, headers: req.headers, signal: controller.signal });
+      const request = new Request("http://localhost" + req.url, { method: req.method, headers: req.headers, signal: controller.signal, ...(["GET","HEAD"].includes(req.method) ? {} : { body: Readable.toWeb(req), duplex: "half" }) });
       const route = new URL(request.url).pathname.replace(/^\/api\//, "");
       const source = await relayTaskFileStream(request, route);
       res.writeHead(source.status, Object.fromEntries(source.headers));

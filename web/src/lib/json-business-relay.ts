@@ -153,11 +153,6 @@ export async function relayJsonBusiness(request: Request, route: string): Promis
     if (botConversation?.route.endsWith("/prompt") && result.status < 400) wakeBackendTaskListeners(`bot:${botConversation.params.id}`, "prompt");
     const outputHeaders = new Headers(noStore);
     for (const [key, value] of Object.entries(result.headers)) outputHeaders.set(key, value);
-    if (route === "tts/synthesize" && result.status < 400) {
-      const audio = result.body?.audio as { contentType: string; base64: string };
-      outputHeaders.set("content-type", audio.contentType);
-      return new Response(new Uint8Array(Buffer.from(audio.base64, "base64")), { status: result.status, headers: outputHeaders });
-    }
     return result.status === 304 ? new Response(null, { status: 304, headers: outputHeaders })
       : Response.json(result.body, { status: result.status, headers: outputHeaders });
   } catch { return failure(503, "Backendの応答を確認できません。変更処理は自動再実行しません", unknown); }

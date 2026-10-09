@@ -5,6 +5,7 @@ import { createServer } from "node:http";
 import { once } from "node:events";
 import { streamRuntimeEvents } from "./runtime-events.mjs";
 import { taskFileTarget, TASK_FILE_ROUTES, TASK_FILE_STREAM_PATH } from "../../shared/task-file-stream-contract.mjs";
+import { TTS_AUDIO_BODY_LIMIT, TTS_AUDIO_ROUTE } from "../../shared/tts-audio-contract.mjs";
 import { writeFileStream } from "./file-stream.mjs";
 import { LIVE_EVENT_PATH, LIVE_EVENT_HEADERS, liveEventTarget } from "../../shared/live-event-contract.mjs";
 import { readJsonBody, JsonBodyReadError } from "./json-body.mjs";
@@ -462,12 +463,18 @@ export function createBackendServer({
         if (!["http:", "https:"].includes(url.protocol) || url.origin !== origin || typeof host !== "string" || !["0", "1"].includes(access)) throw new Error();
       } catch { sendJson(response, 400, { error: "Invalid file context" }); return; }
       if (process.env.LEAFCODE_PI_WEBUI_AUTH === "required" && access !== "1") { sendJson(response, 403, { error: "WebUI access required" }); return; }
+      const isTts = selectedPath === TTS_AUDIO_ROUTE;
+      const operationId = isTts ? request.headers[JSON_BUSINESS_HEADERS.operation] : undefined;
+      if (isTts && (typeof operationId !== "string" || !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(operationId))) { sendJson(response, 400, { error: "Invalid operation ID" }); return; }
+      let body;
+      if (isTts) { try { body = await readConfigurationBody(request, TTS_AUDIO_BODY_LIMIT, { timeoutMs: 2000 }); } catch (error) { sendJson(response, error.reason === "too-large" ? 413 : error.status ?? 400, { error: "Invalid audio request" }, { Connection: "close" }); return; } }
       const controller = new AbortController(), disconnect = () => controller.abort();
       response.once("close", disconnect); request.socket.once("end", disconnect);
+      if (request.aborted || response.destroyed) controller.abort();
       const headers = { host };
-      for (const key of isLive ? ["last-event-id"] : ["range", "if-range", "origin"]) if (typeof request.headers[key] === "string") headers[key] = request.headers[key];
+      for (const key of isLive ? ["last-event-id"] : ["range", "if-range", "origin", "content-type"]) if (typeof request.headers[key] === "string") headers[key] = request.headers[key];
       try {
-        const source = await action({ route: selectedPath, method: request.method, url: `${origin}/api/${selectedPath}${target.search}`, headers, authorized: access === "1", signal: controller.signal });
+        const source = await action({ route: selectedPath, method: request.method, url: `${origin}/api/${selectedPath}${target.search}`, headers, authorized: access === "1", signal: controller.signal, ...(isTts ? { body, operationId } : {}) });
         await writeFileStream(response, source, controller.signal, request.method, isLive ? { headerNames: LIVE_EVENT_HEADERS } : {});
       } catch { if (!response.headersSent && !response.destroyed) sendJson(response, 503, { error: "File owner unavailable" }); else response.destroy(); }
       finally { response.off("close", disconnect); request.socket.off("end", disconnect); controller.abort(); }

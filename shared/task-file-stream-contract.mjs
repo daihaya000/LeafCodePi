@@ -1,7 +1,8 @@
 export const TASK_FILE_STREAM_PATH = "/internal/file-stream";
-export const TASK_FILE_ROUTES = Object.freeze({ "profile": ["GET", "HEAD"], "tasks/[id]/media": ["GET", "HEAD"], "tasks/[id]/image": ["GET", "HEAD"], "tasks/[id]/message-image": ["GET", "HEAD"], "bots/rooms/[id]/files/[file]": ["GET", "HEAD"], "bots/rooms/[id]/images/[file]": ["GET", "HEAD"], "projects/[id]/icon": ["GET", "HEAD"], "link-preview/image": ["GET", "HEAD"] });
-export const FILE_STREAM_HEADERS = Object.freeze(["content-type", "content-length", "content-range", "accept-ranges", "content-disposition", "cache-control", "cross-origin-resource-policy", "x-content-type-options", "referrer-policy"]);
+export const TASK_FILE_ROUTES = Object.freeze({ "tts/synthesize": ["POST"], "profile": ["GET", "HEAD"], "tasks/[id]/media": ["GET", "HEAD"], "tasks/[id]/image": ["GET", "HEAD"], "tasks/[id]/message-image": ["GET", "HEAD"], "bots/rooms/[id]/files/[file]": ["GET", "HEAD"], "bots/rooms/[id]/images/[file]": ["GET", "HEAD"], "projects/[id]/icon": ["GET", "HEAD"], "link-preview/image": ["GET", "HEAD"] });
+export const FILE_STREAM_HEADERS = Object.freeze(["content-type", "content-length", "content-range", "accept-ranges", "content-disposition", "cache-control", "cross-origin-resource-policy", "x-content-type-options", "referrer-policy", "x-leafcode-tts-operation", "x-leafcode-tts-execution"]);
 export function taskFileTarget(route) {
+  if (route === "tts/synthesize") return { route, id: "", kind: "tts-audio" };
   if (route === "profile") return { route, id: "", kind: "profile-export" };
   if (route === "link-preview/image") return { route, id: "", kind: "preview-image" };
   const project = /^projects\/([^/]+)\/icon$/.exec(route);

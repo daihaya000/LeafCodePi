@@ -8,14 +8,15 @@ import { resolveTaskLocalFile } from "../lib/local-file";
 import { imageMimeFromBytes } from "../lib/raster-image";
 import { MAX_LOCAL_IMAGE_BYTES } from "../lib/local-image";
 import { openRoomAttachment, readRoomAttachmentDiagnostics } from "./room-attachments";
+import { openTtsAudio, readTtsAudioDiagnostics } from "./tts-audio";
 import { openProfileExport, readProfileExportDiagnostics } from "./profile-export";
 import { openMessageImage, readMessageImageDiagnostics } from "./message-images";
 import { openStoredImage, readLinkPreviewImageDiagnostics, type StoredImage } from "./stored-images";
 
 const CHUNK = 64 * 1024, MAX_ACTIVE = 32;
 const counters = { active: 0, descriptors: 0, peakActive: 0, bytesRead: 0 };
-export function readTaskFileStreamDiagnostics() { assertConfigurationOwner(); return { ...counters, ...readProfileExportDiagnostics(), ...readMessageImageDiagnostics(), ...readRoomAttachmentDiagnostics(), ...readLinkPreviewImageDiagnostics(), chunkBytes: CHUNK, maxActive: MAX_ACTIVE }; }
-type Input = { route: string; method: string; url: string; headers: Record<string, string>; authorized: boolean; signal: AbortSignal };
+export function readTaskFileStreamDiagnostics() { assertConfigurationOwner(); return { ...counters, ...readTtsAudioDiagnostics(), ...readProfileExportDiagnostics(), ...readMessageImageDiagnostics(), ...readRoomAttachmentDiagnostics(), ...readLinkPreviewImageDiagnostics(), chunkBytes: CHUNK, maxActive: MAX_ACTIVE }; }
+type Input = { route: string; method: string; url: string; headers: Record<string, string>; authorized: boolean; signal: AbortSignal; body?: Uint8Array; operationId?: string };
 const mimes: Record<string, string> = { ".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".gif": "image/gif", ".webp": "image/webp", ".avif": "image/avif", ".bmp": "image/bmp" };
 const fail = (method: string, status: number, error: string) => new Response(method === "HEAD" ? null : JSON.stringify({ error }), { status, headers: { "content-type": "application/json", "cache-control": "private, no-store", "x-content-type-options": "nosniff" } });
 
@@ -43,6 +44,11 @@ export async function openTaskFileStream(input: Input): Promise<Response> {
   };
   const abort = () => { void close(); };
   try {
+    if (target.kind === "tts-audio") {
+      const response = await openTtsAudio(input, close);
+      if (!response.ok) await close();
+      return response;
+    }
     if (target.kind === "profile-export") {
       const response = await openProfileExport(input, close);
       if (!response.ok || !response.body || response.headers.get("content-type") !== "application/gzip") await close();

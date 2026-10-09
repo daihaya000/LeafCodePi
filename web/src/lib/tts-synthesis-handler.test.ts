@@ -55,7 +55,7 @@ describe("POST /api/tts/synthesize", () => {
     );
     const response = await POST(request("こんにちは"));
     expect(response.status).toBe(200);
-    expect(await response.json()).toMatchObject({ audio: { contentType: "audio/wav", base64: "AQID" } });
+    expect([...new Uint8Array(await response.arrayBuffer())]).toEqual([1, 2, 3]);
   });
 
   it("BotごとのTTS音声をグローバル音声より優先してOpenAI互換エンジンへ渡す", async () => {

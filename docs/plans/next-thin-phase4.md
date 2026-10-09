@@ -95,6 +95,17 @@ Phase0のPhase4対象は14経路・15操作。今回の移管は `tasks/[id]/ima
 - 隔離64MiB incompressible resourceを2並列×4巡、元内容512MiB、gzip539,146,296bytes転送。32本文切断・16inventory取消し後、active/FD/directory/compressor/metadata/relayは全0。source SHA256不変、Range全体200/HEAD/auth/Origin、両プロセス再起動後のv1 export・backup一覧を確認。実モデル・ユーザーデータ・ユーザーサービス操作はなし。
 - 最大RSS増分Backend58,716,160 / relay22,216,704bytes、heap30,171,408 / 6,099,048、external38,948,100 / 13,774,216。RSS128MiB/heap48MiB/external96MiBの閾値は維持した。SSE/無期限接続・実Next productionの受入は残る。
 
+## 追加単位: TTS binary
+
+- `tts/synthesize` POSTを共通file-streamへ移管。累計11経路・Phase0掲載12操作（追加HEAD7操作）。Nextは最大16KiB/2秒のopaque入力だけをbufferし、音声をpull/HWM0で中継する。JSON/base64音声envelopeと90MiB例外を削除、voicesはJSON APIに残す。非HTTP向けの従来buffered合成helperは互換維持。
+- Backendは既存のtext上限2000文字、Bot voice、設定URL、unauthenticated URL、Origin/auth/readiness/generationを保持。Voicevox/AivisSpeechのquery→synthesisとraw/OpenAI互換bodyをそのまま使い、engine responseを音声streamにする。共有32枠内に最大2合成、音声64MiB、受信chunk最大256KiB、出力64KiB view/HWM0。各engine requestは従来の60秒期限、Nextのheader期限150秒、native45秒drain期限を維持する。
+- 生成型なのでRange/If-Rangeは全体200、Accept-Ranges:none、Content-Lengthなし。最後のbyteまで読んだ後の永続receipt更新成功を確認してclean EOFを返す。超過・途中取消し・短いdeclared-length・checkpoint失敗はstream error/unknown。operation UUIDとunknown headerを確認し、private/protocol/set-cookieは転送しない。
+- 同じIDの受付を拒否するID-onlyの128件ledger（旧version1互換、0600 temp/atomic rename/file lock）。unknownをevictせず、completeの古い行のみevictする。128件全unknown・破損・256KiB超ledgerは503で停止する。先にunknownを保存してからengineを呼び、再起動後も同じIDを409にする。履歴evict後の永久重複防止・電源断耐久は保証しない。
+- 受付後のheader待ちはconsumer signalでengine POSTを中断しない。取得後の音声読取は切断で取消し、reader/held chunk/枠を解放する。engine側がsocket切断を計算停止として扱う可能性は制御できないため、切断やengine失敗はunknownとして保存し自動再実行しない。errorは有界の一般化された応答で、音声やtext/URL/Bot情報をledgerへ保存しない。
+- 関連Web134件、native/server/契約/AST219件、実2段HTTP1件の計354件成功。Backend/Web全source型チェック成功。隔離fake engine＋実Backend＋bundleした実Next relay/Node HTTP adapterで64MiBを2並列×4巡、計512MiB配信。32本文取消し、受付済header待ち取消し1件、Range無視、raw body、両process再起動後のcomplete/unknown ID拒否を実証。終了時active/FD/reader/held chunk/relay/engine接続は0。実モデル・ユーザーデータ・ユーザーサービスを操作しない。
+- 最終RSS増分Backend92,790,784 / relay51,273,728bytes、heap8,310,264 / 2,980,272、external90,766,011 / 44,427,649。RSS128MiB/heap48MiB/external96MiBの閾値を維持。有限の2段HTTP試験で、Next production全体・全suite・無期限の証明ではない。
+- 原因: Nextのrequest body変数を同scopeのresponse body宣言がshadowし、fetch前のTDZで503になった。変数を分離してPOST/既存file中継を再検証した。追加copy版はBackend external増分102,164,057bytesで96MiBに抵触し、受信最大256KiBを保持した64KiB viewへ変更して閾値を緩めず再測定した。reviewでreceiptの全量readもbounded FD readへ修正した。
+
 ## 残り
 
-TTS binary、Task/Bot個別SSE・Provider SSE。既存のProvider SSE中継もPhase4の共通切断・再接続・長時間/停滞検証の対象にする。全対象の所有権と長時間SSEの有界性が確認できるまでPhase4の受入完了とはしない。
+Task/Bot個別SSE・Provider SSE。既存のProvider SSE中継もPhase4の共通切断・再接続・長時間/停滞検証の対象にする。全対象の所有権と長時間SSEの有界性が確認できるまでPhase4の受入完了とはしない。

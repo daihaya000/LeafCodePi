@@ -83,7 +83,7 @@ async function readAudio(res: Response): Promise<{ audio: Buffer; contentType: s
 }
 
 /** AivisSpeech / VOICEVOX エンジン: audio_query → synthesis。voice は style id。 */
-async function synthesizeVoicevox(baseUrl: string, text: string, voice: string, onStart: () => void): Promise<{ audio: Buffer; contentType: string }> {
+async function synthesizeVoicevox(baseUrl: string, text: string, voice: string, onStart: () => void): Promise<Response> {
   const speaker = voice.replace(/[^0-9]/g, "") || "1";
   const root = baseUrl.replace(/\/+$/, "");
   let queryRes: Response;
@@ -110,10 +110,10 @@ async function synthesizeVoicevox(baseUrl: string, text: string, voice: string, 
   } catch {
     throw new TtsSynthesizeError("合成エンジンに接続できません（停止中？）");
   }
-  return readAudio(synthRes);
+  return synthRes;
 }
 
-export async function synthesizeTts(text: string, url: string, voice: string, options: { onStart?: () => void } = {}): Promise<{ audio: Buffer; contentType: string }> {
+export async function openTtsEngineAudio(text: string, url: string, voice: string, options: { onStart?: () => void } = {}): Promise<Response> {
   assertConfigurationOwner();
   const clean = text.trim();
   if (!clean) throw new TtsSynthesizeError("読み上げる文章が空です", 400);
@@ -132,5 +132,10 @@ export async function synthesizeTts(text: string, url: string, voice: string, op
   } catch {
     throw new TtsSynthesizeError("合成エンジンに接続できません（停止中？）");
   }
-  return readAudio(res);
+  return res;
+}
+
+/** Buffered compatibility helper for non-HTTP callers; public synthesis uses openTtsEngineAudio. */
+export async function synthesizeTts(text: string, url: string, voice: string, options: { onStart?: () => void } = {}): Promise<{ audio: Buffer; contentType: string }> {
+  return readAudio(await openTtsEngineAudio(text, url, voice, options));
 }

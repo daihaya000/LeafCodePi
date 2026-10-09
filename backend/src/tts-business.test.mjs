@@ -1,35 +1,6 @@
-import assert from "node:assert/strict";
-import { randomBytes } from "node:crypto";
-import { request as httpRequest } from "node:http";
-import { setTimeout as delay } from "node:timers/promises";
-import test from "node:test";
-import { closeBackend, createBackendServer, listenBackend } from "./server.mjs";
-async function fixture(t, action) {
-  const token=randomBytes(32).toString("hex"),server=createBackendServer({token,isReady:()=>true,jsonBusinessRequestAction:action});
-  t.after(()=>closeBackend(server));const address=await listenBackend(server,0);
-  return {base:`http://127.0.0.1:${address.port}/internal/json-business`,headers:{authorization:`Bearer ${token}`,"x-leafcode-backend-protocol":"1","x-leafcode-business-origin":"http://localhost","x-leafcode-business-host":"localhost","x-leafcode-business-authorized":"1"}};
-}
-const id="11111111-0123-4321-abcd-eeeeeeeeeeee";
-test("TTS transport projects owner audio/voices, keeps generation opaque and requires receipt ID",async t=>{
-  let calls=0;const f=await fixture(t,async input=>{
-    calls++;
-    if(input.method==="GET"){assert.equal(input.operationId,undefined);assert.ok(input.signal);return{status:200,body:{voices:[{id:"1",label:"日本語",metadata:"PRIVATE"}],url:"PRIVATE"}};}
-    assert.equal(input.operationId,id);assert.equal(input.signal,undefined);assert.equal(new TextDecoder().decode(input.body),'{"text":"日本語","url":"ignored"}');
-    return{status:200,body:{audio:{contentType:"audio/mpeg",base64:"AAEC/w==",url:"PRIVATE"},operation:{id,execution:"complete"},token:"PRIVATE"}};
-  });
-  const voiceReply=await fetch(f.base+"/settings/tts/voices",{headers:f.headers});assert.equal(voiceReply.status,200);assert.deepEqual((await voiceReply.json()).body,{voices:[{id:"1",label:"日本語"}]});
-  const audioReply=await fetch(f.base+"/tts/synthesize",{method:"POST",headers:{...f.headers,"x-leafcode-business-operation":id},body:'{"text":"日本語","url":"ignored"}'});assert.equal(audioReply.status,200);const result=await audioReply.json();assert.equal(result.status,200);assert.equal(result.body.audio.base64,"AAEC/w==");assert.ok(!JSON.stringify(result).includes("PRIVATE"));
-  for(const [headers,body,status]of[[f.headers,"{}",400],[{...f.headers,"x-leafcode-business-operation":id},"x".repeat(16*1024+1),413]])assert.equal((await fetch(f.base+"/tts/synthesize",{method:"POST",headers,body})).status,status);
-  assert.equal(calls,2);
-});
-test("accepted TTS runs after client disconnect without retry/cancellation propagation",async t=>{
-  let started=false,completed=0,release;const gate=new Promise(resolve=>{release=resolve;});
-  const f=await fixture(t,async input=>{assert.equal(input.signal,undefined);started=true;await gate;completed++;return{status:200,body:{audio:{contentType:"audio/wav",base64:"AQID"},operation:{id,execution:"complete"}}};});
-  const req=httpRequest(f.base+"/tts/synthesize",{method:"POST",headers:{...f.headers,"x-leafcode-business-operation":id}});req.on("error",()=>{});req.end("{}");
-  for(let i=0;i<100&&!started;i++)await delay(5);assert.equal(started,true);req.destroy();release();
-  for(let i=0;i<100&&!completed;i++)await delay(5);assert.equal(completed,1);
-});
-test("malformed audio/private capability DTO is rejected by native ingress projection",async t=>{
- const f=await fixture(t,async()=>({status:200,body:{audio:{contentType:"text/html",base64:"PRIVATE"},operation:{id,execution:"complete"}}}));
- const reply=await fetch(f.base+"/tts/synthesize",{method:"POST",headers:{...f.headers,"x-leafcode-business-operation":id},body:"{}"});assert.equal(reply.status,503);assert.ok(!(await reply.text()).includes("PRIVATE"));
+import assert from"node:assert/strict";import test from"node:test";import{closeBackend,createBackendServer,listenBackend}from"./server.mjs";import{randomUUID}from"node:crypto";
+test("TTS native transport is raw POST only with UUID/body gates; former JSON audio route is refused",async t=>{let calls=0;const token="fixture"+"x".repeat(32),id=randomUUID(),server=createBackendServer({token,isReady:()=>true,jsonBusinessRequestAction:async()=>({status:200,body:{voices:[]}}),taskFileStreamAction:async input=>{calls++;assert.equal(input.operationId,id);assert.equal(new TextDecoder().decode(input.body),'{"text":"日本語"}');return new Response(new Uint8Array([0,1,255]),{headers:{"content-type":"audio/wav","x-leafcode-tts-operation":id,"x-leafcode-tts-execution":"unknown","set-cookie":"PRIVATE"}});}});t.after(()=>closeBackend(server));const addr=await listenBackend(server,0),base="http://127.0.0.1:"+addr.port,headers={authorization:"Bearer "+token,"x-leafcode-backend-protocol":"1","x-leafcode-business-origin":"http://localhost","x-leafcode-business-host":"localhost","x-leafcode-business-authorized":"1","x-leafcode-business-operation":id};
+ const result=await fetch(base+"/internal/file-stream/tts/synthesize",{method:"POST",headers,body:'{"text":"日本語"}'});assert.equal(result.status,200);assert.deepEqual([...new Uint8Array(await result.arrayBuffer())],[0,1,255]);assert.equal(result.headers.get("set-cookie"),null);
+ assert.equal((await fetch(base+"/internal/json-business/tts/synthesize",{method:"POST",headers,body:"{}"})).status,404);assert.equal((await fetch(base+"/internal/file-stream/tts/synthesize",{method:"POST",headers:{...headers,"x-leafcode-business-operation":"wrong"},body:"{}"})).status,400);assert.equal((await fetch(base+"/internal/file-stream/tts/synthesize",{method:"POST",headers,body:"x".repeat(16*1024+1)})).status,413);assert.equal((await fetch(base+"/internal/file-stream/tts/synthesize",{headers})).status,405);assert.equal(calls,1);
+ const voices=await fetch(base+"/internal/json-business/settings/tts/voices",{headers});assert.equal(voices.status,200);assert.deepEqual((await voices.json()).body,{voices:[]});
 });
