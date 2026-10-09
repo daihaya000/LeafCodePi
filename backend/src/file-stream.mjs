@@ -1,9 +1,9 @@
 import { BACKEND_PROTOCOL_HEADER, BACKEND_PROTOCOL_VERSION } from "../../shared/backend-protocol.mjs";
 import { FILE_STREAM_HEADERS } from "../../shared/task-file-stream-contract.mjs";
 /** One source read at a time; no whole-body accumulation, bounded drain wait, unconditional cancellation. */
-export async function writeFileStream(response, source, signal, method, { stallMs = 45_000, maxChunkBytes = 64 * 1024 } = {}) {
+export async function writeFileStream(response, source, signal, method, { stallMs = 45_000, maxChunkBytes = 64 * 1024, headerNames = FILE_STREAM_HEADERS } = {}) {
   const headers = { [BACKEND_PROTOCOL_HEADER]: String(BACKEND_PROTOCOL_VERSION) };
-  for (const name of FILE_STREAM_HEADERS) { const value = source.headers.get(name); if (value !== null) headers[name] = value; }
+  for (const name of headerNames) { const value = source.headers.get(name); if (value !== null) headers[name] = value; }
   const reader = source.body?.getReader();
   const cancel = () => { void reader?.cancel().catch(() => {}); };
   signal.addEventListener("abort", cancel, { once: true });

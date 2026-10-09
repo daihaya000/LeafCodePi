@@ -12,6 +12,7 @@ export { dispatchConfigurationRequest } from "../../configuration/index";
 export { dispatchJsonBusinessRequest } from "../../json-business/index";
 export { openProviderLoginEvents } from "../../json-business/provider-auth-events";
 export { openTaskFileStream, readTaskFileStreamDiagnostics } from "../../file-stream/task-files";
+export { openLiveEvents, readLiveEventDiagnostics } from "../../event-stream/index";
 
 export { createTask } from "../task-collection";
 export { promptTask, respondToPermissionPrompt, respondToQuestionPrompt } from "../task-conversation";

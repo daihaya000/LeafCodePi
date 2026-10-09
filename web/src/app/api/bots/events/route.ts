@@ -1,39 +1,7 @@
 import { NextRequest } from "next/server";
-import { localRuntimeBlocked } from "@/lib/pi/runtime-ownership";
-import { forwardRuntimeEventStream } from "@/lib/backend-runtime-events";
-import { subscribeBotCodeSession } from "@/lib/pi/harness";
-import { subscribeRoutineRuns } from "@/lib/routines";
-import { createSseWriter } from "@/lib/sse-writer";
-import { sseResponse } from "@/lib/sse-response";
-import { BOT_ROUTINE_RUN_EVENT } from "@/lib/types";
-
+import { relayLiveEvents } from "@/lib/live-event-relay";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
-
-/**
- * Stream Code terminal transitions and finished Bot routine runs for Bot surfaces
- * that have no individual BotView mounted.
- */
-export async function GET(req: NextRequest) {
-  if (localRuntimeBlocked()) return forwardRuntimeEventStream(req.signal, { acceptEncoding: req.headers.get("accept-encoding") });
-  let sse: ReturnType<typeof createSseWriter> | undefined;
-  const stream = new ReadableStream({
-    start(controller) {
-      const writer = createSseWriter(controller, { signal: req.signal });
-      sse = writer;
-      const unsubscribe = subscribeBotCodeSession((payload) => {
-        if (!writer.closed) writer.send("snapshot", payload);
-      });
-      const unsubscribeRoutineRuns = subscribeRoutineRuns((payload) => {
-        if (!writer.closed) writer.send(BOT_ROUTINE_RUN_EVENT, payload);
-      });
-      writer.onCleanup(unsubscribe);
-      writer.onCleanup(unsubscribeRoutineRuns);
-      writer.startHeartbeat();
-    },
-    cancel() {
-      sse?.cleanup();
-    },
-  });
-  return sseResponse(req.headers.get("accept-encoding"), stream);
+export async function GET(request: NextRequest) {
+  return relayLiveEvents(request, "bots/events");
 }

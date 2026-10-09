@@ -6,6 +6,7 @@ import { once } from "node:events";
 import { streamRuntimeEvents } from "./runtime-events.mjs";
 import { taskFileTarget, TASK_FILE_ROUTES, TASK_FILE_STREAM_PATH } from "../../shared/task-file-stream-contract.mjs";
 import { writeFileStream } from "./file-stream.mjs";
+import { LIVE_EVENT_PATH, LIVE_EVENT_HEADERS, liveEventTarget } from "../../shared/live-event-contract.mjs";
 import { readJsonBody, JsonBodyReadError } from "./json-body.mjs";
 import { streamProviderLoginEvents } from "./provider-login-events.mjs";
 import { PROVIDER_AUTH_EVENTS_PATH } from "../../shared/provider-auth-contract.mjs";
@@ -226,6 +227,7 @@ export function createBackendServer({
   jsonBusinessRequestAction = null,
   providerLoginEventsAction = null,
   taskFileStreamAction = null,
+  liveEventsAction = null,
 } = {}) {
   if (
     typeof token !== "string" ||
@@ -263,6 +265,7 @@ export function createBackendServer({
     jsonBusinessRequestAction,
     providerLoginEventsAction,
     taskFileStreamAction,
+    liveEventsAction,
     subscribeRuntimeEvents,
     createTask,
     respondToQuestion,
@@ -420,7 +423,8 @@ export function createBackendServer({
     const businessPath = target.pathname.startsWith(`${JSON_BUSINESS_PATH}/`) ? target.pathname.slice(JSON_BUSINESS_PATH.length + 1) : null;
     const authEventsMatch = new RegExp(`^${PROVIDER_AUTH_EVENTS_PATH}/([^/]+)$`).exec(target.pathname);
     const filePath = target.pathname.startsWith(`${TASK_FILE_STREAM_PATH}/`) ? target.pathname.slice(TASK_FILE_STREAM_PATH.length + 1) : null;
-    const knownPath = filePath !== null || authEventsMatch !== null || businessPath !== null || configurationPath !== null || target.pathname === BACKEND_HEALTH_PATH
+    const livePath = target.pathname.startsWith(`${LIVE_EVENT_PATH}/`) ? target.pathname.slice(LIVE_EVENT_PATH.length + 1) : null;
+    const knownPath = livePath !== null || filePath !== null || authEventsMatch !== null || businessPath !== null || configurationPath !== null || target.pathname === BACKEND_HEALTH_PATH
       || target.pathname === BACKEND_RUNTIME_CONTROL_PATH
       || target.pathname === BACKEND_RUNTIME_EVENTS_PATH
       || target.pathname === BACKEND_LIVE_SESSIONS_RELOAD_PATH
@@ -445,11 +449,13 @@ export function createBackendServer({
       sendJson(response, 404, { error: "Not found", code: BACKEND_ERROR_CODES.notFound });
       return;
     }
-    if (filePath !== null) {
-      const fileTarget = taskFileTarget(filePath);
+    if (livePath !== null || filePath !== null) {
+      const isLive = livePath !== null, selectedPath = livePath ?? filePath;
+      const fileTarget = isLive ? liveEventTarget(selectedPath) : taskFileTarget(selectedPath);
       if (!fileTarget) { sendJson(response, 404, { error: "Unknown file route" }); return; }
-      if (!TASK_FILE_ROUTES[fileTarget.route].includes(request.method)) { sendJson(response, 405, { error: "Method not allowed" }); return; }
-      if (!taskFileStreamAction || !isReady()) { sendJson(response, 503, { error: "File owner unavailable" }); return; }
+      if (!(isLive ? ["GET"] : TASK_FILE_ROUTES[fileTarget.route]).includes(request.method)) { sendJson(response, 405, { error: "Method not allowed" }); return; }
+      const action = isLive ? liveEventsAction : taskFileStreamAction;
+      if (!action || !isReady()) { sendJson(response, 503, { error: "File owner unavailable" }); return; }
       const origin = request.headers[JSON_BUSINESS_HEADERS.origin], host = request.headers[JSON_BUSINESS_HEADERS.host], access = request.headers[JSON_BUSINESS_HEADERS.authorized];
       try {
         const url = new URL(origin);
@@ -459,10 +465,10 @@ export function createBackendServer({
       const controller = new AbortController(), disconnect = () => controller.abort();
       response.once("close", disconnect); request.socket.once("end", disconnect);
       const headers = { host };
-      for (const key of ["range", "if-range"]) if (typeof request.headers[key] === "string") headers[key] = request.headers[key];
+      for (const key of isLive ? ["last-event-id"] : ["range", "if-range"]) if (typeof request.headers[key] === "string") headers[key] = request.headers[key];
       try {
-        const source = await taskFileStreamAction({ route: filePath, method: request.method, url: `${origin}/api/${filePath}${target.search}`, headers, authorized: access === "1", signal: controller.signal });
-        await writeFileStream(response, source, controller.signal, request.method);
+        const source = await action({ route: selectedPath, method: request.method, url: `${origin}/api/${selectedPath}${target.search}`, headers, authorized: access === "1", signal: controller.signal });
+        await writeFileStream(response, source, controller.signal, request.method, isLive ? { headerNames: LIVE_EVENT_HEADERS } : {});
       } catch { if (!response.headersSent && !response.destroyed) sendJson(response, 503, { error: "File owner unavailable" }); else response.destroy(); }
       finally { response.off("close", disconnect); request.socket.off("end", disconnect); controller.abort(); }
       return;

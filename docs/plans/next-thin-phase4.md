@@ -49,6 +49,26 @@ Phase0のPhase4対象は14経路・15操作。今回の移管は `tasks/[id]/ima
 - 修正後のasset計測でRSS増分Backend67,665,920 / relay41,099,264 bytes、heap17,259,376 / 4,784,128、external67,768,340 / 33,885,204。閾値RSS128MiB、heap48MiB、external96MiBを維持。実Backendと実Next relay＋HTTP adapterによる有限の計測。Next production全体、長時間SSE、実publicサイトのfetchは未測定（network取消しはsignal対応mockと既存public transport境界テストで確認）。
 - 原因: 初版は `getProject` が2MiB iconを含むproject全体を要求ごとにstructuredCloneし、反復配信でheap増分72,105,232bytes（閾値48MiB）、RSS106,430,464bytesとなった。immutable文字列専用getterで複製を避け、閾値を緩めず再検証した。旧JSON経路のテスト期待値200/503も、登録削除後の404へ更新した。
 
+## 追加単位: Room会話・Bot一覧SSE
+
+- `bots/rooms/[id]/events` と `bots/events` のGETをBackendの `/internal/live-events` へ移管。累計8経路・Phase0掲載9操作。Nextはdevelopmentでもopaque中継だけで、Room/store/SDK購読・履歴解析・snapshot整形・ローカルfallbackを持たない。
+- Roomの初回全snapshot、append/update時のmessages差分、履歴reset時の全snapshot、attentionだけの変更時のroomReusedを維持。BackendのRoom変更とmember/linked Code Task snapshotを購読し、2秒のdisk safety-netを併用する。再接続では常に現在の全snapshotを送り、Last-Event-IDはopaque転送のみ（履歴replay保証はない）。
+- Bot一覧はCode snapshot・routineに加え、従来productionで流れていた `task_dirty` を維持。SidebarとGlobalAttentionProviderがこれを使うため、Code/routineだけへ狭めない。従来public中継と同様、token単位task_streamを流さない。Bot一覧の取りこぼしは既存client hubのonOpen/idle poll契約の範囲で復旧する。
+- WebUI/private bearer/protocol/readiness/generationを確認し、本文はpull/HWM0でそのまま転送。圧縮・不適合protocol・SSEでない200を拒否する。接続/headersは10秒、undici bodyTimeoutは0で長時間SSEを切らない。HTTP切断・取消し・upstream EOFはreader/購読/タイマーへ伝播し、エージェントや受理済み処理は停止しない。
+- Backendは最大32購読、各Roomのmember/linked Task購読は128まで。1frame/1consumer queueは8MiB、全encoded queueと全保持snapshotはそれぞれ16MiBまで。JSON escaping・key・UTF-8・300,000 nodeをserialize前に制限し、超過は切断する。encode前に残りbyte予算を確認する。1pullは独立した64KiB以下のコピーで、socket側の最後のsliceが巨大なframe backingを保持しない。
+- heartbeatは15秒。未消費queue/native drainは45秒期限。producerの追加通知で停滞期限を延ばさない。超過/切断は冪等cleanupでqueue・Room/Task/routine/dirty購読・heartbeat/poll/stall timer・snapshot参照を解放する。private診断はHTTPへ公開しない。
+- Room JSONは添付と同じcanonical FD検証、64KiB読取、8MiB上限、同時2件/reuse buffer16MiBを利用。共有metadata待機も最大64。欠落は404、上限/IO異常は503。大きな既存Room・極端なmember/linked Task数は新しい制限を受ける。FD同一性/mtime検査は原子的snapshotの保証ではない。
+
+### SSE検証
+
+- 有界writer9件、owner6件、relay4件、両route4件、既存Room添付11件、client hub7件、native/file server81件、新private ingress2件、契約/AST4件、Task/Room/SSE実2段HTTP各1件の計131件成功。全suiteは実行していない。
+- Backend型チェックとWeb source型チェック成功。通常Web型チェックはWebUI再起動で生成された既存Next route型エラー（optional request/defaultModelDir）で失敗。今回のsource型エラーは修正し、生成型を除いた全Web sourceで確認した。既存routeや生成cacheは変更していない。
+- 本物のBackend runtime/native HTTPと、別プロセスにbundleした実Next relay/Node HTTP adapterで65秒の継続SSE・4回以上のheartbeat、32消費取消し、Room変更・再接続・両process再起動を検証。停滞clientは接続activeを確認してからpauseし、8MiB queue超過でowner購読を解放。切断後もfixture producerは継続した。
+- 最終試験は65,003ms、SSE本文68,930,073bytes。ピーク増分RSSはBackend13,656,064 / relay9,572,352bytes、heap17,941,280 / 463,288、external9,622,055 / 8,356,101。停滞queue peak8,334,121bytes、上限超過切断1回。
+- 最後のactive/subscriptions/poll/pendingRead/保持snapshot/writer/queue/heartbeat/stall/metadata active/待機/routine listener/relay activeは0。全queue peakは16MiB以内。RSS128MiB・heap48MiB・external96MiBの従来閾値を維持した有限の試験。Next production server全体や無期限接続の保証ではない。
+- Task1GiB/61切断、Room256MiB/32切断+24metadata取消しも再検証し、配信/FD/待機/中継activeは0。
+- 原因: 従来NextのRoom snapshot整形/購読を廃止してownerへ移す必要があった。独立レビューではBot一覧からtask_dirtyを落とす互換性欠落を検出し、owner購読を追加してclient hubと再検証した。初期fixtureの停滞判定は接続前の古いactive=0を見ていたため、接続1の採取後にpauseを判定する形へ修正した。
+
 ## 残り
 
-message-image、profile export、TTS binary、Task/Bot/Room/Provider SSE。既存のProvider SSE中継もPhase4の共通切断・再接続・長時間/停滞検証の対象にする。全対象の所有権と長時間SSEの有界性が確認できるまでPhase4の受入完了とはしない。
+message-image、profile export、TTS binary、Task/Bot個別SSE・Provider SSE。既存のProvider SSE中継もPhase4の共通切断・再接続・長時間/停滞検証の対象にする。全対象の所有権と長時間SSEの有界性が確認できるまでPhase4の受入完了とはしない。

@@ -283,6 +283,11 @@ try {
         unsubscribeStream();
       };
     },
+    liveEventsAction: async (input) => {
+      const runtime = started.runtime();
+      if (!runtime || typeof runtime.openLiveEvents !== "function") throw new Error("Event owner unavailable");
+      return runtime.openLiveEvents(input);
+    },
     taskFileStreamAction: async (input) => {
       const runtime = started.runtime();
       if (!runtime || typeof runtime.openTaskFileStream !== "function") throw new Error("File owner unavailable");

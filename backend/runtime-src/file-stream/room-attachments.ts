@@ -15,6 +15,7 @@ const metadataBuffers: Buffer[] = [];
 export function readRoomAttachmentDiagnostics() { return { metadataActive, metadataQueued: queue.length, peakMetadataActive, metadataBufferBytes, maxMetadataBytes: MAX_METADATA }; }
 async function metadataSlot(signal: AbortSignal): Promise<() => void> {
   signal.throwIfAborted();
+  if (metadataActive >= 2 && queue.length >= 64) throw new Error("Metadata admission limit");
   if (metadataActive >= 2) await new Promise<void>((resolve, reject) => {
     const granted = () => { signal.removeEventListener("abort", aborted); resolve(); };
     const aborted = () => { const at = queue.indexOf(granted); if (at >= 0) queue.splice(at, 1); signal.removeEventListener("abort", aborted); reject(new Error("Metadata cancelled")); };
@@ -43,6 +44,24 @@ async function verifiedOpen(path: string): Promise<FileHandle> {
     return file;
   } catch (error) { await file.close(); throw error; }
 }
+export async function readRoomStreamSnapshot(id:string,signal:AbortSignal) {
+ assertConfigurationOwner();
+ if(id.length>512||!/^[0-9a-f]{8}-[0-9a-f-]{27,}$/i.test(id))throw new Error("Invalid room");
+ const root=await realpath(join(dataDir(),"bots","rooms"));
+ const release=await metadataSlot(signal);let backing:Buffer|undefined;
+ try {
+  signal.throwIfAborted();const metadata=await verifiedOpen(join(root,id+".json"));
+  try {
+   const info=await metadata.stat();if(!info.size||info.size>MAX_METADATA)throw new Error("Room metadata limit");
+   backing=metadataBuffers.pop();if(!backing||backing.length<info.size){metadataBufferBytes+=info.size-(backing?.length??0);backing=Buffer.allocUnsafe(info.size);}
+   const bytes=backing.subarray(0,info.size);let offset=0;
+   while(offset<bytes.length){signal.throwIfAborted();const part=await metadata.read(bytes,offset,Math.min(65536,bytes.length-offset),offset);if(!part.bytesRead)throw new Error("Room truncated");offset+=part.bytesRead;}
+   const now=await metadata.stat();if(now.size!==info.size||now.mtimeMs!==info.mtimeMs)throw new Error("Room changed");
+   const room=normalizeRoom(JSON.parse(new TextDecoder("utf-8",{fatal:true}).decode(bytes)),id,ROOM_HANDOFF_STATES);if(!room)throw new Error("Invalid room");return room;
+  } finally{await metadata.close();}
+ } finally{if(backing)metadataBuffers.push(backing);release();}
+}
+
 /** Bounded metadata snapshot. No mutations, SDK/session hydration, history scans or attachment buffering. */
 export async function openRoomAttachment(id: string, name: string, kind: "files" | "images", signal: AbortSignal): Promise<Success | Failure> {
   assertConfigurationOwner();
