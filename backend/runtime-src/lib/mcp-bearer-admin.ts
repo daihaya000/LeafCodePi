@@ -1,11 +1,14 @@
+import { markMcpBusinessEffect } from "@backend-core/mcp-business-effects.mjs";
 import { parseMcpBearerSaveRequest, publicMcpBearerSaveResult, type McpBearerSaveRequest } from "@shared/mcp-bearer-save-request.mjs";
 import { enableMcpBearerStore, getMcpServerAuth, McpError, resolveMcpServerUrl } from "@/lib/mcp";
 import { readMcpAuthStatus } from "@/lib/mcp-auth-status";
 import { reloadLiveSessionsContext } from "@/lib/pi/harness";
 import { requestMcpWebUiAuth, type McpWebUiAuthRequest } from "@/lib/pi/mcp-webui-bridge";
+import { assertConfigurationOwner } from "@backend-core/configuration-command.mjs";
 import { assertLocalRuntimeAllowed } from "@/lib/pi/runtime-ownership";
 
 async function callStore(request: McpWebUiAuthRequest) {
+  markMcpBusinessEffect();
   try {
     const result = await requestMcpWebUiAuth(request);
     if (!result?.ok || result.operation !== request.operation) throw new Error("Store refused");
@@ -16,6 +19,7 @@ async function callStore(request: McpWebUiAuthRequest) {
 
 /** Owner-only save. The legacy store bridge is temporary and never called from production WebUI. */
 export async function saveMcpBearerAuth(name: string, input: McpBearerSaveRequest) {
+  assertConfigurationOwner();
   assertLocalRuntimeAllowed();
   const parsed = parseMcpBearerSaveRequest(input);
   if (!parsed.ok) throw new McpError("invalid-auth", "Bearer認証リクエストが不正です");

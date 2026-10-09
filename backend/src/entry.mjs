@@ -1,3 +1,4 @@
+import { markMcpBusinessEffect } from "../core/mcp-business-effects.mjs";
 import { dataDir } from "../core/app-paths.mjs";
 import { runtimeGenerationStatus } from "../../shared/backend-generation.mjs";
 import { DEFAULT_BACKEND_PORT } from "../../shared/backend-protocol.mjs";
@@ -91,6 +92,7 @@ try {
     let before;
     try { before = nativeMcp.readAuthStatus(name); }
     catch { throw Object.assign(new Error("Backend MCP auth target not found"), { status: 404 }); }
+    markMcpBusinessEffect();
     try { await write(); }
     catch { throw Object.assign(new Error("Backend MCP auth write failed"), { status: 409 }); }
     const auth = publicMcpAuthSnapshot(nativeMcp.readAuthStatus(name));
@@ -145,8 +147,10 @@ try {
         };
         // Native MCP runs the write in the owner's writer scope and republishes the snapshot for
         // later sessions; the adapter path keeps its own executor. A republish failure is surfaced.
+        if (nativeMcp) markMcpBusinessEffect();
         const result = nativeMcp ? await nativeMcp.runConfigWrite(write) : write();
         // Persist and respond first; the owner alone rebuilds its live sessions.
+        markMcpBusinessEffect();
         setImmediate(() => {
           void Promise.resolve().then(() => runtime.reloadLiveSessionsContext()).catch(() => {
             console.warn("[mcp] Backend live session context reload failed");
@@ -244,6 +248,7 @@ try {
       try {
         // Adding a preset writes the same config file the native loader reads, so a native runtime
         // republishes through the owner writer scope before responding.
+        if (nativeMcp) markMcpBusinessEffect();
         return nativeMcp ? await nativeMcp.runConfigWrite(() => runtime.createMcpPreset(input)) : await runtime.createMcpPreset(input);
       }
       catch (error) {

@@ -1,12 +1,15 @@
+import { markMcpBusinessEffect } from "@backend-core/mcp-business-effects.mjs";
 import { parseMcpOAuthCompleteRequest, publicMcpOAuthCompleteResult, type McpOAuthCompleteRequest, type McpOAuthCompleteStatus } from "@shared/mcp-oauth-complete-request.mjs";
 import { getMcpServerAuth, listMcpServers, McpError, resolveMcpServerUrl } from "@/lib/mcp";
 import { readMcpAuthStatus } from "@/lib/mcp-auth-status";
 import { reloadLiveSessionsContext } from "@/lib/pi/harness";
 import { requestMcpWebUiAuth } from "@/lib/pi/mcp-webui-bridge";
+import { assertConfigurationOwner } from "@backend-core/configuration-command.mjs";
 import { assertLocalRuntimeAllowed } from "@/lib/pi/runtime-ownership";
 
 /** Owner-only completion against the pending flow retained by that process. */
 export async function completeMcpOAuthAuth(name: string, input: McpOAuthCompleteRequest) {
+  assertConfigurationOwner();
   assertLocalRuntimeAllowed();
   const parsed = parseMcpOAuthCompleteRequest(input);
   if (!parsed.ok) throw new McpError("invalid-auth", "OAuth完了リクエストが不正です");
@@ -20,6 +23,7 @@ export async function completeMcpOAuthAuth(name: string, input: McpOAuthComplete
   }
   let status: McpOAuthCompleteStatus;
   try {
+    markMcpBusinessEffect();
     const response = await requestMcpWebUiAuth({ operation: "oauth-complete", serverName: current.name, input: parsed.value.input });
     if (response?.ok !== true || response.operation !== "oauth-complete"
       || !["authenticated", "expired", "not_authenticated"].includes(response.status)) throw new Error("OAuth owner refused");

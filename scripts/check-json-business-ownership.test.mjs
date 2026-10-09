@@ -30,7 +30,12 @@ for (const [route, methods] of Object.entries(JSON_BUSINESS_ROUTES)) {
         });
       } else assert.equal(statement.expression.arguments[1].text, route);
     }
-    assert.doesNotMatch(readFileSync(join(root, "backend/runtime-src/json-business/handlers", route, "route.ts"), "utf8"), /from ["']next\//);
+    if (route === "mcp" || route.startsWith("mcp/")) {
+      const owner = readFileSync(join(root, "backend/src/mcp-json-business.mjs"), "utf8"), server = readFileSync(join(root, "backend/src/server.mjs"), "utf8");
+      assert.doesNotMatch(owner, /from ["']next\//);
+      assert.match(owner, /assertConfigurationOwner\(\)/);
+      assert.match(server, /mcpBusinessTarget\(businessPath\) \? mcpBusinessRequest : jsonBusinessRequestAction/);
+    } else assert.doesNotMatch(readFileSync(join(root, "backend/runtime-src/json-business/handlers", route, "route.ts"), "utf8"), /from ["']next\//);
   });
 }
 test("Next login SSE is an opaque subscriber relay, not a local SDK/session owner", () => {

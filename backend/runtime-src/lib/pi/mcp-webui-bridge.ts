@@ -1,3 +1,5 @@
+import { assertConfigurationOwner } from "@backend-core/configuration-command.mjs";
+
 export type McpWebUiAuthRequest =
   | { operation: "bearer-status"; serverName: string }
   | { operation: "bearer-save"; serverName: string; token: string }
@@ -51,6 +53,7 @@ export function unregisterMcpWebUiAuthHandler(handler: McpWebUiAuthHandler): voi
 export async function requestMcpWebUiAuth(
   request: McpWebUiAuthRequest,
 ): Promise<McpWebUiAuthResponse | null> {
+  assertConfigurationOwner();
   const handler = globalScope()[GLOBAL_KEY];
   if (!handler) return null;
   return handler(request);

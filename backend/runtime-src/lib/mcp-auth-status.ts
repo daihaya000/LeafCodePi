@@ -1,10 +1,12 @@
 import { publicMcpAuthSnapshot } from "@shared/mcp-auth-snapshot.mjs";
 import { getMcpServerAuth } from "@/lib/mcp";
 import { requestMcpWebUiAuth, type McpWebUiAuthRequest } from "@/lib/pi/mcp-webui-bridge";
+import { assertConfigurationOwner } from "@backend-core/configuration-command.mjs";
 import { assertLocalRuntimeAllowed } from "@/lib/pi/runtime-ownership";
 
 /** Read-only owner handler. The temporary legacy bridge is consulted only in this process. */
 export async function readMcpAuthStatus(name: string) {
+  assertConfigurationOwner();
   assertLocalRuntimeAllowed();
   const snapshot = getMcpServerAuth(name);
   const operation: McpWebUiAuthRequest["operation"] | null = snapshot.authType === "bearer"

@@ -8,6 +8,8 @@
  * credential store; the config file only receives non-secret store switches.
  */
 
+import { assertConfigurationOwner } from "@backend-core/configuration-command.mjs";
+import { markMcpBusinessEffect } from "@backend-core/mcp-business-effects.mjs";
 import {
   mkdirSync,
   readFileSync,
@@ -122,7 +124,7 @@ function isMcpServer(value: unknown): value is McpServer {
   return isRecord(value);
 }
 
-function readConfig(path: string, strict = false): McpConfig {
+function readConfig(path: string, strict = true): McpConfig {
   try {
     const raw = JSON.parse(readFileSync(path, "utf8")) as unknown;
     if (strict && (!isRecord(raw) || (Object.hasOwn(raw, "mcpServers") && (!isRecord(raw.mcpServers)
@@ -145,6 +147,8 @@ function readConfig(path: string, strict = false): McpConfig {
 }
 
 function atomicWrite(filePath: string, content: string): void {
+  assertConfigurationOwner();
+  markMcpBusinessEffect();
   mkdirSync(dirname(filePath), { recursive: true });
   const tmp = join(dirname(filePath), `.${Date.now()}.${process.pid}.tmp`);
   try {
@@ -401,6 +405,7 @@ export function enableMcpBearerStore(
   name: string,
   agentDir = resolvePiAgentDir(),
 ): McpListResult {
+  assertConfigurationOwner();
   const server = readServer(name, agentDir);
   if (typeof server.entry.url !== "string" || !server.entry.url.trim()) {
     throw new McpError("invalid-auth", "Bearer認証はHTTP MCPサーバーでのみ利用できます");
@@ -425,6 +430,7 @@ export function disableMcpBearerStore(
   name: string,
   agentDir = resolvePiAgentDir(),
 ): McpListResult {
+  assertConfigurationOwner();
   const server = readServer(name, agentDir);
   const entry = server.config.mcpServers[server.name];
   if (isMcpServer(entry) && entry.bearerTokenStore === true) {
@@ -440,6 +446,7 @@ export function enableMcpHeadersStore(
   name: string,
   agentDir = resolvePiAgentDir(),
 ): McpListResult {
+  assertConfigurationOwner();
   const server = readServer(name, agentDir);
   if (typeof server.entry.url !== "string" || !server.entry.url.trim()) {
     throw new McpError("invalid-auth", "HTTPヘッダー認証はHTTP MCPサーバーでのみ利用できます");
@@ -464,6 +471,7 @@ export function disableMcpHeadersStore(
   name: string,
   agentDir = resolvePiAgentDir(),
 ): McpListResult {
+  assertConfigurationOwner();
   const server = readServer(name, agentDir);
   const entry = server.config.mcpServers[server.name];
   if (isMcpServer(entry) && entry.headersStore === true) {
@@ -480,6 +488,7 @@ export function setMcpServerEnabled(
   enabled: boolean,
   agentDir = resolvePiAgentDir(),
 ): McpListResult {
+  assertConfigurationOwner();
   const server = readServer(name, agentDir);
   const existing = server.config.mcpServers[server.name];
   if (enabled) {
@@ -527,6 +536,7 @@ export function normalizeN8nServerUrl(input: string): string {
 
 /** Add the n8n instance-level MCP server as an OAuth HTTP entry. */
 export function addN8nServer(input: string, agentDir = resolvePiAgentDir()): McpListResult {
+  assertConfigurationOwner();
   const path = piMcpConfigPath(agentDir);
   const config = readConfig(path);
   if (isMcpServer(config.mcpServers["n8n"])) {
@@ -552,6 +562,7 @@ const SLACK_MCP_URL = "https://mcp.slack.com/mcp";
  * app client ID (PKCE; no client secret needed, matching Slack's own plugin).
  */
 export function addSlackServer(clientId: string, agentDir = resolvePiAgentDir()): McpListResult {
+  assertConfigurationOwner();
   const id = clientId.trim();
   if (!id) throw new McpError("invalid-auth", "Slack のClient IDを入力してください");
   if (id.length > 256 || !/^[A-Za-z0-9._-]+$/.test(id)) {
@@ -626,6 +637,7 @@ export function addGoogleWorkspaceServers(
   clientSecret: string,
   agentDir = resolvePiAgentDir(),
 ): McpListResult {
+  assertConfigurationOwner();
   const id = clientId.trim();
   const secret = clientSecret.trim();
   if (!id) throw new McpError("invalid-auth", "Google OAuth Client IDを入力してください");
@@ -672,6 +684,7 @@ const NOTION_MCP_URL = "https://mcp.notion.com/mcp";
  * the adapter keeps its streamable-first negotiation with SSE fallback.
  */
 export function addNotionServer(agentDir = resolvePiAgentDir()): McpListResult {
+  assertConfigurationOwner();
   const path = piMcpConfigPath(agentDir);
   const config = readConfig(path);
   if (isMcpServer(config.mcpServers["notion"])) {

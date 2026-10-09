@@ -1,3 +1,5 @@
+import { mcpBusinessTarget } from "../../shared/mcp-business-contract.mjs";
+import { createMcpJsonBusiness } from "./mcp-json-business.mjs";
 import { createHash, randomUUID, timingSafeEqual } from "node:crypto";
 import { createServer } from "node:http";
 import { once } from "node:events";
@@ -297,6 +299,7 @@ export function createBackendServer({
       throw new Error(`${name} must be a function or null`);
     }
   }
+  const mcpBusinessRequest = createMcpJsonBusiness({ readMcpServerList, setMcpServerEnabledAction, createMcpPresetAction, readMcpAuthStatus, saveMcpBearerAuthAction, saveMcpHeadersAuthAction, removeMcpAuthAction, startMcpOAuthAuthAction, completeMcpOAuthAuthAction });
   const expectedDigest = tokenDigest(token);
   const instanceId = randomUUID();
   const startedAt = new Date().toISOString();
@@ -460,7 +463,8 @@ export function createBackendServer({
       const businessTarget = jsonBusinessTarget(businessPath);
       if (!businessTarget) { sendJson(response, 404, { error: "Unknown business route", code: BACKEND_ERROR_CODES.notFound }); return; }
       if (!JSON_BUSINESS_ROUTES[businessTarget.route].includes(request.method)) { sendJson(response, 405, { error: "Method not allowed", code: BACKEND_ERROR_CODES.methodNotAllowed }); return; }
-      if (!jsonBusinessRequestAction || !isReady()) { sendJson(response, 503, { error: "Business owner unavailable", code: BACKEND_ERROR_CODES.runtimeUnavailable }); return; }
+      const businessAction = mcpBusinessTarget(businessPath) ? mcpBusinessRequest : jsonBusinessRequestAction;
+      if (!businessAction || !isReady()) { sendJson(response, 503, { error: "Business owner unavailable", code: BACKEND_ERROR_CODES.runtimeUnavailable }); return; }
       const origin = request.headers[JSON_BUSINESS_HEADERS.origin], host = request.headers[JSON_BUSINESS_HEADERS.host], access = request.headers[JSON_BUSINESS_HEADERS.authorized];
       try {
         const url = new URL(origin);
@@ -484,7 +488,7 @@ export function createBackendServer({
       response.once("close", disconnect);
       if (response.destroyed) { response.off("close", disconnect); return; }
       try {
-        const result = publicJsonBusinessResult(businessPath, await jsonBusinessRequestAction({ route: businessPath, method: request.method,
+        const result = publicJsonBusinessResult(businessPath, await businessAction({ route: businessPath, method: request.method,
           url: `${origin}/api/${businessPath}${target.search}`, headers, authorized: access === "1", body, operationId,
           signal: jsonBusinessMutates(businessPath, request.method) && !taskAssistanceCancelsOnDisconnect(businessPath) ? undefined : controller.signal }), request.method);
         if (!result || Buffer.byteLength(JSON.stringify(result), "utf8") > JSON_BUSINESS_RESPONSE_LIMIT) throw new Error("Invalid business result");

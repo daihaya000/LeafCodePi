@@ -1,10 +1,13 @@
+import { markMcpBusinessEffect } from "@backend-core/mcp-business-effects.mjs";
 import { parseMcpOAuthStartRequest, publicMcpOAuthStartResult, type McpOAuthStartRequest } from "@shared/mcp-oauth-start-request.mjs";
 import { getMcpServerAuth, listMcpServers, McpError, resolveMcpServerUrl } from "@/lib/mcp";
 import { requestMcpWebUiAuth } from "@/lib/pi/mcp-webui-bridge";
+import { assertConfigurationOwner } from "@backend-core/configuration-command.mjs";
 import { assertLocalRuntimeAllowed } from "@/lib/pi/runtime-ownership";
 
 /** Owner-only OAuth flow creation; the credential bridge is temporary until native MCP replacement. */
 export async function startMcpOAuthAuth(name: string, input: McpOAuthStartRequest) {
+  assertConfigurationOwner();
   assertLocalRuntimeAllowed();
   if (!parseMcpOAuthStartRequest(input).ok) throw new McpError("invalid-auth", "OAuth開始リクエストが不正です");
   const current = getMcpServerAuth(name);
@@ -16,6 +19,7 @@ export async function startMcpOAuthAuth(name: string, input: McpOAuthStartReques
     throw new McpError("invalid-auth", "このMCPサーバーではOAuth認証を開始できません");
   }
   try {
+    markMcpBusinessEffect();
     const response = await requestMcpWebUiAuth({ operation: "oauth-start", serverName: current.name });
     if (response?.ok !== true || response.operation !== "oauth-start") throw new Error("OAuth owner refused");
     const result = publicMcpOAuthStartResult({ ...response, name: current.name });

@@ -1,12 +1,15 @@
+import { markMcpBusinessEffect } from "@backend-core/mcp-business-effects.mjs";
 import { parseMcpBearerRemoveRequest, publicMcpBearerRemoveResult, type McpBearerRemoveRequest } from "@shared/mcp-bearer-remove-request.mjs";
 import { disableMcpBearerStore, getMcpServerAuth, listMcpServers, McpError } from "@/lib/mcp";
 import { readMcpAuthStatus } from "@/lib/mcp-auth-status";
 import { reloadLiveSessionsContext } from "@/lib/pi/harness";
 import { requestMcpWebUiAuth } from "@/lib/pi/mcp-webui-bridge";
+import { assertConfigurationOwner } from "@backend-core/configuration-command.mjs";
 import { assertLocalRuntimeAllowed } from "@/lib/pi/runtime-ownership";
 
 /** Owner-only removal; the credential bridge is temporary until native MCP replacement. */
 export async function removeMcpBearerAuth(name: string, input: McpBearerRemoveRequest = {}) {
+  assertConfigurationOwner();
   assertLocalRuntimeAllowed();
   const parsed = parseMcpBearerRemoveRequest(input);
   if (!parsed.ok) throw new McpError("invalid-auth", "Bearer認証削除リクエストが不正です");
@@ -19,6 +22,7 @@ export async function removeMcpBearerAuth(name: string, input: McpBearerRemoveRe
     throw new McpError("invalid-auth", "この認証方式の削除は未移管です");
   }
   try {
+    markMcpBusinessEffect();
     const response = await requestMcpWebUiAuth({ operation: "bearer-remove", serverName: current.name });
     if (response?.ok !== true || response.operation !== "bearer-remove") throw new Error("Store refused");
   } catch {
