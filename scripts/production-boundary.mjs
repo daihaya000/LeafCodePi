@@ -20,7 +20,7 @@ const parser = () => createRequire(resolve(ROOT, "web/package.json"))("typescrip
 const fail = (file, message) => assert.fail(`${file}: ${message}`);
 
 /** Includes erased imports, import(type), references and literal dynamic loaders. */
-export function dependencyReferences(source, file = "boundary.ts", ts = parser(), { kind = "gateway", declaration = false, bundled = false } = {}) {
+export function dependencyReferences(source, file = "boundary.ts", ts = parser(), { kind = "gateway", declaration = false, bundled = false, allowMetadata = () => false } = {}) {
   const ast = ts.createSourceFile(resolve(file), source, ts.ScriptTarget.Latest, true);
   assert.equal(ast.parseDiagnostics.length, 0, `${file}: syntax error`);
   const host = ts.createCompilerHost({ noLib: true, noResolve: true });
@@ -32,7 +32,7 @@ export function dependencyReferences(source, file = "boundary.ts", ts = parser()
     while (node && (ts.isAsExpression(node) || ts.isParenthesizedExpression(node) || ts.isNonNullExpression(node))) node = node.expression;
     return node;
   };
-  const aliases = new Set(), reflectionAliases = new Map();
+  const aliases = new Set(), reflectionAliases = new Map(), assignedValues = new Map();
   const reflectionKind = node => {
     node = unwrap(node);
     if (!node) return;
@@ -59,6 +59,10 @@ export function dependencyReferences(source, file = "boundary.ts", ts = parser()
         const value = ts.isVariableDeclaration(node) ? node.initializer : node.right;
         if (name && ts.isIdentifier(name)) {
           const symbol = checker.getSymbolAtLocation(name), reflected = reflectionKind(value);
+          if (symbol && value && ts.isBinaryExpression(node)) {
+            if (!assignedValues.has(symbol)) assignedValues.set(symbol, new Set());
+            assignedValues.get(symbol).add(value);
+          }
           if (symbol && bundled && globalValue(value) && !aliases.has(symbol)) { aliases.add(symbol); changed = true; }
           if (symbol && reflected && (!reflectionAliases.has(symbol) || reflectionAliases.get(symbol) === "descriptor" && reflected === "get")) { reflectionAliases.set(symbol, reflected); changed = true; }
         }
@@ -79,14 +83,37 @@ export function dependencyReferences(source, file = "boundary.ts", ts = parser()
       if (left !== undefined && right !== undefined) return left + right;
     }
   };
+  const functionValue = (node, seen = new Set(), prototypeOnly = false) => {
+    node = unwrap(node);
+    if (!node) return false;
+    if (ts.isArrowFunction(node) || ts.isFunctionExpression(node) || ts.isClassExpression(node)) return !prototypeOnly;
+    if (ts.isPropertyAccessExpression(node) && node.name.text === "prototype" && ts.isPropertyAccessExpression(node.expression)
+      && node.expression.name.text === "constructor" && functionValue(node.expression.expression, seen)) return true;
+    if (ts.isCallExpression(node) && ts.isPropertyAccessExpression(node.expression)) {
+      if (node.expression.getText(ast) === "Object.getPrototypeOf") return functionValue(node.arguments[0], seen);
+      if (node.expression.name.text === "bind") return !prototypeOnly && functionValue(node.expression.expression, seen);
+    }
+    if (ts.isIdentifier(node)) {
+      const symbol = checker.getSymbolAtLocation(node);
+      if (!prototypeOnly && !symbol && ["Object", "Array", "String", "Number", "Boolean", "Symbol", "BigInt", "Date", "RegExp", "Promise", "Error", "Map", "Set", "WeakMap", "WeakSet"].includes(node.text)) return true;
+      if (symbol && !seen.has(symbol)) {
+        seen.add(symbol);
+        if (symbol.declarations?.some(d => ts.isVariableDeclaration(d) && functionValue(d.initializer, seen, prototypeOnly))
+          || [...assignedValues.get(symbol) ?? []].some(value => functionValue(value, seen, true))) return true;
+      }
+    }
+    if (prototypeOnly) return false;
+    const type = checker.getTypeAtLocation(node);
+    return type.getCallSignatures().length > 0 || type.getConstructSignatures().length > 0;
+  };
   function constructorMetadata(node) {
     if (!bundled) return false;
     const parent = node.parent;
     if (ts.isPropertyAccessExpression(parent) && parent.expression === node && parent.name.text === "prototype") return true;
     if (ts.isBinaryExpression(parent) && parent.left === node && [ts.SyntaxKind.EqualsToken, ts.SyntaxKind.AmpersandAmpersandToken].includes(parent.operatorToken.kind)) return true;
-    // React DOM clones an Event with its own type and the Event init object.
-    // This is not permission to extract/call an arbitrary constructor as a loader.
-    return ts.isNewExpression(parent) && parent.expression === node && ts.isIdentifier(node.expression)
+    // Only source-map-verified, byte-pinned React sites may use this shape.
+    // An untrusted function can masquerade as an Event and expose Function.
+    return allowMetadata("constructor", node) && ts.isNewExpression(parent) && parent.expression === node && ts.isIdentifier(node.expression)
       && parent.arguments?.length === 2 && ts.isPropertyAccessExpression(parent.arguments[0])
       && parent.arguments[0].name.text === "type" && parent.arguments[0].expression.getText(ast) === node.expression.getText(ast)
       && parent.arguments[1].getText(ast) === node.expression.getText(ast);
@@ -136,8 +163,8 @@ export function dependencyReferences(source, file = "boundary.ts", ts = parser()
         assert.ok(ts.isPropertyAccessExpression(parent) || ts.isTypeOfExpression(parent), `${file}: reflected loader namespace alias forbidden`);
       }
       if (ts.isIdentifier(node) && loaders.has(node.text)) fail(file, `indirect loader/code evaluation forbidden: ${node.text}`);
-      if (ts.isPropertyAccessExpression(node) && (loaders.has(node.name.text) || node.name.text === "constructor" && !constructorMetadata(node) || node.getText(ast).startsWith("import.meta.glob"))) fail(file, "indirect loader/code evaluation forbidden");
-      if (ts.isElementAccessExpression(node) && (loaders.has(staticString(node.argumentExpression)) || staticString(node.argumentExpression) === "constructor" || globalValue(node.expression) && !computedMetadata(node))) fail(file, `computed loader/global access forbidden: ${node.getText(ast).slice(0,100)}`);
+      if (ts.isPropertyAccessExpression(node) && (loaders.has(node.name.text) || node.name.text === "constructor" && !constructorMetadata(node) || node.getText(ast).startsWith("import.meta.glob"))) fail(file, `indirect loader/code evaluation forbidden: ${node.getText(ast).slice(0,100)}`);
+      if (ts.isElementAccessExpression(node) && (loaders.has(staticString(node.argumentExpression)) || staticString(node.argumentExpression) === "constructor" || functionValue(node.expression) && staticString(node.argumentExpression) === undefined && !ts.isNumericLiteral(unwrap(node.argumentExpression)) || globalValue(node.expression) && !computedMetadata(node))) fail(file, `computed loader/global access forbidden: ${node.getText(ast).slice(0,100)}`);
       if (reflectionKind(node)) {
         const parent = node.parent;
         assert.ok(ts.isCallExpression(parent) && parent.expression === node || ts.isVariableDeclaration(parent)
@@ -150,7 +177,7 @@ export function dependencyReferences(source, file = "boundary.ts", ts = parser()
       if (ts.isCallExpression(node) && (reflectionKind(node.expression)
         || ts.isPropertyAccessExpression(node.expression) && node.expression.name.text === "get" && globalValue(node.arguments[0]))) {
         const key = staticString(node.arguments[1]);
-        const descriptor = reflectionKind(node.expression) === "descriptor";
+        const descriptor = bundled && reflectionKind(node.expression) === "descriptor" && allowMetadata("descriptor", node);
         assert.ok((descriptor || key !== undefined) && !loaders.has(key) && key !== "constructor" && !globalValue(node.arguments[0]), `${file}: reflected loader/global access forbidden: ${node.expression.getText(ast)}`);
       }
       if (isGlobal(node)) {

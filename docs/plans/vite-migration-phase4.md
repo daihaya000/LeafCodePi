@@ -107,6 +107,16 @@
 
 - 最終の関連検証は合計89テスト成功（35 unit、18 Web、32 SDK更新、4 integration）。native production browser、Webless SDK、2世代CLIとvendor拒否の各logを確認した。UI/CSS/business処理、Host/Backend deployment、既存・peer差分は変更していない。有限AST検査/fixtureの範囲を、任意JavaScriptの完全sandboxに拡大して主張しない。
 
+## 2回目の独立検証で判明したmetadata例外の補修（turn 7）
+
+- 原因: `dcc8cfb2`ではdescriptorの非literal keyを無条件に許可し、`new event.constructor(event.type, event)`も形だけで許可していた。隔離VMでは両者からFunctionを取得してcanaryが実行され、実vendor buildもexit 0。first-party descriptor反例はcanonical buildを通りsealed generationまで発行された。独立証拠: `%LOCALAPPDATA%/Temp/p4-dcc8-verify-yEcxTN/review.json`。turn 6の7条件完了判定はこの観測で撤回する。
+- 補修: 非literal reflectionは原則拒否。Event clone形だけの許可を廃止し、React 19.1.0/extend 3.0.2の固定SHA256とcompiler source mapで識別する5箇所だけを許可する。Reactのchecked/value tracking、native Event replayとextendの固定`__proto__` guardは元のコードを変えない。既知Function/function prototypeに対するcomputedアクセス・宣言/代入alias・bind派生も拒否する。prototype参照/代入/boolean metadataはloader値抽出ではなく、後続constructor抽出は引き続き拒否する。
+- source mapは実入力byteからcompilerが作成する。upstream inline/external map directiveはコメント位置だけを空白化し、文字列・改行・offsetを維持する。productionのoutput hookでhidden mapを強制し、監査後にJS mapを削除する。vendor mapによるReact origin偽装、コピーしたcall形、pinned source改変、map欠落は拒否。map decoderはbuild-onlyの`@jridgewell/trace-mapping@0.3.31`をmanifest/lockで固定した。
+- 実build回帰fixtureは正常clean install/build後、global eval・descriptor・Event偽装・computed function・代入alias・精密なReact origin偽装mapの6負例を拒否し、index/unsafe JSを出力しない。元のfirst-party反例はpaired build workerのsource gateでcompiler出力前に拒否する。metadata正常例・bytes改変/無関係origin/位置/map欠落とdirective/string保持は独立unitで検証する。canaryを実Browserや稼働サービスで実行しない。
+- 初回の厳格化で正常extendの`__proto__` getterを拒否し、Vite API callerがbuild optionsを上書きした場合はmapを欠いた。正常getterをhash/origin限定監査へ追加し、output hookでmapを強制した。全代入をfunctionとして扱う試行では正常numeric array readも拒否したため、代入taintは既知function prototype由来に限定し、固定numeric keyを許可した。directive処理のJSX text変更もunitで再現してliteral範囲を除外した。初回失敗logは保持し、成功で上書きしない。
+- 最終の隔離検証: `%LOCALAPPDATA%/Temp/p4-metadata-fix-V175Xp/`。`dcc8cfb2` archiveに今回の8 source/test/config/manifestを上書きし、peer差分は含めない。全10コマンドexit 0、関連91テスト成功（gate/unit37、Web18、SDK更新32、integration4）。clean offline ci311 packages、Next実installなし、型・新gate・6実vendor負例/first-party source拒否、2世代501 files/7 URL/build/start/rollback、実Browser42 direct/reload/HEAD/2 viewport、WebなしBackend build/実SDK/session/lease/heartbeat/replay拒否を確認した。
+- Browser337 value/525 type、gateway166 routes/267 operations/254 value/486 type、Undici固定41 files、framework9 manifest/lock/2344 sourceを再監査。decoder追加以外のlock package entriesに差分なし。`review.json`は検証sourceと作業treeの8ファイルがbyte同一、UTF-8/BOM/EOL契約と7条件を確認した結果。新gate導入`c3131257`/`bbb5d21f`で旧checkerが残り、削除が`9cd3b67a`であることも再確認した。live Host/Backend/SDKの切替・更新は実行していない。
+
 ## 次の確認範囲
 
 Phase5の確定HEAD隔離受入matrixと独立した総合回帰/運用レビュー。稼働generationの切替・実SDK deployment/update・physical tray/Tailscale/audio・power-lossは別途明示操作と検証が必要。静的な境界と有限fixtureは任意JavaScriptの完全sandbox、same-user攻撃への完全防御を証明しない。

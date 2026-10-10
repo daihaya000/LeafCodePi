@@ -51,14 +51,26 @@ test("emitted Browser values retain global, alias, reflection and constructor lo
     'const R = globalThis.Reflect; const g = globalThis; R.get(g, key)("hidden");',
     'const read = Object.getOwnPropertyDescriptor; read(globalThis, "eval").value("hidden");',
     'const { getOwnPropertyDescriptor: read } = Object; read(globalThis, "eval").value("hidden");',
+    'const key = ["constr", "uctor"].join(""); Object.getOwnPropertyDescriptor(Object.getPrototypeOf(() => {}), key).value("hidden")();',
+    'const read = Object.getOwnPropertyDescriptor; read(Object.getPrototypeOf(() => {}), key).value("hidden")();',
+    'const event = () => {}; event.type = ""; event.toString = () => "hidden"; (new event.constructor(event.type, event))();',
+    'const cloned = new event.constructor(event.type, event);',
+    'const run = value.constructor.prototype.constructor; run("hidden")();',
+    'const key = ["constr", "uctor"].join(""); const fn = () => {}; fn[key]("hidden")();',
+    'const key = name; const proto = Object.getPrototypeOf(() => {}); const run = proto[key]; run("hidden")();',
+    'const key = name; const fn = (() => {}).bind(null); fn[key]("hidden")();',
+    'const key = name; Object.getPrototypeOf(Object)[key]("hidden")();',
+    'const fn = () => {}; const proto = fn.constructor.prototype; const key = ["constr", "uctor"].join(""); proto[key]("hidden")();',
+    'let proto; proto = Object.getPrototypeOf(() => {}); const key = ["constr", "uctor"].join(""); proto[key]("hidden")();',
+    'let proto, alias; proto = Object.getPrototypeOf(() => {}); alias = proto; alias[key]("hidden")();',
   ]) assert.throws(() => dependencyReferences(source, "emitted.js", undefined, { kind: "browser", bundled: true }), /loader|loading|evaluation/, source);
   for (const source of [
     'const window = { label: "local" }; Reflect.get(window, "label");',
     'const root = typeof self === "object" ? self : globalThis; root.document;',
     'function focus(w) { w.document.body.focus(); } const target = event.view || window; focus(target);',
-    'const ownsFeature = "TextEvent" in window;', 'Widget.prototype.constructor = Widget;',
-    'const prototype = value.constructor && value.constructor.prototype;',
-    'const cloned = new event.constructor(event.type, event);',
+    'const ownsFeature = "TextEvent" in window;',
+    'Widget.prototype.constructor = Widget;', 'const prototype = value.constructor && value.constructor.prototype;',
+    'Object.getOwnPropertyDescriptor(object, "label");',
   ]) assert.doesNotThrow(() => dependencyReferences(source, "emitted.js", undefined, { kind: "browser", bundled: true }), source);
   const clone = 'const root = typeof self === "object" ? self : globalThis; const clone = (key, value) => { switch(key) { case "Function": case "SharedWorker": case "Worker": case "eval": case "setInterval": case "setTimeout": throw new TypeError("unable to deserialize " + key); } return new root[key](value); }; clone("Date", 0);';
   assert.doesNotThrow(() => dependencyReferences(clone, "emitted.js", undefined, { kind: "browser", bundled: true }));

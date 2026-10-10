@@ -29,17 +29,18 @@
     "undici": "^8.9.0"
   },
   "devDependencies": {
+    "@jridgewell/trace-mapping": "0.3.31",
     "@tailwindcss/postcss": "^4",
     "@testing-library/react": "^16.3.2",
     "@types/node": "^20",
     "@types/react": "^19",
     "@types/react-dom": "^19",
     "eslint": "^9",
-    "typescript-eslint": "8.68.0",
     "happy-dom": "^20.11.6",
     "playwright": "1.62.1",
     "tailwindcss": "^4",
     "typescript": "^5",
+    "typescript-eslint": "8.68.0",
     "vite": "7.3.6",
     "vitest": "3.2.7"
   }

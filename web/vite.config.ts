@@ -4,6 +4,8 @@ import { resolve } from "node:path";
 import { builtinModules } from "node:module";
 import tailwind from "@tailwindcss/postcss";
 import { checkBrowserBoundary, checkProductionFile, checkSpecifier, dependencyReferences } from "../scripts/production-boundary.mjs";
+import { browserMetadataVerifier, browserSourceWithoutMapDirectives } from "../scripts/browser-runtime-metadata.mjs";
+import { readFileSync } from "node:fs";
 
 const root = fileURLToPath(new URL(".", import.meta.url));
 const spa = resolve(root, "src/spa");
@@ -17,8 +19,21 @@ export function spaBoundary(): Plugin {
   const checkout = resolve(root, "..");
   return {
     name: "spa-browser-boundary", enforce: "pre",
-    configResolved(config) { production = config.command === "build" && resolve(config.root) === resolve(root); },
+    configResolved(config) {
+      production = config.command === "build" && resolve(config.root) === resolve(root);
+      if (production) config.build.sourcemap = "hidden";
+    },
     buildStart() { if (production) checkBrowserBoundary(checkout); },
+    outputOptions(options) {
+      if (production) return { ...options, sourcemap: "hidden" };
+    },
+    load(id) {
+      if (!production || id.startsWith("\0") || id.includes("?") || !/\.[cm]?[jt]sx?$/.test(id)) return;
+      checkProductionFile(id, checkout, "browser", { packageFile: id.replaceAll("\\", "/").includes("/node_modules/") });
+      // Establish compiler maps from actual source bytes; upstream maps cannot
+      // impersonate one of the byte-pinned metadata sites.
+      return { code: browserSourceWithoutMapDirectives(readFileSync(id, "utf8"), id), map: null };
+    },
     configureServer(server) {
       if (!server.config.server.middlewareMode) throw new Error("Use the authenticated gateway development entry, not a standalone Vite listener");
     },
@@ -38,9 +53,12 @@ export function spaBoundary(): Plugin {
           if (/\/node_modules\/(?:next\/|@earendil-works\/)|\/(?:backend|host|extensions)\/|\/web\/src\/app\/api\/|\/src\/platform\/(?:navigation|link|image|dynamic)\.ts$/.test(path)) throw new Error(`SPA owner/framework module forbidden: ${path}`);
         }
         if (production) {
-          for (const edge of dependencyReferences(chunk.code, chunk.fileName, undefined, { kind: "browser", bundled: true })) checkSpecifier(edge.specifier, "browser", chunk.fileName);
+          const allowMetadata = browserMetadataVerifier(chunk);
+          for (const edge of dependencyReferences(chunk.code, chunk.fileName, undefined, { kind: "browser", bundled: true, allowMetadata })) checkSpecifier(edge.specifier, "browser", chunk.fileName);
         }
       }
+      // Compiler provenance is private gate input, never a published browser asset.
+      if (production) for (const name of Object.keys(bundle)) if (name.endsWith(".js.map")) delete bundle[name];
     },
   };
 }
@@ -62,7 +80,7 @@ export default defineConfig({
   },
   esbuild: { jsx: "automatic" },
   css: { postcss: { plugins: [tailwind()] } },
-  build: { outDir: "dist-spa", emptyOutDir: true },
+  build: { outDir: "dist-spa", emptyOutDir: true, sourcemap: "hidden" },
   server: { host: "127.0.0.1", proxy },
   preview: { host: "127.0.0.1", proxy },
 });
