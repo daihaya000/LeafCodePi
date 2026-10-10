@@ -36,7 +36,7 @@ test("getWebLaunchPlan chooses prod when a build exists", () => {
   assert.deepEqual(getWebLaunchPlan(undefined, true), { needsBuild: false, useProd: true });
   assert.deepEqual(getWebLaunchPlan("prod", false), { needsBuild: true, useProd: true });
   assert.deepEqual(getWebLaunchPlan("dev", true), { needsBuild: false, useProd: false });
-  assert.deepEqual(getWebLaunchPlan(undefined, false), { needsBuild: false, useProd: false });
+  assert.deepEqual(getWebLaunchPlan(undefined, false), { needsBuild: true, useProd: true });
   assert.deepEqual(getWebLaunchPlan("prod", true, true), { needsBuild: true, useProd: true });
 });
 
@@ -63,11 +63,11 @@ test("staleRebuildFailureAction uses any previous build after a failed rebuild",
   );
   assert.equal(
     staleRebuildFailureAction({ rebuildReason: "stale", hasBuild: false, stillStale: true, mode: "prod" }),
-    "fallback-dev",
+    "unavailable",
   );
   assert.equal(
     staleRebuildFailureAction({ hasBuild: false, mode: "dev" }),
-    "fallback-dev",
+    "unavailable",
   );
 });
 

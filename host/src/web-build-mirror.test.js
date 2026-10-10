@@ -991,10 +991,10 @@ test("readBuildCommitMetadata returns the build HEAD and commit timestamp", () =
 
 test("the host builds through build-web.mjs and serves the mirror", () => {
   const source = readFileSync(join(REPO_ROOT, "host", "src", "index.js"), "utf8");
-  assert.match(source, /scripts", "build-web\.mjs"\), "--skip-guard"/);
-  assert.match(source, /const WEB_DIST_DIR = mirrorDistDir\(WEB_MIRROR_DIR\)/);
-  assert.match(source, /const projectDir = useProd \? WEB_MIRROR_DIR : WEB_DIR/);
-  assert.match(source, /ensureBuildDependencies\(WEB_MIRROR_DIR\)/);
+  assert.match(source, /scripts", "spa-build-generation\.mjs"/);
+  assert.match(source, /const SPA_MIRROR_DIR = resolveSpaMirrorRoot/);
+  assert.match(source, /launchProductionGateway/);
+  assert.doesNotMatch(source, /nextBin\(|ensureBuildDependencies\(WEB_MIRROR_DIR\)/);
   const webPackage = JSON.parse(readFileSync(join(REPO_ROOT, "web", "package.json"), "utf8"));
   assert.equal(webPackage.scripts.build, "node ../scripts/build-web.mjs");
 });

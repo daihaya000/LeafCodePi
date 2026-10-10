@@ -314,9 +314,11 @@ test("the WebUI is always the Backend's client", () => {
   const launch = index.slice(index.indexOf("async function spawnWeb("), index.indexOf("function scheduleWebRestart("));
   assert.match(launch, /async function spawnWeb\(\{ pull = true, forceBuild = false \} = \{\}\)/);
   const block = index.slice(index.indexOf("async function webUiRestartBlockReason("), index.indexOf("async function backendRestartBlockReason("));
-  // Readiness is refused before 202 — never silently inside restartWeb after accept.
-  assert.match(block, /Backend が準備できていないため WebUI の再起動を拒否/);
-  assert.match(block, /health\.ok !== true \|\| health\.ready !== true/);
+  // Native ingress never owns sessions; Backend unavailability cannot block client recovery.
+  assert.match(block, /return serviceRestartBusyReason\(restarting\)/);
+  assert.doesNotMatch(block, /readBackendHealth|health\.ready|goal-loop\/active/);
+  assert.doesNotMatch(launch, /backendService\??\.start|waitForBackendReady|publishBackendGeneration/);
+  assert.match(launch, /launchProductionGateway/);
   const restart = index.slice(index.indexOf("async function restartWeb("), index.indexOf("async function restartHost("));
   assert.doesNotMatch(restart, /Refusing to restart the WebUI as a Backend client/);
   assert.match(restart, /Do not re-check here/);
@@ -419,9 +421,9 @@ test("production starts Backend-owned without a hand-over", () => {
 
 test("host rebuilds stale production builds like LeafCode", () => {
   const index = readFileSync(join(repoRoot, "host", "src", "index.js"), "utf8");
-  assert.match(index, /isWebBuildStale/);
-  assert.match(index, /staleRebuildFailureAction/);
-  assert.match(index, /continuing with the existing production build/);
+  assert.match(index, /ensureSpaGeneration/);
+  assert.match(index, /selectSpaGeneration/);
+  assert.doesNotMatch(index, /falling back to next dev|nextBin\(/);
   // The production build moved into the hard-link mirror outside OneDrive, so
   // the batch can no longer look for BUILD_ID itself; the host reports instead.
   const bat = readFileSync(join(repoRoot, "scripts", "start-webui.bat"), "utf8");

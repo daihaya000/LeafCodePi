@@ -1,5 +1,5 @@
 import { readlinkSync } from "node:fs";
-import { resolve } from "node:path";
+import { relative, resolve } from "node:path";
 
 function processCwd(pid) {
   try {
@@ -19,6 +19,7 @@ function processCwd(pid) {
  * @param {{
  *   port: number,
  *   projectDirs: string[],
+ *   generationRoot?: string,
  *   getListeningPids: (port: number) => number[],
  *   stopProcessTreeGracefully: (input: { pid: number }) => Promise<string>,
  *   platform?: string,
@@ -38,7 +39,10 @@ export async function stopOrphanedWebUi(input) {
   for (const pid of new Set(input.getListeningPids(input.port))) {
     if (skip.has(pid)) continue;
     const cwd = cwdOf(pid);
-    if (!cwd || !dirs.has(resolve(cwd))) continue;
+    const generationCwd = cwd && input.generationRoot
+      ? relative(resolve(input.generationRoot, "generations"), resolve(cwd)).replaceAll("\\", "/") : "";
+    const ownGeneration = /^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}\/gateway$/.test(generationCwd);
+    if (!cwd || (!dirs.has(resolve(cwd)) && !ownGeneration)) continue;
     input.log?.(`Stopping orphaned WebUI (PID ${pid}) holding port ${input.port}`);
     await input.stopProcessTreeGracefully({ pid });
     stopped.push(pid);

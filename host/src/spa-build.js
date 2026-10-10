@@ -1,11 +1,11 @@
 import { buildSpaGeneration, resolveSpaMirrorRoot, rollbackSpaGeneration, selectSpaGeneration, spaSourceSnapshot } from "../../scripts/spa-build-generation.mjs";
 
 /** Host production contract only: no Backend start/stop, no dev/preview fallback. */
-export async function ensureSpaGeneration({ checkout, mirrorRoot = resolveSpaMirrorRoot(), force = false, build = buildSpaGeneration, log = () => {}, ...options } = {}) {
+export async function ensureSpaGeneration({ checkout, mirrorRoot = resolveSpaMirrorRoot(), force = false, skipStale = false, build = buildSpaGeneration, log = () => {}, ...options } = {}) {
   if (!force) {
     try {
       const selected = await selectSpaGeneration(mirrorRoot, { checkout });
-      if (!selected.fallback && selected.sourceDigest === spaSourceSnapshot(checkout).digest) return { ...selected, reused: true };
+      if (!selected.fallback && (skipStale || selected.sourceDigest === spaSourceSnapshot(checkout).digest)) return { ...selected, reused: true };
     } catch { /* missing/stale/invalid output must go through a validated build */ }
   }
   try { return { ...await build({ checkout, mirrorRoot, log, ...options }), reused: false }; }

@@ -166,7 +166,7 @@ test("getWebLaunchPlan prefers existing production build", () => {
   assert.deepEqual(getWebLaunchPlan(undefined, true), { needsBuild: false, useProd: true });
   assert.deepEqual(getWebLaunchPlan("dev", true), { needsBuild: false, useProd: false });
   assert.deepEqual(getWebLaunchPlan("prod", false), { needsBuild: true, useProd: true });
-  assert.deepEqual(getWebLaunchPlan(undefined, false), { needsBuild: false, useProd: false });
+  assert.deepEqual(getWebLaunchPlan(undefined, false), { needsBuild: true, useProd: true });
 });
 
 test("getWebLaunchPlan rebuilds when BUILD_ID exists but sources are newer", () => {
@@ -259,7 +259,7 @@ test("staleRebuildFailureAction continues when stale rebuild failed but sources 
   );
 });
 
-test("staleRebuildFailureAction falls back to dev when the initial build was missing", () => {
+test("staleRebuildFailureAction fails explicitly when the initial production build was missing", () => {
   assert.equal(
     staleRebuildFailureAction({
       rebuildReason: "missing",
@@ -267,7 +267,7 @@ test("staleRebuildFailureAction falls back to dev when the initial build was mis
       stillStale: false,
       mode: "prod",
     }),
-    "fallback-dev",
+    "unavailable",
   );
 });
 

@@ -55,19 +55,13 @@ import {
   consumeSkipStaleRebuild,
   createConsecutiveFailureTracker,
   formatWebStatus,
-  getPostBuildLaunchPlan,
-  getWebLaunchPlan,
-  isWebBuildStale,
   procRunning,
-  staleRebuildFailureAction,
 } from "./web-plan.js";
-import {
-  isMirroredNextCliReady,
-  mirrorDistDir,
-  resolveMirrorRoot,
-  syncMirror,
-} from "../../scripts/web-build-mirror.mjs";
-import { ensureBuildDependencies, ensureExtensionDependencies } from "../../scripts/build-web.mjs";
+import { ensureExtensionDependencies } from "../../scripts/build-web.mjs";
+import { ensureSpaGeneration } from "./spa-build.js";
+import { launchProductionGateway } from "./gateway-launch.js";
+import { resolveSpaMirrorRoot, selectSpaGeneration } from "../../scripts/spa-build-generation.mjs";
+import { resolveMirrorRoot } from "../../scripts/web-build-mirror.mjs";
 
 const SysTray =
   withSafeInitialMenu(SysTrayImport?.default?.default || SysTrayImport?.default || SysTrayImport);
@@ -76,15 +70,9 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 const HOST_DIR = join(__dirname, "..");
 const REPO_ROOT = join(HOST_DIR, "..");
 const WEB_DIR = join(REPO_ROOT, "web");
-/**
- * Production builds and `next start` both run in the local workspace outside
- * the OneDrive-synced tree (scripts/web-build-mirror.mjs), so the sync client
- * can never touch a build that is being written or served. `next dev` keeps
- * running from WEB_DIR — Next 16 puts its output in `.next/dev`, which no
- * longer collides with a production `.next`.
- */
+// Complete, sealed Vite/gateway pairs live outside the synced checkout.
 const WEB_MIRROR_DIR = resolveMirrorRoot(process.env, WEB_DIR);
-const WEB_DIST_DIR = mirrorDistDir(WEB_MIRROR_DIR);
+const SPA_MIRROR_DIR = resolveSpaMirrorRoot(process.env, WEB_DIR);
 const DATA_DIR = dataDir();
 const LOCK_FILE = join(DATA_DIR, "host.lock");
 const HOST_VERSION = (() => {
@@ -192,10 +180,10 @@ let autoUpdateClaimed = false;
 let backendHangStrikes = 0;
 
 /** Claim the single-flight restart lock; clears hang-watch strikes so a manual restart cannot be followed by an immediate hang re-restart. */
-function claimServiceRestart() {
+function claimServiceRestart({ resetBackendHang = true } = {}) {
   if (restarting) return false;
   restarting = true;
-  backendHangStrikes = 0;
+  if (resetBackendHang) backendHangStrikes = 0;
   return true;
 }
 /**
@@ -265,19 +253,6 @@ function error(text) {
 
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
-}
-
-/** `next dev` runs from the repository; production runs from the mirror. */
-function nextBin(projectDir = WEB_DIR) {
-  return join(projectDir, "node_modules", "next", "dist", "bin", "next");
-}
-
-function hasProductionBuild() {
-  return existsSync(join(WEB_DIST_DIR, "BUILD_ID"));
-}
-
-function webDistDir() {
-  return WEB_DIST_DIR;
 }
 
 function npmCmd() {
@@ -448,147 +423,56 @@ function runNodeScript(args, options) {
   });
 }
 
-function installWebIfNeeded() {
-  if (!existsSync(join(WEB_DIR, "node_modules", "next"))) {
-    log("Installing web dependencies...");
-    const result = spawnSync(
-      process.platform === "win32" ? "cmd.exe" : npmCmd(),
-      process.platform === "win32" ? ["/d", "/s", "/c", "npm.cmd install"] : ["install"],
-      {
-        cwd: WEB_DIR,
-        windowsHide: true,
-        // npm changes process.title on Windows. Pipe its output so it cannot
-        // replace the LeafCodePi launcher title on the shared console.
-        stdio: process.platform === "win32" ? ["ignore", "pipe", "pipe"] : "inherit",
-      },
-    );
-    if (process.platform === "win32") writeCapturedOutput(result);
-    if (result.status !== 0) {
-      throw new Error(`npm install (web) exited ${result.status}`);
-    }
-  }
-}
-
 function buildWeb(reason = "missing", { pull = true } = {}) {
   if (webBuildPromise) return webBuildPromise;
-
   const promise = new Promise((resolve, reject) => {
-    const reasonText =
-      reason === "stale"
-        ? "Production LeafCodePi build is stale (sources newer than BUILD_ID); rebuilding…"
-        : reason === "manual"
-          ? "Rebuilding the production LeafCodePi build on request…"
-          : "Production LeafCodePi build is missing; rebuilding…";
-    log(reasonText);
+    log(`Building a complete production Vite/gateway generation (${reason})…`);
     if (pull) pullLatestSources({ repoRoot: REPO_ROOT, log, error });
-    // Syncs sources and builds in the local workspace; see scripts/build-web.mjs.
-    // --skip-guard: the host builds before it starts `next start`, so the only
-    // listener the guard could find would be a WebUI this host is replacing.
-    const child = runNodeScript([join(REPO_ROOT, "scripts", "build-web.mjs"), "--skip-guard"], {
-      cwd: REPO_ROOT,
-    });
-    webBuildProc = child;
-    void refreshStatusMenu();
-    pipeChild("build", child);
+    const args = [join(REPO_ROOT, "scripts", "spa-build-generation.mjs")];
+    if (process.env.LEAFCODE_PI_BUILD_OFFLINE === "1") args.push("--offline");
+    const child = runNodeScript(args, { cwd: REPO_ROOT });
+    webBuildProc = child; void refreshStatusMenu(); pipeChild("build", child);
     child.on("error", reject);
-    child.on("close", (code) => {
-      webBuildProc = null;
-      void refreshStatusMenu();
-      if (code === 0) resolve();
-      else reject(new Error(`next build exited ${code}`));
+    child.on("close", code => {
+      webBuildProc = null; void refreshStatusMenu();
+      if (code === 0) resolve(); else reject(new Error(`SPA/gateway build exited ${code}`));
     });
   });
   webBuildPromise = promise;
-  const clearPromise = () => {
-    if (webBuildPromise === promise) webBuildPromise = null;
-  };
-  promise.then(clearPromise, clearPromise);
+  const clear = () => { if (webBuildPromise === promise) webBuildPromise = null; };
+  promise.then(clear, clear);
   return promise;
 }
 
-/** How long a restarted Host waits for the Backend it is bringing back before serving the WebUI. */
+/** Initial Host attachment only. Web restart never starts, probes or replaces the owner. */
 export const BACKEND_START_READY_TIMEOUT_MS = 20_000;
-
 function publishBackendGeneration() {
   const temporary = `${BACKEND_GENERATION_FILE}.tmp`;
   writeFileSync(temporary, backendService?.status().generation ?? "", "utf8");
   renameSync(temporary, BACKEND_GENERATION_FILE);
 }
+async function startBackendForHost() {
+  if (!backendService) return;
+  try {
+    backendService.start({ attachRuntime: true }); publishBackendGeneration();
+    const clientEnv = backendService.clientEnv();
+    const ready = await waitForBackendReady({
+      read: () => readBackendHealth({ baseUrl: clientEnv.LEAFCODE_PI_BACKEND_URL ?? `http://127.0.0.1:${DEFAULT_BACKEND_PORT}`,
+        token: clientEnv.LEAFCODE_PI_BACKEND_TOKEN, expectedGeneration: backendService.status().generation ?? "" }),
+      timeoutMs: BACKEND_START_READY_TIMEOUT_MS,
+    });
+    if (!ready.ok) error(`Backend was not ready before the WebUI client started (${ready.reason ?? "timeout"})`);
+  } catch (err) { error(`Backend could not be started for the Host: ${err instanceof Error ? err.message : String(err)}`); }
+}
 
 async function spawnWeb({ pull = true, forceBuild = false } = {}) {
-  // A client WebUI needs its owner first: bring the Backend back attached and give the runtime a
-  // bounded moment to attach, so the restarted WebUI does not serve failures while it catches up.
-  if (backendService) {
-    try {
-      backendService.start({ attachRuntime: true });
-      publishBackendGeneration();
-      const clientEnv = backendService.clientEnv();
-      const ready = await waitForBackendReady({
-        read: () =>
-          readBackendHealth({
-            baseUrl: clientEnv.LEAFCODE_PI_BACKEND_URL ?? `http://127.0.0.1:${DEFAULT_BACKEND_PORT}`,
-            token: clientEnv.LEAFCODE_PI_BACKEND_TOKEN,
-            expectedGeneration: backendService.status().generation ?? "",
-          }),
-        timeoutMs: BACKEND_START_READY_TIMEOUT_MS,
-      });
-      if (!ready.ok) {
-        error(`Backend was not ready before the WebUI client started (${ready.reason ?? "timeout"})`);
-      }
-    } catch (err) {
-      error(`Backend could not be started for the WebUI client: ${err instanceof Error ? err.message : String(err)}`);
-    }
-  }
-  installWebIfNeeded();
-  let hasBuild = hasProductionBuild();
+  if (process.env.LEAFCODE_PI_MODE === "dev") throw new Error("Secure gateway development entry is not configured");
   const skipStaleBuild = consumeSkipStaleRebuild(process.env);
-  const actualBuildStale = hasBuild && isWebBuildStale(WEB_DIR, webDistDir());
-  const buildStale = !skipStaleBuild && actualBuildStale;
-  if (skipStaleBuild && actualBuildStale) {
-    log("Skipping stale production rebuild during host replacement; serving the existing build");
-  }
-  let plan = getWebLaunchPlan(process.env.LEAFCODE_PI_MODE, hasBuild, buildStale);
-  if (forceBuild || plan.needsBuild) {
-    const rebuildReason = forceBuild ? "manual" : hasBuild && buildStale ? "stale" : "missing";
-    try {
-      await buildWeb(rebuildReason, { pull });
-    } catch (err) {
-      hasBuild = hasProductionBuild();
-      const failureAction = staleRebuildFailureAction({ hasBuild });
-      if (failureAction === "continue-stale") {
-        error(
-          `Rebuild failed; continuing with the existing production build (${err instanceof Error ? err.message : String(err)})`,
-        );
-      } else {
-        error(
-          `Production build failed; falling back to next dev (${err instanceof Error ? err.message : String(err)})`,
-        );
-        // build-web.mjs restores the last good `.next` after a failure. Only a
-        // build that left no BUILD_ID at all is junk worth removing.
-        if (!hasProductionBuild()) rmSync(webDistDir(), { recursive: true, force: true });
-        process.env.LEAFCODE_PI_MODE = "dev";
-      }
-    }
-    hasBuild = hasProductionBuild();
-    const stillStale = hasBuild && isWebBuildStale(WEB_DIR, webDistDir());
-    plan = getPostBuildLaunchPlan(process.env.LEAFCODE_PI_MODE, hasBuild, stillStale);
-    if (plan.staleAfterBuild) {
-      log("Sources changed during the build; serving this build and rebuilding again on the next restart");
-    }
-  }
-
-  if (plan.needsBuild && process.env.LEAFCODE_PI_MODE === "prod") {
-    throw new Error("LeafCodePi production build is unavailable");
-  }
-
-  const useProd = plan.useProd && hasProductionBuild();
-  if (useProd && !isMirroredNextCliReady(WEB_MIRROR_DIR)) {
-    log("Production workspace is missing the Next.js CLI; installing locally…");
-    syncMirror({ sourceDir: WEB_DIR, mirrorRoot: WEB_MIRROR_DIR });
-    ensureBuildDependencies(WEB_MIRROR_DIR);
-  }
-  // Tailscale can disappear or change while a production build is running.
-  // Resolve the automatic bind again immediately before launching Next.js.
+  await ensureSpaGeneration({
+    checkout: REPO_ROOT, mirrorRoot: SPA_MIRROR_DIR, force: forceBuild, skipStale: skipStaleBuild, log,
+    build: async () => { await buildWeb(forceBuild ? "manual" : "stale/missing", { pull }); return selectSpaGeneration(SPA_MIRROR_DIR, { checkout: REPO_ROOT }); },
+  });
+  // Resolve automatic Tailscale binding immediately before opening the native listener.
   refreshWebUiBinding();
   if (isLoopbackBind(WEBUI_HOST) || WEBUI_HOST === "0.0.0.0" || WEBUI_HOST === "::") {
     await closeLoopbackWebUiProxy(loopbackWebUiProxy);
@@ -604,52 +488,30 @@ async function spawnWeb({ pull = true, forceBuild = false } = {}) {
       error(`Host-only WebUI proxy unavailable: ${err instanceof Error ? err.message : String(err)}`);
     }
   }
-  // Production serves the mirrored project; dev keeps running from the repo.
-  const projectDir = useProd ? WEB_MIRROR_DIR : WEB_DIR;
-  const args = useProd
-    ? [nextBin(projectDir), "start", "--hostname", WEBUI_HOST, "--port", String(WEBUI_PORT)]
-    : [nextBin(projectDir), "dev", "--hostname", WEBUI_HOST, "--port", String(WEBUI_PORT)];
-  // A previous host that died without cleanup leaves its WebUI holding the port.
   await stopOrphanedWebUi({
-    port: WEBUI_PORT,
-    projectDirs: [WEB_MIRROR_DIR, WEB_DIR],
-    getListeningPids,
-    stopProcessTreeGracefully,
-    excludePids: webProc?.pid ? [webProc.pid] : [],
-    log,
-  }).catch((err) => error(`Orphaned WebUI check failed: ${err instanceof Error ? err.message : String(err)}`));
+    port: WEBUI_PORT, projectDirs: [WEB_MIRROR_DIR, WEB_DIR], generationRoot: SPA_MIRROR_DIR,
+    getListeningPids, stopProcessTreeGracefully, excludePids: webProc?.pid ? [webProc.pid] : [], log,
+  }).catch(err => error(`Orphaned WebUI check failed: ${err instanceof Error ? err.message : String(err)}`));
   WEBUI_AUTH = ensureWebUiAuth(process.env, WEBUI_HOST, DATA_DIR);
-  const webUiAuth = WEBUI_AUTH;
-  log(`Starting LeafCodePi (${useProd ? "production" : "dev"}) on ${WEBUI_URL}`);
-  const child = runNodeScript(args, {
-    cwd: projectDir,
+  log(`Starting LeafCodePi (production gateway) on ${WEBUI_URL}`);
+  const launched = await launchProductionGateway({
+    checkout: REPO_ROOT, mirrorRoot: SPA_MIRROR_DIR, log,
+    spawn: runNodeScript, pipe: child => pipeChild("webui", child),
+    stop: async child => {
+      if (!child?.pid || child.exitCode !== null || child.signalCode !== null) return;
+      await stopProcessTreeGracefully({ pid: child.pid });
+    },
     env: {
-      ...process.env,
-      PORT: String(WEBUI_PORT),
-      LEAFCODE_PI_HOST: WEBUI_HOST,
-      LEAFCODE_PI_PORT: String(WEBUI_PORT),
-      LEAFCODE_PI_BIND_HOST: WEBUI_HOST,
-      LEAFCODE_PI_WEBUI_AUTH: webUiAuth.authRequired ? "required" : "",
-      LEAFCODE_PI_WEBUI_TOKEN: webUiAuth.token ?? "",
-      // Bundled WebUI extensions and skills live in the repo (prod runs from the web/ mirror).
-      LEAFCODE_PI_EXTENSIONS_DIR: join(REPO_ROOT, "extensions"),
-      LEAFCODE_PI_SKILLS_DIR: join(REPO_ROOT, "skills"),
-      // How the WebUI reaches the Backend, and which runtime generation to expect. Absent when no
-      // Backend is configured, so the WebUI keeps its in-process path.
-      ...(backendService ? {
-        ...backendService.clientEnv(),
-        LEAFCODE_PI_BACKEND_GENERATION_FILE: BACKEND_GENERATION_FILE,
-      } : {}),
+      ...process.env, PORT: String(WEBUI_PORT), LEAFCODE_PI_HOST: WEBUI_HOST,
+      LEAFCODE_PI_PORT: String(WEBUI_PORT), LEAFCODE_PI_BIND_HOST: WEBUI_HOST,
+      LEAFCODE_PI_WEBUI_AUTH: WEBUI_AUTH.authRequired ? "required" : "", LEAFCODE_PI_WEBUI_TOKEN: WEBUI_AUTH.token ?? "",
+      LEAFCODE_PI_EXTENSIONS_DIR: join(REPO_ROOT, "extensions"), LEAFCODE_PI_SKILLS_DIR: join(REPO_ROOT, "skills"),
+      ...(backendService ? { ...backendService.clientEnv(), LEAFCODE_PI_BACKEND_GENERATION_FILE: BACKEND_GENERATION_FILE } : {}),
     },
   });
+  const child = launched.process;
   webProc = child;
-  pipeChild("webui", child);
-  // The Backend runs alongside the WebUI; start() is idempotent across WebUI restarts.
-  try {
-    backendService?.start();
-  } catch (err) {
-    error(`Backend start failed: ${err instanceof Error ? err.message : String(err)}`);
-  }
+  log(`Gateway child pid=${child.pid} generation=${launched.generation.id}`);
   const stableTimer = setTimeout(() => {
     if (!quitting && webProc === child) webRestarts = 0;
   }, RESTART_BUDGET_RESET_MS);
@@ -693,53 +555,11 @@ async function stopWeb() {
 }
 
 /**
- * Only standalone development owns sessions inside Next.js. A production client
- * can restart freely without interrupting the independent Backend.
+ * Native ingress owns no sessions; only the concurrent service-restart lock can block recovery.
  */
 async function webUiRestartBlockReason() {
-  // A concurrent restart must be refused before the control plane answers 202.
-  const busy = serviceRestartBusyReason(restarting);
-  if (busy) return busy;
-  // Production WebUI is a Backend client: refuse while that Backend is not ready
-  // so the operator gets a 409 instead of a silent no-op after 202.
-  if (backendService) {
-    const clientEnv = backendService.clientEnv();
-    const health = await readBackendHealth({
-      baseUrl: clientEnv.LEAFCODE_PI_BACKEND_URL ?? `http://127.0.0.1:${DEFAULT_BACKEND_PORT}`,
-      token: clientEnv.LEAFCODE_PI_BACKEND_TOKEN,
-      expectedGeneration: backendService.status().generation ?? "",
-    });
-    if (health.ok !== true || health.ready !== true) {
-      return "Backend が準備できていないため WebUI の再起動を拒否しました。Backend の状態を確認してから再試行してください。";
-    }
-    // Independent Backend owns sessions; restarting the client cannot interrupt them.
-    return null;
-  }
-  try {
-    const response = await fetch(`${WEBUI_URL}/api/goal-loop/active`, {
-      cache: "no-store",
-      signal: AbortSignal.timeout(3000),
-      headers:
-        WEBUI_AUTH.authRequired && WEBUI_AUTH.token
-          ? { authorization: `Bearer ${WEBUI_AUTH.token}` }
-          : {},
-    });
-    if (!response.ok) return webUiRestartUnknownReason(`HTTP ${response.status}`);
-    const body = await response.json();
-    const active = Number(body?.active) || 0;
-    if (active <= 0) return null;
-    return `Goal Loop が ${active} 件実行中のため WebUI の再起動を拒否しました。ループを停止・完了してから再試行してください。`;
-  } catch (err) {
-    // Nothing is listening: no live Next.js sessions to protect, recovery stays available.
-    const code = err?.cause?.code ?? err?.code;
-    if (code === "ECONNREFUSED" || code === "ECONNRESET" || code === "ENOTFOUND") return null;
-    return webUiRestartUnknownReason(err instanceof Error ? err.message : String(err));
-  }
-}
-
-/** A living standalone WebUI whose Goal Loop state is unknown must fail closed (as the Backend guard does). */
-function webUiRestartUnknownReason(detail) {
-  return `Goal Loop の実行状況を確認できないため WebUI の再起動を拒否しました（${detail}）。WebUI の応答を確認してから再試行してください。`;
+  // Ingress never owns SDK sessions. Unready/dead Backend must not block Web recovery.
+  return serviceRestartBusyReason(restarting);
 }
 
 /**
@@ -806,11 +626,11 @@ async function restartBackend() {
 }
 
 async function restartWeb() {
-  // Backend readiness / Goal Loop / busy refusals are decided in webUiRestartBlockReason
+  // Busy refusals are decided in webUiRestartBlockReason
   // before the control plane answers 202. Do not re-check here: a silent return after 202
   // leaves the WebUI reconnect overlay stuck on the still-live SPA. Claim immediately so
   // concurrent handlers cannot interleave another restart during pull/stop.
-  if (!claimServiceRestart()) {
+  if (!claimServiceRestart({ resetBackendHang: false })) {
     log("Service restart is already in progress");
     return;
   }
@@ -1003,7 +823,7 @@ function buildTrayMenu() {
       statusWebItem,
       {
         title: "Restart WebUI",
-        tooltip: "Rebuild and restart Next.js (use the previous build on failure)",
+        tooltip: "Rebuild and restart the gateway (use the previous generation on failure)",
         checked: false,
         enabled: true,
         click: () => {
@@ -1441,6 +1261,7 @@ async function main() {
     // build. Repair missing dependencies even when a restart reuses that build.
     ensureExtensionDependencies(join(REPO_ROOT, "extensions"));
     if (backendService) await buildBackendWithFallback({ force: rebuildServices || synchronized.updated, log, error });
+    await startBackendForHost();
     await spawnWeb({ forceBuild: rebuildServices, pull: restartOptions.pull });
   } catch (err) {
     removeLock(LOCK_FILE);

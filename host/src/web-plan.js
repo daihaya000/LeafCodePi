@@ -54,7 +54,7 @@ export function consumeSkipStaleRebuild(env) {
 export function getWebLaunchPlan(mode, hasBuild, buildStale = false) {
   const explicitProd = mode === "prod";
   const explicitDev = mode === "dev";
-  const useProd = explicitProd || (!explicitDev && hasBuild);
+  const useProd = explicitProd || !explicitDev;
   return {
     needsBuild: useProd && (!hasBuild || Boolean(buildStale)),
     useProd,
@@ -78,12 +78,11 @@ export function getPostBuildLaunchPlan(mode, hasBuild, buildStale = false) {
 }
 
 /**
- * After a failed rebuild, serve the restored previous build. Without one, keep the WebUI reachable
- * through `next dev` instead of leaving the operator with nothing.
- * @returns {"continue-stale"|"fallback-dev"}
+ * Production failures may retain verified prior output only; absence fails explicitly.
+ * @returns {"continue-stale"|"unavailable"}
  */
 export function staleRebuildFailureAction({ hasBuild }) {
-  return hasBuild ? "continue-stale" : "fallback-dev";
+  return hasBuild ? "continue-stale" : "unavailable";
 }
 
 /**
