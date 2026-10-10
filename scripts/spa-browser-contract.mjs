@@ -10,6 +10,8 @@ import { setTimeout as delay } from "node:timers/promises";
 import { startFixture } from "./spa-browser-fixture.mjs";
 import { runNotificationContracts } from "./spa-notification-contract.mjs";
 import { runPaneContracts } from "./spa-panes-contract.mjs";
+import { runPointerContracts } from "./spa-pointer-contract.mjs";
+import { seedMissingBrowserSettings } from "./spa-browser-storage.mjs";
 import { assertNoCanary, auditCanaryResponses, canaryProbePlugin, createSecretCanaries, scanCanaryArtifacts, withCanaryEnvironment } from "./spa-secret-canary.mjs";
 const ROOT = resolve(fileURLToPath(new URL("../", import.meta.url))), web = join(ROOT, "web");
 const require = createRequire(join(web, "package.json"));
@@ -60,9 +62,8 @@ async function prepareReference(origin) {
 }
 async function pageFor(origin, viewport, seed = {}) {
   const context = await browser.newContext({ viewport, reducedMotion: "reduce" });
-  await context.addInitScript(seed => {
-    // newPage() starts at opaque about:blank; only seed actual top-level pages.
-    if (window.top === window && /^https?:$/.test(location.protocol)) for (const [key, value] of Object.entries(seed)) localStorage.setItem(key, value);
+  await context.addInitScript(seedMissingBrowserSettings, seed);
+  await context.addInitScript(() => {
     const Native = EventSource;
     window.__sources = [];
     window.EventSource = class extends Native {
@@ -70,7 +71,7 @@ async function pageFor(origin, viewport, seed = {}) {
       close() { this.record.closed = true; super.close(); }
     };
     window.__documentId = Math.random().toString(36);
-  }, seed);
+  });
   const flushResponses = auditCanaryResponses(context, canaries.entries, error => errors.push(error));
   context.on("page", page => {
     page.on("pageerror", error => errors.push(`${origin}: ${error.stack}`));
@@ -257,6 +258,8 @@ try {
   state.notificationEvidence = await runNotificationContracts({ pageFor, ready, checked, fixture, spaOrigin, nextOrigin });
   assertNoCanary(state.notificationEvidence, canaries.entries, "all notification producer records"); save();
   state.paneEvidence = await runPaneContracts({ pageFor, ready, checked, spaOrigin, nextOrigin }); save();
+  state.pointerEvidence = await runPointerContracts({ pageFor, ready, checked, spaOrigin, nextOrigin });
+  assertNoCanary(state.pointerEvidence, canaries.entries, "all pointer interaction records"); save();
   await checked("SPA reachable env probe, seven-route browser sinks and dotenv HTTP denial", async () => {
     const { page, context } = await pageFor(auditOrigin, { width: 390, height: 844 });
     for (const path of paths) {

@@ -87,11 +87,13 @@ export async function runPaneContracts({ pageFor, ready, checked, spaOrigin, nex
       await delay(700);
       await record(steps, page, "close-empty-pane");
       const settledUrl = steps.at(-1).url;
+      const persistedBeforeReload = await page.evaluate(() => localStorage.getItem("webui:task-panes"));
       await page.reload();
       await waitPaneCount(page, 2);
       await waitTabTitles(page);
       await waitTaskHeading(page);
       await record(steps, page, "reload-restore");
+      assert.equal(await page.evaluate(() => localStorage.getItem("webui:task-panes")), persistedBeforeReload, "Reload must preserve the actual saved layout, not restore the initial fixture seed");
       const restoredUrl = steps.at(-1).url;
       await page.evaluate(() => history.pushState(null, "", "/bots"));
       await ready(page, "/bots");
@@ -145,9 +147,13 @@ export async function runPaneContracts({ pageFor, ready, checked, spaOrigin, nex
       await page.evaluate(() => history.pushState(null, "", "/bots/bot-a"));
       await ready(page, "/bots/bot-a");
       await record(steps, page, "mobile-bot");
+      assert.equal(await page.evaluate(() => localStorage.getItem("webui:task-panes")), SEED_JSON);
+      assert.equal(steps.at(-1).paneCount, 0);
       await page.goBack();
       await page.waitForFunction(() => location.pathname === "/"); await ready(page, "/");
       await record(steps, page, "mobile-back");
+      assert.equal(await page.evaluate(() => localStorage.getItem("webui:task-panes")), SEED_JSON);
+      assert.equal(steps.at(-1).paneCount, 0);
       evidence.push({ size: "mobile", runtime: origin === nextOrigin ? "Next" : "SPA", steps });
     } finally { await context.close(); }
   };
