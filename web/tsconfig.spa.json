@@ -3,15 +3,20 @@
   "compilerOptions": {
     "incremental": false,
     "plugins": [],
+    "types": ["react", "react-dom"],
     "paths": {
       "@/*": ["./src/*"],
       "@shared/*": ["../shared/*"],
       "@/platform/navigation": ["./src/spa/navigation.tsx"],
       "@/platform/link": ["./src/spa/link.ts"],
       "@/platform/image": ["./src/spa/image.ts"],
-      "@/platform/dynamic": ["./src/spa/dynamic.ts"]
+      "@/platform/dynamic": ["./src/spa/dynamic.ts"],
+      "@/lib/pi/messages": ["../shared/ui/pi/messages.ts"],
+      "@/lib/tts-backends": ["../shared/ui/tts-backends.ts"],
+      "@/lib/host-launch-hints": ["../shared/ui/host-launch-hints.ts"],
+      "@shared/llama-server-settings.mjs": ["../shared/ui/llama-server-settings.d.mts"]
     }
   },
-  "include": ["src/spa/main.tsx"],
+  "include": ["src/spa/main.tsx", "src/spa/browser-env.d.ts"],
   "exclude": ["node_modules", "**/*.test.*"]
 }

@@ -1,0 +1,43 @@
+# P4: 禁止依存検査・Next撤去
+
+## 状態
+
+拒否gateの先行導入まで。**P4全体は未完了、Nextは未撤去**。旧Next専用検査を削除せず、SPA/native gatewayの本番buildに新gateを追加した。
+
+## 先行gate
+
+- `scripts/production-boundary.mjs`: first-party value graph、コンパイラが解決したtype graph、literal dynamic import、type-only/re-export/import(type)、triple-slash参照、canonical pathを検査。
+- BrowserはNode builtin/ambient Node、Backend/Host/extensions、Pi SDK、Next、API/旧platform bridgeを拒否。`types`はReactに限定。`process`は3個のcompile-time置換だけを宣言し、runtime polyfillは作らない。
+- Browserの実Rollup module IDsと出力chunkもVite pluginで検査。TypeScriptとViteのneutral aliasを合わせ、TTS/llama/Host表示契約からNodeのOS既定値を分離。Backendの既存facadeはOS既定値とexport名を保持する。
+- gatewayは全inventory routeから閉包を作り、`scripts/gateway-contracts.json`の監査済transport/DTO 135ファイルだけを許可。未知のshared store、filesystem mutation、loader alias、eval/Function、computed global loader、非literal importを拒否。
+- generation/discovery readerはnamed `readFileSync`限定。static snapshotは既存のnamed readerと`O_RDONLY | (O_NOFOLLOW ?? 0)`だけを許可し、openのalias/write flagを拒否。
+- gateway型packageはUndici/undici-types/@types/nodeだけ。隔離fixtureが借りる型依存はchecker自身のWeb dependency treeに限定し、未知owner directoryへのlinkは許可しない。
+- `build-spa-worker.mjs` / Vite本番build / `build-gateway.mjs`に組込み。gatewayはstaging/output書込みより前に拒否し、`typecheck:false`でも迂回不可。CLIは `npm --prefix web run check:production`。
+- native ESMはhost-probe routeをprocessごとにcacheするため、旧Next/HMR用global identity cacheだけを除去した。UI構造・CSS・business/SDK ownerは変更していない。
+
+## この単位の検証
+
+証拠は `%LOCALAPPDATA%/Temp/p4-gate-{validation,rerun,final-tests}` と `p4-backend-control-fresh`。
+
+- 新gate 9テスト（多数の拒否fixture）と旧startup/transport/UI/entry/gateway検査: 48件成功。
+- 新gateの再実行9件成功。実閉包はBrowser first-party 337 / type 525、gateway first-party 253 / type 516、166 routes / 267 operations。
+- clean offline installから2つの実SPA/gateway世代をbuild/seal。失敗build・起動失敗時の旧世代保持/復旧を確認。500 sealed files。Backend/Host/SDK packageなし。
+- 実native production gateway/browser、実開発SPA 6画面・optimizer 72応答・CSS HMR成功。開発pageErrors 0、未送信draft維持、別Vite listenerなし。
+- SPA型チェック成功。TTS/llama/Host hint/共有型/host-probe/旧SPA境界のWeb回帰73件 / 8ファイル成功。
+- Web directoryのない隔離checkoutでBackend runtime build成功。最新sourceをbuildした実Backend entry/harness/SDK/session/leaseのfinite provider probe成功。旧SDK testのtop-level Next検査importだけを**一時コピー**から外してprobe分岐を実行し、リポジトリのテストは変更していない。
+
+### 失敗の切り分け
+
+- 初回の新bundle gateは`web/index.html`をsource許可範囲外として拒否した。明示entryとして許可し、実buildを再実行して成功。
+- Vitestのproduction preview probeは`NODE_ENV=test`でReact development stack helperをbundleし、Function拒否に当たった。本番workerと同じ`NODE_ENV=production`に揃え、拒否規則を緩めず再実行。source/type検査が増えた同probeのdeadlineは90秒。
+- 旧Webless service fixtureは画像404のresponse envelope assertionで失敗。今回の共有3ファイルをHEAD版に戻した**隔離コピーでも同一失敗**を再現。無関係なBackend/stream契約は修正しない。
+- 既存checkoutのcache済runtimeによる旧SDK probeはlistenまで到達しなかった。cache/live Backendを変更せず、隔離fresh buildでprobe成功。cache側の原因は未特定で、fresh成功と区別する。
+
+## 次の単位
+
+1. gatewayの外部runtime package（現在はsealでexact locked Undiciのみ許可）のvalue閉包にも専用自動検査を追加し、fixture/type/buildの差分を独立確認する。
+2. 新gateの拒否と本番build成立を維持したまま、旧Next専用検査を置換。
+3. manifest/lock/CLI/config/生成型/テストmockを含むNext撤去。互換コードは利用箇所・value/type到達性を確認して限定削除。
+4. Nextなしのclean install/build/typecheck、SDK/Backend独立性を再検証してからP4完了判定。
+
+ここでの検査は静的な境界と有限fixtureの検証。任意に難読化されたJavaScriptの完全sandbox証明、same-user攻撃、live deployment切替や実SDK更新は主張しない。

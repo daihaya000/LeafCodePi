@@ -6,6 +6,7 @@ import { fileURLToPath } from "node:url";
 import { collectRoutes, validateInventory } from "./check-api-ownership.mjs";
 import { startupImports } from "./check-next-startup-boundary.mjs";
 import { checkNextTransportBoundary } from "./check-next-transport-boundary.mjs";
+import { checkGatewayBoundary } from "./production-boundary.mjs";
 
 const ROOT = resolve(fileURLToPath(new URL("../", import.meta.url)));
 const norm = value => value.replaceAll("\\", "/");
@@ -69,6 +70,8 @@ export function gatewayGraph(root = ROOT, ts = createRequire(resolve(ROOT, "web/
 }
 
 export function buildGateway(root = ROOT, { typecheck = true } = {}) {
+  // New value/type gate runs before any staging/output write. Keep legacy gates until P4 removal.
+  checkGatewayBoundary(root);
   const graph = gatewayGraph(root), { ts } = graph;
   if (typecheck) {
     const options = { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ESNext, moduleResolution: ts.ModuleResolutionKind.Bundler,

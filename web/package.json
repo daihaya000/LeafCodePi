@@ -17,6 +17,7 @@
     "build:spa": "vite build --config vite.config.ts",
     "preview:spa": "vite preview --config vite.config.ts",
     "typecheck:spa": "tsc -p tsconfig.spa.json",
+    "check:production": "node ../scripts/production-boundary.mjs",
     "test:spa:browser": "node ../scripts/spa-browser-contract.mjs",
     "test:spa:secrets": "node --test ../scripts/spa-secret-canary.test.mjs && vitest run src/spa/build-boundary.test.ts --maxWorkers=1"
   },

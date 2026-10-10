@@ -12,10 +12,8 @@ export const dynamic = "force-dynamic";
  * Another PC running its own LeafCodePi on the same port yields a different id.
  * The id is random and carries no other information.
  */
-const globalKey = Symbol.for("leafcode-pi.host-probe-id");
-type GlobalWithProbe = typeof globalThis & { [globalKey]?: string };
-const g = globalThis as GlobalWithProbe;
-const instanceId = (g[globalKey] ??= randomUUID());
+// Native ESM caches this route once per process; no Next/HMR global compatibility cache.
+const instanceId = randomUUID();
 
 /**
  * Only pages served from a private/LAN/VPN address (the only ones the redirect runs on, see

@@ -100,7 +100,7 @@ export type TtsConfigDto = {
 };
 
 export type TtsHostCapabilities = {
-  hostPlatform: NodeJS.Platform;
+  hostPlatform: "aix" | "android" | "darwin" | "freebsd" | "haiku" | "linux" | "openbsd" | "sunos" | "win32" | "cygwin" | "netbsd";
   sapiAvailable: boolean;
 };
 

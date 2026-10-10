@@ -3,6 +3,7 @@ import { fileURLToPath } from "node:url";
 import { resolve } from "node:path";
 import { builtinModules } from "node:module";
 import tailwind from "@tailwindcss/postcss";
+import { checkBrowserBoundary, checkProductionFile, checkSpecifier, dependencyReferences } from "../scripts/production-boundary.mjs";
 
 const root = fileURLToPath(new URL(".", import.meta.url));
 const spa = resolve(root, "src/spa");
@@ -12,8 +13,12 @@ const nodeBuiltins = new Set(builtinModules.map(name => name.replace(/^node:/, "
 const forbidden = /(?:^node:|^(?:next(?:\/|$)|@earendil-works\/|@backend|@extensions)|(?:^|\/)(?:backend(?:-core)?|host|extensions)\/)/;
 /** Existing presentation stays unchanged; SPA imports use local browser implementations. */
 export function spaBoundary(): Plugin {
+  let production = false;
+  const checkout = resolve(root, "..");
   return {
     name: "spa-browser-boundary", enforce: "pre",
+    configResolved(config) { production = config.command === "build" && resolve(config.root) === resolve(root); },
+    buildStart() { if (production) checkBrowserBoundary(checkout); },
     configureServer(server) {
       if (!server.config.server.middlewareMode) throw new Error("Use the authenticated gateway development entry, not a standalone Vite listener");
     },
@@ -26,7 +31,14 @@ export function spaBoundary(): Plugin {
         if (chunk.type !== "chunk") continue;
         for (const id of Object.keys(chunk.modules)) {
           const path = id.replaceAll("\\", "/");
+          if (production && !id.startsWith("\0")) {
+            const file = id.split("?")[0];
+            checkProductionFile(file, checkout, "browser", { packageFile: path.includes("/node_modules/") });
+          }
           if (/\/node_modules\/(?:next\/|@earendil-works\/)|\/(?:backend|host|extensions)\/|\/web\/src\/app\/api\/|\/src\/platform\/(?:navigation|link|image|dynamic)\.ts$/.test(path)) throw new Error(`SPA owner/framework module forbidden: ${path}`);
+        }
+        if (production) {
+          for (const edge of dependencyReferences(chunk.code, chunk.fileName, undefined, { kind: "browser", bundled: true })) checkSpecifier(edge.specifier, "browser", chunk.fileName);
         }
       }
     },
@@ -45,6 +57,9 @@ export default defineConfig({
       "@/platform/image": resolve(spa, "image.ts"),
       "@/platform/dynamic": resolve(spa, "dynamic.ts"),
       "@/lib/pi/messages": resolve(root, "../shared/ui/pi/messages.ts"),
+      "@/lib/tts-backends": resolve(root, "../shared/ui/tts-backends.ts"),
+      "@/lib/host-launch-hints": resolve(root, "../shared/ui/host-launch-hints.ts"),
+      "@shared/llama-server-settings.mjs": resolve(root, "../shared/ui/llama-server-settings.mjs"),
       "@": resolve(root, "src"), "@shared": resolve(root, "../shared"),
     },
     dedupe: ["react", "react-dom"],

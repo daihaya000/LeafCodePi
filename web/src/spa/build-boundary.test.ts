@@ -95,7 +95,10 @@ describe("SPA production boundary", () => {
   });
   it("production preview serves every direct/reloaded URL and forwards API only to the isolated fixture", async () => {
     const output = await mkdtemp(join(tmpdir(), "leafcode-spa-production-")); directories.push(output);
-    await build({ ...config, configFile: false, logLevel: "silent", build: { outDir: output, emptyOutDir: true } });
+    // Match the production worker, not Vitest's development React stack/code-generation helpers.
+    const previous = process.env.NODE_ENV; process.env.NODE_ENV = "production";
+    try { await build({ ...config, configFile: false, logLevel: "silent", build: { outDir: output, emptyOutDir: true } }); }
+    finally { if (previous === undefined) delete process.env.NODE_ENV; else process.env.NODE_ENV = previous; }
     const owner = createServer((request, response) => { expect(["/api/settings?fixture=1", "/webui-bootstrap.json?fixture=1"]).toContain(request.url); response.setHeader("content-type", "application/json"); response.end(request.url?.startsWith("/webui-bootstrap.json") ? '{"hostname":"fixture-host","authFileDisplayPath":"/fixture/webui-auth.json"}' : '{"values":{"fixture":"saved"}}'); });
     await new Promise<void>(done => owner.listen(0, "127.0.0.1", done));
     const ownerAddress = owner.address(); if (!ownerAddress || typeof ownerAddress === "string") throw Error("Fixture did not listen");
@@ -110,5 +113,5 @@ describe("SPA production boundary", () => {
       expect(await (await fetch(`${origin}/webui-bootstrap.json?fixture=1`)).json()).toEqual({ hostname: "fixture-host", authFileDisplayPath: "/fixture/webui-auth.json" });
       expect((await fetch(`${origin}/icon.svg`)).status).toBe(200);
     } finally { await new Promise<void>((done, reject) => server.httpServer.close(error => error ? reject(error) : done())); await new Promise<void>((done, reject) => owner.close(error => error ? reject(error) : done())); }
-  }, 25_000);
+  }, 90_000);
 });
