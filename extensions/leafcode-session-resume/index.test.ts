@@ -2,11 +2,21 @@ import { randomUUID } from "node:crypto";
 import type { ExtensionAPI, ExtensionContext, ToolDefinition } from "@earendil-works/pi-coding-agent";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import sessionResumeExtension, { RESUME_CANCEL_COMMAND, RESUME_ENTRY_TYPE, type ResumeReservation } from "./index";
+import { RESUME_HOST_ROUTING_CHANNEL, RESUME_HOST_ROUTING_READY_CHANNEL } from "../../shared/session-resume";
 
 type Entry = { type: "custom"; customType: string; data: unknown };
 const shutdowns: Array<() => unknown> = [];
 function harness(sessionId = randomUUID(), branch: Entry[] = []) {
   const handlers = new Map<string, (event: Record<string, unknown>, ctx: ExtensionContext) => unknown>();
+  const listeners = new Map<string, Set<(packet: unknown) => void>>();
+  const events = {
+    on(name: string, listener: (packet: unknown) => void) {
+      const group = listeners.get(name) ?? new Set();
+      group.add(listener); listeners.set(name, group);
+      return () => { group.delete(listener); };
+    },
+    emit(name: string, packet?: unknown) { listeners.get(name)?.forEach((listener) => listener(packet)); },
+  };
   let tool: ToolDefinition;
   let cancelCommand: { handler: (args: string, ctx: ExtensionContext) => Promise<void> };
   let idle = true;
@@ -25,13 +35,13 @@ function harness(sessionId = randomUUID(), branch: Entry[] = []) {
     on: (name: string, handler: (event: Record<string, unknown>, ctx: ExtensionContext) => unknown) => handlers.set(name, handler),
     registerTool: (definition: ToolDefinition) => { tool = definition; },
     registerCommand: (_name: string, command: typeof cancelCommand) => { cancelCommand = command; },
-    appendEntry, sendMessage,
+    appendEntry, sendMessage, events,
     getActiveTools: () => allowed ? ["session_resume"] : [],
   } as unknown as ExtensionAPI;
   sessionResumeExtension(api);
   const emit = (type: string, event: Record<string, unknown> = {}) => handlers.get(type)?.({ type, ...event }, ctx);
   const result = {
-    branch, appendEntry, sendMessage, ctx,
+    branch, appendEntry, sendMessage, ctx, events,
     start: () => emit("session_start"),
     emit,
     shutdown: () => emit("session_shutdown"),
@@ -74,6 +84,49 @@ describe("session_resume", () => {
     h.emit("agent_settled");
     await vi.advanceTimersByTimeAsync(60_000);
     expect(h.sendMessage).toHaveBeenCalledTimes(1);
+  });
+
+  it("waits for session-scoped host routing and acquires ownership before consumption", async () => {
+    const h = harness();
+    h.events.emit(RESUME_HOST_ROUTING_CHANNEL);
+    await schedule(h);
+    await vi.advanceTimersByTimeAsync(1_000);
+    expect((await state(h)).reservation?.status).toBe("scheduled");
+    const prepare = vi.fn(() => false);
+    const release = vi.fn();
+    h.events.emit(RESUME_HOST_ROUTING_READY_CHANNEL, { sessionManager: {}, prepare, release });
+    await vi.advanceTimersByTimeAsync(1_000);
+    expect(prepare).not.toHaveBeenCalled();
+    h.events.emit(RESUME_HOST_ROUTING_READY_CHANNEL, { sessionManager: h.ctx.sessionManager, prepare, release });
+    await vi.advanceTimersByTimeAsync(1_000);
+    expect((await state(h)).reservation?.status).toBe("scheduled");
+    expect(h.sendMessage).not.toHaveBeenCalled();
+    prepare.mockImplementation(() => {
+      expect(h.branch.at(-1)?.data).toMatchObject({ status: "scheduled" });
+      return true;
+    });
+    h.emit("session_tree"); // Navigation must not lose the host binding.
+    await vi.advanceTimersByTimeAsync(0);
+    expect(h.sendMessage).toHaveBeenCalledOnce();
+    expect(release).not.toHaveBeenCalled();
+    expect((await state(h)).reservation?.status).toBe("fired");
+  });
+
+  it.each(["persistence", "send"])("releases host preparation and persists failure after %s failure", async (failure) => {
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    const h = harness();
+    const prepare = vi.fn(() => true);
+    const release = vi.fn();
+    h.events.emit(RESUME_HOST_ROUTING_READY_CHANNEL, { sessionManager: h.ctx.sessionManager, prepare, release });
+    await schedule(h);
+    if (failure === "persistence") h.appendEntry.mockImplementationOnce(() => { throw new Error("disk full"); });
+    else h.sendMessage.mockImplementationOnce(() => { throw new Error("send failed"); });
+    await vi.advanceTimersByTimeAsync(1_000);
+    expect(release).toHaveBeenCalledOnce();
+    expect(h.branch.at(-1)?.data).toMatchObject({ status: "failed" });
+    h.start();
+    await vi.advanceTimersByTimeAsync(2_000);
+    expect(prepare).toHaveBeenCalledOnce();
   });
 
   it("replaces an older reservation without firing both", async () => {

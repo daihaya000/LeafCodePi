@@ -7,6 +7,7 @@ import { basename, dirname, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { captureSessionBackgroundWorkStop, captureSessionShutdownResourceStop, listBackgroundWorkProviders } from "@extensions/leafcode-subagents/src/api/background-work.ts";
 import { resumeReservationFromBranch } from "@shared/session-resume";
+import { registerSessionResumeTurnRouting } from "./session-resume-routing";
 import { runBackendMcpNativeSessionShutdownActions } from "@backend-core/mcp-native-session.mjs";
 import { assertSessionLoadAllowed, isRuntimeMemoryPressure, openSessionManagerSafely, readRuntimeMemory } from "@backend-core/session-memory-guard.mjs";
 import {
@@ -4193,7 +4194,22 @@ export function sessionExtensionFactories(input: {
       registerShowVideo(api, { validate: (path) => validateTaskLocalMedia(input.taskId!, path, "video") });
       registerShowAudio(api, { validate: (path) => validateTaskLocalMedia(input.taskId!, path, "audio") });
     }] : []),
-    ...(input.taskId ? [registerGoalLoopTurnRouting(input.taskId)] : []),
+    ...(input.taskId ? [registerGoalLoopTurnRouting(input.taskId), registerSessionResumeTurnRouting(
+      input.taskId,
+      () => {
+        const live = state().live.get(input.taskId!);
+        return live ? {
+          sessionManager: live.session.sessionManager,
+          busy: isLiveBusyForReplace(live),
+          promptActive: live.promptActive,
+          leaseLost: live.leaseLost,
+        } : undefined;
+      },
+      (eventType) => {
+        const live = state().live.get(input.taskId!);
+        if (live) emitTaskSnapshot(live, eventType);
+      },
+    )] : []),
     ...(input.hasBotSkills
       ? [
           (api: ExtensionAPI) => {

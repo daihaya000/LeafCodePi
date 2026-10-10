@@ -12,30 +12,51 @@ import { bundledExtensionEntries } from "@/lib/extensions";
 import { RESUME_CANCEL_COMMAND } from "../../../../extensions/leafcode-session-resume/index";
 import registerTodowrite from "@extensions/leafcode-todowrite/index";
 import { resumeReservationFromBranch } from "@shared/session-resume";
+import { registerSessionResumeTurnRouting } from "@backend-runtime/lib/pi/session-resume-routing";
+import { getTask, insertTask, setTaskStatus, upsertProject } from "@/lib/store";
+import { acquireTaskLease, ownsTaskLease, releaseTaskLease } from "@/lib/task-runtime-lease";
+import { disarmTaskHangWatch } from "@/lib/pi/hang-watchdog";
 
 const roots: string[] = [];
 const sessions: AgentSession[] = [];
+const hostTasks: string[] = [];
 afterEach(async () => {
   for (const session of sessions.splice(0)) {
     await session.extensionRunner.emit({ type: "session_shutdown", reason: "quit" });
     session.dispose();
   }
+  for (const taskId of hostTasks.splice(0)) { disarmTaskHangWatch(taskId); releaseTaskLease(taskId); }
   roots.splice(0).forEach((root) => rmSync(root, { recursive: true, force: true }));
   vi.unstubAllEnvs();
 });
 
-async function createSession(options: { persist?: boolean; todos?: boolean } = {}) {
+async function createSession(options: { persist?: boolean; todos?: boolean; host?: boolean } = {}) {
   const cwd = mkdtempSync(join(tmpdir(), "leafcode-session-resume-sdk-"));
   roots.push(cwd);
   const agentDir = join(cwd, "agent");
   mkdirSync(agentDir, { recursive: true });
+  const host = { session: undefined as AgentSession | undefined };
+  let promptActive = false;
+  const notify = vi.fn();
+  let taskId: string | undefined;
+  if (options.host) {
+    vi.stubEnv("LEAFCODE_PI_DATA_DIR", join(cwd, "data"));
+    const project = upsertProject({ name: "resume SDK host", rootPath: cwd });
+    taskId = insertTask({ project, title: "resume lease" }).id;
+    hostTasks.push(taskId);
+  }
+  const hostFactory = taskId ? registerSessionResumeTurnRouting(taskId, () => host.session ? {
+    sessionManager: host.session.sessionManager,
+    busy: host.session.isStreaming || host.session.isCompacting,
+    promptActive, leaseLost: false,
+  } : undefined, notify) : undefined;
   const settingsManager = SettingsManager.inMemory();
   const extensionPath = fileURLToPath(new URL("../../../../extensions/leafcode-session-resume/index.ts", import.meta.url));
   const loader = new DefaultResourceLoader({
     cwd, agentDir, settingsManager,
     noExtensions: true, noSkills: true, noPromptTemplates: true, noThemes: true, noContextFiles: true,
     additionalExtensionPaths: [extensionPath],
-    extensionFactories: options.todos ? [registerTodowrite] : [],
+    extensionFactories: [...(options.todos ? [registerTodowrite] : []), ...(hostFactory ? [hostFactory] : [])],
   });
   await loader.reload();
   expect(loader.getExtensions().errors).toEqual([]);
@@ -52,9 +73,26 @@ async function createSession(options: { persist?: boolean; todos?: boolean } = {
     modelRuntime, model: faux.getModel(), tools: options.todos ? ["session_resume", "todowrite"] : ["session_resume"],
   });
   sessions.push(session);
+  host.session = session;
+  if (taskId) {
+    const id = taskId;
+    // Mirror the host's agent_start / persistence lease fence and idle release.
+    session.subscribe((event) => {
+      if (event.type === "agent_start") { expect(ownsTaskLease(id)).toBe(true); promptActive = true; }
+      if (event.type === "agent_settled") {
+        promptActive = false; setTaskStatus(id, "idle");
+        disarmTaskHangWatch(id); releaseTaskLease(id);
+      }
+    });
+    const appendMessage = session.sessionManager.appendMessage.bind(session.sessionManager);
+    session.sessionManager.appendMessage = (message) => {
+      expect(ownsTaskLease(id)).toBe(true);
+      return appendMessage(message);
+    };
+  }
   const errors: string[] = [];
   await session.bindExtensions({ onError: (error) => { errors.push(error.error); } });
-  return { session, faux, errors, cwd, agentDir, loader, settingsManager, modelRuntime };
+  return { session, faux, errors, cwd, agentDir, loader, settingsManager, modelRuntime, taskId, notify };
 }
 function wakeMessages(session: AgentSession) {
   return session.messages.filter((message) => message.role === "custom" && message.customType === "leafcode-session-resume-trigger");
@@ -80,6 +118,21 @@ it("discovers the bundled extension and actually starts a new SDK turn without u
   expect(faux.state.callCount).toBe(3);
   expect(wakeMessages(session)).toHaveLength(1);
   expect(errors).toEqual([]);
+});
+
+it.each([false, true])("reacquires the real host lease after idle before waking (reload=%s)", async (reload) => {
+  const { session, faux, errors, taskId, notify } = await createSession({ host: true });
+  expect(acquireTaskLease(taskId!)).toBe(true);
+  await session.prompt("確認を予約する");
+  expect(ownsTaskLease(taskId!)).toBe(false);
+  if (reload) await session.reload();
+  await vi.waitFor(() => expect(session.getLastAssistantText()).toBe("比較処理は完了した"), { timeout: 3_000, interval: 20 });
+  expect(faux.state.callCount).toBe(3);
+  expect(wakeMessages(session)).toHaveLength(1);
+  expect(errors).toEqual([]);
+  expect(notify).toHaveBeenCalledWith("session_resume_prepared");
+  expect(getTask(taskId!)?.status).toBe("idle");
+  expect(ownsTaskLease(taskId!)).toBe(false);
 });
 
 it("restores the timer across a real jiti session.reload and delivers only once", async () => {

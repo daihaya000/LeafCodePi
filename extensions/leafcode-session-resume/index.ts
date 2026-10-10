@@ -3,6 +3,9 @@ import { randomUUID } from "node:crypto";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import {
   RESUME_ENTRY_TYPE,
+  RESUME_HOST_ROUTING_CHANNEL,
+  RESUME_HOST_ROUTING_READY_CHANNEL,
+  type ResumeHostRouting,
   resumeReservationFromBranch,
   type ResumeReservation,
 } from "../../shared/session-resume.ts";
@@ -26,6 +29,8 @@ type Runtime = {
   reservation?: ResumeReservation;
   timer?: ReturnType<typeof setTimeout>;
   disposed: boolean;
+  hostRoutingExpected: boolean;
+  hostRouting?: ResumeHostRouting;
 };
 // Pi uses fresh jiti imports on reload. Ownership must survive that module boundary.
 const REGISTRY_KEY = Symbol.for("leafcode-session-resume.runtimes");
@@ -111,6 +116,16 @@ function fire(runtime: Runtime): void {
       arm(runtime, BUSY_RETRY_MS);
       return;
     }
+    // SDK custom turns bypass queuePrompt. The host must reacquire its task lease
+    // before consumption; otherwise agent_start disposes the session as lease-lost.
+    if (runtime.hostRoutingExpected && !runtime.hostRouting) {
+      arm(runtime, BUSY_RETRY_MS);
+      return;
+    }
+    if (runtime.hostRouting && !runtime.hostRouting.prepare(latest.message)) {
+      arm(runtime, BUSY_RETRY_MS);
+      return;
+    }
     // Persist consumption before sending: reload/late shutdown cannot deliver twice.
     save(runtime, { ...latest, status: "fired" });
     runtime.pi.sendMessage({
@@ -125,7 +140,11 @@ function fire(runtime: Runtime): void {
     }, { triggerTurn: true, deliverAs: "followUp" });
   } catch (error) {
     clearTimer(runtime);
-    if (runtime.reservation) runtime.reservation = { ...runtime.reservation, status: "failed", error: String(error) };
+    try { runtime.hostRouting?.release(); } catch { /* Never crash the host timer. */ }
+    if (runtime.reservation) {
+      const failed = { ...runtime.reservation, status: "failed" as const, error: String(error) };
+      try { save(runtime, failed); } catch { runtime.reservation = failed; }
+    }
     updateStatus(runtime);
     console.warn("[session-resume] 再開予約の実行に失敗:", error instanceof Error ? error.name : "Error");
   }
@@ -163,19 +182,36 @@ function createReservation(params: ResumeParams, ctx: ExtensionContext): ResumeR
 
 export default function sessionResumeExtension(pi: ExtensionAPI): void {
   let runtime: Runtime | undefined;
+  let hostRoutingExpected = false;
+  const unsubscribeRouting = pi.events?.on(RESUME_HOST_ROUTING_CHANNEL, () => {
+    hostRoutingExpected = true;
+    if (runtime && ownsRuntime(runtime)) runtime.hostRoutingExpected = true;
+  });
+  const unsubscribeReady = pi.events?.on(RESUME_HOST_ROUTING_READY_CHANNEL, (packet: unknown) => {
+    const routing = packet as Partial<ResumeHostRouting> | undefined;
+    if (!runtime || !ownsRuntime(runtime) || routing?.sessionManager !== runtime.ctx.sessionManager ||
+        typeof routing.prepare !== "function" || typeof routing.release !== "function") return;
+    runtime.hostRoutingExpected = true;
+    runtime.hostRouting = routing as ResumeHostRouting;
+  });
   const restore = (ctx: ExtensionContext) => {
+    const hostRouting = runtime?.hostRouting?.sessionManager === ctx.sessionManager ? runtime.hostRouting : undefined;
     if (runtime) dispose(runtime);
     const key = runtimeKey(ctx);
     const previous = runtimes.get(key);
     if (previous) dispose(previous);
-    runtime = { key, pi, ctx, disposed: false, reservation: readReservation(ctx) };
+    runtime = { key, pi, ctx, disposed: false, reservation: readReservation(ctx), hostRoutingExpected, hostRouting };
     runtimes.set(key, runtime);
     updateStatus(runtime);
     arm(runtime);
   };
   pi.on("session_start", (_event, ctx) => restore(ctx));
   pi.on("session_tree", (_event, ctx) => restore(ctx));
-  pi.on("session_shutdown", () => { if (runtime) dispose(runtime); });
+  pi.on("session_shutdown", () => {
+    if (runtime) dispose(runtime);
+    unsubscribeRouting?.();
+    unsubscribeReady?.();
+  });
   pi.on("agent_settled", () => { if (runtime && ownsRuntime(runtime)) arm(runtime); });
   pi.on("input", (event) => {
     // A new user task supersedes old reminders; steering the current task does not.

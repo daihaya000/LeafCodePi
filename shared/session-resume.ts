@@ -1,4 +1,13 @@
 export const RESUME_ENTRY_TYPE = "leafcode-session-resume";
+export const RESUME_HOST_ROUTING_CHANNEL = "leafcode-session-resume:host-routing";
+export const RESUME_HOST_ROUTING_READY_CHANNEL = "leafcode-session-resume:host-routing-ready";
+
+/** Host bookkeeping must precede consumption and the SDK's agent_start lease check. */
+export type ResumeHostRouting = {
+  sessionManager: object;
+  prepare: (prompt: string) => boolean;
+  release: () => void;
+};
 const MAX_DELAY_SECONDS = 24 * 60 * 60;
 const MAX_MESSAGE_CHARS = 4_000;
 
