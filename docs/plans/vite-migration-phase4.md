@@ -2,7 +2,7 @@
 
 ## 状態
 
-拒否gateの先行導入まで。**P4全体は未完了、Nextは未撤去**。旧Next専用検査を削除せず、SPA/native gatewayの本番buildに新gateを追加した。
+新gateと本番CLI/compilerの切替まで。**P4全体は未完了、Next package/config/旧bridge/mockは未撤去**。本番build/start/compilerはNext専用helperに到達しない。旧検査とbuilderは比較用fixtureとして隔離した。
 
 ## 先行gate
 
@@ -48,10 +48,22 @@
 - 初回2世代build中にこの作業のsource変更が入り、snapshot不一致として正しく拒否された。固定sourceで再実行し、2世代build/sealと失敗時の旧世代保持/復旧を確認。最終sourceの再実行は全group exit 0（2世代は146.7秒、501 sealed files、復旧確認）。結果は`%LOCALAPPDATA%/Temp/p4-runtime-final/`。
 - SDK probeの初回は15秒のlisten deadlineに到達。原因は未特定。一時コピーにchildログと45秒deadlineを加えた再実行は4.03秒で成功。Backendや実稼働cacheは修正していない。証拠は`p4-runtime-backend-debug/`、その他は`p4-runtime-{validation,rerun,final}/`。
 
+## 本番CLI/compilerの切替（turn 3）
+
+- `scripts/build-web.mjs`をpaired SPA/native gateway build CLIへ置換。`--offline` / `--mirror <.spa directory>`だけを受け付け、seal/publication後のgeneration IDをJSONで返す。稼働Host/BackendへのrestartやSDK操作はしない。
+- `scripts/start-production-gateway.mjs`は検証済generationのnative childだけを起動する。build/install/dev fallbackなし。port/hostname/mirrorを明示指定でき、起動失敗時は既存paired fallbackを利用する。新native entryはIPC parent lossでlistenerを閉じる。
+- `web/package.json`のstart/typecheck/check CLIをnative start、SPA config、新Browser/gateway gateへ切替。root buildとWeb buildは同じnative pair入口。Next dependencyと旧tsconfigはこの単位では残す。
+- `build-gateway.mjs`のvalue edge抽出とcompiler-resolved型検査を新gateへ完全移行。`gatewayGraph()`入口で拒否するため`typecheck:false`でも迂回できない。Next専用checkerへのimportなし。
+- mirror root/slugを`build-workspace.mjs`、Hostのextension準備を`extension-dependencies.mjs`へ分離し、Host・SPA pair builderから旧Next helperへの依存を除いた。既存cache key/extension repairの挙動は維持する。
+- 旧builderを`legacy-next-build.mjs`へ隔離し、直接CLI実行は拒否。旧startup/transport/UI/entry検査の比較fixtureだけが参照する。本番CLIからの静的到達性検査で旧builder/checker/mirror/Nextへの辺を拒否する。旧fixture/helper自体の削除は次の単位。
+- 検証: CLI/helper/runtime/generation unit 117件、native production browser、SPA型検査、実headless Hostのnative gateway restart/crash recoveryと実Backend SDK/session/lease/heartbeat維持が成功。実CLIでclean offline installから2世代build/seal（501 files、161.7秒）、canonical start、7画面、失敗build/起動後の旧paired generation復旧を確認。
+- 新/旧gate groupは初回47/48件成功。原因: gatewayの隔離fixtureがvalue source/sidecarだけをコピーし、新compilerが解決する3個のerased-type依存を欠いた。shared型閉包をfixtureへコピーし、拒否規則を緩めず当該2テストを再実行して成功。証拠: `%LOCALAPPDATA%/Temp/p4-cli-validation/`、当該再実行は `node --test scripts/build-gateway.test.mjs`。
+- actual CLI clean installにはNext packageがまだ含まれる。成功は**Next-free installの証明ではない**。UI/CSS変更、live切替、実SDK更新はしていない。
+
 ## 次の単位
 
-1. 新gateの拒否と本番build成立を維持したまま、旧Next専用検査を置換。
-2. manifest/lock/CLI/config/生成型/テストmockを含むNext撤去。互換コードは利用箇所・value/type到達性を確認して限定削除。
+1. 新gateの拒否と本番build成立を維持し、比較用旧Next検査/builder/helperを削除。
+2. manifest/lock/config/生成型/テストmockを含むNext撤去。互換コードは利用箇所・value/type到達性を確認して限定削除。
 3. Nextなしのclean install/build/typecheck、SDK/Backend独立性を再検証してからP4完了判定。
 
 ここでの検査は静的な境界と有限fixtureの検証。任意に難読化されたJavaScriptの完全sandbox証明、same-user攻撃、live deployment切替や実SDK更新は主張しない。

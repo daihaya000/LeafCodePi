@@ -57,11 +57,11 @@ import {
   formatWebStatus,
   procRunning,
 } from "./web-plan.js";
-import { ensureExtensionDependencies } from "../../scripts/build-web.mjs";
+import { ensureExtensionDependencies } from "../../scripts/extension-dependencies.mjs";
 import { ensureSpaGeneration } from "./spa-build.js";
 import { launchProductionGateway } from "./gateway-launch.js";
 import { resolveSpaMirrorRoot, selectSpaGeneration } from "../../scripts/spa-build-generation.mjs";
-import { resolveMirrorRoot } from "../../scripts/web-build-mirror.mjs";
+import { resolveMirrorRoot } from "../../scripts/build-workspace.mjs";
 
 const SysTray =
   withSafeInitialMenu(SysTrayImport?.default?.default || SysTrayImport?.default || SysTrayImport);

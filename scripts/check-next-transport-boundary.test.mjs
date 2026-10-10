@@ -28,7 +28,7 @@ test("migrated Next ingress closes over Web/shared auth and transport, never Bac
   assert.ok(result.modules > 40, "the actual shared .mjs implementations must be checked too");
 });
 test("build gates transport after compiler provisioning and before replacing .next", () => {
-  const source = readFileSync(join(ROOT, "scripts/build-web.mjs"), "utf8");
+  const source = readFileSync(join(ROOT, "scripts/legacy-next-build.mjs"), "utf8");
   const body = source.slice(source.indexOf("export async function main("));
   const provision = body.indexOf("ensureBuildDependencies(mirror.mirrorRoot)");
   const gate = body.indexOf("checkNextTransportBoundary(REPO_ROOT, ts)");

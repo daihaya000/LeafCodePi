@@ -2,7 +2,8 @@ import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
 import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 import { setTimeout as delay } from "node:timers/promises";
 import test from "node:test";
 import { buildSpaGeneration, selectSpaGeneration, spaBuildEnvironment } from "./spa-build-generation.mjs";
@@ -14,8 +15,16 @@ test("external mirror compiles and seals two real Vite/gateway generations; fail
     for (const run of children) if (run.child.exitCode === null && run.child.signalCode === null) { run.child.kill(); await Promise.race([run.exited, delay(3000)]); if (run.child.exitCode === null && run.child.signalCode === null) { run.child.kill("SIGKILL"); await run.exited; } }
     rmSync(root, { recursive: true, force: true });
   });
-  const log = text => process.stdout.write(text);
-  const first = await buildSpaGeneration({ mirrorRoot, offline: true, log });
+  const log = text => process.stdout.write(text), checkout = resolve(fileURLToPath(new URL("../", import.meta.url)));
+  async function cliBuild() {
+    const child = spawn(process.execPath, [join(checkout, "scripts/build-web.mjs"), "--offline", "--mirror", mirrorRoot], { cwd: checkout, env: spaBuildEnvironment(), windowsHide: true, stdio: ["ignore", "pipe", "pipe"] });
+    let output = ""; child.stdout.on("data", chunk => { output += chunk; }); child.stderr.on("data", log);
+    const exited = new Promise((resolve, reject) => { child.once("error", reject); child.once("exit", code => resolve(code)); }); children.push({ child, exited });
+    assert.equal(await exited, 0, output);
+    const published = output.split(/\r?\n/).map(line => { try { return JSON.parse(line); } catch { return null; } }).find(value => value?.type === "spa_generation_built");
+    assert.ok(published?.id); const selected = await selectSpaGeneration(mirrorRoot); assert.equal(selected.id, published.id); return selected;
+  }
+  const first = await cliBuild();
   const firstIndex = readFileSync(join(first.staticRoot, "index.html"), "utf8"), firstEntry = readFileSync(first.entry, "utf8");
   assert.equal(Object.keys(first.files).some(path => /node_modules\/(?:next|@earendil)|^(?:backend|host|extensions)\//.test(path)), false);
   function launch(generation, broken = false) {
@@ -34,9 +43,15 @@ test("external mirror compiles and seals two real Vite/gateway generations; fail
     }
     throw Error("Isolated gateway start deadline");
   }
-  const firstProcess = launch(first), firstOrigin = await origin(firstProcess);
+  // The canonical start CLI admits the sealed native child; it does not build or probe Backend.
+  const cliEnv = { ...spaBuildEnvironment(), LEAFCODE_PI_PORT: "0", LEAFCODE_PI_BIND_HOST: "127.0.0.1", LEAFCODE_PI_WEBUI_AUTH: "required", LEAFCODE_PI_WEBUI_TOKEN: "fixture-pair-token", LEAFCODE_PI_DATA_DIR: join(root, "data") };
+  const cliChild = spawn(process.execPath, [join(checkout, "scripts/start-production-gateway.mjs"), "--mirror", mirrorRoot], { cwd: checkout, env: cliEnv, windowsHide: true, stdio: ["ignore", "pipe", "pipe"] });
+  let cliOut = "", cliErr = ""; cliChild.stdout.on("data", chunk => { cliOut += chunk; }); cliChild.stderr.on("data", chunk => { cliErr += chunk; });
+  const cliExit = new Promise((resolve, reject) => { cliChild.once("error", reject); cliChild.once("exit", code => resolve(code)); });
+  const firstProcess = { child: cliChild, exited: cliExit, output: () => ({ out: cliOut, err: cliErr }) }; children.push(firstProcess);
+  const firstOrigin = await origin(firstProcess);
   assert.equal(await (await fetch(firstOrigin + "/login")).text(), firstIndex);
-  const second = await buildSpaGeneration({ mirrorRoot, offline: true, log });
+  const second = await cliBuild();
   assert.notEqual(second.id, first.id); assert.equal((await selectSpaGeneration(mirrorRoot)).id, second.id);
   assert.equal(readFileSync(first.entry, "utf8"), firstEntry); assert.equal(await (await fetch(firstOrigin + "/login")).text(), firstIndex);
   const pointer = readFileSync(join(mirrorRoot, "state.json"), "utf8");

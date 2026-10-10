@@ -4,9 +4,7 @@ import { createRequire } from "node:module";
 import { dirname, isAbsolute, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { collectRoutes, validateInventory } from "./check-api-ownership.mjs";
-import { startupImports } from "./check-next-startup-boundary.mjs";
-import { checkNextTransportBoundary } from "./check-next-transport-boundary.mjs";
-import { checkGatewayBoundary } from "./production-boundary.mjs";
+import { dependencyReferences, checkGatewayBoundary } from "./production-boundary.mjs";
 import { GATEWAY_HTTP_IMPORTS } from "./gateway-runtime-boundary.mjs";
 
 const ROOT = resolve(fileURLToPath(new URL("../", import.meta.url)));
@@ -17,9 +15,8 @@ const externals = new Set([...GATEWAY_HTTP_IMPORTS, "node:http", "node:stream", 
 export function gatewayGraph(root = ROOT, ts = createRequire(resolve(ROOT, "web/package.json"))("typescript")) {
   const actual = collectRoutes(root);
   const counts = validateInventory(JSON.parse(readFileSync(resolve(root, "docs/plans/next-thin-phase0.json"), "utf8")), actual);
-  // Keep the existing stricter transport permissions on reused relays: filesystem access is only
-  // generation/Host discovery metadata, not a blanket gateway permission to load business state.
-  checkNextTransportBoundary(root, ts, [...actual.values()].map(route => route.source), "entry", true);
+  // The established gate covers values, erased types, OS capabilities and external CJS.
+  const boundary = checkGatewayBoundary(root, { ts });
   const manifest = [...actual].sort(([a], [b]) => a.localeCompare(b, "en")).map(([route, record]) => ({ route, ...record }));
   const routeSource = "export const routes = [\n" + manifest.map(record => {
     const specifier = "../../" + record.source;
@@ -69,32 +66,15 @@ export function gatewayGraph(root = ROOT, ts = createRequire(resolve(ROOT, "web/
       ts.forEachChild(node, inspect);
     }
     inspect(ast);
-    for (const specifier of startupImports(source, file, ts)) { const dependency = target(file, specifier); if (dependency) visit(dependency); }
+    for (const specifier of dependencyReferences(source, file, ts).filter(edge => !edge.typeOnly).map(edge => edge.specifier)) { const dependency = target(file, specifier); if (dependency) visit(dependency); }
   }
   roots.forEach(visit);
-  return { sources, declarations, target, manifest, counts, ts };
+  return { sources, declarations, target, manifest, counts, ts, boundary };
 }
 
 export function buildGateway(root = ROOT, { typecheck = true } = {}) {
-  // New value/type gate runs before any staging/output write. Keep legacy gates until P4 removal.
-  checkGatewayBoundary(root);
+  // Retain the option for callers, but a false value cannot bypass the boundary/type gate.
   const graph = gatewayGraph(root), { ts } = graph;
-  if (typecheck) {
-    const options = { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ESNext, moduleResolution: ts.ModuleResolutionKind.Bundler,
-      strict: true, noEmit: true, skipLibCheck: true, allowJs: true, esModuleInterop: true, resolveJsonModule: true,
-      baseUrl: resolve(root, "web"), paths: { "@/*": ["src/*"], "@shared/*": ["../shared/*"] },
-      types: ["node"], typeRoots: [resolve(root, "web/node_modules/@types")] };
-    const program = ts.createProgram([...graph.sources.keys()].filter(file => file.endsWith(".ts")).map(file => resolve(root, file)), options);
-    for (const source of program.getSourceFiles()) {
-      const file = norm(relative(root, source.fileName));
-      assert.doesNotMatch(norm(source.fileName), /\/node_modules\/(?:next(?:\/|$)|@earendil-works\/pi-|@rahularya01\/pi-cursor|pi-commandcode-provider|better-sqlite3)/, `Forbidden gateway type package: ${file}`);
-      if (!source.fileName.includes("node_modules")) {
-        assert.ok(!isAbsolute(file) && ["shared/", "web/src/lib/", "web/src/app/api/"].some(prefix => file.startsWith(prefix)), `Gateway type closure escaped: ${file}`);
-      }
-    }
-    const diagnostics = ts.getPreEmitDiagnostics(program);
-    assert.equal(diagnostics.length, 0, ts.formatDiagnosticsWithColorAndContext(diagnostics, { getCurrentDirectory: () => root, getCanonicalFileName: file => file, getNewLine: () => "\n" }));
-  }
   const output = resolve(root, "gateway/dist"), stage = resolve(root, `gateway/.build-${process.pid}`), backup = resolve(root, `gateway/.previous-${process.pid}`);
   assert.equal(existsSync(stage), false, "Gateway staging directory already exists");
   mkdirSync(stage, { recursive: true });
@@ -119,7 +99,7 @@ export function buildGateway(root = ROOT, { typecheck = true } = {}) {
       const ast = ts.createSourceFile(emitted(file), compiled, ts.ScriptTarget.Latest, true, ts.ScriptKind.JS);
       const transformed = ts.transform(ast, [transformer]);
       const text = ts.createPrinter().printFile(transformed.transformed[0]); transformed.dispose();
-      for (const specifier of startupImports(text, emitted(file), ts)) assert.ok(externals.has(specifier) || specifier.startsWith("."), `Unsafe emitted import: ${specifier}`);
+      for (const specifier of dependencyReferences(text, emitted(file), ts).filter(edge => !edge.typeOnly).map(edge => edge.specifier)) assert.ok(externals.has(specifier) || specifier.startsWith("."), `Unsafe emitted import: ${specifier}`);
       const dest = resolve(stage, emitted(file)); mkdirSync(dirname(dest), { recursive: true }); writeFileSync(dest, text, "utf8");
     }
     writeFileSync(resolve(stage, "manifest.json"), JSON.stringify({ ...graph.counts, runtimeModules: graph.sources.size, sources: [...graph.sources.keys()].sort(), routes: graph.manifest }, null, 2) + "\n");

@@ -11,8 +11,12 @@ if (args.length && (args.length !== 1 || args[0] !== "--api-only")) throw new Er
 const server = args[0] === "--api-only" ? createGatewayServer(routes, { hostname: host })
   : await createProductionGatewayServer(routes, { hostname: host, staticRoot: process.env.LEAFCODE_PI_SPA_DIR });
 server.listen(port, host, () => console.log(JSON.stringify({ type: "gateway_listening", port: server.address().port })));
+let stopping = false;
 function stop() {
+  if (stopping) return; stopping = true;
   server.close(); server.closeAllConnections();
   const deadline = setTimeout(() => process.exit(1), 3000); deadline.unref();
 }
 process.once("SIGTERM", stop); process.once("SIGINT", stop);
+// CLI/Host IPC ownership: parent loss must not orphan a native ingress listener.
+if (process.connected) process.once("disconnect", stop);

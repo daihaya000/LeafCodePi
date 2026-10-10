@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { copyFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { copyFileSync, cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, unlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -18,10 +18,14 @@ test("gateway closure is all 166 routes and 267 operations, with no Next, SDK, o
 test("gateway dependency gate refuses framework/SDK imports, indirect loaders, owner paths and unexpected OS capabilities", () => {
   const graph = gatewayGraph(), root = mkdtempSync(join(tmpdir(), "gateway-negative-"));
   try {
+    // The production compiler resolves the full erased-type closure, not just value sidecars.
+    cpSync(join(ROOT, "shared"), join(root, "shared"), { recursive: true });
     for (const file of [...graph.sources.keys(), ...graph.declarations.keys(), "docs/plans/next-thin-phase0.json"]) {
       if (file === "gateway/src/routes.mjs") continue;
       const dest = join(root, file); mkdirSync(dirname(dest), { recursive: true }); copyFileSync(join(ROOT, file), dest);
     }
+    mkdirSync(join(root, "web"), { recursive: true });
+    symlinkSync(join(ROOT, "web/node_modules"), join(root, "web/node_modules"), process.platform === "win32" ? "junction" : "dir");
     const entry = join(root, "gateway/src/index.mjs"), original = readFileSync(entry, "utf8");
     for (const code of [
       'import "next/server";', 'import "@earendil-works/pi-ai";', 'import "better-sqlite3";', 'import "../../../backend/src/index.js";',
@@ -39,5 +43,5 @@ test("gateway dependency gate refuses framework/SDK imports, indirect loaders, o
     // A permitted-looking filename cannot conceal a junction/symlink to owner code.
     const escaped = join(root, "shared/escaped"); symlinkSync(join(ROOT, "host/src"), escaped, process.platform === "win32" ? "junction" : "dir");
     writeFileSync(entry, original + '\nimport "../../shared/escaped/index.js";'); assert.throws(() => gatewayGraph(root), /symlink/);
-  } finally { rmSync(root, { recursive: true, force: true }); }
+  } finally { unlinkSync(join(root, "web/node_modules")); rmSync(root, { recursive: true, force: true }); }
 });

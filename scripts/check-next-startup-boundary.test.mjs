@@ -34,7 +34,7 @@ test("checker module loads without checkout dependencies and accepts a provision
 });
 
 test("Web build checks startup before replacing the previous .next", () => {
-  const source = readFileSync(join(ROOT, "scripts/build-web.mjs"), "utf8");
+  const source = readFileSync(join(ROOT, "scripts/legacy-next-build.mjs"), "utf8");
   const start = source.indexOf("export async function main(");
   const body = source.slice(start);
   const provision = body.indexOf("ensureBuildDependencies(mirror.mirrorRoot)");

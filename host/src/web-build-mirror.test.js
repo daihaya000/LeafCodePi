@@ -18,17 +18,12 @@ import { fileURLToPath } from "node:url";
 import { test } from "node:test";
 import {
   mirrorDistDir,
-  mirrorSlug,
-  resolveMirrorRoot,
   sourceEntryKind,
   syncMirror,
 } from "../../scripts/web-build-mirror.mjs";
 import {
   discardPreviousBuild,
   ensureBuildDependencies,
-  ensureExtensionDependencies,
-  extensionDependenciesReady,
-  extensionDependencyFingerprint,
   handOffToServedWebUi,
   hostControlUrl,
   nextBuildArgs,
@@ -42,7 +37,10 @@ import {
   typecheckInvocation,
   waitForWebUiHealth,
   webUiPort,
-} from "../../scripts/build-web.mjs";
+} from "../../scripts/legacy-next-build.mjs";
+
+import { mirrorSlug, resolveMirrorRoot } from "../../scripts/build-workspace.mjs";
+import { ensureExtensionDependencies, extensionDependenciesReady, extensionDependencyFingerprint } from "../../scripts/extension-dependencies.mjs";
 
 const REPO_ROOT = join(dirname(fileURLToPath(import.meta.url)), "..", "..");
 

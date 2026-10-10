@@ -448,7 +448,7 @@ LEAFCODE_PI_HEADLESS=1 ./start.sh
 
 本家 LeafCode と同じく、ホスト PC 上のブラウザが Tailscale / LAN IP で WebUI を開いた場合は `127.0.0.1` へ自動リダイレクトします（リモート端末はリダイレクトされません）。
 
-ビルドが稼働中の `next start` の `.next` を置き換えたときは、そのままだと配信中の HTML が参照するチャンクが消えて `/_next/static/...` が 500 になり、キャッシュを持たないクライアント（スマホなど）に Next の "This page couldn't load" が出ます。`scripts/build-web.mjs` はビルド後に稼働中の WebUI を検出したら、ホスト制御の `POST /restart/webui` で新しい世代へ切り替えます。ホストに届かない場合はトレイの Restart WebUI が必要です。
+本番WebUIはVite/React SPAとnative gatewayのsealed generationを配信します。`scripts/build-web.mjs`は新しいpaired generationを発行するだけで、稼働Host/Backendを再起動しません。切替はトレイの Restart WebUIなどの明示操作で行います。失敗buildは稼働中のimmutable generationを置き換えません。
 
 本番のセッション・Goal Loop は独立バックエンドで動き、WebUI の再起動中も継続します。バックエンド・トレイホストの再起動は実行中のセッションを終了します。実行中の Goal Loop がある場合はランタイム再起動を拒否するため、先にループを停止・完了してください（開発モードでは WebUI がランタイムを持つため WebUI 再起動も同じ制約）。
 
@@ -460,18 +460,17 @@ LEAFCODE_PI_HEADLESS=1 ./start.sh
 
 いずれもビルド失敗時は前回のビルドで起動します。前回ビルドがない場合は本番起動できず、エラーを記録します。
 
-production build は既存のミラー先を常設ビルド領域として直接使用します。Windows は **`%LOCALAPPDATA%\leafcode-pi\build\<checkout>-<hash>\`**、Linux/macOS は **`$XDG_CACHE_HOME/leafcode-pi/build/<checkout>-<hash>/`**（未設定時は `~/.cache/leafcode-pi/build/...`）で、`next start` も同じ場所から配信します。場所は従来どおり `LEAFCODE_PI_BUILD_DIR` で変更できます。
+production buildはcheckout別の外部領域を使います。Windowsは **`%LOCALAPPDATA%\leafcode-pi\build\<checkout>-<hash>\`**、Linux/macOSは **`$XDG_CACHE_HOME/leafcode-pi/build/<checkout>-<hash>/`**（未設定時は`~/.cache/leafcode-pi/build/...`）。場所は`LEAFCODE_PI_BUILD_DIR`で変更でき、`.spa/generations/<uuid>/`にSPAとgatewayをまとめてsealします。
 
-- `npm run build` と `npm --prefix web run build` は同じ入口を使います。稼働中の production WebUI を保護するため、手動ビルド前にトレイから終了してください。
-- 本番ビルドは既定で Webpack を使います。Next.js 16.3.1 の Turbopack は Pi SDK 0.99.2 が参照する QuickJS WASM のファイル追跡で `NftJsonAsset ... [turbopack-wasm]/node/loadWasm.ts` を出して失敗するためです。`LEAFCODE_PI_USE_WEBPACK=0` は Turbopack の修正確認・切り分け時だけ指定してください。
-- Next 16 はプロジェクト外の `distDir` を許可しないため、ソースの差分コピーだけを残します。OneDrive側の `node_modules` はビルド時に走査・同期・ハードリンクしません。
-- 依存関係は初回または `package.json` / `package-lock.json` / Node.js環境の変更時に、ビルド領域で `npm ci --include=dev` します。旧ミラーも次回ビルドで移行するため、初回は依存インストールの時間・空き容量・ネットワーク接続が必要です。インストール失敗時は以前の依存関係を復元します。
-- npm 12用に `web/package.json` の `allowScripts` で `better-sqlite3@12.9.0` のみを許可しています。依存インストール後はSQLiteの起動も検証します。SQLiteのバージョン更新時はこの許可も見直してください。
-- `.next`・依存関係・ビルドキャッシュをOneDriveへ書き戻しません。`next dev` と開発用依存のインストールはリポジトリ側です。
+- `npm run build`と`npm --prefix web run build`は同じpaired build入口。`-- --offline`でnpm cacheを利用、`-- --mirror <.spa directory>`で明示領域へbuildします。未知の旧Webpack/Turbopackオプションは拒否します。
+- `npm --prefix web start`はseal検証済native gatewayだけを起動し、build/install/dev fallbackはしません。Host管理中の同じportには別途起動しないでください。
+- Web依存は外部workspaceへ`npm ci --include=dev`、gatewayの監査済runtime依存は新stageへclean installします。初回はcacheまたはネットワークと空き容量が必要です。失敗時は旧generationを保持します。
+- Browser/gatewayのvalue/type/runtime gateとSPA型検査をpublication前に実行します。`npm --prefix web run check:production`は両境界、`check:browser` / `check:gateway`は各境界、`typecheck`はSPA configを検証します。
+- ビルド出力・依存・cacheをOneDriveへ書き戻しません。`npm run dev`も認証済native gateway経由でViteを使います。Nextの比較fixtureとpackage/config撤去はP4の残タスクです。
 - PiはHost起動時に自動更新しません。既定の厳密バージョン（`shared/pi-dependencies.mjs` の `DEFAULT_PI_VERSION`、現在は 1.0.0）をそのまま使います。Web・Backendのmanifest・lock・実体が揃っていることだけを確認し、不一致が残る場合は起動・ビルドを拒否します。
 - 更新は設定画面の「Pi アップデート」から予約します。予約は次回のトレイホスト起動時に適用されます。同期はSDK・AI両パッケージを同じ厳密バージョンへ一括適用し、推移依存もoverrideで統一、両側の準備・モジュール検証が成功してから適用、失敗時は以前の依存を維持します。npm処理の待ち時間は合計最大120秒（後始末・ビルドを除く）。オフラインでも以前の同期済みバージョンで起動します。
 - 手動同期はHost停止後に `npm run sync:pi`（既定バージョンへ揃える場合は `npm run sync:pi -- --target 1.0.0`、npm `latest` へ上げる場合は `--target` なし）。整合性だけの確認は `npm run sync:pi -- --check`。production mirrorが異なる依存を持つ場合は起動前に再ビルドします。
-- 型チェックは `next build` の中ではなく、ビルド領域の `tsc --noEmit` を `next build` と並列に実行して担保します（`web/next.config.ts` の `typescript.ignoreBuildErrors`）。型エラー時は新しいビルドを破棄し、前回の production build を復元します。
+- `next build` / `next start` / 旧Next専用gateは本番入口から到達しません。旧builderはreference-test用途に隔離し、直接CLI実行を拒否します。
 
 トレイメニュー:
 

@@ -247,6 +247,10 @@ export function checkGatewayBoundary(root = ROOT, options = {}) {
 }
 
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
-  try { console.log(JSON.stringify({ browser: checkBrowserBoundary(), gateway: checkGatewayBoundary() })); }
+  try {
+    const args = process.argv.slice(2);
+    assert.ok(args.length === 0 || args.length === 1 && ["--browser", "--gateway"].includes(args[0]), "Unsupported production boundary option");
+    console.log(JSON.stringify({ ...(args[0] !== "--gateway" ? { browser: checkBrowserBoundary() } : {}), ...(args[0] !== "--browser" ? { gateway: checkGatewayBoundary() } : {}) }));
+  }
   catch (error) { console.error(error.message); process.exitCode = 1; }
 }

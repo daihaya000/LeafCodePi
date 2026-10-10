@@ -3,7 +3,7 @@ import { spawn } from "node:child_process";
 import { copyFileSync, existsSync, lstatSync, mkdirSync, openSync, closeSync, readdirSync, readFileSync, realpathSync, renameSync, rmSync, unlinkSync, writeFileSync } from "node:fs";
 import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
-import { resolveMirrorRoot } from "./web-build-mirror.mjs";
+import { resolveMirrorRoot } from "./build-workspace.mjs";
 import { createStaticHandler } from "../gateway/src/static.mjs";
 const ROOT = resolve(fileURLToPath(new URL("../", import.meta.url)));
 const idPattern = /^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/;
