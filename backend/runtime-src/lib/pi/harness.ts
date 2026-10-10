@@ -156,6 +156,7 @@ import {
   registerOrcaRouterProvider,
   syncOrcaRouterProvider,
 } from "@/lib/pi/orcarouter-provider";
+import { registerOpenDesignProvider, syncOpenDesignProvider } from "./opendesign-provider";
 import {
   effectiveBaseUrl,
   isEditableBaseUrlProvider,
@@ -1027,6 +1028,7 @@ async function ensureOptionalProviders(
     registerRemoteProvider(runtime),
     registerTypeSafeProvider(runtime),
     registerOrcaRouterProvider(runtime, scope),
+    registerOpenDesignProvider(runtime, scope),
   ]).then(() => undefined);
   promises.set(runtime, promise);
   try {
@@ -5860,6 +5862,11 @@ async function syncProvidersBestEffort(
         console.warn("[leafcode-pi] leafcodecloud provider sync failed:", message);
         return `leafcodecloud: ${message}`;
       }),
+      syncOpenDesignProvider(runtime).then(() => null).catch((error) => {
+        const message = error instanceof Error ? error.message : String(error);
+        console.warn("[leafcode-pi] opendesign provider sync failed:", message);
+        return `opendesign: ${message}`;
+      }),
       syncOrcaRouterProvider(runtime).then(() => null).catch((error) => {
         const message = error instanceof Error ? error.message : String(error);
         console.warn("[leafcode-pi] orcarouter provider sync failed:", message);
@@ -7153,6 +7160,7 @@ async function listProviderModelsCatalogUncached(): Promise<ProviderModelsRow[]>
     // 動的カタログをここで再同期してからスナップショットを作る。
     await Promise.all([
       syncOrcaRouterProvider(runtime),
+      syncOpenDesignProvider(runtime),
       syncExperientialLabsProvider(runtime),
     ]);
     // マルチアカウント対応プロバイダーはアカウント専用。既定欄には出さない。
@@ -7173,7 +7181,10 @@ async function listProviderModelsCatalogUncached(): Promise<ProviderModelsRow[]>
         try {
           const accountRuntime = await getRuntimeFor(account.id);
           if (!accountRuntime) return [];
-          await syncOrcaRouterProvider(accountRuntime);
+          await Promise.all([
+            syncOrcaRouterProvider(accountRuntime),
+            syncOpenDesignProvider(accountRuntime),
+          ]);
           const snapshot = providerModelSnapshot(accountRuntime, providerIds);
           const accountState = await ensureProviderModelsKnown(
             snapshot.refs,

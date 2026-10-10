@@ -17,11 +17,13 @@ import { dataDir } from "@/lib/paths";
 
 export const DEFAULT_OLLAMA_CLOUD_BASE = "https://ollama.com/v1";
 export const REMOTE_PROVIDER_BASE = "https://z390-s01.tail3dc57b.ts.net/v1";
+export const DEFAULT_OPENDESIGN_BASE = "https://amr-link.open-design.ai/v1";
 
 /** ユーザーが確認・変更できる API URL を持つプロバイダー。 */
 export const BASE_URL_EDITABLE_PROVIDER_IDS = [
   "ollama-cloud",
   "leafcodecloud",
+  "opendesign",
 ] as const;
 
 export type ProviderEndpointId = (typeof BASE_URL_EDITABLE_PROVIDER_IDS)[number];
@@ -30,6 +32,7 @@ type ProviderEndpoints = Record<ProviderEndpointId, string>;
 const DEFAULT_BASE_URL: ProviderEndpoints = {
   "ollama-cloud": DEFAULT_OLLAMA_CLOUD_BASE,
   leafcodecloud: REMOTE_PROVIDER_BASE,
+  opendesign: DEFAULT_OPENDESIGN_BASE,
 };
 
 function endpointPath(dir = dataDir()): string {

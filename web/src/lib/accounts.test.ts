@@ -62,6 +62,19 @@ function patchLoose(
   return fn(taskId, patch);
 }
 
+describe("OpenDesign accounts", () => {
+  it("creates an account and recognizes only its stored OpenDesign key", () => {
+    const dir = tempDataDir();
+    const account = createAccount({ label: "OpenDesign", providers: ["opendesign"] });
+    assert.ok(accountHasProvider(account, "opendesign"));
+    const authPath = accountAuthPath(account.id, dir);
+    mkdirSync(accountDir(account.id, dir), { recursive: true });
+    writeFileSync(authPath, JSON.stringify({ opendesign: { type: "api_key", key: "fixture-key" } }), "utf8");
+    assert.deepEqual(accountStoredProviders(account.id, dir), ["opendesign"]);
+    assert.deepEqual(accountCredentialKinds(account.id, dir), { opendesign: "api_key" });
+  });
+});
+
 describe("accounts path helpers", () => {
   it("resolves paths under <agentDir>/accounts/<id>", () => {
     const agentDir = join("C:", "Users", "demo", ".pi", "agent");

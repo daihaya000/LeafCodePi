@@ -26,6 +26,7 @@ export type PiAuthProviderId =
   | "opencode"
   | "opencode-go"
   | "orcarouter"
+  | "opendesign"
   | "leafcodecloud"
   | "typesafe";
 

@@ -9,6 +9,7 @@ import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import {
   DEFAULT_OLLAMA_CLOUD_BASE,
+  DEFAULT_OPENDESIGN_BASE,
   effectiveBaseUrl,
   isEditableBaseUrlProvider,
   readProviderEndpoints,
@@ -38,7 +39,9 @@ describe("provider-endpoints", () => {
     expect(readProviderEndpoints()).toEqual({
       "ollama-cloud": DEFAULT_OLLAMA_CLOUD_BASE,
       leafcodecloud: REMOTE_PROVIDER_BASE,
+      opendesign: DEFAULT_OPENDESIGN_BASE,
     });
+    expect(isEditableBaseUrlProvider("opendesign")).toBe(true);
     expect(isEditableBaseUrlProvider("ollama-cloud")).toBe(true);
     expect(isEditableBaseUrlProvider("anthropic")).toBe(false);
   });
@@ -53,6 +56,8 @@ describe("provider-endpoints", () => {
       "http://localhost:11434/v1",
     );
     expect(effectiveBaseUrl("leafcodecloud")).toBe(REMOTE_PROVIDER_BASE);
+    setProviderBaseUrl("opendesign", "https://custom.example/v1/");
+    expect(effectiveBaseUrl("opendesign")).toBe("https://custom.example/v1");
   });
 
   it("normalizes whitespace and trailing slashes", () => {
@@ -103,6 +108,7 @@ describe("provider-endpoints", () => {
     expect(readProviderEndpoints()).toEqual({
       "ollama-cloud": DEFAULT_OLLAMA_CLOUD_BASE,
       leafcodecloud: REMOTE_PROVIDER_BASE,
+      opendesign: DEFAULT_OPENDESIGN_BASE,
     });
   });
 });

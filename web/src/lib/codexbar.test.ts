@@ -49,6 +49,17 @@ const SAMPLE = {
 };
 
 describe("parseCodexBarSnapshot", () => {
+  it("preserves OpenDesign accounts without inventing upstream usage", () => {
+    const usage = parseCodexBarSnapshot({
+      providers: [],
+      accounts: [{ id: "design", label: "Design", providers: ["opendesign"], configuredProviders: ["opendesign"] }],
+    });
+    expect(usage.accounts?.[0].configuredProviders).toEqual(["opendesign"]);
+    expect(providerLabel("opendesign")).toBe("OpenDesign");
+    const group = groupCodexBarProviders(usage).find((row) => row.id === "opendesign");
+    expect(group?.accountRows[0].configured).toBe(true);
+    expect(group?.provider.usedPercent).toBeNull();
+  });
   it("does not label one account\u0027s telemetry as a multi-account aggregate", () => {
     const usage = parseCodexBarSnapshot({ providers: [
       { codexBarProviderId: "openai-codex", accountId: "a", usedPercent: 10 },

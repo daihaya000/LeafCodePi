@@ -262,6 +262,7 @@ export const HIGHLIGHTED_API_PROVIDER_IDS = new Set([
   "opencode-go",
   "typesafe",
   "orcarouter",
+  "opendesign",
   "experientiallabs",
 ]);
 

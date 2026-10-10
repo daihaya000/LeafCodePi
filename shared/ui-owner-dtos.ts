@@ -12,7 +12,8 @@ export type AccountProviderId =
   | "cursor"
   | "opencode"
   | "opencode-go"
-  | "orcarouter";
+  | "orcarouter"
+  | "opendesign";
 
 export type AccountRecord = {
   id: string;

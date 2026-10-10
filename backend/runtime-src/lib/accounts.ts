@@ -35,6 +35,7 @@ export const ACCOUNT_PROVIDER_IDS: readonly AccountProviderId[] = [
   "opencode",
   "opencode-go",
   "orcarouter",
+  "opendesign",
 ];
 
 /**

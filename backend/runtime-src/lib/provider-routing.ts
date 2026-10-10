@@ -25,6 +25,7 @@ export const ACCOUNT_ROUTING_PROVIDER_IDS: readonly AccountProviderId[] = [
   "opencode",
   "opencode-go",
   "orcarouter",
+  "opendesign",
 ];
 
 export function isAccountRoutingProvider(

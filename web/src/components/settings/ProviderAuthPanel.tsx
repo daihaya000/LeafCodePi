@@ -76,6 +76,7 @@ const FIXED_PROVIDER_ORDER = [
   "meta", // Meta Muse
   "openrouter", // OpenRouter
   "orcarouter", // OrcaRouter
+  "opendesign", // OpenDesign
   "experientiallabs", // Experiential Labs
   "typesafe", // TypeSafe
 ];
@@ -206,7 +207,8 @@ function isAccountProviderId(
     providerId === "cursor" ||
     providerId === "opencode" ||
     providerId === "opencode-go" ||
-    providerId === "orcarouter"
+    providerId === "orcarouter" ||
+    providerId === "opendesign"
   );
 }
 

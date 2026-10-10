@@ -84,6 +84,16 @@ Claude も**アカウントごとに既定ON**で、設定 → モデル → Cla
 - CodexBar は `/v1/dashboard/billing/subscription` と `/v1/dashboard/billing/usage` から利用額・残高を取得
 - モデル ID は `openai/gpt-4o-mini` のようなプロバイダー付き形式です
 
+## OpenDesign
+
+設定 → モデル → OpenDesign でアカウントを追加し、[OpenDesign Cloud の API キー](https://open-design.ai/cloud/api-keys)を登録します。
+
+- プロバイダー ID: `opendesign`
+- エンドポイント: `https://amr-link.open-design.ai/v1`（OpenAI Chat Completions 互換）。API URL の変更は Backend 再起動後に反映
+- モデル一覧は認証済みの `/v1/models` から自動取得。取得失敗時は最後のキャッシュを保持
+- キーはアカウントごとに分離。共有環境変数のキーはアカウントへ流用しない
+- クレジット残高・使用枠の自動取得は未対応。[Cloud コンソール](https://open-design.ai/cloud/dashboard)で確認
+
 ## サブスクリプション認証
 
 設定 → モデル → 「ログイン」からブラウザ OAuth できます。
