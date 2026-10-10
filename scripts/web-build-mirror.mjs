@@ -27,7 +27,7 @@ const HERE = fileURLToPath(import.meta.url);
 const DEFAULT_WEB_DIR = resolve(HERE, "..", "..", "web");
 
 /** Workspace-owned directories must never be synced or pruned. */
-const SKIP_DIRS = new Set([".git", ".next", ".next.prev", "node_modules", "node_modules.prev"]);
+const SKIP_DIRS = new Set([".git", ".next", ".next.prev", ".spa", "node_modules", "node_modules.prev"]);
 
 const SKIP_FILES = new Set(["tsconfig.tsbuildinfo"]);
 
