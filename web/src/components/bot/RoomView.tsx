@@ -222,9 +222,12 @@ export function RoomView({ id, active = true }: { id: string; active?: boolean }
       getJson<{ bots: BotDto[] }>("/api/bots"),
     ])
       .then(([roomResult, botResult]) => {
-        if (!isCurrent() || roomSseVersion !== roomSseVersionRef.current) return;
-        setRoom(roomResult.room);
+        if (!isCurrent()) return;
+        // The member catalog is independent of the versioned Room snapshot.
+        // A faster SSE must not discard the only bootstrap of member metadata.
         setBots(botResult.bots);
+        if (roomSseVersion !== roomSseVersionRef.current) return;
+        setRoom(roomResult.room);
       })
       .catch((reason) => {
         if (isCurrent()) setError(reason instanceof Error ? reason.message : "読み込みに失敗しました");

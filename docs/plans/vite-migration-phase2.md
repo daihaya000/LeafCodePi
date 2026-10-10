@@ -49,9 +49,32 @@ Output: `web/dist-spa/` (ignored). API proxy defaults to `http://127.0.0.1:3010`
 
 ## Remaining P2 acceptance
 
-- Real desktop/mobile browser comparison of visuals, navigation/back/forward/reload and pointer interactions.
-- Actual TaskPanes tab/pane restoration under the SPA adapters, drafts/storage/theme/notifications/shared SSE lifetime across navigation/remounts.
-- Provider OAuth popup/callback/destination checks without real credentials or billed execution.
+- Broader visual/pointer comparison beyond the finite desktop/mobile browser fixture below; pixel-diff and real-device touch coverage remain unclaimed.
+- Notification delivery and additional persistence/remount cases; the fixture below covers actual panes/drafts/storage/theme/shared SSE across navigation and reload.
+- Additional provider-specific OAuth flows beyond the fixture's generic popup/manual relay/SSE completion contract.
 - Exact server-layout metadata parity: SPA currently uses an HTML `LCP` title, browser hostname badge and a generic `webui-auth.json` login path rather than server hostname/display path. These are explicit outstanding parity differences, not verified equivalents.
 - Production artifact/browser canary inspection beyond the fixture; source import conversion/final legacy-framework removal and build-warning/chunk review.
 - The `use client` directives are intentionally retained in reused files and emit ignored-directive warnings during the Vite build; ProtectedApp also exceeds the chunk-size warning threshold. Build success does not claim performance/visual parity.
+
+## Increment 2 — real-browser contracts and race corrections
+
+`npm run test:spa:browser` in `web/` runs `scripts/spa-browser-contract.mjs`. Playwright 1.62.1 is a dev dependency only. Install its Chromium beforehand (`npx --no-install playwright install chromium`), or explicitly select an existing compatible browser using `LEAFCODE_TEST_CHROMIUM`. Evidence defaults to a temporary directory; `LEAFCODE_SPA_EVIDENCE_DIR` selects a private test output directory.
+
+The harness builds both production Vite and an isolated production Next reference, uses ephemeral loopback ports and a finite API/SSE fixture, and blocks browser traffic outside those origins. Next's app layout receives the same controlled settings snapshot. Reference hostname/login display path are normalized to the SPA's current values: this deliberately excludes the outstanding metadata differences above. The reference reuses the current presentation sources (including the Room race fix), not a frozen historical UI archive. Unknown/nonessential owner endpoints return explicit fixture 503 responses; this is not a fully operational SDK/Host simulation.
+
+Verified with Chromium **153.0.8010.12**:
+
+- **18 real-browser cases pass**: 7 routes × desktop1280×900/mobile390×844 direct/reload + history/query/hash + panes/draft/storage/theme/shared SSE + Login + OAuth.
+- All 14 route/viewport pairs match visible control/heading/image text, rounded CSS geometry, colors, font and border radius. There is no horizontal document overflow. 28 internal screenshots are retained for inspection; this is not a pixel-diff assertion or a physical mobile-device test.
+- Actual same-document Link click, browser back/forward and raw History push/replace work; the settings tab follows a changed fragment.
+- Two restored desktop panes remain after navigation/reload, an unsent Home draft survives remounting, localStorage/sessionStorage sentinels and dark theme survive, and exactly one active `/api/bots/events` source remains shared within the tab.
+- Login removes the fragment before exactly one fixture-token POST and preserves destination query/hash. A highlighted, non-account-managed fake provider exercises the actual provider UI: popup, manual callback payload/sessionId and SSE `done` → login-complete status. No real OAuth provider, credentials, SDK call or billed generation is used.
+- **211 Vitest tests in 12 files pass**, including startup races, actual AppShell writers, TaskPanes context/host, shared hub, Login, provider OAuth and Room regressions. SPA typecheck and fresh production builds pass.
+
+Corrections found while exercising these contracts:
+
+1. **Room member catalog race**: when SSE arrived before the initial Room GET, the Room-version guard discarded the independent Bot catalog too. Next/SPA scheduling exposed a 34px header difference and missing avatars. `RoomView.load()` now admits current-id Bot metadata before rejecting the stale Room snapshot. A deferred-GET/SSE test verifies both member availability and retention of the newer Room name.
+2. **Hash observers**: History push/replace notified React's location store but not existing SettingsView hashchange listeners. The adapter now dispatches a HashChangeEvent only when the fragment actually changes, retaining oldURL/newURL. Native and browser tab-selection checks cover the bridge.
+3. **Image placeholder style**: the mobile Next image sets transparent text color for its alt placeholder. The native adapter preserves that default alongside dimensions, loading mode, fill and caller style overrides; a regression test and browser comparison cover it.
+
+Reproducible evidence from the verified run: `%LOCALAPPDATA%/Temp/leafcode-spa-browser-turn2/state.json` (`passed`,18 checks), `run-state.json` (exit0), `next-build.log`, `next-runtime.log`, and internal paired PNGs. Running services and unrelated Backend/Goal Loop/provider-overload differences are untouched. P2 remains in progress until the explicit outstanding acceptance above is resolved.

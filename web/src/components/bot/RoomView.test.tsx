@@ -86,6 +86,20 @@ describe("RoomView loading", () => {
     expect(screen.getByRole("heading", { name: "Updated" })).toBeTruthy();
   });
 
+  it("keeps member metadata when SSE supersedes the initial Room GET", async () => {
+    let resolveRoom!: (value: { room: typeof room }) => void;
+    let resolveBots!: (value: { bots: typeof bot[] }) => void;
+    const roomRequest = new Promise<{ room: typeof room }>(resolve => { resolveRoom = resolve; });
+    const botsRequest = new Promise<{ bots: typeof bot[] }>(resolve => { resolveBots = resolve; });
+    mocks.getJson.mockImplementation((path: string) => path === "/api/bots" ? botsRequest : path === "/api/bots/rooms/room-1" ? roomRequest : Promise.resolve({ skills: [] }));
+    render(<RoomView id="room-1" />);
+    await act(async () => pushSnapshot({ room: { ...room, name: "New SSE Room" }, attention: [] }));
+    await screen.findByRole("heading", { name: "New SSE Room" });
+    await act(async () => { resolveRoom({ room }); resolveBots({ bots: [bot] }); await Promise.all([roomRequest, botsRequest]); });
+    expect(screen.getByRole("heading", { name: "New SSE Room" })).toBeTruthy();
+    expect(screen.queryByRole("heading", { name: "Team" })).toBeNull();
+    expect(screen.getByLabelText("メンバー 1人")).toBeTruthy();
+  });
   it("merges changed room messages and replaces matching optimistic ids", () => {
     const metadata = Object.fromEntries(
       Object.entries({ ...room, name: "Updated" }).filter(([key]) => key !== "messages"),

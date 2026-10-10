@@ -8,7 +8,13 @@ export function installNavigation(): void {
   installed = true;
   for (const method of ["pushState", "replaceState"] as const) {
     const original = window.history[method].bind(window.history);
-    window.history[method] = (data: unknown, unused: string, url?: string | URL | null) => { original(data, unused, url); emit(); };
+    window.history[method] = (data: unknown, unused: string, url?: string | URL | null) => {
+      const oldURL = window.location.href, oldHash = window.location.hash;
+      original(data, unused, url);
+      emit();
+      // Existing SettingsView observes native hashchange, not the router store.
+      if (oldHash !== window.location.hash) window.dispatchEvent(new HashChangeEvent("hashchange", { oldURL, newURL: window.location.href }));
+    };
   }
   window.addEventListener("popstate", emit);
   window.addEventListener("hashchange", emit);

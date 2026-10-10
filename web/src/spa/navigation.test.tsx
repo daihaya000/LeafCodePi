@@ -1,7 +1,7 @@
 // @vitest-environment happy-dom
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { Link } from "./primitives";
+import { Image, Link } from "./primitives";
 import { installNavigation, routeParams, useLocation, useParams, usePathname, useRouter, useSearchParams } from "./navigation";
 vi.mock("next/navigation", async () => import("./navigation"));
 import LoginForm from "../app/login/LoginForm";
@@ -36,6 +36,29 @@ describe("SPA browser navigation", () => {
     window.history.replaceState(null, "", "/");
     const event = new MouseEvent("click", { bubbles: true, cancelable: true, ctrlKey: true, button: 0 });
     screen.getByText("settings").dispatchEvent(event); expect(event.defaultPrevented).toBe(false);
+  });
+  it("notifies existing hash observers for push/replace only when the fragment changes", () => {
+    const observed: HashChangeEvent[] = [];
+    const listener = (event: HashChangeEvent) => observed.push(event);
+    window.addEventListener("hashchange", listener);
+    try {
+      const original = window.location.href;
+      useRouter().push("/settings#models", { scroll: false });
+      useRouter().replace("/settings?q=one#models", { scroll: false });
+      useRouter().replace("/settings?q=one#prompts", { scroll: false });
+      expect(observed).toHaveLength(2);
+      expect(observed[0].oldURL).toBe(original);
+      expect(observed[0].newURL).toBe(`${window.location.origin}/settings#models`);
+      expect(observed[1].newURL).toBe(`${window.location.origin}/settings?q=one#prompts`);
+    } finally { window.removeEventListener("hashchange", listener); }
+  });
+  it("preserves image dimensions and the transparent alt placeholder style", () => {
+    render(<Image src="/icon.svg" alt="icon" width={20} height={20} priority />);
+    const image = screen.getByAltText("icon");
+    expect(image.getAttribute("width")).toBe("20");
+    expect(image.getAttribute("height")).toBe("20");
+    expect(image.getAttribute("loading")).toBe("eager");
+    expect(image.style.color).toBe("transparent");
   });
   it("rejects external and javascript navigation", () => {
     expect(() => useRouter().replace("https://other.test/")).toThrow("this origin");

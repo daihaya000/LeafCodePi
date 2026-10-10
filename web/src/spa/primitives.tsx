@@ -12,7 +12,7 @@ export function Link({ href, children, prefetch: _prefetch, replace, scroll, onC
   }}>{children}</a>;
 }
 export function Image({ fill, priority, unoptimized: _unoptimized, style, ...props }: ImgHTMLAttributes<HTMLImageElement> & { fill?: boolean; priority?: boolean; unoptimized?: boolean }) {
-  return <img {...props} loading={priority ? "eager" : props.loading ?? "lazy"} style={fill ? { position: "absolute", height: "100%", width: "100%", inset: 0, ...style } : style} />;
+  return <img {...props} loading={priority ? "eager" : props.loading ?? "lazy"} style={{ color: "transparent", ...(fill ? { position: "absolute", height: "100%", width: "100%", inset: 0 } : {}), ...style }} />;
 }
 export function dynamic<P extends object>(loader: () => Promise<ComponentType<P> | { default: ComponentType<P> }>, options?: { loading?: ComponentType; ssr?: boolean }) {
   const Component = lazy(async () => { const module = await loader(); return { default: typeof module === "object" && "default" in module ? module.default : module as ComponentType<P> }; });
