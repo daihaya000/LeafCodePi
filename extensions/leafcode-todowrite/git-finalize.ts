@@ -5,19 +5,19 @@ import { Type } from "typebox";
 export const GIT_FINALIZE_NAME = "git_finalize";
 const text = Type.String({ minLength: 1, maxLength: 2_000 });
 const paths = Type.Array(text, { minItems: 1, maxItems: 100 });
-const operation = (name: string, fields = {}) => Type.Object({ operation: Type.Literal(name), ...fields }, { additionalProperties: false });
 const safeAgent = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/;
-export const GitFinalizeParams = Type.Union([
-  operation("status"),
-  operation("diff", { staged: Type.Optional(Type.Boolean()), paths: Type.Optional(paths) }),
-  operation("log", { limit: Type.Optional(Type.Integer({ minimum: 1, maximum: 100 })) }),
-  operation("show", { revision: Type.Optional(text) }),
-  operation("add", { paths }),
-  operation("commit", { message: text, agent: Type.Optional(Type.String({ minLength: 1, maxLength: 128, pattern: "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$" })) }),
-  operation("push", { remote: Type.Optional(text), branch: Type.Optional(text) }),
-  operation("fetch", { remote: Type.Optional(text) }),
-  operation("rev_parse", { revision: Type.Optional(text) }),
-]);
+// OpenAI function tools require an object parameters root; keep operation variants out of a top-level union.
+export const GitFinalizeParams = Type.Object({
+  operation: Type.String({ enum: ["status", "diff", "log", "show", "add", "commit", "push", "fetch", "rev_parse"] }),
+  staged: Type.Optional(Type.Boolean()),
+  paths: Type.Optional(paths),
+  limit: Type.Optional(Type.Integer({ minimum: 1, maximum: 100 })),
+  revision: Type.Optional(text),
+  message: Type.Optional(text),
+  agent: Type.Optional(Type.String({ minLength: 1, maxLength: 128, pattern: "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$" })),
+  remote: Type.Optional(text),
+  branch: Type.Optional(text),
+}, { additionalProperties: false });
 
 const OPERATION_FIELDS: Record<string, readonly string[]> = {
   status: [], diff: ["staged", "paths"], log: ["limit"], show: ["revision"], add: ["paths"],

@@ -2,9 +2,17 @@ import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
-import { buildGitFinalizeArgs, gitFinalizeCommand, validateGitFinalizeAddPaths } from "./git-finalize.ts";
+import { buildGitFinalizeArgs, gitFinalizeCommand, GitFinalizeParams, validateGitFinalizeAddPaths } from "./git-finalize.ts";
 
 describe("restricted Git finalization", () => {
+  it("exposes a root object schema for function tools", () => {
+    expect(GitFinalizeParams).toMatchObject({
+      type: "object",
+      additionalProperties: false,
+      properties: { operation: { type: "string", enum: ["status", "diff", "log", "show", "add", "commit", "push", "fetch", "rev_parse"] } },
+    });
+    expect(Object.hasOwn(GitFinalizeParams, "anyOf")).toBe(false);
+  });
   it.each([
     { operation: "status" }, { operation: "diff", staged: true, paths: ["src/a.ts"] },
     { operation: "log", limit: 3 }, { operation: "show", revision: "HEAD~1" },
@@ -16,6 +24,7 @@ describe("restricted Git finalization", () => {
   it.each([
     null, {}, { operation: "__proto__" }, { operation: "merge" }, { operation: "pull" },
     { operation: "status", command: "Remove-Item x" }, { operation: "status", cwd: "/tmp" },
+    { operation: "status", message: "unexpected" },
     { operation: "push", args: ["--force"] }, { operation: "push", remote: "https://example.com/repo" },
     { operation: "push", branch: "--force" }, { operation: "fetch", remote: "-f" },
     { operation: "show", revision: "--output=file" }, { operation: "show", revision: "HEAD; rm x" },
