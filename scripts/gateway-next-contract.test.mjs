@@ -112,7 +112,7 @@ test("production Next versus isolated gateway: complete API failure/method matri
     for (let i = 0; i < 300; i++) { assert.equal(child.exitCode, null, output); try { if ((await fetch(base + "/api/health", { signal: AbortSignal.timeout(1000) })).status === 200) return base; } catch {} await delay(20); }
     throw new Error(output);
   }
-  const nextArgs = [cli, "start", "-p", String(nextPort), "-H", "127.0.0.1", mirror], gatewayArgs = [join(candidate, "gateway/dist/gateway/src/index.mjs")];
+  const nextArgs = [cli, "start", "-p", String(nextPort), "-H", "127.0.0.1", mirror], gatewayArgs = [join(candidate, "gateway/dist/gateway/src/index.mjs"), "--api-only"];
   let next = await launch(nextArgs, mirror, nextPort), gateway = await launch(gatewayArgs, join(candidate, "gateway"), gatewayPort);
   let comparisons = 0; const matrixFailures = []; let collecting = true;
   async function compare(path, method, { anonymous = false, body, headers = {}, raw = false } = {}) {

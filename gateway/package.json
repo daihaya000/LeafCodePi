@@ -6,6 +6,7 @@
   "scripts": {
     "build": "node ../scripts/build-gateway.mjs",
     "start": "node dist/gateway/src/index.mjs",
+    "start:api": "node dist/gateway/src/index.mjs --api-only",
     "test": "node --test src/*.test.mjs"
   },
   "dependencies": { "undici": "8.10.2" },

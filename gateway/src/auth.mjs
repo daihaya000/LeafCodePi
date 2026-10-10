@@ -2,7 +2,7 @@ import { expectedWebUiToken, isPublicWebUiPath, tokensMatch, WEBUI_AUTH_COOKIE, 
 import { requestCookie, setResponseCookie } from "../../shared/http-cookie.mjs";
 
 /** Framework-free equivalent of the current Web proxy, including its authorization ordering. */
-export function webAuthGate(request) {
+export function webAuthGate(request, { publicAsset = false } = {}) {
   const url = new URL(request.url), pathname = url.pathname;
   if (!pathname.startsWith("/api/") && url.searchParams.has("token")) {
     url.searchParams.delete("token");
@@ -16,7 +16,7 @@ export function webAuthGate(request) {
     if (destination.pathname === "/login") destination.pathname = "/";
     return { response: setResponseCookie(new Response(null, { status: 307, headers: { location: destination.href } }), WEBUI_AUTH_COOKIE, cookie, WEBUI_AUTH_COOKIE_OPTIONS) };
   }
-  if (isPublicWebUiPath(pathname)) return {};
+  if (isPublicWebUiPath(pathname) || publicAsset && ["GET", "HEAD"].includes(request.method)) return {};
   const auth = request.headers.get("authorization");
   const given = auth?.startsWith("Bearer ") ? auth.slice(7).trim() : cookie;
   if (given && tokensMatch(given, expected)) {

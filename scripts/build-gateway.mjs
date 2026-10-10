@@ -10,7 +10,7 @@ import { checkNextTransportBoundary } from "./check-next-transport-boundary.mjs"
 const ROOT = resolve(fileURLToPath(new URL("../", import.meta.url)));
 const norm = value => value.replaceAll("\\", "/");
 const emitted = file => file.replace(/\.tsx?$/, ".mjs");
-const externals = new Set(["undici", "node:http", "node:stream", "node:events", "node:crypto", "node:zlib", "node:fs", "node:os", "node:path"]);
+const externals = new Set(["undici", "node:http", "node:stream", "node:events", "node:crypto", "node:zlib", "node:fs", "node:fs/promises", "node:os", "node:path"]);
 
 export function gatewayGraph(root = ROOT, ts = createRequire(resolve(ROOT, "web/package.json"))("typescript")) {
   const actual = collectRoutes(root);
@@ -31,7 +31,12 @@ export function gatewayGraph(root = ROOT, ts = createRequire(resolve(ROOT, "web/
   }
   function target(file, specifier) {
     if (externals.has(specifier)) {
-      if (file.startsWith("gateway/")) assert.ok(["node:http", "node:stream", "node:events"].includes(specifier), `Unexpected gateway OS capability: ${specifier}`);
+      if (file.startsWith("gateway/")) {
+        // The static snapshot reader alone may read/hash a configured build directory.
+        // Keep the entry/router/API relays unable to acquire filesystem/process capabilities.
+        const capabilities = file === "gateway/src/static.mjs" ? ["node:fs/promises", "node:fs", "node:crypto", "node:path"] : ["node:http", "node:stream", "node:events"];
+        assert.ok(capabilities.includes(specifier), `Unexpected gateway OS capability: ${specifier}`);
+      }
       return null;
     }
     assert.ok(specifier.startsWith(".") || specifier.startsWith("@/") || specifier.startsWith("@shared/"), `${file}: forbidden dependency ${specifier}`);

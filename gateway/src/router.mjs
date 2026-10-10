@@ -24,12 +24,14 @@ export function compileRoutes(records) {
   });
 }
 
-export function createDispatcher(records, { gate = webAuthGate } = {}) {
+export function createDispatcher(records, { gate = webAuthGate, staticHandler } = {}) {
   const routes = compileRoutes(records), loaded = new Map();
   return async (request, target) => {
     const url = new URL(request.url);
     // Raw target matters: WHATWG URL parsing has already replaced backslashes/dot segments.
     const parts = (target ?? url.pathname + url.search).split("?");
+    const apiTarget = /^\/api(?:\/|$)/.test(parts[0]);
+    if (staticHandler && (!apiTarget && !staticHandler.validateTarget(parts[0]) || apiTarget && !/^\/api(?:\/|$)/.test(url.pathname))) return Response.json({ error: "Bad Request" }, { status: 400, headers: { "cache-control": "no-store", "x-content-type-options": "nosniff" } });
     let destination;
     if (/\\|\/\//.test(parts[0])) {
       // Next normalizes separators first and preserves its separate trailing-slash redirect.
@@ -43,19 +45,23 @@ export function createDispatcher(records, { gate = webAuthGate } = {}) {
     // Next redirects before its proxy/auth gate, without route Vary or refreshed cookies.
     if (destination !== undefined) {
       const body = new TextEncoder().encode(destination);
-      return new Response(body, { status: 308, headers: { location: destination, refresh: `0;url=${destination}`, "content-length": String(body.byteLength) } });
+      return new Response(body, { status: 308, headers: { location: destination, refresh: `0;url=${destination}`, "content-length": String(body.byteLength), ...(staticHandler && !apiTarget ? { "cache-control": "no-store" } : {}) } });
     }
-    const auth = gate(request);
-    if (auth.response) return auth.response;
-    const respond = response => {
+    const auth = gate(request, { publicAsset: !apiTarget && !url.pathname.startsWith("/api/") && url.pathname !== "/api" && staticHandler?.isPublicAsset(url.pathname) === true });
+    if (auth.response) {
+      if (staticHandler && !apiTarget) auth.response.headers.set("cache-control", "no-store");
+      return auth.response;
+    }
+    const respond = (response, legacyVary = true) => {
       // Cache-key compatibility only; no Next code or RSC handling is part of the gateway.
       const vary = response.headers.get("vary");
-      response.headers.set("vary", "rsc, next-router-state-tree, next-router-prefetch, next-router-segment-prefetch" + (vary ? `, ${vary}` : ""));
+      if (legacyVary) response.headers.set("vary", "rsc, next-router-state-tree, next-router-prefetch, next-router-segment-prefetch" + (vary ? `, ${vary}` : ""));
       return refreshAuthCookie(response, auth);
     };
     // Display bootstrap is not an API/business route; retain the frozen P0 API inventory.
     if (url.pathname === "/webui-bootstrap.json") return respond(webUiPresentationResponse(request.method));
-    if (!url.pathname.startsWith("/api/")) return respond(Response.json({ error: "Gateway serves API only during Phase1" }, { status: 404 }));
+    if (url.pathname === "/api") return respond(Response.json({ error: "Not Found" }, { status: 404 }));
+    if (!url.pathname.startsWith("/api/")) return staticHandler ? respond(await staticHandler.handle(request), false) : respond(Response.json({ error: "Gateway serves API only during Phase1" }, { status: 404 }));
     const route = routes.find(record => record.match.test(url.pathname));
     if (!route) return respond(Response.json({ error: "Not Found" }, { status: 404 }));
     const match = route.match.exec(url.pathname), params = {};
