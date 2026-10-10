@@ -2,7 +2,7 @@ import { assertConfigurationOwner } from "@backend-core/configuration-command.mj
 import { getTaskDetailBounded } from "./pi/get-task-detail-bounded";
 import type { UiMessage } from "./types";
 import { getTask } from "./store";
-import { pageTaskMessages } from "@shared/task-history.mjs";
+import { pageTaskMessages } from "./task-history";
 import { assertSessionLoadAllowed } from "@backend-core/session-memory-guard.mjs";
 import { readSessionHistoryPage, type SessionHistoryPage } from "./session-history-page";
 export type TaskTranscriptRead = { ok: true; messages: UiMessage[] } | { ok: false; status: number; body: Record<string, unknown> };
@@ -22,8 +22,8 @@ export async function readTaskTranscriptPage(id:string,before:string|null,limit:
  assertConfigurationOwner();
  signal?.throwIfAborted();
  const task=getTask(id);if(!task)return{ok:false,status:404,body:{error:"タスクが見つかりません"}};
- const live=(globalThis as typeof globalThis&{__leafcodePiHarness?:{live:Map<string,{leaseLost?:boolean}>}}).__leafcodePiHarness?.live.get(id);
- if(task.status!=="archived"&&live&&!live.leaseLost){const read=await readTaskTranscript(id);signal?.throwIfAborted();return read.ok?pageTaskMessages(read.messages,before,limit):read;}
+ const live=(globalThis as typeof globalThis&{__leafcodePiHarness?:{live:Map<string,{leaseLost?:boolean;session?:{sessionManager?:{memorySlimmed?:boolean}}}>}}).__leafcodePiHarness?.live.get(id);
+ if(task.status!=="archived"&&live&&!live.leaseLost&&!live.session?.sessionManager?.memorySlimmed){const read=await readTaskTranscript(id);signal?.throwIfAborted();return read.ok?pageTaskMessages(read.messages,before,limit):read;}
  if(!task.sessionFile)return pageTaskMessages([],before,limit);
  try{return await readSessionHistoryPage(task.sessionFile,before,limit,signal);}
  catch(error){

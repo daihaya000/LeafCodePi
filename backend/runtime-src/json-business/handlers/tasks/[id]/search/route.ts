@@ -2,6 +2,10 @@ import { type ConfigurationRequest as NextRequest, ConfigurationResponse as Next
 import { jsonError } from "@/lib/pi/harness";
 import { isHangRetryUserMessage } from "@/lib/hang-retry";
 import { readTaskTranscript } from "@/lib/task-transcript";
+import { statSync } from "node:fs";
+import { getTask } from "@/lib/store";
+import { MAX_SESSION_LOAD_BYTES } from "@backend-core/session-memory-guard.mjs";
+import { searchSessionHistory } from "@/lib/session-history-page";
 import { MAX_SEARCH_QUERY_CHARS } from "@shared/text-search.mjs";
 import { clampSearchHitLimit, searchTaskMessages } from "@shared/task-search.mjs";
 
@@ -32,6 +36,10 @@ export async function GET(
       return NextResponse.json({ error: "検索語が長すぎます" }, { status: 400 });
     }
     const limit = clampSearchHitLimit(req.nextUrl.searchParams.get("limit"));
+    const file = getTask(id)?.sessionFile;
+    if (file && statSync(file).size > MAX_SESSION_LOAD_BYTES) {
+      return NextResponse.json(await searchSessionHistory(file, query, limit));
+    }
     const transcript = await readTaskTranscript(id, { maxAgeMs: TRANSCRIPT_REUSE_MS });
     if (!transcript.ok) return NextResponse.json(transcript.body, { status: transcript.status });
     return NextResponse.json(

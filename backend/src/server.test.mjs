@@ -382,6 +382,15 @@ test("task detail pages history before HTTP serialization only when requested", 
   t.diagnostic(`HTTP detail bytes: full=${Buffer.byteLength(full)}, page=${Buffer.byteLength(paged)}`);
 });
 
+test("task detail preserves earlier history when the reader returns a bounded original window", async (t) => {
+  const detail = { id: "task-1", messages: [{ id: "original-bookmark", role: "assistant", parts: [] }], messageHistory: { hasMore: true, nextCursor: "original-bookmark" } };
+  const { snapshotsUrl, headers } = await fixture(t, { readTaskDetail: async () => detail });
+  const url = snapshotsUrl.replace("pending-snapshots", "tasks") + "/task-1/detail?messages=page";
+  const response = await request(url, { headers });
+  assert.equal(response.status, 200);
+  assert.deepEqual((await response.json()).detail.messageHistory, detail.messageHistory);
+});
+
 test("rejects invalid pagination inputs before executing the detail reader", async (t) => {
   let calls = 0;
   const { snapshotsUrl, headers } = await fixture(t, { readTaskDetail: async () => {

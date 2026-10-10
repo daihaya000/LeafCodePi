@@ -1374,10 +1374,12 @@ export function createBackendServer({
           sendJson(response, 404, { error: "Not found", code: BACKEND_ERROR_CODES.notFound });
           return;
         }
-        sendJson(response, 200, { detail: paged
-          ? { ...detail, ...pageTaskMessages(Array.isArray(detail.messages) ? detail.messages : [], before,
-            limitParam === null ? undefined : clampTaskMessagePageSize(Number(limitParam))) }
-          : detail });
+        const page = paged ? pageTaskMessages(Array.isArray(detail.messages) ? detail.messages : [], before,
+          limitParam === null ? undefined : clampTaskMessagePageSize(Number(limitParam))) : null;
+        if (page && !before && detail.messageHistory?.hasMore) {
+          page.messageHistory = { hasMore: true, nextCursor: page.messages[0]?.id ?? null };
+        }
+        sendJson(response, 200, { detail: page ? { ...detail, ...page } : detail });
       } catch (error) {
         if (error instanceof InvalidTaskMessageCursorError) {
           sendJson(response, 409, { error: "Invalid history cursor", code: BACKEND_ERROR_CODES.badRequest });

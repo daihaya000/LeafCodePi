@@ -3,6 +3,7 @@ import { isCrossOriginRequest } from "@/lib/same-origin";
 import { getTask } from "@/lib/store";
 import { isBookmarkTaskId, storedTaskIds, taskBookmarks } from "@/lib/task-bookmarks";
 import { readTaskTranscript } from "@/lib/task-transcript";
+import { readSessionHistoryMessageIds } from "@/lib/session-history-page";
 
 import { assertConfigurationOwner } from "@backend-core/configuration-command.mjs";
 
@@ -47,9 +48,15 @@ export async function GET(
     return NextResponse.json({ bookmarks });
   }
   try {
-    const transcript = await readTaskTranscript(id);
-    if (!transcript.ok) return NextResponse.json({ bookmarks });
-    const present = new Set(transcript.messages.map((message) => message.id));
+    const file = getTask(id)?.sessionFile;
+    let present: Set<string>;
+    if (file) {
+      present = await readSessionHistoryMessageIds(file, bookmarks.map((bookmark) => bookmark.messageId));
+    } else {
+      const transcript = await readTaskTranscript(id);
+      if (!transcript.ok) return NextResponse.json({ bookmarks });
+      present = new Set(transcript.messages.map((message) => message.id));
+    }
     return NextResponse.json({
       bookmarks,
       missing: bookmarks.filter((bookmark) => !present.has(bookmark.messageId)).map((bookmark) => bookmark.messageId),

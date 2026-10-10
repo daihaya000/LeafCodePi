@@ -2,6 +2,7 @@ import {
   detailTimeoutError, isDetailTimeoutError, TASK_DETAIL_OFFLINE_TIMEOUT_MS, TASK_DETAIL_TIMEOUT_MS,
 } from "@backend-core/task-detail.mjs";
 import { getTaskDetail } from "../task-lifecycle";
+import { restoreOriginalUiHistory } from "./original-ui-history";
 
 // The budgets and the timeout contract live in backend core.
 const DEFAULT_TIMEOUT_MS = TASK_DETAIL_TIMEOUT_MS;
@@ -45,15 +46,15 @@ export function getTaskDetailBounded(
 
   return withTimeout(
     Object.keys(detailOptions).length === 0
-      ? getTaskDetail(id)
-      : getTaskDetail(id, detailOptions),
+      ? getTaskDetail(id).then((detail) => restoreOriginalUiHistory(detail))
+      : getTaskDetail(id, detailOptions).then((detail) => restoreOriginalUiHistory(detail, detailOptions.includeMessages !== false)),
     timeoutMs,
     "タスク詳細の取得がタイムアウトしました",
   ).catch((error) => {
     // The timeout flag rule lives in backend core.
     if (isDetailTimeoutError(error)) {
       return withTimeout(
-        getTaskDetail(id, { ...detailOptions, offline: true }),
+        getTaskDetail(id, { ...detailOptions, offline: true }).then((detail) => restoreOriginalUiHistory(detail, detailOptions.includeMessages !== false)),
         offlineTimeoutMs,
         "オフラインのタスク詳細取得がタイムアウトしました",
       ).catch((offlineError) => {

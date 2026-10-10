@@ -283,6 +283,7 @@ export function openSessionManagerSafely(sourceFile, openSession, {
     protectSlimManager(manager, sourceFile, omittedIds);
     manager.sessionFile = sourceFile;
     manager.memorySlimmed = true;
+    manager.memoryOmittedEntryIds = omittedIds;
     manager.memorySlimStats = { sourceBytes: Number(before.size), retainedImageChars: retained, loadedBytes, compressionLevel };
     return manager;
   } finally {

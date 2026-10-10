@@ -1,6 +1,8 @@
 import { readIndexedSession, type SessionIndexRow } from "@backend-core/session-log-index.mjs";
 import { InvalidTaskMessageCursorError, TASK_MESSAGE_PAGE_SIZE } from "@shared/task-history.mjs";
 import { stripImageDataFromMessages } from "@shared/task-history-content.mjs";
+import { clampSearchHitLimit, searchTaskMessages } from "@shared/task-search.mjs";
+import { isHangRetryUserMessage } from "./hang-retry";
 import {
   goalLoopUiPrompt, isAgentSwitchMarker, isGoalLoopTurnMarker, isIntercomMessageMarker,
   piRawMessageProjectsToUi, projectPiMessages,
@@ -15,6 +17,41 @@ type Metadata = {
   resumeReset: boolean; startedAt: number | null; throughputAt: number | null;
 };
 export type SessionHistoryPage = { messages: UiMessage[]; messageHistory: { hasMore: boolean; nextCursor: string | null } };
+/** Bookmark verification needs only the canonical branch index, never a full/slim transcript. */
+export async function readSessionHistoryMessageIds(path: string, requested: readonly string[]): Promise<Set<string>> {
+  const wanted = new Set(requested);
+  const { selection } = await readIndexedSession(path, {
+    kind: "ui-history-v2", classify,
+    select(branch: readonly SessionIndexRow<Metadata>[]) {
+      return { ids: [], present: branch.filter((row) => row.role !== null && wanted.has(row.id)).map((row) => row.id) };
+    },
+  });
+  return new Set(selection.present);
+}
+/** Search scalar snippets on the original branch without retaining full message bodies. */
+export async function searchSessionHistory(path: string, query: string, limit: number) {
+  const empty = searchTaskMessages([], query), cap = clampSearchHitLimit(limit);
+  const { selection } = await readIndexedSession(path, {
+    kind: `ui-search-v1:${JSON.stringify(query)}`,
+    classify(entry: any) {
+      const raw = rawMessage(entry);
+      const messages = raw ? projectPiMessages([raw]).map((message) => ({ ...message, id: entry.id })) : [];
+      const hit = searchTaskMessages(messages, query, { limit: 1, isHidden: isHangRetryUserMessage }).hits[0];
+      return { hit: hit ? JSON.stringify(hit) : null };
+    },
+    select(branch) {
+      const hits: ReturnType<typeof searchTaskMessages>["hits"] = [];
+      let total = 0;
+      for (const row of branch) if (row.hit !== null) {
+        total++;
+        hits.push(JSON.parse(row.hit));
+        if (hits.length > cap) hits.shift();
+      }
+      return { ids: [], total, hits };
+    },
+  });
+  return { terms: empty.terms, total: selection.total, truncated: selection.total > cap, hits: selection.hits };
+}
 function rawMessage(entry: any): any {
   if (entry.type === "message") return entry.message;
   const timestamp = Date.parse(entry.timestamp);
@@ -48,9 +85,11 @@ export async function readSessionHistoryPage(path: string, before: string | null
       if (end < 0) throw new InvalidTaskMessageCursorError();
       // Before the first visible row there is no page and no marker state to hydrate.
       if (end === 0) return { ids: [], ordinals: new Map<string, number>(), wanted: [], hasMore: false, nextCursor: null };
-      let start = Math.max(0, end - (Number.isSafeInteger(limit) && limit > 0 ? limit : TASK_MESSAGE_PAGE_SIZE));
+      const safeLimit = Number.isSafeInteger(limit) && limit > 0 ? limit : TASK_MESSAGE_PAGE_SIZE;
+      let start = Math.max(0, end - safeLimit);
       if (start > 0 && visible[start]?.role !== "user") {
-        for (let at = start - 1; at >= 0; at--) if (visible[at].role === "user") { start = at; break; }
+        // Match live paging: long assistant/tool turns must remain pageable.
+        for (let at = start - 1; at >= Math.max(0, end - safeLimit * 2); at--) if (visible[at].role === "user") { start = at; break; }
       }
       const page = visible.slice(start, end), wanted = new Set(page.map((row) => row.id));
       const first = page.length ? branch.findIndex((row) => row.id === page[0].id) : branch.length;

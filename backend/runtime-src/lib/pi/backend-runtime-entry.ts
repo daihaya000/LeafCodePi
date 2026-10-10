@@ -19,8 +19,12 @@ export { promptTask, respondToPermissionPrompt, respondToQuestionPrompt } from "
 export { goalLoopCommand, goalLoopState, activeGoalLoopTaskIds } from "../task-goal-loop";
 export { setTaskModel, setTaskThinkingLevel, setTaskAgent } from "../task-execution-settings";
 export { getTaskDetail, archiveTask, destroyTask, abortTaskIncludingColdGoalLoop, stopBotCodeTask } from "../task-lifecycle";
+import { getTaskDetailBounded } from "./get-task-detail-bounded";
+/** Internal detail reads share the original, bounded UI history path. */
+export function getTaskDetailReadOnly(id: string, options: NonNullable<Parameters<typeof getTaskDetailBounded>[1]> = {}) {
+  return getTaskDetailBounded(id, { ...options, readOnly: true });
+}
 export {
-  getTaskDetailReadOnly,
   abortTask,
   // Abort must reproduce both the Goal Loop (cold) path and the Bot-owned outbox path.
   listPendingAttention,

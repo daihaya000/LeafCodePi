@@ -13,6 +13,7 @@ import type { UiMessage } from "@/lib/types";
 import { VersionedTimingMap } from "@/lib/pi/versioned-timing-map";
 import { applyLiveNestedCalls, nestedCallsStoreFor } from "@/lib/pi/nested-live-calls";
 import { VersionedThroughputMap } from "@/lib/pi/versioned-throughput-map";
+import { markColdMessageWindow } from "../task-history";
 
 type PiModule = typeof import("@earendil-works/pi-coding-agent");
 type AgentSession = Awaited<
@@ -351,6 +352,41 @@ export function applyMessageAgentIds(
   return result ?? messages;
 }
 
+const omittedUiIdsCache = new WeakMap<object, { omitted: ReadonlySet<string>; ids: Set<string> }>();
+const unalteredUiCache = new WeakMap<UiMessage[], { ids: ReadonlySet<string>; messages: UiMessage[] }>();
+
+/** Suppress load-only placeholders, including assistant rows with shortened tool results.
+ * Original rows are loaded by bounded history pages, not rehydrated into the model manager. */
+function excludeMemoryOmissions(session: AgentSession, messages: UiMessage[]): UiMessage[] {
+  const manager = session.sessionManager as AgentSession["sessionManager"] & { memoryOmittedEntryIds?: ReadonlySet<string> };
+  const omitted = manager.memoryOmittedEntryIds;
+  if (!omitted?.size) return messages;
+  let cached = omittedUiIdsCache.get(manager);
+  if (cached?.omitted !== omitted) {
+    const ids = new Set<string>(), callOwners = new Map<string, string>();
+    for (const entry of manager.getBranch()) {
+      if (omitted.has(entry.id)) ids.add(entry.id);
+      if (entry.type !== "message") continue;
+      if (entry.message.role === "assistant") {
+        for (const part of entry.message.content ?? []) if (part.type === "toolCall") callOwners.set(part.id, entry.id);
+      } else if (entry.message.role === "toolResult" && omitted.has(entry.id)) {
+        const owner = callOwners.get(entry.message.toolCallId);
+        if (owner) ids.add(owner);
+      }
+    }
+    cached = { omitted, ids };
+    omittedUiIdsCache.set(manager, cached);
+  }
+  if (cached.ids.size === 0) return messages;
+  let result = unalteredUiCache.get(messages);
+  if (result?.ids !== cached.ids) {
+    result = { ids: cached.ids, messages: messages.filter((message) => !cached.ids.has(message.id)) };
+    unalteredUiCache.set(messages, result);
+  }
+  markColdMessageWindow(result.messages, true);
+  return result.messages;
+}
+
 export function snapshotMessages(
   session: AgentSession,
   throughputByStartedAt?: Map<number, ThroughputTiming>,
@@ -617,7 +653,7 @@ export function snapshotMessages(
     projected = applyMessageAccountIds(projected, accountContext);
     projected = applyMessageAgentIds(projected, accountContext);
   }
-  return projected;
+  return excludeMemoryOmissions(session, projected);
 }
 
 type ToolOutputPatch = {

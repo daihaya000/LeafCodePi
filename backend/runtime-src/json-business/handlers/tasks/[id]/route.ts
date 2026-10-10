@@ -4,7 +4,7 @@ import { archiveTask, destroyTask, restoreTask } from "../../../../lib/task-life
 import { jsonError } from "@/lib/pi/harness";
 import { getTaskDetailBounded } from "../../../../lib/pi/get-task-detail-bounded";
 import { readHistoryPageSize } from "../../../../lib/pi/history-page-size";
-import { pageTaskMessages } from "@shared/task-history.mjs";
+import { pageTaskMessages } from "../../../../lib/task-history";
 import { etagJsonResponse } from "@/lib/etag-json";
 type Context = { params: Promise<{ id: string }> };
 export async function GET(req: NextRequest, { params }: Context) {

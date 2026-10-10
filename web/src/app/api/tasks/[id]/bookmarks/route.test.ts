@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { NextRequest } from "next/server";
@@ -81,6 +81,22 @@ describe("/api/tasks/[id]/bookmarks", () => {
     mocks.readTaskTranscript.mockClear();
     const plain = await (await GET(new NextRequest(url()), context())).json();
     expect(plain).not.toHaveProperty("missing");
+    expect(mocks.readTaskTranscript).not.toHaveBeenCalled();
+  });
+
+  it("verifies older bookmarks against the original branch instead of a bounded live page", async () => {
+    const file = join(dataDir, "original.jsonl");
+    writeFileSync(file, [
+      { type: "session", version: 3, id: "s", cwd: dataDir },
+      { type: "message", id: "kept", parentId: null, message: { role: "assistant", timestamp: 1, content: [{ type: "text", text: "original decision" }] } },
+      { type: "message", id: "current", parentId: "kept", message: { role: "user", timestamp: 2, content: "continue" } },
+    ].map((row) => JSON.stringify(row)).join("\n") + "\n");
+    mocks.getTask.mockReturnValue({ id: TASK, sessionFile: file });
+    await PUT(put(bookmark("kept")), context());
+    await PUT(put(bookmark("gone")), context());
+    mocks.readTaskTranscript.mockResolvedValue({ ok: true, messages: [{ id: "current" }] });
+    const verified = await (await GET(new NextRequest(url("?verify=1")), context())).json();
+    expect(verified.missing).toEqual(["gone"]);
     expect(mocks.readTaskTranscript).not.toHaveBeenCalled();
   });
 
