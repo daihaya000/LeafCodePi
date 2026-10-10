@@ -256,7 +256,7 @@ new visible project panes should go through the supervisor.
 | Action | Behavior | Use When |
 |--------|----------|----------|
 | `send` | Fire-and-forget; infers the sole pending ask as its reply | You don't need a response |
-| `ask` | Blocks until reply (10 min default, configurable with `PI_INTERCOM_ASK_TIMEOUT_MS`) | You need an answer to continue |
+| `ask` | Blocks until reply (60s default; per-call `timeoutMs` or `PI_INTERCOM_ASK_TIMEOUT_MS`) | You need an answer to continue |
 | `reply` | Responds to the active or pending inbound ask | You were asked something and need to answer naturally |
 | `pending` | Lists unresolved inbound asks | You need to see who is waiting before replying |
 | `list` | Returns all sessions with live status | You need to discover targets or choose an idle peer |
@@ -277,7 +277,7 @@ Ask the user before opening another visible surface manually.
 
 - **Connected targets only**: `ask` fails immediately when the target is not in the live intercom roster. Use `list` before asking when liveness is uncertain; use `send` for non-blocking mailbox delivery.
 - **Idle recipients**: The default `inboundTrigger: "replies"` starts a turn for explicit asks as well as replies; ordinary sends do not wake idle peers. `"never"` still disables automatic turns, so an ask to such a peer needs manual intervention.
-- **Configurable timeout**: If no reply arrives before the shared ask timeout, the ask fails. The default is 10 minutes; set `PI_INTERCOM_ASK_TIMEOUT_MS` to a positive millisecond value to change it.
+- **Bounded wait**: Public asks default to 60 seconds. Set `timeoutMs` per call (1–600000ms) or `PI_INTERCOM_ASK_TIMEOUT_MS` to override it. Supervisor requests retain their 10-minute default. Progress reports show elapsed time and delivery state; target disconnects fail promptly. Timeout releases the wait, not delivered work. Do not automatically retry; use `send` for notifications.
 - **One at a time**: Cannot have multiple pending asks from the same session
 - **Cannot self-target**: A session cannot ask itself, including through disconnected-mailbox remapping
 
@@ -291,7 +291,7 @@ if (result.isError && result.content[0].text.includes("Already waiting")) {
 
 ### `send` Behavior
 
-- **No timeout**: Message is delivered or fails immediately
+- **Bounded transport wait**: Returns after delivery acknowledgement or a transport deadline, not after the recipient finishes work. Tool cancellation releases the wait; delivery may already have happened.
 - **Sole pending ask inference**: If the destination has exactly one pending inbound ask, `send` attaches its `replyTo` and reports `Reply sent to <target> (inferred from pending ask)`
 - **Ambiguity stays unthreaded**: Zero or multiple matching asks leave the send as an ordinary message
 - **Confirmation dialogs**: If `confirmSend: true` in config, interactive sessions confirm ordinary and inferred sends
@@ -371,8 +371,8 @@ Replies to recently disconnected explicitly named senders can be queued by the b
 **Ask timeout**
 ```typescript
 // The ask will reject with a timeout error
-// Default: 10 minutes
-// Override: set PI_INTERCOM_ASK_TIMEOUT_MS to a positive millisecond value
+// Public ask default: 60 seconds (supervisor requests: 10 minutes)
+// Override: timeoutMs per ask, or PI_INTERCOM_ASK_TIMEOUT_MS
 // For longer tasks, use send + follow-up ask pattern
 ```
 

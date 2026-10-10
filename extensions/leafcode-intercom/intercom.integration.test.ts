@@ -1782,6 +1782,9 @@ test("intercom tool renders compact call and result rows", async () => {
   }, { isPartial: false, expanded: true }, renderTheme, { isError: false, expanded: true }));
   assert.match(errorText, /✗ Missing 'to' or 'message' parameter/);
   assert.match(errorText, /Reason: Missing target/);
+  assert.match(renderToText(intercomTool.renderResult({
+    content: [{ type: "text", text: "Waiting for reply (10s / 60s). Delivery state: injected." }], details: {},
+  }, { isPartial: true }, renderTheme, {})), /10s \/ 60s.*injected/);
 });
 
 test("intercom tool result hook marks failed details as errors", async () => {
@@ -3226,6 +3229,187 @@ test("failed replies do not clear broker mutual-ask edges", { concurrency: false
     });
     assert.equal(nextAsk.delivered, true);
   } finally {
+    await cleanup();
+  }
+});
+
+
+
+test("a stale ask failure cannot reject a newer reply waiter", { concurrency: false, timeout: 8000 }, async () => {
+  const { default: extension } = await import("./index.ts");
+  const { orchestrator, cleanup } = await setupClients();
+  const harness = createExtensionHarness("waiter-ownership-worker");
+  const originalSend = IntercomClient.prototype.send;
+  let failOldSend!: () => void;
+  let started = false;
+  const delayedFailure = new Promise<never>((_resolve, reject) => { failOldSend = () => reject(new Error("Old delivery failed")); });
+  IntercomClient.prototype.send = function(to, options) {
+    if (options.text === "held-first") return delayedFailure;
+    return originalSend.call(this, to, options);
+  };
+  try {
+    extension(harness.pi as never);
+    await harness.emitLifecycle("session_start");
+    await waitForSessionByName(orchestrator, "waiter-ownership-worker");
+    const tool = harness.tools.find((item) => item.name === "intercom")!;
+    const first = tool.execute("held-ask", { action: "ask", to: "orchestrator", message: "held-first", timeoutMs: 30 },
+      new AbortController().signal, () => { started = true; }, harness.ctx);
+    await waitForCondition(() => started, 1000);
+    await new Promise((resolve) => setTimeout(resolve, 80));
+    const received = once(orchestrator, "message") as Promise<[SessionInfo, Message]>;
+    const second = tool.execute("new-ask", { action: "ask", to: "orchestrator", message: "second", timeoutMs: 1000 },
+      new AbortController().signal, undefined, harness.ctx);
+    const [from, message] = await Promise.race([received, second.then((result) => { throw new Error(JSON.stringify(result)); })]);
+    failOldSend();
+    assert.match((await first).content[0]?.text ?? "", /Old delivery failed/);
+    assert.equal((await orchestrator.send(from.id, { text: "Second answered", replyTo: message.id })).delivered, true);
+    assert.match((await second).content[0]?.text ?? "", /Second answered/);
+  } finally {
+    failOldSend();
+    IntercomClient.prototype.send = originalSend;
+    await harness.emitLifecycle("session_shutdown");
+    await cleanup();
+  }
+});
+
+test("per-call ask timeout reports progress, releases waiter, and permits a late reply", { concurrency: false, timeout: 5000 }, async () => {
+  const { default: extension } = await import("./index.ts");
+  const { orchestrator, cleanup } = await setupClients();
+  const harness = createExtensionHarness("short-ask-worker");
+  try {
+    extension(harness.pi as never);
+    await harness.emitLifecycle("session_start");
+    await waitForSessionByName(orchestrator, "short-ask-worker");
+    const tool = harness.tools.find((item) => item.name === "intercom")!;
+    const updates: CapturedToolResult[] = [];
+    const received = once(orchestrator, "message") as Promise<[SessionInfo, Message]>;
+    const waiting = tool.execute("short-ask", { action: "ask", to: "orchestrator", message: "Short wait", timeoutMs: 50 },
+      new AbortController().signal, (update: CapturedToolResult) => updates.push(update), harness.ctx);
+    const [from, message] = await Promise.race([received, waiting.then((result) => { throw new Error(`Ask settled before delivery: ${JSON.stringify(result)}`); })]);
+    const result = await waiting;
+    assert.equal(result.details?.error, true);
+    assert.match(result.content[0]?.text ?? "", /within 50ms/);
+    assert.match(updates[0]?.content[0]?.text ?? "", /Waiting for reply.*Message ID.*Delivery state/);
+    const updateCount = updates.length;
+    await new Promise((resolve) => setTimeout(resolve, 80));
+    assert.equal(updates.length, updateCount, "progress timer must stop with the waiter");
+    const lateReply = await orchestrator.send(from.id, { text: "Late answer", replyTo: message.id });
+    assert.equal(lateReply.delivered, true, "wait timeout must not cancel already delivered work");
+    assert.equal((await tool.execute("bad-timeout", { action: "ask", to: "orchestrator", message: "No send", timeoutMs: 0 },
+      new AbortController().signal, undefined, harness.ctx)).details?.error, true);
+  } finally {
+    await harness.emitLifecycle("session_shutdown");
+    await cleanup();
+  }
+});
+
+test("ask exits promptly when its target disconnects", { concurrency: false, timeout: 5000 }, async () => {
+  const { default: extension } = await import("./index.ts");
+  const { orchestrator, cleanup } = await setupClients();
+  const harness = createExtensionHarness("disconnect-wait-worker");
+  try {
+    extension(harness.pi as never);
+    await harness.emitLifecycle("session_start");
+    await waitForSessionByName(orchestrator, "disconnect-wait-worker");
+    const tool = harness.tools.find((item) => item.name === "intercom")!;
+    const received = once(orchestrator, "message");
+    const waiting = tool.execute("ask-disconnect", { action: "ask", to: "orchestrator", message: "Waiting", timeoutMs: 3000 },
+      new AbortController().signal, undefined, harness.ctx);
+    await Promise.race([received, waiting.then((result) => { throw new Error(`Ask settled before delivery: ${JSON.stringify(result)}`); })]);
+    await orchestrator.disconnect();
+    const result = await waiting;
+    assert.equal(result.details?.error, true);
+    assert.match(result.content[0]?.text ?? "", /disconnected while waiting for reply/);
+    assert.ok(result.details?.messageId);
+  } finally {
+    await harness.emitLifecycle("session_shutdown");
+    await cleanup();
+  }
+});
+
+test("cancelled send confirmation cannot later deliver a message", { concurrency: false, timeout: 5000 }, async () => {
+  await withIntercomConfig({ confirmSend: true }, async () => {
+    const { default: extension } = await import("./index.ts");
+    const { orchestrator, cleanup } = await setupClients();
+    let resolveConfirmation: ((confirmed: boolean) => void) | undefined;
+    let delivered = 0;
+    orchestrator.on("message", () => { delivered += 1; });
+    const harness = createExtensionHarness("confirmation-abort-worker", { hasUI: true, ui: {
+      confirm: () => new Promise<boolean>((resolve) => { resolveConfirmation = resolve; }),
+    } });
+    try {
+      extension(harness.pi as never);
+      await harness.emitLifecycle("session_start");
+      await waitForSessionByName(orchestrator, "confirmation-abort-worker");
+      const tool = harness.tools.find((item) => item.name === "intercom")!;
+      const controller = new AbortController();
+      const waiting = tool.execute("send-confirm", { action: "send", to: "orchestrator", message: "Must not send" },
+        controller.signal, undefined, harness.ctx);
+      await waitForCondition(() => Boolean(resolveConfirmation), 1000);
+      controller.abort();
+      assert.match((await waiting).content[0]?.text ?? "", /Cancelled/);
+      resolveConfirmation!(true);
+      await new Promise((resolve) => setTimeout(resolve, 50));
+      assert.equal(delivered, 0);
+    } finally {
+      await harness.emitLifecycle("session_shutdown");
+      await cleanup();
+    }
+  });
+});
+
+test("aborting connection wait leaves shared startup connection usable", { concurrency: false, timeout: 5000 }, async () => {
+  const { default: extension } = await import("./index.ts");
+  const { orchestrator, cleanup } = await setupClients();
+  const originalConnect = IntercomClient.prototype.connect;
+  let release!: () => void;
+  const gate = new Promise<void>((resolve) => { release = resolve; });
+  let connecting = false;
+  IntercomClient.prototype.connect = async function(session, sessionId) {
+    if (session.name === "shared-connect-worker") { connecting = true; await gate; }
+    return originalConnect.call(this, session, sessionId);
+  };
+  const harness = createExtensionHarness("shared-connect-worker");
+  try {
+    extension(harness.pi as never);
+    await harness.emitLifecycle("session_start");
+    await waitForCondition(() => connecting, 1000);
+    const tool = harness.tools.find((item) => item.name === "intercom")!;
+    const controller = new AbortController();
+    const waiting = tool.execute("cancel-connect", { action: "list" }, controller.signal, undefined, harness.ctx);
+    controller.abort();
+    assert.match((await waiting).content[0]?.text ?? "", /Cancelled/);
+    release();
+    await waitForSessionByName(orchestrator, "shared-connect-worker");
+    assert.notEqual((await tool.execute("list-after-connect", { action: "list" }, new AbortController().signal,
+      undefined, harness.ctx)).details?.error, true);
+  } finally {
+    release();
+    IntercomClient.prototype.connect = originalConnect;
+    await harness.emitLifecycle("session_shutdown");
+    await cleanup();
+  }
+});
+
+test("background reconnect continues after repeated connection failures", { concurrency: false, timeout: 8000 }, async () => {
+  const { default: extension } = await import("./index.ts");
+  const { orchestrator, cleanup } = await setupClients();
+  const originalConnect = IntercomClient.prototype.connect;
+  let attempts = 0;
+  IntercomClient.prototype.connect = function(session, sessionId) {
+    if (session.name === "retry-connect-worker" && ++attempts < 3) return Promise.reject(new Error("Temporary outage"));
+    return originalConnect.call(this, session, sessionId);
+  };
+  const harness = createExtensionHarness("retry-connect-worker");
+  try {
+    extension(harness.pi as never);
+    await harness.emitLifecycle("session_start");
+    await waitForCondition(() => attempts >= 3, 6000);
+    await waitForSessionByName(orchestrator, "retry-connect-worker");
+    assert.equal(attempts, 3);
+  } finally {
+    IntercomClient.prototype.connect = originalConnect;
+    await harness.emitLifecycle("session_shutdown");
     await cleanup();
   }
 });

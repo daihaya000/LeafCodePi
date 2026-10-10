@@ -3,7 +3,23 @@ import assert from "node:assert/strict";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { getConfigPath, loadConfig, loadInboundTriggerPolicy } from "./config.ts";
+import { getAskTimeoutMs, getConfigPath, loadConfig, loadInboundTriggerPolicy } from "./config.ts";
+
+test("public and supervisor ask defaults preserve explicit environment overrides", () => {
+  const previous = process.env.PI_INTERCOM_ASK_TIMEOUT_MS;
+  try {
+    delete process.env.PI_INTERCOM_ASK_TIMEOUT_MS;
+    assert.equal(getAskTimeoutMs(60_000), 60_000);
+    assert.equal(getAskTimeoutMs(), 600_000);
+    process.env.PI_INTERCOM_ASK_TIMEOUT_MS = "120000";
+    assert.equal(getAskTimeoutMs(60_000), 120_000);
+    process.env.PI_INTERCOM_ASK_TIMEOUT_MS = "2147483648";
+    assert.throws(() => getAskTimeoutMs(), /no greater than/);
+  } finally {
+    if (previous === undefined) delete process.env.PI_INTERCOM_ASK_TIMEOUT_MS;
+    else process.env.PI_INTERCOM_ASK_TIMEOUT_MS = previous;
+  }
+});
 
 async function withAgentDir<T>(agentDir: string, fn: () => T | Promise<T>): Promise<T> {
   const previousAgentDir = process.env.PI_CODING_AGENT_DIR;

@@ -2,6 +2,68 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { IntercomClient } from "./client.ts";
 import { MAX_FRAME_BYTES } from "./framing.ts";
+import { EXACT_SEND_FEATURE } from "../types.ts";
+
+function silentClient(): { client: IntercomClient; writes: Buffer[] } {
+  const client = new IntercomClient();
+  const writes: Buffer[] = [];
+  (client as any)._sessionId = "abort-client";
+  (client as any).socket = {
+    destroyed: false, writableEnded: false, writable: true,
+    write(chunk: Buffer) { writes.push(chunk); return true; },
+  };
+  return { client, writes };
+}
+
+test("aborting silent broker requests clears pending maps without disconnecting", async () => {
+  const { client } = silentClient();
+  for (const kind of ["list", "send", "cancel"] as const) {
+    const controller = new AbortController();
+    const request = kind === "list" ? client.listSessions({ signal: controller.signal })
+      : kind === "send" ? client.send("target", { messageId: kind, text: kind, signal: controller.signal })
+      : client.cancelMessage(kind, { signal: controller.signal });
+    controller.abort();
+    await assert.rejects(request, /Cancelled/);
+    assert.equal((client as any).pendingLists.size, 0);
+    assert.equal((client as any).pendingSends.size, 0);
+    assert.equal(client.isConnected(), true);
+  }
+});
+
+test("pre-aborted requests never write to the broker", async () => {
+  const { client, writes } = silentClient();
+  const controller = new AbortController();
+  controller.abort();
+  await assert.rejects(client.listSessions({ signal: controller.signal }), /Cancelled/);
+  await assert.rejects(client.send("target", { text: "not sent", signal: controller.signal }), /Cancelled/);
+  await assert.rejects(client.cancelMessage("not cancelled", { signal: controller.signal }), /Cancelled/);
+  assert.equal(writes.length, 0);
+});
+
+test("exact-send target resolution honours cancellation before message delivery", async () => {
+  const { client, writes } = silentClient();
+  (client as any)._features.add(EXACT_SEND_FEATURE);
+  const controller = new AbortController();
+  const request = client.send("target", { text: "not sent", signal: controller.signal });
+  controller.abort();
+  await assert.rejects(request, /Cancelled/);
+  assert.equal((client as any).pendingLists.size, 0);
+  assert.equal((client as any).pendingSends.size, 0);
+  assert.ok(writes.length <= 2, "only a list frame may have been written");
+});
+
+test("aborting a duplicate send cannot cancel the original pending request", async () => {
+  const { client } = silentClient();
+  const original = client.send("target", { messageId: "duplicate-abort", text: "first" });
+  const controller = new AbortController();
+  const duplicate = client.send("target", { messageId: "duplicate-abort", text: "duplicate", signal: controller.signal });
+  controller.abort();
+  await assert.rejects(duplicate, /Cancelled|already pending/);
+  assert.equal((client as any).pendingSends.size, 1);
+  (client as any).handleBrokerMessage({ type: "delivered", messageId: "duplicate-abort" });
+  assert.equal((await original).delivered, true);
+});
+
 
 test("validated session lifecycle messages reach broker-message subscribers", () => {
   const client = new IntercomClient();

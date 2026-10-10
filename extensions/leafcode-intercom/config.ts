@@ -5,15 +5,15 @@ import { getIntercomDirPath } from "./broker/paths.ts";
 const DEFAULT_ASK_TIMEOUT_MS = 10 * 60 * 1000;
 const INTERCOM_SCOPE_ID_ENV = "PI_INTERCOM_SCOPE_ID";
 
-export function getAskTimeoutMs(): number {
+export function getAskTimeoutMs(defaultTimeoutMs = DEFAULT_ASK_TIMEOUT_MS): number {
   const raw = process.env.PI_INTERCOM_ASK_TIMEOUT_MS;
   if (raw === undefined || raw.trim() === "") {
-    return DEFAULT_ASK_TIMEOUT_MS;
+    return defaultTimeoutMs;
   }
 
   const value = Number(raw);
-  if (!Number.isSafeInteger(value) || value <= 0) {
-    throw new Error("PI_INTERCOM_ASK_TIMEOUT_MS must be a positive integer number of milliseconds");
+  if (!Number.isSafeInteger(value) || value <= 0 || value > 2_147_483_647) {
+    throw new Error("PI_INTERCOM_ASK_TIMEOUT_MS must be a positive integer number of milliseconds no greater than 2147483647");
   }
   return value;
 }

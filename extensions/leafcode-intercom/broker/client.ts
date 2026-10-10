@@ -5,6 +5,7 @@ import { writeMessage, createMessageReader } from "./framing.ts";
 import { getBrokerConnectTarget, type BrokerConnectTarget } from "./paths.ts";
 import { isMessage, isMessageControl, isMessageReceipt, isSessionInfo } from "./protocol.ts";
 import { getIntercomScopeId } from "../config.ts";
+import { waitWithAbort } from "../abortable.ts";
 import { EXACT_SEND_FEATURE, EXTENSION_BUS_FEATURE, type DeliveryDetails } from "../types.ts";
 import type {
   Attachment,
@@ -19,6 +20,7 @@ import type {
 } from "../types.ts";
 
 interface SendOptions {
+  signal?: AbortSignal;
   text: string;
   attachments?: Attachment[];
   replyTo?: string;
@@ -591,7 +593,7 @@ export class IntercomClient extends EventEmitter {
     writeMessage(socket, { type: "extension_capabilities_update", extensions: extensions ?? [] });
   }
 
-  listSessions(options: { timeoutMs?: number } = {}): Promise<SessionInfo[]> {
+  listSessions(options: { timeoutMs?: number; signal?: AbortSignal } = {}): Promise<SessionInfo[]> {
     let socket: net.Socket;
     try {
       socket = this.requireActiveSocket();
@@ -599,8 +601,8 @@ export class IntercomClient extends EventEmitter {
       return Promise.reject(toError(error));
     }
 
-    return new Promise((resolve, reject) => {
-      const requestId = randomUUID();
+    const requestId = randomUUID();
+    return waitWithAbort(() => new Promise((resolve, reject) => {
       const wrappedResolve = (sessions: SessionInfo[]) => {
         clearTimeout(timeout);
         resolve(sessions);
@@ -623,6 +625,10 @@ export class IntercomClient extends EventEmitter {
         this.pendingLists.delete(requestId);
         reject(new LivenessTransportError(toError(error).message, error));
       }
+    }), options.signal, () => {
+      const pending = this.pendingLists.get(requestId);
+      this.pendingLists.delete(requestId);
+      pending?.reject(new Error("Cancelled"));
     });
   }
 
@@ -650,7 +656,8 @@ export class IntercomClient extends EventEmitter {
       },
     };
 
-    const sendOnce = (targetId?: string, targetEpoch?: string): Promise<SendResult> => new Promise((resolve, reject) => {
+    let pendingRequest: { resolve: (r: SendResult) => void; reject: (e: Error) => void } | undefined;
+    const sendOnce = (targetId?: string, targetEpoch?: string): Promise<SendResult> => waitWithAbort(() => new Promise((resolve, reject) => {
       if (this.pendingSends.has(messageId)) {
         reject(new Error(`Delivery request already pending for message ID "${messageId}"`));
         return;
@@ -669,7 +676,8 @@ export class IntercomClient extends EventEmitter {
           wrappedReject(new Error("Send timeout"));
         }
       }, 10000);
-      this.pendingSends.set(messageId, { resolve: wrappedResolve, reject: wrappedReject });
+      pendingRequest = { resolve: wrappedResolve, reject: wrappedReject };
+      this.pendingSends.set(messageId, pendingRequest);
 
       try {
         writeMessage(socket, { type: "send", to, message, ...(targetId && targetEpoch ? { targetId, targetEpoch } : {}) });
@@ -678,14 +686,19 @@ export class IntercomClient extends EventEmitter {
         this.pendingSends.delete(messageId);
         reject(toError(error));
       }
-    });
+    }), options.signal, () => {
+      const pending = this.pendingSends.get(messageId);
+      if (!pendingRequest || pending !== pendingRequest) return;
+      this.pendingSends.delete(messageId);
+      pending.reject(new Error("Cancelled; delivery outcome may be unknown"));
+    }, "Cancelled; delivery outcome may be unknown. Do not automatically resend.");
 
     if (!this.supportsFeature(EXACT_SEND_FEATURE) || options.replyTo) {
       return sendOnce();
     }
 
     const resolveTarget = async (): Promise<{ id: string; epoch: string } | null> => {
-      const sessions = await this.listSessions();
+      const sessions = await this.listSessions({ signal: options.signal });
       const byId = sessions.find((session) => session.id === to);
       const byName = byId ? [] : sessions.filter((session) => session.name?.toLowerCase() === to.toLowerCase());
       const byPrefix = byId || byName.length > 0 ? [] : sessions.filter((session) => session.id.startsWith(to));
@@ -702,7 +715,7 @@ export class IntercomClient extends EventEmitter {
     return reboundTarget ? sendOnce(reboundTarget.id, reboundTarget.epoch) : result;
   }
 
-  cancelMessage(messageId: string): Promise<SendResult> {
+  cancelMessage(messageId: string, options: { signal?: AbortSignal } = {}): Promise<SendResult> {
     let socket: net.Socket;
     try {
       socket = this.requireActiveSocket();
@@ -710,7 +723,8 @@ export class IntercomClient extends EventEmitter {
       return Promise.reject(toError(error));
     }
 
-    return new Promise((resolve, reject) => {
+    let pendingRequest: { resolve: (r: SendResult) => void; reject: (e: Error) => void } | undefined;
+    return waitWithAbort(() => new Promise((resolve, reject) => {
       if (this.pendingSends.has(messageId)) {
         reject(new Error(`Delivery request already pending for message ID "${messageId}"`));
         return;
@@ -729,7 +743,8 @@ export class IntercomClient extends EventEmitter {
           wrappedReject(new Error("Cancel timeout"));
         }
       }, 10000);
-      this.pendingSends.set(messageId, { resolve: wrappedResolve, reject: wrappedReject });
+      pendingRequest = { resolve: wrappedResolve, reject: wrappedReject };
+      this.pendingSends.set(messageId, pendingRequest);
 
       try {
         writeMessage(socket, { type: "cancel_message", messageId });
@@ -738,7 +753,12 @@ export class IntercomClient extends EventEmitter {
         this.pendingSends.delete(messageId);
         reject(toError(error));
       }
-    });
+    }), options.signal, () => {
+      const pending = this.pendingSends.get(messageId);
+      if (!pendingRequest || pending !== pendingRequest) return;
+      this.pendingSends.delete(messageId);
+      pending.reject(new Error("Cancelled; cancellation outcome may be unknown"));
+    }, "Cancelled; cancellation outcome may be unknown.");
   }
 
   sendMessageReceipt(receipt: MessageReceipt): void {
