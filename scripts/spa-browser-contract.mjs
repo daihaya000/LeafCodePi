@@ -9,6 +9,7 @@ import { createServer } from "node:http";
 import { setTimeout as delay } from "node:timers/promises";
 import { startFixture } from "./spa-browser-fixture.mjs";
 import { runNotificationContracts } from "./spa-notification-contract.mjs";
+import { runPaneContracts } from "./spa-panes-contract.mjs";
 import { assertNoCanary, auditCanaryResponses, canaryProbePlugin, createSecretCanaries, scanCanaryArtifacts, withCanaryEnvironment } from "./spa-secret-canary.mjs";
 const ROOT = resolve(fileURLToPath(new URL("../", import.meta.url))), web = join(ROOT, "web");
 const require = createRequire(join(web, "package.json"));
@@ -16,7 +17,7 @@ const { chromium } = require("playwright");
 const { build, loadEnv, preview } = await import(pathToFileURL(require.resolve("vite")).href);
 const output = resolve(process.env.LEAFCODE_SPA_EVIDENCE_DIR ?? join(tmpdir(), "leafcode-spa-browser-contract"));
 mkdirSync(output, { recursive: true });
-const children = [], checks = [], errors = [], references = [], screenshots = [];
+const children = [], checks = [], skipped = [], errors = [], references = [], screenshots = [];
 const canaries = createSecretCanaries(), envDir = mkdtempSync(join(output, "canary-env-"));
 for (const [filename, content] of Object.entries(canaries.files)) writeFileSync(join(envDir, filename), content);
 let responseCount = 0;
@@ -30,7 +31,13 @@ async function run(args, cwd, env) {
   try { const code = await new Promise((resolve, reject) => { child.once("error", reject); child.once("exit", resolve); }); assert.equal(code, 0, log); } finally { clearTimeout(timer); }
 }
 async function freePort() { const server = createServer(); await new Promise(resolve => server.listen(0, "127.0.0.1", resolve)); const port = server.address().port; await new Promise(resolve => server.close(resolve)); return port; }
-async function checked(name, action) { await action(); checks.push(name); save(); }
+async function checked(name, action) {
+  // Focused debugging aid: LEAFCODE_SPA_ONLY=a,b keeps the artifact build and the
+  // checks whose names contain a token. Unset, every contract runs as published.
+  const only = process.env.LEAFCODE_SPA_ONLY?.split(",").filter(Boolean);
+  if (only?.length && !name.includes("SPA default production") && !only.some(token => name.includes(token))) { skipped.push(name); return; }
+  await action(); checks.push(name); save();
+}
 async function prepareReference(origin) {
   const reference = join(output, "reference"); mkdirSync(reference, { recursive: true });
   cpSync(join(web, "src"), join(reference, "src"), { recursive: true, filter: path => !/[\\/]app[\\/]api(?:[\\/]|$)|[\\/]spa(?:[\\/]|$)|\.test\./.test(path) });
@@ -249,6 +256,7 @@ try {
   });
   state.notificationEvidence = await runNotificationContracts({ pageFor, ready, checked, fixture, spaOrigin, nextOrigin });
   assertNoCanary(state.notificationEvidence, canaries.entries, "all notification producer records"); save();
+  state.paneEvidence = await runPaneContracts({ pageFor, ready, checked, spaOrigin, nextOrigin }); save();
   await checked("SPA reachable env probe, seven-route browser sinks and dotenv HTTP denial", async () => {
     const { page, context } = await pageFor(auditOrigin, { width: 390, height: 844 });
     for (const path of paths) {
@@ -269,7 +277,7 @@ try {
   });
   assertNoCanary(fixture.log, canaries.entries, "owner fixture request log");
   assert.deepEqual(errors, []);
-  state = { ...state, status: "passed", checks, screenshots, requests: fixture.log, auditedBrowserResponses: responseCount, consoleErrors: errors }; save();
+  state = { ...state, status: "passed", checks, skipped, screenshots, requests: fixture.log, auditedBrowserResponses: responseCount, consoleErrors: errors }; save();
   console.log(JSON.stringify({ status: state.status, checks: checks.length, output }));
 } catch (error) { state = { ...state, status: "failed", checks, error: error.stack, consoleErrors: errors, requests: fixture?.log }; save(); console.error(error); process.exitCode = 1; }
 finally {

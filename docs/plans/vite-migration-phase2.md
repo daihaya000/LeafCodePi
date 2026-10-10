@@ -49,8 +49,8 @@ Output: `web/dist-spa/` (ignored). API proxy defaults to `http://127.0.0.1:3010`
 
 ## Remaining P2 acceptance
 
-- Broader visual/pointer comparison beyond the finite desktop/mobile browser fixture below; pixel-diff and real-device touch coverage remain unclaimed.
-- Browser notification delivery boundaries and global OFF/reconnect/remount are covered by increment 5. Additional tab/pane pointer/selection/restore interaction comparisons remain; actual OS toast/speaker and external Pushover delivery are not claimed by isolated browser fixtures.
+- Broader visual/pointer comparison beyond the finite desktop/mobile browser fixture below; pixel-diff and real-device touch coverage remain unclaimed. Desktop pane/tab activation, split-resize, add/close, reload restore and mobile URL-driven behavior are covered by increment 6; drag-and-drop pointer gestures and the hover-only per-tab close button are not.
+- Browser notification delivery boundaries and global OFF/reconnect/remount are covered by increment 5. Tab/pane selection and restore are covered by increment 6; drag-and-drop pointer gestures and actual OS toast/speaker or external Pushover delivery are not claimed by isolated browser fixtures.
 - Additional provider-specific OAuth flows beyond the fixture's generic popup/manual relay/SSE completion contract.
 - Server hostname/title/auth-file display parity is covered by increment 4 below. Broader browser-head/platform states and every metadata failure state remain outside finite parity claims.
 - Source import conversion/final legacy-framework removal and build-warning/chunk review. Production artifact/browser secret canaries are covered by increment 3 below; arbitrary runtime API data and every possible encoding are not a formal security proof.
@@ -138,3 +138,28 @@ Initial failures were **harness gaps, not production notification regressions**:
 Final verification: **33 production browser contracts pass** (previous23 +10 notification/lifecycle/admission contracts), all14 seven-route desktop/mobile pairs still match without hostname/path/title normalization, and all17 secret canaries are absent from default/audit artifacts, notification records and browser sinks (**4,828 completed response bodies**, no page/audit errors). Default/audit builds retain29/36 files and0/7 source maps. **409 Vitest tests / 24 distinct files pass** in two selections (244 notification/SPA tests +165 shell/panes/Login/provider/display regressions). **21 Node tests pass** (18 canary/helper +3 fixture tests). SPA typecheck and API/all-Next-entry ownership gates pass; the frozen165/265 API inventory is unchanged. Fresh Vite/default/audit and isolated Next production builds and the browser runner exit0. All SPA/audit/Next listener ports are closed, no actual service or agent is restarted, and no real credential/billed operation is used.
 
 Evidence: `%LOCALAPPDATA%/Temp/leafcode-spa-browser-turn5/state.json` (`passed`,33 checks,4,828 audited bodies,4 producer-record sets,no errors), `run-state.json` (exit0), build/runtime logs and28 internal paired screenshots. Browser visibility/default-permission controls, finite negative settling windows and private fixture state are explicit limitations. Next's reference still disables the known whole-legacy-tree typecheck; SPA typecheck is the passing application type evidence. The next P2 unit is the remaining actual pane/tab/mobile interaction comparison rather than a claim that every UI/provider/platform state is already proven.
+
+## Increment 6 — pane/tab/mobile interaction parity
+
+`scripts/spa-panes-contract.mjs` adds **6** real-browser contracts to the same runner, driving the existing TaskTabs/PaneSection controls in both runtimes against a seeded `webui:task-panes` layout (2 panes: `home`+`task-a`, `task-b`). Pane ids are normalized away, so only user-visible structure, the URL, history length and the persisted shape are compared. No application source, component, CSS or asset is changed by this increment — the contracts measure the existing SPA behavior against the Next reference.
+
+Desktop (1280×900), Next and SPA plus an exact parity assertion between them:
+
+- Restored layout and active pane; activating another tab moves the active pane, updates the URL to `/task/<id>` and **keeps the history length constant** (the app's `replaceState` sync, not `pushState`).
+- Keyboard split-resize (`ArrowRight` on the separator) changes `aria-valuenow`.
+- "新しいペインを追加" grows the layout to 3 panes and the change is persisted (debounced save).
+- Closing the created empty pane ("空のペインを閉じる") removes it, URLs retarget to the remaining active task, and a full reload restores the persisted layout with the same active task tab.
+- Browser back after a `pushState` navigation returns to the restored URL and pane state.
+
+Mobile (390×844): `/task/task-a`, `/settings`, `/` and `/bots/bot-a` render the URL-driven single view with **zero pane sections**, and `webui:task-panes` stays byte-identical to the seed throughout — the mobile path must never rewrite the desktop layout. Back navigation returns `/` to the home view. Next and SPA agree on every recorded step.
+
+Harness findings while establishing the contracts (test-only fixes):
+
+- The shared `ready()` helper only knows the `Fixture task 1` heading; the pane flow legitimately lands on `task-b`, so the contract waits for either fixture task heading.
+- Tab labels fall back to the raw task id until `/api/tasks` resolves titles; snapshots now wait for that asynchronous metadata instead of comparing a transient state (this was a **contract race, not an app difference** — both runtimes converge to the same titles).
+- `[role="separator"]` also matches non-pane separators, so resize handles are selected by `[role="separator"][aria-valuenow]`.
+- `/settings` has its own settings tablist, so the mobile assertion checks pane sections rather than every tablist.
+
+Only always-visible controls are driven: the per-tab close button is rendered on hover (`group-hover/tab:inline-flex`), so single-tab close and pane clearing are left to the unit suites (`task-panes.test.ts`97, `task-panes.bot.test.ts`10, `TaskPanesContext`28, `TaskPanesHost`30) and pane removal is exercised through the empty-pane close control. `LEAFCODE_SPA_ONLY=<tokens>` is a test-only filter used to re-run one contract group while iterating; the published run leaves it unset (`skipped: []`).
+
+Verified: **39 production browser contracts pass** with exit0, `skipped: []`, **5,802** audited completed responses and **0** console/page errors; 29 default artifacts/0 maps and 36 audit artifacts/7 maps stay canary-free; all three SPA/audit/Next listener ports are closed. Regressions: **233 Vitest tests / 10 files** (task-panes97+10, TaskPanesContext28, TaskPanesHost30, SPA application/runner44, AppShell10, navigation14) and **21 Node tests**; SPA typecheck, API ownership **165 routes / 265 operations** and the all-entry gate (313 roots/166 routes/586 modules/654 type modules/2 startup modules) pass. Evidence: `%LOCALAPPDATA%/Temp/leafcode-spa-browser-turn6/state.json` (`passed`,39 checks,`paneEvidence` step records), `run-state.json` (exit0) and build/runtime logs. Drag-and-drop gestures, hover-revealed tab close, real touch devices and pixel-diff remain unclaimed.
