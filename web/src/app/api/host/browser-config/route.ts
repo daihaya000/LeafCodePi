@@ -1,4 +1,4 @@
-import { NextRequest, NextResponse } from "next/server";
+
 import { resolveHostControlUrl } from "@/lib/host-http-client";
 
 export const runtime = "nodejs";
@@ -19,29 +19,29 @@ async function forward(method: string, body?: unknown) {
 
 async function response(res: Response) {
   const data = (await res.json().catch(() => ({}))) as Record<string, unknown>;
-  return NextResponse.json(data, { status: res.ok ? 200 : res.status });
+  return Response.json(data, { status: res.ok ? 200 : res.status });
 }
 
 export async function GET() {
   try {
     return response(await forward("GET"));
   } catch (err) {
-    return NextResponse.json(
+    return Response.json(
       { error: err instanceof Error ? `ホストに接続できません: ${err.message}` : "ホストに接続できません" },
       { status: 502 },
     );
   }
 }
 
-export async function POST(req: NextRequest) {
+export async function POST(req: Request) {
   const body = (await req.json().catch(() => null)) as { autoOpenBrowser?: unknown } | null;
   if (typeof body?.autoOpenBrowser !== "boolean") {
-    return NextResponse.json({ error: "autoOpenBrowser must be a boolean" }, { status: 400 });
+    return Response.json({ error: "autoOpenBrowser must be a boolean" }, { status: 400 });
   }
   try {
     return response(await forward("POST", { autoOpenBrowser: body.autoOpenBrowser }));
   } catch (err) {
-    return NextResponse.json(
+    return Response.json(
       { error: err instanceof Error ? `ホストに接続できません: ${err.message}` : "ホストに接続できません" },
       { status: 502 },
     );

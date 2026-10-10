@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { NextResponse } from "next/server";
+
 import { isPrivateHost } from "@/lib/localhost-redirect";
 
 export const runtime = "nodejs";
@@ -45,9 +45,9 @@ function isPrivateOrigin(origin: string): boolean {
 }
 
 export function GET(request: Request) {
-  return NextResponse.json({ id: instanceId }, { headers: corsHeaders(request) });
+  return Response.json({ id: instanceId }, { headers: corsHeaders(request) });
 }
 
 export function OPTIONS(request: Request) {
-  return new NextResponse(null, { status: 204, headers: corsHeaders(request) });
+  return new Response(null, { status: 204, headers: corsHeaders(request) });
 }

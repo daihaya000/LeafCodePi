@@ -1,5 +1,5 @@
 import { hostTranslationPath, resolveHostControlUrl } from "@/lib/host-http-client";
-import { NextResponse } from "next/server";
+
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -12,10 +12,10 @@ export async function GET() {
     });
     const body = await response.json().catch(() => ({}));
     if (response.status === 404) {
-      return NextResponse.json({ ok: false, state: "host-outdated" }, { status: 503 });
+      return Response.json({ ok: false, state: "host-outdated" }, { status: 503 });
     }
-    return NextResponse.json(body, { status: response.ok ? 200 : 503 });
+    return Response.json(body, { status: response.ok ? 200 : 503 });
   } catch {
-    return NextResponse.json({ ok: false, state: "unavailable" }, { status: 503 });
+    return Response.json({ ok: false, state: "unavailable" }, { status: 503 });
   }
 }

@@ -1,6 +1,6 @@
-import { NextRequest } from "next/server";
+
 import { relayJsonBusiness } from "@/lib/json-business-relay";
 export const runtime="nodejs";export const dynamic="force-dynamic";
-export async function GET(req:NextRequest,context:{params:Promise<{id:string;routineId:string}>}) { return relayJsonBusiness(req,`bots/${encodeURIComponent((await context.params).id)}/routines/${encodeURIComponent((await context.params).routineId)}`); }
-export async function PATCH(req:NextRequest,context:{params:Promise<{id:string;routineId:string}>}) { return relayJsonBusiness(req,`bots/${encodeURIComponent((await context.params).id)}/routines/${encodeURIComponent((await context.params).routineId)}`); }
-export async function DELETE(req:NextRequest,context:{params:Promise<{id:string;routineId:string}>}) { return relayJsonBusiness(req,`bots/${encodeURIComponent((await context.params).id)}/routines/${encodeURIComponent((await context.params).routineId)}`); }
+export async function GET(req:Request,context:{params:Promise<{id:string;routineId:string}>}) { return relayJsonBusiness(req,`bots/${encodeURIComponent((await context.params).id)}/routines/${encodeURIComponent((await context.params).routineId)}`); }
+export async function PATCH(req:Request,context:{params:Promise<{id:string;routineId:string}>}) { return relayJsonBusiness(req,`bots/${encodeURIComponent((await context.params).id)}/routines/${encodeURIComponent((await context.params).routineId)}`); }
+export async function DELETE(req:Request,context:{params:Promise<{id:string;routineId:string}>}) { return relayJsonBusiness(req,`bots/${encodeURIComponent((await context.params).id)}/routines/${encodeURIComponent((await context.params).routineId)}`); }

@@ -1,4 +1,4 @@
-import { NextResponse } from "next/server";
+
 import { hostPiUpdatePath, resolveHostControlUrl } from "@/lib/host-http-client";
 import { hostLaunchCheckHint } from "@/lib/host-launch-hints";
 
@@ -10,7 +10,7 @@ type PiUpdateMode = "default" | "latest";
 const MODES = new Set<PiUpdateMode>(["default", "latest"]);
 
 function unreachableResponse(error: unknown) {
-  return NextResponse.json(
+  return Response.json(
     {
       error:
         error instanceof Error
@@ -41,7 +41,7 @@ export async function GET() {
     });
     const data = (await res.json().catch(() => ({}))) as Record<string, unknown>;
     if (!res.ok) {
-      return NextResponse.json(
+      return Response.json(
         {
           error: unsupported(res.status)
             ? "トレイホストがPiアップデート予約に未対応です。ホストを再起動してください"
@@ -52,7 +52,7 @@ export async function GET() {
         { status: errorStatus(res.status) },
       );
     }
-    return NextResponse.json(data, { status: 200 });
+    return Response.json(data, { status: 200 });
   } catch (err) {
     return unreachableResponse(err);
   }
@@ -65,7 +65,7 @@ export async function POST(req: Request) {
     mode = body.mode as PiUpdateMode;
   }
   if (!mode) {
-    return NextResponse.json({ error: "mode must be default or latest" }, { status: 400 });
+    return Response.json({ error: "mode must be default or latest" }, { status: 400 });
   }
 
   const base = resolveHostControlUrl();
@@ -79,7 +79,7 @@ export async function POST(req: Request) {
     });
     const data = (await res.json().catch(() => ({}))) as Record<string, unknown>;
     if (!res.ok && res.status !== 202) {
-      return NextResponse.json(
+      return Response.json(
         {
           error: unsupported(res.status)
             ? "トレイホストがPiアップデート予約に未対応です。ホストを再起動してください"
@@ -90,7 +90,7 @@ export async function POST(req: Request) {
         { status: errorStatus(res.status) },
       );
     }
-    return NextResponse.json({ ok: true, mode, ...data }, { status: 202 });
+    return Response.json({ ok: true, mode, ...data }, { status: 202 });
   } catch (err) {
     return unreachableResponse(err);
   }

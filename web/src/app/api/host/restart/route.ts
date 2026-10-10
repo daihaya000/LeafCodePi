@@ -1,4 +1,4 @@
-import { NextResponse } from "next/server";
+
 import {
   hostRestartPath,
   resolveHostControlUrl,
@@ -18,13 +18,13 @@ export async function POST(req: Request) {
     if (body.target && TARGETS.has(body.target as HostRestartTarget)) {
       target = body.target as HostRestartTarget;
     } else {
-      return NextResponse.json(
+      return Response.json(
         { error: "target must be webui, backend or host" },
         { status: 400 },
       );
     }
   } catch {
-    return NextResponse.json(
+    return Response.json(
       { error: "target must be webui, backend or host" },
       { status: 400 },
     );
@@ -45,7 +45,7 @@ export async function POST(req: Request) {
       const status = res.status === 409 || res.status === 501 || res.status === 400
         ? res.status
         : 502;
-      return NextResponse.json(
+      return Response.json(
         {
           error:
             typeof data.error === "string"
@@ -59,12 +59,12 @@ export async function POST(req: Request) {
         { status },
       );
     }
-    return NextResponse.json(
+    return Response.json(
       { ok: true, target, accepted: true, ...data },
       { status: 202 },
     );
   } catch (err) {
-    return NextResponse.json(
+    return Response.json(
       {
         error:
           err instanceof Error

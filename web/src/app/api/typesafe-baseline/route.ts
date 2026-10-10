@@ -1,7 +1,7 @@
-import { NextRequest } from "next/server";
+
 import { relayJsonBusiness } from "@/lib/json-business-relay";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
-export async function GET(request: NextRequest) { return relayJsonBusiness(request, "typesafe-baseline"); }
-export async function POST(request: NextRequest) { return relayJsonBusiness(request, "typesafe-baseline"); }
-export async function DELETE(request: NextRequest) { return relayJsonBusiness(request, "typesafe-baseline"); }
+export async function GET(request: Request) { return relayJsonBusiness(request, "typesafe-baseline"); }
+export async function POST(request: Request) { return relayJsonBusiness(request, "typesafe-baseline"); }
+export async function DELETE(request: Request) { return relayJsonBusiness(request, "typesafe-baseline"); }

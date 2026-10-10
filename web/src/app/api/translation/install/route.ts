@@ -1,6 +1,6 @@
 import { hostTranslationPath, resolveHostControlUrl } from "@/lib/host-http-client";
 import { hostLaunchCheckHint } from "@/lib/host-launch-hints";
-import { NextResponse } from "next/server";
+
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -16,7 +16,7 @@ export async function POST() {
     });
     const data = (await res.json().catch(() => ({}))) as Record<string, unknown>;
     if (!res.ok) {
-      return NextResponse.json(
+      return Response.json(
         {
           error:
             typeof data.error === "string" ? data.error : "ローカル翻訳の導入を開始できませんでした",
@@ -24,9 +24,9 @@ export async function POST() {
         { status: 502 },
       );
     }
-    return NextResponse.json(data, { status: 202 });
+    return Response.json(data, { status: 202 });
   } catch (err) {
-    return NextResponse.json(
+    return Response.json(
       {
         error:
           err instanceof Error

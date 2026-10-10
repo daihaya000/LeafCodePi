@@ -1,4 +1,4 @@
-import { NextResponse } from "next/server";
+
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -8,7 +8,7 @@ const STABLE_VERSION = /^\d+\.\d+\.\d+$/;
 const NPM_REGISTRY = "https://registry.npmjs.org";
 
 function json(body: Record<string, unknown>, status = 200) {
-  return NextResponse.json(body, {
+  return Response.json(body, {
     status,
     headers: { "Cache-Control": "no-store" },
   });

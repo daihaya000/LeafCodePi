@@ -1,5 +1,5 @@
 import { hostTranslationPath, resolveHostControlUrl } from "@/lib/host-http-client";
-import { NextResponse } from "next/server";
+
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -17,7 +17,7 @@ export async function POST(req: Request) {
     body.text.length > 16_000 ||
     body.translation.length > 16_000
   ) {
-    return NextResponse.json(
+    return Response.json(
       { error: "原文と修正訳を入力してください" },
       { status: 400 },
     );
@@ -36,14 +36,14 @@ export async function POST(req: Request) {
     );
     const result = (await response.json().catch(() => ({}))) as Record<string, unknown>;
     if (!response.ok) {
-      return NextResponse.json(
+      return Response.json(
         { error: typeof result.error === "string" ? result.error : "修正訳を保存できませんでした" },
         { status: response.status >= 400 && response.status < 500 ? response.status : 502 },
       );
     }
-    return NextResponse.json(result);
+    return Response.json(result);
   } catch (error) {
-    return NextResponse.json(
+    return Response.json(
       { error: error instanceof Error ? error.message : "翻訳サービスに接続できません" },
       { status: 503 },
     );

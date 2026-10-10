@@ -1,0 +1,13 @@
+{
+  "name": "leafcode-pi-gateway",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "node ../scripts/build-gateway.mjs",
+    "start": "node dist/gateway/src/index.mjs",
+    "test": "node --test src/*.test.mjs"
+  },
+  "dependencies": { "undici": "8.10.2" },
+  "engines": { "node": ">=22.19" }
+}

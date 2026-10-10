@@ -1,4 +1,4 @@
-import { NextResponse } from "next/server";
+
 import {
   backendClientStatus,
   expectedBackendGeneration,
@@ -17,16 +17,16 @@ export const dynamic = "force-dynamic";
  */
 export async function GET(req: Request) {
   if (webUiAuthRequired() && !isWebUiRequestAuthorized(req)) {
-    return NextResponse.json({ error: "認証が必要です" }, { status: 401 });
+    return Response.json({ error: "認証が必要です" }, { status: 401 });
   }
   const status = backendClientStatus();
   if (!status.configured) {
-    return NextResponse.json({ configured: false, url: status.url, backend: null });
+    return Response.json({ configured: false, url: status.url, backend: null });
   }
   const health = await readBackendHealth();
   // The generation check is a diagnostic here; the relay refuses to use a mismatched Backend.
   const expected = expectedBackendGeneration();
-  return NextResponse.json({
+  return Response.json({
     configured: true,
     url: status.url,
     // This WebUI is always the Backend's client: it never owns the runtime, so there is no hand-over

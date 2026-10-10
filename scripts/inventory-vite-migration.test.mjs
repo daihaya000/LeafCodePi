@@ -1,7 +1,9 @@
 import assert from "node:assert/strict";
 import { createRequire } from "node:module";
-import { readFileSync } from "node:fs";
-import { resolve } from "node:path";
+import { execFileSync } from "node:child_process";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { test } from "node:test";
 import { checkMigrationInventory, implicitMethods, sourceFacts } from "./inventory-vite-migration.mjs";
@@ -10,8 +12,16 @@ const root = resolve(fileURLToPath(new URL("../", import.meta.url)));
 const require = createRequire(resolve(root, "web/package.json"));
 const ts = require("typescript");
 
-test("Phase0 covers all current entries, explicit operations, source hashes and assets", () => {
-  const counts = checkMigrationInventory(root);
+test("Phase0 frozen baseline covers its entries, operations, source hashes and assets", t => {
+  // Phase1 deliberately removes framework imports. Never rewrite Phase0 to hide that change.
+  const temporary = mkdtempSync(join(tmpdir(), "leafcode-vite-phase0-snapshot-")), baseline = join(temporary, "baseline");
+  t.after(() => rmSync(temporary, { recursive: true, force: true })); mkdirSync(baseline);
+  const archive = join(temporary, "baseline.tar");
+  execFileSync("git", ["archive", "--format=tar", "--output", archive, "07588a00994ab8de8765ae662c822664ab513b4b"], { cwd: root, timeout: 15000 });
+  execFileSync("tar", ["-xf", archive, "-C", baseline], { timeout: 15000 });
+  symlinkSync(join(root, "web/node_modules"), join(baseline, "web/node_modules"), process.platform === "win32" ? "junction" : "dir");
+  assert.deepEqual(JSON.parse(readFileSync(join(root, "docs/plans/vite-migration-phase0.json"), "utf8")), JSON.parse(readFileSync(join(baseline, "docs/plans/vite-migration-phase0.json"), "utf8")));
+  const counts = checkMigrationInventory(baseline);
   assert.equal(counts.routes, 165);
   assert.equal(counts.operations, 265);
   assert.deepEqual(counts.ownerCounts, { Backend: 239, Gateway: 6, Host: 20 });
