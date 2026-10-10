@@ -1195,7 +1195,7 @@ async function startControlServer() {
     onUserActivity: () => autoUpdater?.activity(),
     onPiUpdateRead: () => ({
       defaultVersion: DEFAULT_PI_VERSION,
-      current: installedPiVersion(WEB_DIR),
+      current: installedPiVersion(join(REPO_ROOT, "backend")),
       pending: readPiUpdateRequest(DATA_DIR),
       last: readPiUpdateState(DATA_DIR),
     }),
@@ -1204,7 +1204,7 @@ async function startControlServer() {
       if (!PI_UPDATE_MODES.includes(mode)) {
         throw Object.assign(new Error("mode must be default or latest"), { status: 400 });
       }
-      if (piDepsLockHeld(join(WEB_DIR, PI_DEPS_LOCK_NAME))) {
+      if (piDepsLockHeld(join(REPO_ROOT, "backend", PI_DEPS_LOCK_NAME))) {
         throw Object.assign(new Error("Pi synchronization is already in progress"), { status: 409 });
       }
       return { pending: requestPiUpdate(DATA_DIR, mode), restartRequired: true };
@@ -1409,15 +1409,15 @@ async function main() {
 
   try {
     // Pi dependencies change only when settings requested it; otherwise the pinned pair is used
-    // as-is. When requested, both installs are prepared and validated before either child starts,
-    // and a failed preparation retains the previous pair.
+    // as-is. Only Backend installs are prepared and validated; Web has no SDK generation.
+    // A failed preparation retains Backend's previous pair.
     const piUpdateRequest = consumePiUpdateRequest(DATA_DIR);
     let synchronized = { attempted: false, updated: false, skipped: false, safeToStart: true };
     if (piUpdateRequest) {
-      const previousVersion = installedPiVersion(WEB_DIR);
+      const previousVersion = installedPiVersion(join(REPO_ROOT, "backend"));
       log(`Pi update requested from settings (${piUpdateRequest.mode})`);
       synchronized = await updatePiBeforeStartup({
-        webDir: WEB_DIR, backendDir: join(REPO_ROOT, "backend"), log, error,
+        backendDir: join(REPO_ROOT, "backend"), log, error,
         targetVersion: piUpdateRequest.mode === "default" ? DEFAULT_PI_VERSION : null,
       });
       // Record the outcome before refusing startup: the next start surfaces it in settings.
@@ -1435,26 +1435,12 @@ async function main() {
       });
       if (!synchronized.safeToStart) throw new Error("Pi dependency synchronization did not finish safely");
     }
-    const piVersion = assertPiDependencyVersions(WEB_DIR, join(REPO_ROOT, "backend"));
-    assertInstalledPiVersions(WEB_DIR, piVersion);
+    const piVersion = assertPiDependencyVersions(join(REPO_ROOT, "backend"));
     assertInstalledPiVersions(join(REPO_ROOT, "backend"), piVersion);
-    if (synchronized.updated) delete process.env.LEAFCODE_PI_SKIP_STALE_REBUILD;
-    if (process.env.LEAFCODE_PI_MODE !== "dev" && hasProductionBuild()) {
-      let mirrorMatches = false;
-      try {
-        assertPiDependencyVersions(WEB_MIRROR_DIR, join(REPO_ROOT, "backend"), { requireUnlocked: false });
-        assertInstalledPiVersions(WEB_MIRROR_DIR, piVersion);
-        mirrorMatches = true;
-      } catch { /* a legacy or stale build must not serve a different SDK/AI pair */ }
-      if (!mirrorMatches && !rebuildServices) {
-        delete process.env.LEAFCODE_PI_SKIP_STALE_REBUILD;
-        await buildWeb("stale", { pull: false });
-      }
-    }
     // Extension sources load directly from the repo, independently of the Web
     // build. Repair missing dependencies even when a restart reuses that build.
     ensureExtensionDependencies(join(REPO_ROOT, "extensions"));
-    if (backendService) await buildBackendWithFallback({ force: rebuildServices, log, error });
+    if (backendService) await buildBackendWithFallback({ force: rebuildServices || synchronized.updated, log, error });
     await spawnWeb({ forceBuild: rebuildServices, pull: restartOptions.pull });
   } catch (err) {
     removeLock(LOCK_FILE);

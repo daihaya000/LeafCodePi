@@ -26,7 +26,10 @@
     ],
     "paths": {
       "@earendil-works/pi-coding-agent": [
-        "./node_modules/@earendil-works/pi-coding-agent"
+        "../backend/node_modules/@earendil-works/pi-coding-agent"
+      ],
+      "@earendil-works/pi-ai": [
+        "../backend/node_modules/@earendil-works/pi-ai"
       ],
       "@/*": [
         "./src/*"

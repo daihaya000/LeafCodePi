@@ -11,22 +11,21 @@ export function main(argv = process.argv.slice(2)) {
   for (let index = 0; index < argv.length; index++) {
     const key = argv[index];
     if (key === "--check") values.check = true;
-    else if (["--web", "--backend", "--startup-host", "--target"].includes(key) && argv[index + 1] && !argv[index + 1].startsWith("--")) {
+    else if (["--backend", "--startup-host", "--target"].includes(key) && argv[index + 1] && !argv[index + 1].startsWith("--")) {
       values[key] = argv[++index];
     } else throw new Error(`Invalid Pi synchronization argument: ${key}`);
   }
-  const webDir = resolve(values["--web"] ?? join(root, "web"));
   const backendDir = resolve(values["--backend"] ?? join(root, "backend"));
   if (values.check) {
-    const version = assertPiDependencyVersions(webDir, backendDir);
-    for (const dir of [webDir, backendDir]) assertInstalledPiVersions(dir, version);
-    console.log(`Web and Backend Pi dependencies match v${version}`);
+    const version = assertPiDependencyVersions(backendDir);
+    assertInstalledPiVersions(backendDir, version);
+    console.log(`Backend Pi dependencies match v${version}`);
     return { safeToStart: true, version };
   }
   const startupHostPid = values["--startup-host"] ? Number(values["--startup-host"]) : null;
   if (startupHostPid !== null && startupHostPid !== process.ppid) throw new Error("Only the starting parent Host may authorize synchronization");
   return autoUpdatePi({
-    webDir, backendDir, startupHostPid,
+    backendDir, startupHostPid,
     targetVersion: values["--target"] ?? null,
     log: console.log, error: console.error,
   });

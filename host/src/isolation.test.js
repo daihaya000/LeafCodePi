@@ -387,7 +387,7 @@ test("Pi synchronization and matching build gates finish before either runtime s
   const index = readFileSync(join(repoRoot, "host", "src", "index.js"), "utf8");
   const main = index.slice(index.indexOf("async function main()"));
   const sync = main.indexOf("await updatePiBeforeStartup(");
-  const gate = main.indexOf("assertPiDependencyVersions(WEB_DIR");
+  const gate = main.indexOf('assertPiDependencyVersions(join(REPO_ROOT, "backend"))');
   const backendBuild = main.indexOf("await buildBackendWithFallback(");
   const launch = main.indexOf("await spawnWeb(");
   assert.ok(sync >= 0 && gate > sync && backendBuild > gate && launch > backendBuild);
@@ -399,8 +399,9 @@ test("Pi synchronization and matching build gates finish before either runtime s
   assert.match(main, /writePiUpdateState\(DATA_DIR/);
   assert.doesNotMatch(index, /LEAFCODE_PI_AUTO_UPDATE/);
   assert.match(main, /if \(!synchronized\.safeToStart\) throw/);
-  assert.match(main, /assertPiDependencyVersions\(WEB_MIRROR_DIR, join\(REPO_ROOT, "backend"\), \{ requireUnlocked: false \}\)/);
-  assert.match(main, /if \(!mirrorMatches && !rebuildServices\)[\s\S]*await buildWeb\("stale", \{ pull: false \}\)/);
+  assert.doesNotMatch(main, /(?:assertPiDependencyVersions|assertInstalledPiVersions)\(WEB_(?:DIR|MIRROR_DIR)/);
+  assert.doesNotMatch(main, /webDir: WEB_DIR|mirrorMatches/);
+  assert.match(main, /buildBackendWithFallback\(\{ force: rebuildServices \|\| synchronized\.updated, log, error \}\)/);
   assert.doesNotMatch(index, /autoUpdatePiInBackground|npm update/);
 });
 

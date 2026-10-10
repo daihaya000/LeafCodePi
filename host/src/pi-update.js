@@ -1,9 +1,9 @@
 import { spawn as defaultSpawn, spawnSync as defaultSpawnSync } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
-import { join, resolve } from "node:path";
+import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { PI_PACKAGES, PI_SDK_PACKAGE, STABLE_PI_VERSION, assertPiProjectVersions, PI_DEPS_LOCK_NAME, reclaimAbandonedPiDepsLock } from "../../shared/pi-dependencies.mjs";
-import { dataDir, DEFAULT_WEBUI_PORT, readPort } from "./config.js";
+import { dataDir, readPort } from "./config.js";
 import { DEFAULT_BACKEND_PORT } from "../../shared/backend-protocol.mjs";
 import { pidAlive, readLock } from "./lock.js";
 import { getPortListenerStatus, runPortSnapshot } from "./port-scanner.js";
@@ -92,7 +92,7 @@ export function installedPiVersion(dir, name = PI_PACKAGE_NAME) {
 function runtimesAreIdle(env, platform) {
   const snapshot = runPortSnapshot({ platform });
   if (!snapshot) return false;
-  return [readPort(env.LEAFCODE_PI_PORT, DEFAULT_WEBUI_PORT), readPort(env.LEAFCODE_PI_BACKEND_PORT, DEFAULT_BACKEND_PORT)]
+  return [readPort(env.LEAFCODE_PI_BACKEND_PORT, DEFAULT_BACKEND_PORT)]
     .every((port) => !getPortListenerStatus(port, snapshot, { platform }).listening);
 }
 
@@ -123,9 +123,9 @@ function needsUpdate(project, version) {
   }
 }
 
-/** Startup-only transaction: prepare both installs, then publish both or roll back both. */
+/** Startup-only Backend transaction. Web source/dependencies are never read or written. */
 export function autoUpdatePi({
-  webDir, backendDir, env = process.env, platform = process.platform,
+  backendDir, env = process.env, platform = process.platform,
   spawnSync = defaultSpawnSync, log = () => {}, error = () => {},
   startupHostPid = null, now = () => Date.now(), runtimeIsIdle = runtimesAreIdle,
   targetVersion = null,
@@ -150,15 +150,15 @@ export function autoUpdatePi({
     return result.stdout ?? "";
   }
   try {
-    if (!webDir || !backendDir || resolve(webDir) === resolve(backendDir)) throw new Error("Distinct Web and Backend directories are required");
+    if (!backendDir) throw new Error("Backend directory is required");
     const host = readLock(join(dataDir(env), "host.lock"));
     if (host && pidAlive(host.pid) && host.pid !== startupHostPid) {
       throw new Error("Stop the Host before synchronizing Pi dependencies");
     }
-    lockPath = join(webDir, DEPS_LOCK_NAME);
+    lockPath = join(backendDir, DEPS_LOCK_NAME);
     acquireDepsLock(lockPath, process.pid);
     locked = true;
-    for (const dir of [webDir, backendDir]) {
+    for (const dir of [backendDir]) {
       projects.push({ dir, manifest: readFileSync(join(dir, "package.json")), lock: readFileSync(join(dir, "package-lock.json")) });
     }
     let version = targetVersion;
@@ -166,7 +166,7 @@ export function autoUpdatePi({
       if (!STABLE_PI_VERSION.test(version)) throw new Error(`Pinned Pi version ${version} is not a stable version`);
     } else {
       const versions = PI_PACKAGES.map((name) => {
-        const value = JSON.parse(run(npm, ["view", `${name}@latest`, "version", "--json"], webDir));
+        const value = JSON.parse(run(npm, ["view", `${name}@latest`, "version", "--json"], backendDir));
         const resolved = Array.isArray(value) && value.length === 1 ? value[0] : value;
         if (typeof resolved !== "string" || !STABLE_PI_VERSION.test(resolved)) throw new Error(`${name}@latest is not a stable version`);
         return resolved;
@@ -179,8 +179,8 @@ export function autoUpdatePi({
       log(`Pi SDK and AI are synchronized at ${targetVersion ? "default" : "latest"} v${version}`);
       return { attempted: true, updated: false, skipped: false, safeToStart: true, version };
     }
-    if (!runtimeIsIdle(env, platform)) throw new Error("Web/Backend listeners must be idle before publishing new Pi dependencies");
-    log(`Preparing Web and Backend Pi SDK/AI at ${targetVersion ? "default" : "latest"} v${version} before starting sessions`);
+    if (!runtimeIsIdle(env, platform)) throw new Error("Backend listeners must be idle before publishing new Pi dependencies");
+    log(`Preparing Backend Pi SDK/AI at ${targetVersion ? "default" : "latest"} v${version} before starting sessions`);
     for (const project of changes) {
       project.stage = mkdtempSync(join(project.dir, ".leafcode-pi-update-"));
       writeFileSync(join(project.stage, "previous-package.json"), project.manifest);
@@ -200,7 +200,7 @@ export function autoUpdatePi({
         "await import('@earendil-works/pi-coding-agent');",
         "await import('@earendil-works/pi-ai/providers/anthropic');",
         "await import('@earendil-works/pi-ai/api/anthropic-messages');",
-        ...(project.dir === webDir ? ["const {createRequire}=await import('node:module'); const require=createRequire(import.meta.url); new (require('better-sqlite3'))(':memory:').close();"] : []),
+        "const {createRequire}=await import('node:module'); const require=createRequire(import.meta.url); new (require('better-sqlite3'))(':memory:').close();",
       ].join("\n")], project.stage);
     }
     // A manual npm install or another editor must not be overwritten by our prepared snapshot.
@@ -231,7 +231,7 @@ export function autoUpdatePi({
       }
     }
     committed = true;
-    log(`Web and Backend Pi SDK/AI synchronized to ${targetVersion ? "default" : "latest"} v${version}`);
+    log(`Backend Pi SDK/AI synchronized to ${targetVersion ? "default" : "latest"} v${version}`);
     return { attempted: true, updated: true, skipped: false, safeToStart: true, version };
   } catch (err) {
     if (!committed) {
@@ -274,7 +274,7 @@ export const PI_WORKER_TIMEOUT_MS = PI_UPDATE_TIMEOUT_MS + PI_WORKER_CLEANUP_BUD
 
 /** Run npm outside the Host event loop, but await completion before either runtime starts. */
 export function updatePiBeforeStartup({
-  webDir, backendDir, env = process.env, spawn = defaultSpawn, log = () => {}, error = () => {},
+  backendDir, env = process.env, spawn = defaultSpawn, log = () => {}, error = () => {},
   timeoutMs = PI_WORKER_TIMEOUT_MS,
   targetVersion = null,
   killTree = (pid) => hardKillTree(pid, { platform: process.platform }),
@@ -292,7 +292,7 @@ export function updatePiBeforeStartup({
       resolveResult(value);
     };
     try {
-      const args = [WORKER, "--web", webDir, "--backend", backendDir, "--startup-host", String(process.pid)];
+      const args = [WORKER, "--backend", backendDir, "--startup-host", String(process.pid)];
       if (targetVersion) args.push("--target", targetVersion);
       child = spawn(process.execPath, args, {
         env, windowsHide: true, stdio: ["ignore", "pipe", "pipe", "ipc"],
@@ -311,7 +311,7 @@ export function updatePiBeforeStartup({
       if (child.pid) killTree(child.pid);
       // Only drop the lock after the worker is confirmed gone. Removing it while the process still
       // lives lets a later Host start a second synchronizer against the same directories.
-      const lockPath = webDir ? join(webDir, DEPS_LOCK_NAME) : null;
+      const lockPath = backendDir ? join(backendDir, DEPS_LOCK_NAME) : null;
       if (lockPath && (!child.pid || !isAlive(child.pid))) rmSync(lockPath, { force: true });
       else if (lockPath) error(`Pi synchronization worker may still be alive; leaving ${DEPS_LOCK_NAME} in place`);
       settle({ attempted: true, updated: false, skipped: false, safeToStart: false, error: reason });

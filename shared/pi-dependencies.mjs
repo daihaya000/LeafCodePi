@@ -82,20 +82,16 @@ export function assertInstalledPiVersions(dir, version) {
 }
 
 /**
- * Build/start gates use the same contract as the updater, without contacting npm.
- * `requireUnlocked` is for the live checkout the worker locks; production mirrors never run that
- * worker, so a leftover `.leafcode-pi-deps.lock` there must not force a rebuild loop.
+ * Backend start gates use the updater's contract without contacting npm.
+ * Next has no SDK installation or SDK generation to synchronize.
  */
-export function assertPiDependencyVersions(webDir, backendDir, { requireUnlocked = true } = {}) {
-  if (requireUnlocked && piDepsLockHeld(join(webDir, PI_DEPS_LOCK_NAME))) {
+export function assertPiDependencyVersions(backendDir, { requireUnlocked = true } = {}) {
+  if (requireUnlocked && piDepsLockHeld(join(backendDir, PI_DEPS_LOCK_NAME))) {
     throw new Error("Pi synchronization is unfinished; retry after it completes or recover its retained staging backup");
   }
-  let version;
-  for (const dir of [webDir, backendDir]) {
-    const manifest = JSON.parse(readFileSync(join(dir, "package.json"), "utf8"));
-    const lock = JSON.parse(readFileSync(join(dir, "package-lock.json"), "utf8"));
-    version ??= manifest.dependencies?.[PI_SDK_PACKAGE];
-    assertPiProjectVersions(manifest, lock, version, dir);
-  }
+  const manifest = JSON.parse(readFileSync(join(backendDir, "package.json"), "utf8"));
+  const lock = JSON.parse(readFileSync(join(backendDir, "package-lock.json"), "utf8"));
+  const version = manifest.dependencies?.[PI_SDK_PACKAGE];
+  assertPiProjectVersions(manifest, lock, version, backendDir);
   return version;
 }

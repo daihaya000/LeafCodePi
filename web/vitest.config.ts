@@ -1,5 +1,6 @@
 import { configDefaults, defineConfig } from "vitest/config";
 import uiModules from "../shared/ui-module-paths.json";
+import backendPackage from "../backend/package.json";
 import { existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, isAbsolute, join, resolve } from "node:path";
@@ -9,12 +10,23 @@ import { fileURLToPath } from "node:url";
 // fallback away from the user's live %APPDATA% data even when a test forgets
 // to restore one of those variables.
 const testDataRoot = join(tmpdir(), `leafcode-pi-vitest-${process.pid}`);
+// Legacy owner tests use Backend's installation. These are never Web production dependencies.
+const backendImporter = fileURLToPath(new URL("../backend/src/entry.mjs", import.meta.url));
+const ownerPackages = new Set([...Object.keys(backendPackage.dependencies), "@earendil-works/pi-agent-core", "@earendil-works/pi-tui"]);
+ownerPackages.delete("undici"); // Web transport keeps its own declared undici identity.
 
 export default defineConfig({
   plugins: [{
     name: "backend-runtime-test-identity",
     enforce: "pre",
-    resolveId(id, importer) {
+    async resolveId(id, importer) {
+      const packageName = id.startsWith("@") ? id.split("/").slice(0, 2).join("/") : id.split("/")[0];
+      // Vite's ESM resolver respects import-only SDK exports (createRequire cannot).
+      if (ownerPackages.has(packageName)) {
+        const resolved = await this.resolve(id, backendImporter, { skipSelf: true });
+        if (!resolved) throw new Error(`Backend test dependency is unavailable: ${id}`);
+        return resolved;
+      }
       // Old imports and mocks must resolve to the same canonical module as moved relative imports.
       const webSource = fileURLToPath(new URL("./src", import.meta.url));
       const runtimeSource = fileURLToPath(new URL("../backend/runtime-src", import.meta.url));
@@ -49,7 +61,7 @@ export default defineConfig({
   }],
   resolve: {
     // Moved runtime/extension modules must share SDK and mocked package identity with Web tests.
-    dedupe: ["typebox", "undici", "jiti", "mdast-util-from-markdown", "@earendil-works/pi-coding-agent", "@earendil-works/pi-ai", "@earendil-works/pi-tui"],
+    dedupe: ["react", "react-dom", "undici"],
     alias: {
       "@backend-runtime": fileURLToPath(new URL("../backend/runtime-src", import.meta.url)),
       "@": fileURLToPath(new URL("./src", import.meta.url)),

@@ -399,7 +399,7 @@ test("dependencies migrate once, stay local across source syncs, and refresh whe
   }
 });
 
-test("a valid mirror dependency stamp does not hide an outdated installed AI package", () => {
+test("Web dependency readiness ignores legacy SDK copies", () => {
   const { root, mirror } = sandbox();
   const packages = ["@earendil-works/pi-coding-agent", "@earendil-works/pi-ai"];
   let calls = 0;
@@ -419,12 +419,12 @@ test("a valid mirror dependency stamp does not hide an outdated installed AI pac
     assert.equal(ensureBuildDependencies(mirror, { install }), true);
     assert.equal(ensureBuildDependencies(mirror, { install }), false);
     writeFileSync(join(mirror, "node_modules", packages[1], "package.json"), JSON.stringify({ version: "0.87.1" }));
-    assert.equal(ensureBuildDependencies(mirror, { install }), true);
-    assert.equal(calls, 2);
+    assert.equal(ensureBuildDependencies(mirror, { install }), false);
+    assert.equal(calls, 1);
   } finally { rmSync(root, { recursive: true, force: true }); }
 });
 
-test("a matching Web dependency stamp cannot hide broken SQLite bindings", () => {
+test("Web readiness never probes legacy SQLite bindings", () => {
   const { root, mirror } = sandbox();
   try {
     mkdirSync(mirror);
@@ -438,10 +438,10 @@ test("a matching Web dependency stamp cannot hide broken SQLite bindings", () =>
     assert.equal(ensureBuildDependencies(mirror, { install }), true);
     const sqlite = join(mirror, "node_modules", "better-sqlite3", "index.js");
     writeFileSync(sqlite, "module.exports = class Database { constructor() { throw new Error('binding missing'); } };\n");
-    assert.equal(ensureBuildDependencies(mirror, { install }), true);
-    assert.equal(installs, 2);
     assert.equal(ensureBuildDependencies(mirror, { install }), false);
-    assert.equal(installs, 2);
+    assert.equal(installs, 1);
+    assert.equal(ensureBuildDependencies(mirror, { install }), false);
+    assert.equal(installs, 1);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
@@ -455,17 +455,12 @@ test("failed dependency installs restore legacy dependencies and leave the previ
     writeFileSync(join(mirror, "package-lock.json"), "{}\n");
     writeFileSync(join(mirror, ".next", "BUILD_ID"), "good\n");
     installNextFixture(null, null, { cwd: mirror });
-    for (const failure of [{ status: 1 }, { error: new Error("spawn failed") }, { status: 0 }, { status: 0, brokenSqlite: true }]) {
+    for (const failure of [{ status: 1 }, { error: new Error("spawn failed") }, { status: 0 }]) {
       assert.throws(() => ensureBuildDependencies(mirror, { install: () => {
         mkdirSync(join(mirror, "node_modules"), { recursive: true });
         writeFileSync(join(mirror, "node_modules", "partial"), "junk\n");
-        if (failure.brokenSqlite) {
-          installNextFixture(null, null, { cwd: mirror });
-          writeFileSync(join(mirror, "node_modules", "better-sqlite3", "index.js"),
-            "module.exports = class Database { constructor() { process.exit(1); } };\n");
-        }
         return failure;
-      } }), /npm ci|spawn failed|SQLite/);
+      } }), /npm ci|spawn failed/);
       assert.equal(existsSync(join(mirror, "node_modules", "partial")), false);
       assert.equal(existsSync(join(mirror, "node_modules", ".leafcode-pi-build-deps")), false);
       assert.equal(existsSync(join(mirror, "node_modules", "next", "dist", "bin", "next")), true);
@@ -953,7 +948,7 @@ test("webUiPort falls back to 3010 for absent or invalid values", () => {
   assert.equal(webUiPort({ LEAFCODE_PI_PORT: "70000" }), 3010);
 });
 
-test("production builds use webpack for the Pi SDK's WASM unless Turbopack is explicitly requested", () => {
+test("production builds retain webpack unless Turbopack is explicitly requested", () => {
   const nextBin = join("C:/build workspace", "node_modules", "next", "dist", "bin", "next");
   for (const env of [{}, { LEAFCODE_PI_USE_WEBPACK: "1" }, { LEAFCODE_PI_USE_WEBPACK: "" }, { LEAFCODE_PI_USE_WEBPACK: "invalid" }]) {
     assert.deepEqual(nextBuildArgs(nextBin, env), [nextBin, "build", "--webpack"]);

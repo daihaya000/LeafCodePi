@@ -79,9 +79,17 @@ Nextは画面・ブラウザ認証・入口制限・HTTP中継だけを担当す
 - ba589faa＋自分の差分だけの隔離でBackend forced build/runtime型、native109件、関連Web68 files/535 tests成功。build後型gate追加の最新境界回帰11件も成功。広域全Web suiteの成功とはしない。追加した既存service-independence試験のimage HTTP envelope期待は `undefined !== 404` で失敗し、未変更HEADの別Tempでも同じ行・同じ失敗を再現したため無関係修正せず記録。既存SettingsView localhost通信拒否ログも保持。
 - full production mirrorにはBackend/extension sourceもSDK/provider/SQLite/jiti package pathも置かず、全165 API・実UIをNext build。build前/生成後のstrict型成功、179 NFT traceにowner/SDK/nativeなし。匿名status401、認証callerのowner snapshot・秘密非露出、Web停止中の独立Backend readiness、Web再起動後の応答、Backend不在時の失敗表示、Next data未生成を1/1成功（57.0秒）。有限設定owner callbackであり実SDK生成継続の最終受入ではない。初回の生成型不適合とfixture自身のhealth URL/protocol誤り、native fixture cleanup失敗、status旧mock期待を修正して再検証した。
 
-## 残る作業
+## 第7区切り: Web SDK依存撤去・Backend専有のSDK更新
 
-- Web manifest/lockfileから不要SDK/provider/SQLite等を除去し、HostのSDK version gate/updater同期をBackend専有に変更する。テストのSDK依存はBackend側へ解決/分離する。installed packageと稼働サービスは今回変更していない。
+- 原因: Nextの本番閉包からSDK/業務ownerを除去した後も、Web manifest/lockとHostのSDK検査・更新処理が旧Web/Backend二重installation契約を保持していた。WebからPi SDK/AI・Cursor/CommandCode provider・SQLite/native型・不要な直接parser依存、SDK override、SQLite install-script設定を撤去。隔離したoffline lock-only生成で813→673 packages、残存pathのversion変更なし。jitiはTailwind等のdev-tool推移依存として残り、Next実行閉包には許可しない。
+- HostのSDK current表示、mutex、startup version gate、worker、CLI check、latest/default target、stage/install/validate/publication/rollbackをBackendだけに限定。Web source不在でも同期でき、Web manifest/lock/modulesを読書きしない。Backend listener稼働時のpublication拒否、Host owner確認、deadline/worker timeout、concurrent edit保全、rollback不能時のstartup拒否を維持。SQLiteのnative open検証もBackend staged installへ移す。SDK更新でWebを強制再buildせず、Backendだけ強制buildする。
+- Web build dependency readinessからSDK一致検査・SQLite probeを撤去。Hostによるextension依存修復は保持し、Nextのbuild/実行からは呼ばない。古いWeb SDK/SQLiteコピーが残っていてもWeb readinessの条件にしない。既存checkoutのinstalled packageと稼働サービスは変更していない。
+- 旧owner試験はVitestのBackend importerからSDK/provider/owner依存を解決し、mock identityを共有する。import-only exportsに対応するVite ESM resolverを使い、解決不能なら拒否。通常Web型検査の旧SDK型aliasもBackend installationへ変更。本番型設定は引き続きWeb/shared閉包だけであり、これらのtest/compatibility aliasを含まない。
+- 隔離基準87cd8ead＋自分の差分だけで実manifest/lockから `npm ci --offline --ignore-scripts` 成功（Windows選択536 packages、SDK/provider/SQLite/native型なし）。Backend forced build/runtime型、Web source-only型成功。native211件成功、レビュー後の関連native98件とWeb24 files/184 testsも成功。
+- 広めの関連Web26 files/291 testsは278成功・13失敗。store daily snapshot1件とharness-routing12件は、未変更87cd8eadを別Tempへ展開した同一threads条件でも、失敗名13個・件数・期待値が同一。今回の回帰として修正せず、全Web成功とはしない。さらに広い旧SDK試験群のfork実行はBackend子プロセスreportとVitest IPCの干渉で `Unexpected call to process.send` / `ERR_INVALID_ARG_TYPE` により終了し、成功扱いにしない。初回のimport-only SDKに対するcreateRequire誤解決とHost build順序の旧文字列期待は修正・再検証した。
+- clean Web installationだけを使ったfull production Nextは312 roots/165 routes/583 runtime/649 type modulesをbuild、build前/生成後のstrict型成功、179 NFT tracesにowner/SDK/nativeなし。匿名status401・認証snapshot・秘密非露出・Web停止中Backend readiness・Web再起動・Backend不在表示・Next data未生成を1/1成功（78.9秒）。SDK生成中の継続受入ではなく、設定owner callbackは有限fixture。実provider/engine・課金生成・実サービス更新には使わない。
+
+## 残る作業
 - 隔離した実Backend/実Nextで、生成実行中のWeb停止/再起動、Backend PID/世代/SDK session/lease継続、再接続後の履歴・完了結果・受付済operationの非再実行を確認する。register関数だけの子プロセス試験は、この最終受入の代用にしない。
 
 実資格情報・課金生成・稼働サービスの停止/再起動は検証に使わない。他セッションのharness/GoalLoop/provider-overload差分を混ぜない。

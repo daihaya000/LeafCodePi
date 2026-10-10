@@ -32,7 +32,7 @@ test("host replacement skips stale rebuild only on the first WebUI launch", () =
 test("host repairs extension dependencies before starting children even with a reused Web build", () => {
   const source = readFileSync(new URL("./index.js", import.meta.url), "utf8");
   const check = source.indexOf('    ensureExtensionDependencies(join(REPO_ROOT, "extensions"));');
-  const backendBuild = source.indexOf("    if (backendService) await buildBackendWithFallback({ force: rebuildServices, log, error });");
+  const backendBuild = source.indexOf("    if (backendService) await buildBackendWithFallback({ force: rebuildServices || synchronized.updated, log, error });");
   const webStart = source.indexOf("    await spawnWeb({ forceBuild: rebuildServices, pull: restartOptions.pull });", check);
   assert.ok(check > source.indexOf("async function main("));
   assert.ok(check < backendBuild && backendBuild < webStart);
