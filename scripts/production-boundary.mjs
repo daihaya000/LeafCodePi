@@ -33,22 +33,47 @@ export function dependencyReferences(source, file = "boundary.ts", ts = parser()
     return node;
   };
   const aliases = new Set(), reflectionAliases = new Map(), assignedValues = new Map(), globalReturns = new Set();
-  const functionTargets = (node, seen = new Set()) => {
+  const functionAliases = new Set(), prototypeAliases = new Set(), functionReturns = new Set(), prototypeReturns = new Set();
+  const localMethod = node => checker.getSymbolAtLocation(node.name)?.declarations?.some(d => d.getSourceFile() === ast);
+  const flattenArguments = args => args.flatMap(argument => ts.isSpreadElement(argument) && ts.isArrayLiteralExpression(unwrap(argument.expression)) ? flattenArguments([...unwrap(argument.expression).elements]) : [argument]);
+  const functionBindings = (node, seen = new Set()) => {
     node = unwrap(node);
+    const unknown = [{ fn: null, bound: [] }];
     if (!node) return [];
-    if (ts.isFunctionDeclaration(node) || ts.isFunctionExpression(node) || ts.isArrowFunction(node)) return [node];
-    if (!ts.isIdentifier(node)) return [null];
+    if (ts.isFunctionDeclaration(node) || ts.isFunctionExpression(node) || ts.isArrowFunction(node)) return [{ fn: node, bound: [] }];
+    if (ts.isPropertyAccessExpression(node) && ["call", "apply"].includes(node.name.text)) return localMethod(node) ? unknown : functionBindings(node.expression, seen);
+    if (ts.isCallExpression(node) && ts.isPropertyAccessExpression(node.expression) && node.expression.name.text === "bind") {
+      if (localMethod(node.expression)) return unknown;
+      return functionBindings(node.expression.expression, seen).map(binding => ({ ...binding, wrapped: true, bound: [...binding.bound, ...flattenArguments([...node.arguments].slice(1))] }));
+    }
+    if (!ts.isIdentifier(node)) return unknown;
     const symbol = checker.getSymbolAtLocation(node);
-    if (!symbol || seen.has(symbol)) return [null];
+    if (!symbol || seen.has(symbol)) return unknown;
     seen.add(symbol);
-    // Keep an unknown alternative instead of silently dropping it next to a
-    // known helper. Otherwise reassignment can route a global into an unaudited target.
+    // Preserve unknown alternatives AND each bound prefix: the same function can
+    // have different effective parameter positions through different aliases.
     const targets = [
-      ...symbol.declarations?.flatMap(d => ts.isFunctionDeclaration(d) ? [d]
-        : ts.isVariableDeclaration(d) ? functionTargets(d.initializer, new Set(seen)) : [null]) ?? [],
-      ...[...assignedValues.get(symbol) ?? []].flatMap(value => functionTargets(value, new Set(seen))),
+      ...symbol.declarations?.flatMap(d => ts.isFunctionDeclaration(d) ? [{ fn: d, bound: [] }]
+        : ts.isVariableDeclaration(d) ? functionBindings(d.initializer, new Set(seen)) : unknown) ?? [],
+      ...[...assignedValues.get(symbol) ?? []].flatMap(value => functionBindings(value, new Set(seen))),
     ];
-    return [...new Set(targets.length ? targets : [null])];
+    return targets.length ? targets : unknown;
+  };
+  const functionTargets = node => [...new Set(functionBindings(node).map(binding => binding.fn))];
+  const invocation = node => {
+    const callee = unwrap(node.expression);
+    let target = callee, args = [...node.arguments];
+    const wrapped = ts.isPropertyAccessExpression(callee) && ["call", "apply", "bind"].includes(callee.name.text);
+    if (wrapped) {
+      if (localMethod(callee)) return [{ fn: null, args }];
+      target = callee.expression;
+      const array = unwrap(node.arguments[1]);
+      args = callee.name.text === "apply" ? array && ts.isArrayLiteralExpression(array) ? [...array.elements] : [] : args.slice(1);
+    }
+    return functionBindings(target).map(binding => {
+      const values = [...binding.bound, ...flattenArguments(args)];
+      return { fn: values.some(ts.isSpreadElement) ? null : binding.fn, args: values, wrapped: wrapped || binding.wrapped };
+    });
   };
   const enclosingFunction = node => {
     for (let parent = node.parent; parent; parent = parent.parent) {
@@ -72,6 +97,39 @@ export function dependencyReferences(source, file = "boundary.ts", ts = parser()
       || ts.isConditionalExpression(node) && (globalValue(node.whenTrue) || globalValue(node.whenFalse))
       || ts.isBinaryExpression(node) && [ts.SyntaxKind.BarBarToken, ts.SyntaxKind.AmpersandAmpersandToken, ts.SyntaxKind.QuestionQuestionToken].includes(node.operatorToken.kind) && (globalValue(node.left) || globalValue(node.right)));
   };
+  const functionValue = (node, seen = new Set(), prototypeOnly = false) => {
+    node = unwrap(node);
+    if (!node) return false;
+    if (ts.isArrowFunction(node) || ts.isFunctionExpression(node) || ts.isClassExpression(node)) return !prototypeOnly;
+    if (ts.isConditionalExpression(node)) return functionValue(node.whenTrue, new Set(seen), prototypeOnly) || functionValue(node.whenFalse, new Set(seen), prototypeOnly);
+    if (ts.isBinaryExpression(node)) {
+      if (node.operatorToken.kind === ts.SyntaxKind.CommaToken) return functionValue(node.right, seen, prototypeOnly);
+      if ([ts.SyntaxKind.BarBarToken, ts.SyntaxKind.AmpersandAmpersandToken, ts.SyntaxKind.QuestionQuestionToken].includes(node.operatorToken.kind)) return functionValue(node.left, new Set(seen), prototypeOnly) || functionValue(node.right, new Set(seen), prototypeOnly);
+    }
+    if (ts.isPropertyAccessExpression(node) && node.name.text === "constructor") return !prototypeOnly;
+    if (ts.isPropertyAccessExpression(node) && node.name.text === "prototype" && functionValue(node.expression, seen)) return true;
+    if (ts.isCallExpression(node)) {
+      if (ts.isPropertyAccessExpression(node.expression)) {
+        // Every object prototype carries a constructor capability, including Object.prototype.
+        if (node.expression.getText(ast) === "Object.getPrototypeOf") return true;
+        if (node.expression.name.text === "bind") return !prototypeOnly && functionValue(node.expression.expression, seen);
+      }
+      if (functionTargets(node.expression).some(fn => (prototypeOnly ? prototypeReturns : functionReturns).has(fn))) return true;
+    }
+    if (ts.isIdentifier(node)) {
+      const symbol = checker.getSymbolAtLocation(node);
+      if (!prototypeOnly && !symbol && ["Object", "Array", "String", "Number", "Boolean", "Symbol", "BigInt", "Date", "RegExp", "Promise", "Error", "Map", "Set", "WeakMap", "WeakSet"].includes(node.text)) return true;
+      if (symbol && (prototypeAliases.has(symbol) || !prototypeOnly && functionAliases.has(symbol))) return true;
+      if (symbol && !seen.has(symbol)) {
+        seen.add(symbol);
+        if (symbol.declarations?.some(d => ts.isVariableDeclaration(d) && functionValue(d.initializer, new Set(seen), prototypeOnly))
+          || [...assignedValues.get(symbol) ?? []].some(value => functionValue(value, new Set(seen), prototypeOnly))) return true;
+      }
+    }
+    if (prototypeOnly) return false;
+    const type = checker.getTypeAtLocation(node);
+    return type.getCallSignatures().length > 0 || type.getConstructSignatures().length > 0;
+  };
   // Rollup/vendor DOM fallbacks can bind window/self/globalThis. Track their symbols,
   // rather than exempting all global receiver/alias checks in emitted values.
   {
@@ -90,15 +148,38 @@ export function dependencyReferences(source, file = "boundary.ts", ts = parser()
             }
           }
           if (symbol && bundled && globalValue(value) && !aliases.has(symbol)) { aliases.add(symbol); changed = true; }
+          if (symbol && value && functionValue(value) && !functionAliases.has(symbol)) { functionAliases.add(symbol); changed = true; }
+          if (symbol && value && functionValue(value, new Set(), true) && !prototypeAliases.has(symbol)) { prototypeAliases.add(symbol); changed = true; }
           if (symbol && reflected && (!reflectionAliases.has(symbol) || reflectionAliases.get(symbol) === "descriptor" && reflected === "get")) { reflectionAliases.set(symbol, reflected); changed = true; }
         }
         if (ts.isBindingElement(node) && (node.propertyName ?? node.name).getText(ast) === "getOwnPropertyDescriptor" && ts.isIdentifier(node.name)) {
           const symbol = checker.getSymbolAtLocation(node.name);
           if (symbol && !reflectionAliases.has(symbol)) { reflectionAliases.set(symbol, "descriptor"); changed = true; }
         }
+        if (ts.isCallExpression(node)) for (const { fn, args } of invocation(node).filter(call => call.fn)) {
+          args.forEach((argument, index) => {
+            const parameter = fn.parameters[index];
+            if (parameter && ts.isIdentifier(parameter.name) && !parameter.dotDotDotToken) {
+              const symbol = checker.getSymbolAtLocation(parameter.name);
+              if (symbol && functionValue(argument) && !functionAliases.has(symbol)) { functionAliases.add(symbol); changed = true; }
+              if (symbol && functionValue(argument, new Set(), true) && !prototypeAliases.has(symbol)) { prototypeAliases.add(symbol); changed = true; }
+            }
+          });
+        }
+        const returned = ts.isReturnStatement(node) ? node.expression : ts.isArrowFunction(node) && !ts.isBlock(node.body) ? node.body : null;
+        if (returned) {
+          const fn = ts.isArrowFunction(node) ? node : enclosingFunction(node);
+          if (fn && functionValue(returned) && !functionReturns.has(fn)) { functionReturns.add(fn); changed = true; }
+          if (fn && functionValue(returned, new Set(), true) && !prototypeReturns.has(fn)) { prototypeReturns.add(fn); changed = true; }
+        }
+        if (ts.isParameter(node) && ts.isIdentifier(node.name) && node.initializer) {
+          const symbol = checker.getSymbolAtLocation(node.name);
+          if (symbol && functionValue(node.initializer) && !functionAliases.has(symbol)) { functionAliases.add(symbol); changed = true; }
+          if (symbol && functionValue(node.initializer, new Set(), true) && !prototypeAliases.has(symbol)) { prototypeAliases.add(symbol); changed = true; }
+        }
         if (bundled) {
-          if (ts.isCallExpression(node)) for (const fn of functionTargets(node.expression).filter(Boolean)) {
-            node.arguments.forEach((argument, index) => {
+          if (ts.isCallExpression(node)) for (const { fn, args } of invocation(node).filter(call => call.fn)) {
+            args.forEach((argument, index) => {
               const parameter = fn.parameters[index];
               if (globalValue(argument) && parameter && ts.isIdentifier(parameter.name) && !parameter.dotDotDotToken) {
                 const symbol = checker.getSymbolAtLocation(parameter.name);
@@ -130,29 +211,6 @@ export function dependencyReferences(source, file = "boundary.ts", ts = parser()
       const left = staticString(node.left), right = staticString(node.right);
       if (left !== undefined && right !== undefined) return left + right;
     }
-  };
-  const functionValue = (node, seen = new Set(), prototypeOnly = false) => {
-    node = unwrap(node);
-    if (!node) return false;
-    if (ts.isArrowFunction(node) || ts.isFunctionExpression(node) || ts.isClassExpression(node)) return !prototypeOnly;
-    if (ts.isPropertyAccessExpression(node) && node.name.text === "prototype" && ts.isPropertyAccessExpression(node.expression)
-      && node.expression.name.text === "constructor" && functionValue(node.expression.expression, seen)) return true;
-    if (ts.isCallExpression(node) && ts.isPropertyAccessExpression(node.expression)) {
-      if (node.expression.getText(ast) === "Object.getPrototypeOf") return functionValue(node.arguments[0], seen);
-      if (node.expression.name.text === "bind") return !prototypeOnly && functionValue(node.expression.expression, seen);
-    }
-    if (ts.isIdentifier(node)) {
-      const symbol = checker.getSymbolAtLocation(node);
-      if (!prototypeOnly && !symbol && ["Object", "Array", "String", "Number", "Boolean", "Symbol", "BigInt", "Date", "RegExp", "Promise", "Error", "Map", "Set", "WeakMap", "WeakSet"].includes(node.text)) return true;
-      if (symbol && !seen.has(symbol)) {
-        seen.add(symbol);
-        if (symbol.declarations?.some(d => ts.isVariableDeclaration(d) && functionValue(d.initializer, seen, prototypeOnly))
-          || [...assignedValues.get(symbol) ?? []].some(value => functionValue(value, seen, true))) return true;
-      }
-    }
-    if (prototypeOnly) return false;
-    const type = checker.getTypeAtLocation(node);
-    return type.getCallSignatures().length > 0 || type.getConstructSignatures().length > 0;
   };
   function constructorMetadata(node) {
     if (!bundled) return false;
@@ -238,7 +296,7 @@ export function dependencyReferences(source, file = "boundary.ts", ts = parser()
       }
       if (ts.isIdentifier(node) && loaders.has(node.text)) fail(file, `indirect loader/code evaluation forbidden: ${node.text}`);
       if (ts.isPropertyAccessExpression(node) && (loaders.has(node.name.text) || node.name.text === "constructor" && !constructorMetadata(node) || node.getText(ast).startsWith("import.meta.glob"))) fail(file, `indirect loader/code evaluation forbidden: ${node.getText(ast).slice(0,100)}`);
-      if (ts.isElementAccessExpression(node) && (loaders.has(staticString(node.argumentExpression)) || staticString(node.argumentExpression) === "constructor" || functionValue(node.expression) && staticString(node.argumentExpression) === undefined && !ts.isNumericLiteral(unwrap(node.argumentExpression)) && !(bundled && allowMetadata("global-read", node)) || globalValue(node.expression) && !computedMetadata(node))) fail(file, `computed loader/global access forbidden: ${node.getText(ast).slice(0,100)}`);
+      if (ts.isElementAccessExpression(node) && (loaders.has(staticString(node.argumentExpression)) || staticString(node.argumentExpression) === "constructor" || functionValue(node.expression) && staticString(node.argumentExpression) === undefined && !ts.isNumericLiteral(unwrap(node.argumentExpression)) && !(bundled && (allowMetadata("global-read", node) || allowMetadata("function-read", node))) || globalValue(node.expression) && !computedMetadata(node))) fail(file, `computed loader/global access forbidden: ${node.getText(ast).slice(0,100)}`);
       if (reflectionKind(node)) {
         const parent = node.parent;
         assert.ok(ts.isCallExpression(parent) && parent.expression === node || ts.isVariableDeclaration(parent)
@@ -285,11 +343,12 @@ export function dependencyReferences(source, file = "boundary.ts", ts = parser()
           || ts.isPrefixUnaryExpression(parent) && parent.operator === ts.SyntaxKind.ExclamationToken);
         // A global argument is permitted only when every possible local target
         // has a symbol-tracked positional parameter. Unknown/rest/object escape fails closed.
-        const targets = ts.isCallExpression(parent) ? functionTargets(parent.expression) : [];
-        const argumentIndex = ts.isCallExpression(parent) ? parent.arguments.indexOf(receiver) : -1;
-        const localCall = bundled && argumentIndex >= 0 && targets.length > 0 && targets.every(fn => {
-          const parameter = fn?.parameters[argumentIndex];
-          return fn?.body && parameter && ts.isIdentifier(parameter.name) && !parameter.dotDotDotToken;
+        const calls = ts.isCallExpression(parent) ? invocation(parent) : [];
+        // Normalize wrappers for capability propagation, never as a new global
+        // escape permission: prototype mutation can replace call/apply/bind.
+        const localCall = bundled && calls.length > 0 && calls.every(({ fn, args, wrapped }) => {
+          const argumentIndex = args.indexOf(receiver), parameter = fn?.parameters[argumentIndex];
+          return !wrapped && argumentIndex >= 0 && fn?.body && parameter && ts.isIdentifier(parameter.name) && !parameter.dotDotDotToken;
         });
         // Fixed React source legitimately passes DOM/window values to callbacks
         // and SyntheticEvents. This is origin/hash-bound, not a call-shape exemption;

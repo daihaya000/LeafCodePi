@@ -45,6 +45,22 @@ test("React global transport, private reads and cache gets require byte-pinned c
   }
 });
 
+test("unist and unified function reads require three exact byte-pinned compiler sites", () => {
+  for (const [name, site] of [["unist-util-is/lib/index.js", "tests[index]"], ["unist-util-is/lib/index.js", "checkAsRecord[key]"], ["unified/lib/callable-instance.js", "proto[property]"]]) {
+    const bytes = readFileSync(resolve(ROOT, "web/node_modules", name), "utf8"), ast = ts.createSourceFile(name, bytes, ts.ScriptTarget.Latest, true);
+    const position = ast.getLineAndCharacterOfPosition(bytes.indexOf(site));
+    const chunk = { fileName: "emitted.js", code: 'const fn = ()=>{}; fn[slot];', map: { version: 3, names: [], sources: ["../../node_modules/" + name], sourcesContent: [bytes], mappings: [[[0, 0, position.line, position.character]]] } };
+    assert.doesNotThrow(() => check(chunk));
+    assert.throws(() => check({ ...chunk, map: null }), /source map required/);
+    assert.throws(() => check({ ...chunk, map: { ...chunk.map, sourcesContent: [bytes + "\n// drift"] } }), /source changed/);
+    assert.throws(() => check({ ...chunk, map: { ...chunk.map, sources: ["../../node_modules/next-themes/dist/index.mjs"] } }), /loader/);
+    assert.throws(() => check({ ...chunk, map: { ...chunk.map, mappings: [[]] } }), /loader/);
+    assert.throws(() => check({ ...chunk, map: { ...chunk.map, mappings: [[[0, 0, 0, 0]]] } }), /loader/);
+    for (const code of ['const fn = ()=>{}; fn["constructor"]("hidden")();', 'const root = globalThis; root[slot];']) assert.throws(() => check({ ...chunk, code }), /loader|evaluation/);
+    assert.equal(browserSourceWithoutMapDirectives(bytes, name, ts), bytes);
+  }
+});
+
 test("upstream inline/external maps cannot forge compiler identity; comment stripping preserves strings and offsets", () => {
   const directives = ["//# sourceMappingURL=spoof.map", "//@ sourceMappingURL=data:application/json;base64,FAKE", "/*# sourceMappingURL=spoof.map */"];
   for (const directive of directives) {

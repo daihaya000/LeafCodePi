@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import test from "node:test";
+import vm from "node:vm";
 import { checkBrowserBoundary, checkGatewayBoundary, checkProductionBoundary, dependencyReferences } from "./production-boundary.mjs";
 import { buildGateway } from "./build-gateway.mjs";
 const ROOT = resolve(fileURLToPath(new URL("../", import.meta.url)));
@@ -97,6 +98,17 @@ test("global taint survives local parameters, aliases and returned values withou
     'function identity(g) { return g; } function factory() { return g => g[key]("hidden"); } let fn = identity; fn = factory(); fn(globalThis);',
     'function identity(g) { return g; } let fn = identity; fn = unknown; fn(globalThis);',
     'function entry() { invoke(globalThis); } let invoke; invoke = root => root[key]("hidden"); entry();',
+    'function focus(g) { g.document; } focus.call(null,globalThis);',
+    'function identity(g) { return g; } const bound = identity.bind(null,globalThis); bound().document;',
+    'function focus(value,g) { g.document; } const bound = focus.bind(null,1); bound(globalThis);',
+    'function focus(g) { g.document; } const bound = focus.bind(null); bound(globalThis);',
+    'function focus(g) { g.document; } Object.getPrototypeOf(()=>{}).call = (_,g) => g[key]("hidden"); focus.call(null,globalThis);',
+    'function focus(g) { g.document; } Object.defineProperty(focus,"call",{value:(_,g)=>g[key]("hidden")}); focus.call(null,globalThis);',
+    'function focus(value,g) { g[key]("hidden"); } const bound = focus.bind(null,1); bound(globalThis);',
+    'function focus(value,g) { g.document; } let bound = focus.bind(null,1); bound = unknown; bound(globalThis);',
+    'function focus(g) { g.document; } focus.call = (_,g) => g[key]("hidden"); focus.call(null,globalThis);',
+    'function focus(g) { g.document; } focus.apply = (_,g) => g[key]("hidden"); focus.apply(null,globalThis);',
+    'function focus(g) { g.document; } focus.bind = (_,g) => g[key]("hidden"); focus.bind(null,globalThis);',
     'const g = globalThis; const holder = { root: g };', 'const g = globalThis; const values = [g];',
     'const holder = { root: typeof self === "object" ? self : globalThis };',
     'function invoke(...args) { args[0][key]("hidden"); } invoke(globalThis);',
@@ -113,10 +125,91 @@ test("global taint survives local parameters, aliases and returned values withou
     'function getRoot() { return typeof self === "object" ? self : globalThis; } getRoot().document;',
     'const root = globalThis; if (root && root.document) root.document.body.focus();',
     'function inspect(g = globalThis) { return g.document; } inspect();',
+
     'function identity(g) { return g; } let fn = identity; fn = identity; fn(window).document;',
     'const root = globalThis; const label = "Window: " + root; switch (root) { default: break; }',
     'function entry() { focus(window); } let focus; focus = root => root.document.body.focus(); entry();',
   ]) assert.doesNotThrow(() => dependencyReferences(source, "global-flow.js", undefined, { kind: "browser", bundled: true }), source);
+});
+
+test("function and prototype capabilities survive local parameters, defaults, returns and aliases", () => {
+  const key = 'const key = ["constr", "uctor"].join(""); ';
+  const payload = '"globalThis.canary=true"';
+  const probes = [
+    `function invoke(fn) { fn[key](${payload})(); } invoke(()=>{});`,
+    `function identity(fn) { return fn; } const f = identity(()=>{}); f[key](${payload})();`,
+    `function invoke(fn) { fn[key](${payload})(); } invoke.call(null, ()=>{});`,
+    `function invoke(fn) { fn[key](${payload})(); } invoke.apply(null, [()=>{}]);`,
+    `function invoke(fn) { fn[key](${payload})(); } const bound = invoke.bind(null, ()=>{}); bound();`,
+    `function invoke(value, fn) { fn[key](${payload})(); } const bound = invoke.bind(null, 1); bound(()=>{});`,
+    `function invoke(a, b, fn) { fn[key](${payload})(); } const bound = invoke.bind(null, 1).bind(null, 2); bound(()=>{});`,
+    `function invoke(value, fn) { fn[key](${payload})(); } const bound = invoke.bind(null, 1); bound.call(null, ()=>{});`,
+    `function invoke(value, fn) { fn[key](${payload})(); } const bound = invoke.bind(null, 1); bound.apply(null, [()=>{}]);`,
+    `function invoke(fn) { fn[key](${payload})(); } invoke(...[()=>{}]);`,
+    `function identity(fn) { return fn; } const bound = identity.bind(null, ()=>{}); bound()[key](${payload})();`,
+    `function invoke(proto) { proto[key](${payload})(); } invoke(Object.getPrototypeOf(()=>{}));`,
+    `const first = Object.getPrototypeOf({})[key]; first[key](${payload})();`,
+    `function entry() { invoke(()=>{}); } let invoke; invoke = fn => fn[key](${payload})(); entry();`,
+    `function identity(fn) { return fn; } const alias = identity; alias(()=>{})[key](${payload})();`,
+    `function one(fn) { return two(fn); } function two(fn) { return fn; } one(()=>{})[key](${payload})();`,
+    `function invoke(fn = ()=>{}) { fn[key](${payload})(); } invoke();`,
+    `function factory() { return ()=>{}; } factory()[key](${payload})();`,
+    `const factory = () => ()=>{}; factory()[key](${payload})();`,
+    `class Item {} function invoke(fn) { fn[key](${payload})(); } invoke(Item);`,
+    `class Item {} function invoke(proto) { proto[key][key](${payload})(); } invoke(Item.prototype);`,
+    `function identity(fn) { return (0, fn); } identity(()=>{})[key](${payload})();`,
+    `function identity(fn) { return true ? fn : null; } identity(()=>{})[key](${payload})();`,
+    `function identity(fn) { return null || fn; } identity(()=>{})[key](${payload})();`,
+    `const fn = ()=>{}; let alias; alias = fn; alias[key](${payload})();`,
+    `const fn = ()=>{}; const proto = fn.constructor.prototype; function identity(value) { return value; } identity(proto)[key](${payload})();`,
+  ];
+  for (const probe of probes) {
+    const source = key + probe, context = {};
+    vm.runInNewContext(source, context, { timeout: 1000 }); assert.equal(context.canary, true, source);
+    for (const kind of ["browser", "gateway"]) for (const bundled of [false, true]) {
+      assert.throws(() => dependencyReferences(source, "function-flow.js", undefined, { kind, bundled }), /loader|evaluation/, source);
+    }
+  }
+  for (const source of [
+    'function invoke(fn) { return fn(); } invoke(()=>1);',
+    'function identity(fn) { return fn; } identity(()=>{}).name;',
+    'function identity(fn) { return fn; } identity(()=>{})["name"];',
+    'const key = "label"; function identity(value) { return value; } identity({label:1})[key];',
+    'Object.getPrototypeOf({})["toString"]();',
+    'const fn = ()=>{}; fn[0];',
+    'class Item {} Item.prototype.label = "data";',
+    'function invoke(fn = ()=>1) { return fn(); } invoke();',
+    'function invoke(fn) { return fn(); } invoke.call(null, ()=>1);',
+    'function invoke(fn) { return fn(); } invoke.apply(null, [()=>1]);',
+    'function invoke(fn) { return fn(); } const bound = invoke.bind(null, ()=>1); bound();',
+    'function invoke(fn) { return fn(); } invoke(...[()=>1]);',
+    'function invoke(fn) { return fn(); } invoke.apply(null);',
+    'function invoke(value, fn) { return fn(); } const bound = invoke.bind(null, 1); bound(()=>1);',
+  ]) for (const kind of ["browser", "gateway"]) for (const bundled of [false, true]) {
+    assert.doesNotThrow(() => dependencyReferences(source, "function-flow.js", undefined, { kind, bundled }), source);
+  }
+});
+
+test("Browser and gateway value-closure gates reject local function capabilities before compilation", t => {
+  for (const kind of ["browser", "gateway"]) for (const body of [
+    'function invoke(fn) { fn[key]("hidden")(); } invoke(()=>{});',
+    'function identity(fn) { return fn; } identity(()=>{})[key]("hidden")();',
+    'function invoke(proto) { proto[key]("hidden")(); } invoke(Object.getPrototypeOf(()=>{}));',
+    'Object.getPrototypeOf({})[key][key]("hidden")();',
+    'function entry() { invoke(()=>{}); } let invoke; invoke = fn => fn[key]("hidden")(); entry();',
+  ]) {
+    const f = fixture(t, kind);
+    const helper = kind === "browser" ? "shared/function-flow.mjs" : "gateway/src/function-flow.mjs";
+    put(f.root, f.entry, kind === "browser" ? 'import "../../../shared/function-flow.mjs";' : 'import "./function-flow.mjs";');
+    put(f.root, helper, 'const key = ["constr", "uctor"].join(""); ' + body);
+    assert.throws(f.run, /loader.*forbidden/, `${kind}: ${body}`);
+    if (kind === "gateway") {
+      put(f.root, "docs/plans/next-thin-phase0.json", JSON.stringify({ version: 1, groups: { fixture: {} }, routes: [{ route: "/api/fixture", source: "web/src/app/api/fixture/route.ts", group: "fixture", operations: [{ method: "GET", owner: "Backend", phase: 3, decision: "thin-backend-relay", contract: "json", note: "fixture transport" }] }] }));
+      put(f.root, "web/src/app/api/fixture/route.ts", 'export function GET() { return Response.json({ ok: true }); }');
+      assert.throws(() => buildGateway(f.root, { typecheck: false }), /loader.*forbidden/, body);
+      assert.equal(existsSync(join(f.root, "gateway/dist")), false);
+    }
+  }
 });
 
 test("destructuring cannot extract constructors or untracked reflection loaders", () => {

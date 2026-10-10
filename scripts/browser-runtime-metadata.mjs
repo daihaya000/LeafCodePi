@@ -15,6 +15,8 @@ export const BROWSER_METADATA_SOURCES = Object.freeze({
   "react/cjs/react.production.js": "66fdfbcc9c1c7e1c35f8ccf462ea24ead8fba28172ac9d6cbc13a9d6d650094e",
   "react-dom/cjs/react-dom-client.production.js": "2f60615d2504361fadca40064af1b64b3657a85e32fdac09ce22b424dab522c5",
   "extend/index.js": "b4879ec38a11a2458846788b91be630e6b1d06eb07f9515adc1ff9030af0b00b",
+  "unist-util-is/lib/index.js": "ce90bad6b772a7e1115d76e4cc53bfade1ee1fe8ac1b8880f48b0e1512ffba44",
+  "unified/lib/callable-instance.js": "28c9baa7aea87597c4eca19a2e2b3342d3017347fabf7d513278787b5a950c58",
 });
 
 /** Remove upstream source-map directives without changing code or positions.
@@ -55,6 +57,11 @@ export function browserMetadataVerifier(chunk, ts = require("typescript")) {
       if (ts.isCallExpression(node) && node.expression.getText(ast) === "Object.getOwnPropertyDescriptor"
         && node.arguments[0]?.getText(ast) === "node.constructor.prototype" && node.arguments[1]?.getText(ast) === "valueField") allowed.push({ kind: "descriptor", start: node.getStart(ast), end: node.expression.end });
       if (name === "extend/index.js" && ts.isCallExpression(node) && text === "gOPD(obj, name)") allowed.push({ kind: "descriptor", start: node.getStart(ast), end: node.expression.end });
+      // The fixed unist converter narrows function tests to array/object branches;
+      // unified selects only its Processor.copy method from the callable prototype.
+      // Pin these three reads, not arbitrary computed calls in either package.
+      if (ts.isElementAccessExpression(node) && (name === "unist-util-is/lib/index.js" && ["tests[index]", "checkAsRecord[key]"].includes(text)
+        || name === "unified/lib/callable-instance.js" && text === "proto[property]")) allowed.push({ kind: "function-read", start: node.getStart(ast), end: node.end });
       // In these fixed React files, .get sites are Map/WeakMap caches (fiber,
       // resources, captured stacks), not reflection. No external source is exempt.
       if ((name.startsWith("react/") || name.startsWith("react-dom/")) && ts.isCallExpression(node)
