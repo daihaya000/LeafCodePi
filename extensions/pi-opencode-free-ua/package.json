@@ -1,15 +1,19 @@
 {
   "name": "pi-opencode-free-ua",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
   "type": "module",
-  "description": "Inject x-opencode-client: opencode so OpenCode Zen free-tier models pass the client gate from Pi.",
+  "description": "Preserve the native OpenCode Zen provider while fixing free-tier client headers and API routing.",
+  "scripts": {
+    "test": "node --test index.test.mjs"
+  },
   "pi": {
     "extensions": [
       "index.ts"
     ]
   },
   "peerDependencies": {
-    "@earendil-works/pi-coding-agent": "*"
+    "@earendil-works/pi-coding-agent": ">=1.0.0",
+    "@earendil-works/pi-ai": ">=1.0.0"
   }
 }
