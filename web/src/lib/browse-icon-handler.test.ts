@@ -1,7 +1,7 @@
+import { BackendTestRequest as Request } from "@/test-request";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { NextRequest } from "next/server";
 import { afterAll, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({ execFile: vi.fn(), allowed: vi.fn() }));
@@ -25,12 +25,12 @@ afterAll(() => {
   rmSync(dir, { recursive: true, force: true });
 });
 
-function post(body: unknown): NextRequest {
-  return new NextRequest("http://localhost/api/browse/icon", { method: "POST", body: JSON.stringify(body) });
+function post(body: unknown): Request {
+  return new Request("http://localhost/api/browse/icon", { method: "POST", body: JSON.stringify(body) });
 }
 
-function list(path: string): NextRequest {
-  return new NextRequest(`http://localhost/api/browse/icon?path=${encodeURIComponent(path)}`);
+function list(path: string): Request {
+  return new Request(`http://localhost/api/browse/icon?path=${encodeURIComponent(path)}`);
 }
 
 const windowsOnly = process.platform !== "win32";

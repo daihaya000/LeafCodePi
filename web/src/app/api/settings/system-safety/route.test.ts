@@ -1,13 +1,13 @@
+import { BackendTestRequest as Request } from "@/test-request";
 import assert from "node:assert/strict";
 import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { NextRequest } from "next/server";
 import { afterEach, beforeEach, describe, it } from "vitest";
 import { GET, PATCH } from "@backend-runtime/configuration/handlers/settings/system-safety/route";
 
-function request(body?: unknown): NextRequest {
-  return new NextRequest("http://127.0.0.1:3010/api/settings/system-safety", {
+function request(body?: unknown): Request {
+  return new Request("http://127.0.0.1:3010/api/settings/system-safety", {
     method: body === undefined ? "GET" : "PATCH",
     headers: body === undefined ? undefined : { "content-type": "application/json" },
     body: body === undefined ? undefined : JSON.stringify(body),

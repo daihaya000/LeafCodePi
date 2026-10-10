@@ -1,4 +1,4 @@
-import { NextRequest } from "next/server";
+import { BackendTestRequest as Request } from "@/test-request";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { DEFAULT_LLAMA_SERVER_SETTINGS } from "@/lib/llama-server-settings";
 import { POST } from "@backend-runtime/json-business/handlers/tasks/[id]/permission/advice/route";
@@ -22,8 +22,8 @@ vi.mock("@/lib/pi/harness", () => ({
 }));
 vi.mock("@/lib/host-control", () => ({ readSettingValue: mocks.readSettingValue }));
 
-function request(body: unknown): NextRequest {
-  return new NextRequest("http://127.0.0.1:3010/api/tasks/task-1/permission/advice", {
+function request(body: unknown): Request {
+  return new Request("http://127.0.0.1:3010/api/tasks/task-1/permission/advice", {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify(body),

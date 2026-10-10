@@ -1,4 +1,4 @@
-import { NextRequest } from "next/server";
+import { BackendTestRequest as Request } from "@/test-request";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
@@ -13,8 +13,8 @@ vi.mock("@/lib/pi/harness", () => mocks);
 
 import { POST } from "@backend-runtime/json-business/handlers/tasks/[id]/question/route";
 
-function request(body: unknown): NextRequest {
-  return new NextRequest("http://localhost/api/tasks/task-1/question", {
+function request(body: unknown): Request {
+  return new Request("http://localhost/api/tasks/task-1/question", {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify(body),

@@ -1,8 +1,8 @@
+import { BackendTestRequest as Request } from "@/test-request";
 import assert from "node:assert/strict";
 import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { NextRequest } from "next/server";
 import { afterEach, describe, it } from "vitest";
 import {
   __resetPiAgentDirCacheForTests,
@@ -32,8 +32,8 @@ function setup() {
   __resetPiAgentDirCacheForTests();
 }
 
-function request(url: string, method: string, body?: unknown): NextRequest {
-  return new NextRequest(url, {
+function request(url: string, method: string, body?: unknown): Request {
+  return new Request(url, {
     method,
     headers: { "content-type": "application/json" },
     body: body === undefined ? undefined : JSON.stringify(body),

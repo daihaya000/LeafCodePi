@@ -1,11 +1,11 @@
-import { NextRequest } from "next/server";
+import { BackendTestRequest as Request } from "@/test-request";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { POST } from "@backend-runtime/json-business/handlers/tasks/[id]/thinking/route";
 const mocks=vi.hoisted(()=>({select:vi.fn(),jsonError:vi.fn((error:unknown)=>({error:error instanceof Error?error.message:String(error),status:typeof error==="object"&&error&&"status" in error?Number(error.status):500}))}));
 vi.mock("@backend-runtime/lib/task-execution-settings",()=>({setTaskThinkingLevel:mocks.select}));
 vi.mock("@/lib/pi/harness",()=>({jsonError:mocks.jsonError}));
 const context={params:Promise.resolve({id:"task-1"})};
-const request=(body:unknown)=>new NextRequest("http://localhost/api/tasks/task-1/thinking",{method:"POST",body:JSON.stringify(body)});
+const request=(body:unknown)=>new Request("http://localhost/api/tasks/task-1/thinking",{method:"POST",body:JSON.stringify(body)});
 describe("owner thinking handler",()=>{
  beforeEach(()=>{mocks.select.mockReset().mockResolvedValue({id:"task-1",status:"idle"});});
  it("delegates the selected value to the guarded owner",async()=>{const response=await POST(request({thinkingLevel:"high"}),context);expect(response.status).toBe(200);expect(mocks.select).toHaveBeenCalledWith("task-1","high");expect(await response.json()).toEqual({task:{id:"task-1",status:"idle"}});});

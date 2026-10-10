@@ -1,8 +1,8 @@
+import { BackendTestRequest as Request } from "@/test-request";
 import assert from "node:assert/strict";
 import { chmodSync, mkdtempSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
-import { NextRequest } from "next/server";
 import { afterEach, describe, it, vi } from "vitest";
 import { __resetPiAgentDirCacheForTests, accountAuthPath, createAccount, getAccount } from "@/lib/accounts";
 import {
@@ -46,8 +46,8 @@ function setup() {
   return createAccount({ label: "OpenRouter", providers: ["openrouter"] });
 }
 
-function request(accountId: string, route: string, method: string, body?: unknown): NextRequest {
-  return new NextRequest(`http://localhost/api/accounts/${accountId}/${route}`, {
+function request(accountId: string, route: string, method: string, body?: unknown): Request {
+  return new Request(`http://localhost/api/accounts/${accountId}/${route}`, {
     method,
     headers: { "content-type": "application/json" },
     body: body === undefined ? undefined : JSON.stringify(body),

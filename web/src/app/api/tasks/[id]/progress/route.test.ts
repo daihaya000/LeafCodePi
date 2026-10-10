@@ -1,4 +1,4 @@
-import { NextRequest } from "next/server";
+import { BackendTestRequest as Request } from "@/test-request";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { DEFAULT_LLAMA_SERVER_SETTINGS } from "@/lib/llama-server-settings";
 import { POST } from "@backend-runtime/json-business/handlers/tasks/[id]/progress/route";
@@ -28,8 +28,8 @@ vi.mock("@/lib/host-control", async (importOriginal) => ({
 
 const { readTaskProgressSnapshot, getSetting, readSettingValue } = mocks;
 
-function request(body: unknown, signal?: AbortSignal): NextRequest {
-  return new NextRequest("http://127.0.0.1:3010/api/tasks/task-1/progress", {
+function request(body: unknown, signal?: AbortSignal): Request {
+  return new Request("http://127.0.0.1:3010/api/tasks/task-1/progress", {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify(body),

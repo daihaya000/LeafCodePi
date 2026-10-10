@@ -1,10 +1,10 @@
-import { NextRequest } from "next/server";
+import { BackendTestRequest as Request } from "@/test-request";
 import { beforeEach, expect, it, vi } from "vitest";
 const mocks=vi.hoisted(()=>({respondToPermissionPrompt:vi.fn(),jsonError:()=>({error:"failure",status:500})}));
 vi.mock("@/lib/pi/harness",()=>mocks);
 import { POST } from "@backend-runtime/json-business/handlers/tasks/[id]/permission/route";
 const params={params:Promise.resolve({id:"task-1"})};
-const request=(body:unknown)=>new NextRequest("http://localhost/api/tasks/task-1/permission",{method:"POST",body:JSON.stringify(body)});
+const request=(body:unknown)=>new Request("http://localhost/api/tasks/task-1/permission",{method:"POST",body:JSON.stringify(body)});
 beforeEach(()=>mocks.respondToPermissionPrompt.mockReset());
 it.each([true,false])("answers the Backend's pending permission with %s",async approved=>{mocks.respondToPermissionPrompt.mockReturnValue(true);expect((await POST(request({requestId:"  req-1  ",approved}),params)).status).toBe(200);expect(mocks.respondToPermissionPrompt).toHaveBeenCalledWith("task-1","req-1",approved);});
 it("refuses an expired or wrong pending request",async()=>{mocks.respondToPermissionPrompt.mockReturnValue(false);expect((await POST(request({requestId:"req-1",approved:true}),params)).status).toBe(404);});

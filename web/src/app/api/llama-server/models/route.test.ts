@@ -1,7 +1,7 @@
+import { BackendTestRequest as Request } from "@/test-request";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import path from "node:path";
-import { NextRequest } from "next/server";
 import { afterEach, describe, expect, it } from "vitest";
 import { fileURLToPath } from "node:url";
 import { createLlamaModelCatalog } from "../../../../../../host/src/llama-model-catalog.js";
@@ -39,7 +39,7 @@ describe("model directory scan caching", () => {
     const previous = process.env.LEAFCODE_PI_LLAMA_MODEL_DIR_ALLOWLIST;
     process.env.LEAFCODE_PI_LLAMA_MODEL_DIR_ALLOWLIST = dir;
     try {
-      const request = () => new NextRequest(`http://127.0.0.1:3010/api/llama-server/models?dir=${encodeURIComponent(dir)}`);
+      const request = () => new Request(`http://127.0.0.1:3010/api/llama-server/models?dir=${encodeURIComponent(dir)}`);
 
       const first = await (await GET(request())).json();
       expect(first.models).toEqual(["a.gguf"]);
@@ -80,7 +80,7 @@ describe("model directory target safety", () => {
   });
 
   const request = (dir: string) =>
-    new NextRequest(`http://127.0.0.1:3010/api/llama-server/models?dir=${encodeURIComponent(dir)}`);
+    new Request(`http://127.0.0.1:3010/api/llama-server/models?dir=${encodeURIComponent(dir)}`);
 
   it("refuses a UNC network path so the server never walks a remote share", async () => {
     const unc = String.raw`\\server\models`;
@@ -156,7 +156,7 @@ describe("system directory guard", () => {
   it("refuses virtual filesystems and OS trees", async () => {
     for (const forbidden of ["/proc", "/sys", "/dev", "/etc"]) {
       const response = await GET(
-        new NextRequest(`http://127.0.0.1:3010/api/llama-server/models?dir=${encodeURIComponent(forbidden)}`),
+        new Request(`http://127.0.0.1:3010/api/llama-server/models?dir=${encodeURIComponent(forbidden)}`),
       );
       expect(response.status, forbidden).toBe(400);
       expect((await response.json()).error).toMatch(/システムディレクトリ/);

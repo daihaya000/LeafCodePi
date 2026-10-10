@@ -2,7 +2,7 @@
 import { StrictMode, type ReactNode } from "react";
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-vi.mock("next/navigation", async () => import("./navigation"));
+vi.mock("@/spa/navigation", async () => import("./navigation"));
 vi.mock("@/components/shell/Sidebar", () => ({ Sidebar: () => null }));
 vi.mock("@/components/shell/ShellContext", () => ({ ShellProvider: ({ children }: { children: ReactNode }) => children, useShellMobileNav: () => ({ mobileNavOpen: false, closeMobileNav: () => {} }) }));
 vi.mock("@/components/shell/TaskPanesContext", () => ({ TaskPanesProvider: ({ children }: { children: ReactNode }) => children, useTaskPanesNavigation: () => ({ mdUp: true }) }));

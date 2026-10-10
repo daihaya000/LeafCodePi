@@ -7,7 +7,7 @@ import { nodeHttpHandler } from "./http-adapter.mjs";
 import { createGatewayServer } from "./server.mjs";
 import { createDispatcher } from "./router.mjs";
 import { setResponseCookie } from "../../shared/http-cookie.mjs";
-import compression from "../../web/node_modules/next/dist/compiled/compression/index.js";
+import { readFileSync } from "node:fs";
 
 async function serve(t, dispatch) {
   const server = createServer(nodeHttpHandler(dispatch));
@@ -159,26 +159,14 @@ test("raw separator redirects preserve query, precede auth and do not admit oper
   assert.equal(control.status, 401); assert.equal(control.headers.get("location"), null); assert.equal(gates, 1);
 });
 
-test("compression negotiation matches original Next middleware including wildcard/identity/q/duplicates", async t => {
+test("compression negotiation retains the independently captured wire contract", async t => {
   const body = JSON.stringify({ text: "x".repeat(2048) }), headers = { "content-type": "application/json", "content-length": String(Buffer.byteLength(body)) };
   const gateway = await serve(t, () => new Response(body, { headers }));
-  const compress = compression();
-  const reference = createServer((request, response) => compress(request, response, () => {
-    for (const [name, value] of Object.entries(headers)) response.setHeader(name, value);
-    response.end(body);
-  }));
-  await new Promise(resolve => reference.listen(0, "127.0.0.1", resolve));
-  t.after(async () => { reference.closeAllConnections(); await new Promise(resolve => reference.close(resolve)); });
-  const next = `http://127.0.0.1:${reference.address().port}`;
-  const tokens = ["gzip", "deflate", "identity", "*", "br", "GZIP", "gzip;q=0", "gzip;q=0.5", "deflate;q=0", "deflate;q=0.5", "identity;q=0", "identity;q=0.5", "*;q=0", "*;q=0.5", "gzip;q=invalid", "gzip;q=-1", "gzip;q=2", "gzip;level=1;q=0.5"];
-  const values = new Set(["", ...tokens, "gzip;Q=0.5", "gzip ; q=0.5 ;extra=1", ";bad", "gzip;q=0.5;q=0", ...tokens.flatMap(a => tokens.map(b => `${a}, ${b}`))]);
-  for (const value of values) {
-    const observations = [];
-    for (const base of [next, gateway]) {
-      const response = await fetch(base, { headers: { "accept-encoding": value } });
-      observations.push({ body: await response.text(), encoding: response.headers.get("content-encoding"), vary: response.headers.get("vary"), length: response.headers.get("content-length") });
-    }
-    assert.deepEqual(observations[1], observations[0], `Accept-Encoding: ${value}`);
+  const baseline = JSON.parse(readFileSync(new URL("../fixtures/compression-contract.json", import.meta.url)));
+  for (const expected of baseline.cases) {
+    const response = await fetch(gateway, { headers: { "accept-encoding": expected.input } });
+    assert.equal(await response.text(), body);
+    assert.deepEqual({ encoding: response.headers.get("content-encoding"), vary: response.headers.get("vary"), length: response.headers.get("content-length") }, { encoding: expected.encoding, vary: expected.vary, length: expected.length }, expected.input);
   }
-  t.diagnostic(`${values.size} original compression middleware observations, decoded bytes and headers equal`);
+  t.diagnostic(`${baseline.cases.length} frozen compression observations`);
 });

@@ -1,3 +1,4 @@
+import { BackendTestRequest as Request } from "@/test-request";
 import { describe, expect, it, vi } from "vitest";
 import type { BotDto } from "@/lib/types";
 
@@ -85,11 +86,10 @@ vi.mock("@backend-runtime/configuration/http", () => ({
   isConfigurationRequestAuthorized: mocks.isWebUiRequestAuthorized,
 }));
 
-import { NextRequest } from "next/server";
 import { beforeEach } from "vitest";
 import { DELETE, GET, PATCH } from "@backend-runtime/json-business/handlers/bots/[id]/route";
 
-const emptyRequest = () => new Request("http://localhost") as NextRequest;
+const emptyRequest = () => new Request("http://localhost") as Request;
 
 const bot = (id = "one"): BotDto => ({
   id,
@@ -120,12 +120,12 @@ beforeEach(() => {
   mocks.forwardTaskAbort.mockReset();
   mocks.forwardBotAdmin.mockReset();
 });
-const jsonRequest = (body: unknown): NextRequest =>
+const jsonRequest = (body: unknown): Request =>
   new Request("http://localhost/api/bots/one", {
     method: "PATCH",
     headers: { "content-type": "application/json" },
     body: JSON.stringify(body),
-  }) as NextRequest;
+  }) as Request;
 
 describe("GET /api/bots/[id]", () => {
   it("returns the bot or 404 and refreshes its live tools", async () => {

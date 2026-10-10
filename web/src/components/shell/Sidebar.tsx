@@ -1,8 +1,8 @@
 "use client";
 
 import { memo, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
-import Link from "@/platform/link";
-import { usePathname, useRouter } from "@/platform/navigation";
+import Link from "@/spa/link";
+import { usePathname, useRouter } from "@/spa/navigation";
 import {
   Activity,
   Archive,
@@ -682,7 +682,7 @@ const BotSidebarBody = memo(function BotSidebarBody({
           {mdUp ? <Menu className="h-5 w-5 text-muted" /> : <X className="h-5 w-5 text-muted" />}
         </button>
         <Link href="/bots" onClick={onClose} className="flex min-w-0 items-center gap-2">
-          {/* eslint-disable-next-line @next/next/no-img-element */}
+
           <img src="/icon.svg" alt="" className="h-6 w-6 rounded-[5px]" />
           <span className="flex min-w-0 flex-col leading-tight">
             <span className="truncate text-sm font-semibold">LeafCodePi</span>

@@ -11,12 +11,11 @@ vi.mock("@/lib/git", () => ({
 
 import { GET } from "@backend-runtime/json-business/handlers/git/branches/route";
 
-import { NextRequest } from "next/server";
 
-function agentRequest(directory: string | null = "C:/work"): NextRequest {
+function agentRequest(directory: string | null = "C:/work"): Request {
   const url = new URL("http://localhost/api/git/branches");
   if (directory !== null) url.searchParams.set("directory", directory);
-  return { nextUrl: url } as NextRequest;
+  return { nextUrl: url } as Request;
 }
 
 function gitResult(code: number, stdout = "", stderr = "") {

@@ -1,4 +1,4 @@
-import { NextRequest } from "next/server";
+import { BackendTestRequest as Request } from "@/test-request";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { DEFAULT_JEV_MODEL_SETTINGS } from "@/lib/jev-model-settings";
 import { GET, PUT } from "@backend-runtime/configuration/handlers/jev-model/route";
@@ -10,7 +10,7 @@ vi.mock("@/lib/pi/harness", () => ({ listJevModels: mocks.list }));
 const ref = { providerId: "openrouter", modelId: "typesafe/jev-1.13", accountId: "one" };
 const candidate = { ...ref, providerName: "OpenRouter", name: "Jev", baseUrl: "https://openrouter.ai/api/v1", source: "catalog" };
 const dto = { settings: DEFAULT_JEV_MODEL_SETTINGS, hasApiKey: { typesafe: true, compatible: false }, models: [], latency: {} };
-const request = (body: unknown, headers: Record<string, string> = {}) => new NextRequest("http://localhost/api/jev-model", {
+const request = (body: unknown, headers: Record<string, string> = {}) => new Request("http://localhost/api/jev-model", {
   method: "PUT",
   headers: { "content-type": "application/json", ...headers },
   body: JSON.stringify(body),
@@ -37,7 +37,7 @@ describe("Jev model settings API", () => {
 
   it("returns discovered models without changing the active selection and accepts explicit refresh", async () => {
     mocks.list.mockResolvedValue([candidate]);
-    const response = await GET(new NextRequest("http://localhost/api/jev-model?refresh=1"));
+    const response = await GET(new Request("http://localhost/api/jev-model?refresh=1"));
     expect(await response.json()).toEqual({ ...dto, models: [candidate] });
     expect(mocks.list).toHaveBeenCalledWith(true);
     expect(mocks.save).not.toHaveBeenCalled();
@@ -147,7 +147,7 @@ describe("Jev model settings API", () => {
     const response = await PUT(request({ settings: DEFAULT_JEV_MODEL_SETTINGS, apiKey: "test-only-secret" }));
     expect(response.status).toBe(500);
     expect(await response.text()).not.toContain("test-only-secret");
-    const malformed = new NextRequest("http://localhost/api/jev-model", { method: "PUT", headers: { "content-type": "application/json" }, body: "test-only-secret{" });
+    const malformed = new Request("http://localhost/api/jev-model", { method: "PUT", headers: { "content-type": "application/json" }, body: "test-only-secret{" });
     const invalid = await PUT(malformed);
     expect(invalid.status).toBe(400);
     expect(await invalid.text()).not.toContain("test-only-secret");

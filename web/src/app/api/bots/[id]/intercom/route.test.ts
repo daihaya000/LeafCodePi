@@ -1,4 +1,3 @@
-import { NextRequest } from "next/server";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({ relayJsonBusiness: vi.fn() }));
@@ -15,7 +14,7 @@ beforeEach(() => {
 
 describe("/api/bots/[id]/intercom relay", () => {
   it("forwards GET without local inbox access", async () => {
-    const request = new Request("http://localhost/api/bots/one%2Ftwo/intercom") as NextRequest;
+    const request = new Request("http://localhost/api/bots/one%2Ftwo/intercom") as Request;
     const response = await GET(request, params);
 
     expect(response.status).toBe(200);
@@ -27,7 +26,7 @@ describe("/api/bots/[id]/intercom relay", () => {
       method: "PATCH",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ action: "read" }),
-    }) as NextRequest;
+    }) as Request;
     const response = await PATCH(request, params);
 
     expect(response.status).toBe(200);

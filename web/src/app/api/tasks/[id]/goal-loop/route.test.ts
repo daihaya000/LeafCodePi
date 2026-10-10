@@ -1,4 +1,4 @@
-import { NextRequest } from "next/server";
+import { BackendTestRequest as Request } from "@/test-request";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
@@ -56,16 +56,16 @@ afterEach(() => vi.unstubAllEnvs());
 beforeEach(() => vi.stubEnv("LEAFCODE_PI_PROCESS_ROLE", "backend"));
 import { startGoalLoopWithSelection } from "@/lib/pi/goal-loop-start";
 
-function request(body: unknown): NextRequest {
-  return new NextRequest("http://localhost/api/tasks/task-1/goal-loop", {
+function request(body: unknown): Request {
+  return new Request("http://localhost/api/tasks/task-1/goal-loop", {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify(body),
   });
 }
 
-function patchRequest(body: unknown): NextRequest {
-  return new NextRequest("http://localhost/api/tasks/task-1/goal-loop", {
+function patchRequest(body: unknown): Request {
+  return new Request("http://localhost/api/tasks/task-1/goal-loop", {
     method: "PATCH",
     headers: { "content-type": "application/json" },
     body: JSON.stringify(body),

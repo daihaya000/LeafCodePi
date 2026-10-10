@@ -1,4 +1,4 @@
-import { NextRequest } from "next/server";
+import { BackendTestRequest as Request } from "@/test-request";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
@@ -22,8 +22,8 @@ import { PUT } from "@backend-runtime/json-business/handlers/tasks/[id]/goal-loo
 
 const params = { params: Promise.resolve({ id: "task-1" }) };
 
-function request(body: unknown): NextRequest {
-  return new NextRequest("http://localhost/api/tasks/task-1/goal-loop-auto-model", {
+function request(body: unknown): Request {
+  return new Request("http://localhost/api/tasks/task-1/goal-loop-auto-model", {
     method: "PUT",
     headers: { "content-type": "application/json" },
     body: JSON.stringify(body),

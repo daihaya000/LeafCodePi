@@ -2,7 +2,6 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { NextRequest } from "next/server";
 import { accountStoredProviders } from "@/lib/accounts";
 import { GET as getCodexBarUsage } from "@/app/api/codexbar/usage/route";
 import { roamingConfigDir } from "./app-paths";
@@ -109,7 +108,7 @@ describe("CodexBar and Cursor config paths on Linux", () => {
       expect(() => cursor.isConfigured()).not.toThrow();
       expect(cursor.isConfigured()).toBe(false);
       const usage = await getCodexBarUsage(
-        new NextRequest("http://127.0.0.1/api/codexbar/usage?scope=default"),
+        new Request("http://127.0.0.1/api/codexbar/usage?scope=default"),
       );
       expect(usage.status).toBe(200);
       const body = (await usage.json()) as { available?: boolean };

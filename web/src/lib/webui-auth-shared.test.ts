@@ -30,7 +30,7 @@ describe("isPublicWebUiPath", () => {
     expect(isPublicWebUiPath("/login")).toBe(true);
     expect(isPublicWebUiPath("/api/auth/webui/status")).toBe(true);
     expect(isPublicWebUiPath("/api/health")).toBe(true);
-    expect(isPublicWebUiPath("/_next/static/chunks/app.js")).toBe(true);
+    expect(isPublicWebUiPath("/_next/static/chunks/app.js")).toBe(false);
     expect(isPublicWebUiPath("/favicon.ico")).toBe(true);
     expect(isPublicWebUiPath("/api/peer-auth/list")).toBe(true);
     expect(isPublicWebUiPath("/api/peer-auth/resolve")).toBe(true);

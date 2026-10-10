@@ -1,7 +1,7 @@
 "use client";
 
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useRouter } from "@/platform/navigation";
+import { useRouter } from "@/spa/navigation";
 import { useComposerDraft } from "@/lib/use-composer-draft";
 import { ArrowUp, FolderGit2, GitGraph, PanelRight } from "lucide-react";
 import { AddProjectButton } from "@/components/AddProjectButton";
@@ -546,7 +546,7 @@ export const HomeView = memo(function HomeView({
           <section>
             <div className="mb-6 flex flex-col items-center gap-1">
               <h1 className="flex items-center justify-center gap-2 text-center text-2xl font-semibold tracking-tight sm:text-3xl">
-                {/* eslint-disable-next-line @next/next/no-img-element */}
+
                 <img src="/icon.svg" alt="" width={28} height={28} className="h-7 w-7 shrink-0 rounded-[6px] object-contain sm:h-8 sm:w-8" />
                 <span>LeafCodePi</span>
               </h1>

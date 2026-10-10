@@ -1,7 +1,7 @@
+import { BackendTestRequest as Request } from "@/test-request";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { NextRequest } from "next/server";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { TaskDetail, UiMessage } from "@/lib/types";
 
@@ -84,7 +84,7 @@ function assistant(id: string, text: string): UiMessage {
   return { id, role: "assistant", createdAt: Date.now(), parts: [{ id: `${id}-text`, type: "text", text }] };
 }
 function send(id: string, prompt: string, extra: Record<string, unknown> = {}, signal?: AbortSignal) {
-  return POST(new NextRequest("http://localhost", { method: "POST", body: JSON.stringify({ prompt, ...extra }), signal }), { params: Promise.resolve({ id }) });
+  return POST(new Request("http://localhost", { method: "POST", body: JSON.stringify({ prompt, ...extra }), signal }), { params: Promise.resolve({ id }) });
 }
 function setup(names = ["A"]) {
   const bots = names.map((name) => createBot({ name }));
@@ -644,10 +644,10 @@ describe("room mention responses", () => {
     vi.stubEnv("LEAFCODE_PI_WEBUI_AUTH", "required");
     vi.stubEnv("LEAFCODE_PI_WEBUI_TOKEN", "room-admin-token");
     const params = { params: Promise.resolve({ id: room.id }) };
-    const unauthenticated = await PATCH(new NextRequest("http://localhost", { method: "PATCH", body: JSON.stringify({ codeAutoApprove: true }) }), params);
+    const unauthenticated = await PATCH(new Request("http://localhost", { method: "PATCH", body: JSON.stringify({ codeAutoApprove: true }) }), params);
     expect(unauthenticated.status).toBe(403);
     expect(Boolean(getRoom(room.id)?.codeAutoApprove)).toBe(false);
-    const authorized = await PATCH(new NextRequest("http://localhost", { method: "PATCH", headers: { authorization: "Bearer room-admin-token" }, body: JSON.stringify({ codeAutoApprove: true }) }), params);
+    const authorized = await PATCH(new Request("http://localhost", { method: "PATCH", headers: { authorization: "Bearer room-admin-token" }, body: JSON.stringify({ codeAutoApprove: true }) }), params);
     expect(authorized.status).toBe(200);
     expect(getRoom(room.id)?.codeAutoApprove).toBe(true);
   });
@@ -657,10 +657,10 @@ describe("room mention responses", () => {
     vi.stubEnv("LEAFCODE_PI_WEBUI_AUTH", "required");
     vi.stubEnv("LEAFCODE_PI_WEBUI_TOKEN", "room-admin-token");
     const params = { params: Promise.resolve({ id: room.id }) };
-    const unauthenticated = await PATCH(new NextRequest("http://localhost", { method: "PATCH", body: JSON.stringify({ botRelayEnabled: true }) }), params);
+    const unauthenticated = await PATCH(new Request("http://localhost", { method: "PATCH", body: JSON.stringify({ botRelayEnabled: true }) }), params);
     expect(unauthenticated.status).toBe(403);
     expect(getRoom(room.id)?.botRelayEnabled).toBe(false);
-    const authorized = await PATCH(new NextRequest("http://localhost", { method: "PATCH", headers: { authorization: "Bearer room-admin-token" }, body: JSON.stringify({ botRelayEnabled: true }) }), params);
+    const authorized = await PATCH(new Request("http://localhost", { method: "PATCH", headers: { authorization: "Bearer room-admin-token" }, body: JSON.stringify({ botRelayEnabled: true }) }), params);
     expect(authorized.status).toBe(200);
     expect(getRoom(room.id)?.botRelayEnabled).toBe(true);
   });

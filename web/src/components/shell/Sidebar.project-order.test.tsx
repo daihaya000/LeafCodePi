@@ -40,11 +40,11 @@ vi.mock("@/components/shell/TaskPanesContext", () => ({
     dispatch: mocks.dispatch,
   }),
 }));
-vi.mock("next/navigation", () => ({
+vi.mock("@/spa/navigation", () => ({
   usePathname: mocks.usePathname,
   useRouter: () => ({ push: mocks.push }),
 }));
-vi.mock("next/link", () => ({
+vi.mock("@/spa/link", () => ({
   default: ({ children, ...props }: { children: ReactNode; [key: string]: unknown }) => (
     <a {...props}>{children}</a>
   ),

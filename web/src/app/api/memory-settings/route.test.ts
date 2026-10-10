@@ -1,4 +1,4 @@
-import { NextRequest } from "next/server";
+import { BackendTestRequest as Request } from "@/test-request";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const settings = vi.hoisted(() => ({
@@ -10,8 +10,8 @@ vi.mock("@/lib/leafcode-memory-settings", () => settings);
 
 import { GET, PUT } from "@backend-runtime/configuration/handlers/memory-settings/route";
 
-function request(body: unknown): NextRequest {
-  return new NextRequest("http://127.0.0.1:3010/api/memory-settings", {
+function request(body: unknown): Request {
+  return new Request("http://127.0.0.1:3010/api/memory-settings", {
     method: "PUT",
     headers: { "content-type": "application/json" },
     body: JSON.stringify(body),

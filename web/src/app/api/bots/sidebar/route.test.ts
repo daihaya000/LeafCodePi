@@ -1,5 +1,5 @@
+import { BackendTestRequest as Request } from "@/test-request";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { NextRequest } from "next/server";
 import type { BotDto, RoomDto, TaskSummary } from "@/lib/types";
 
 const mocks = vi.hoisted(() => ({
@@ -132,10 +132,10 @@ describe("GET /api/bots/sidebar", () => {
     mocks.listBotCodeRequestsForBots.mockReturnValue(new Map());
     mocks.listRooms.mockReturnValue([]);
 
-    const first = await GET(new NextRequest("http://localhost/api/bots/sidebar"));
+    const first = await GET(new Request("http://localhost/api/bots/sidebar"));
     const etag = first.headers.get("etag");
     expect(etag?.startsWith('W/')).toBe(true);
-    const second = await GET(new NextRequest("http://localhost/api/bots/sidebar", {
+    const second = await GET(new Request("http://localhost/api/bots/sidebar", {
       headers: { "if-none-match": etag! },
     }));
     expect(second.status).toBe(304);

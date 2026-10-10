@@ -1,4 +1,4 @@
-import { NextRequest } from "next/server";
+import { BackendTestRequest as Request } from "@/test-request";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const harness = vi.hoisted(() => ({
@@ -15,8 +15,8 @@ vi.mock("@/lib/skills", () => skills);
 
 import { POST } from "@backend-runtime/json-business/handlers/skills/route";
 
-function request(body: unknown): NextRequest {
-  return new NextRequest("http://127.0.0.1:3010/api/skills", {
+function request(body: unknown): Request {
+  return new Request("http://127.0.0.1:3010/api/skills", {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify(body),

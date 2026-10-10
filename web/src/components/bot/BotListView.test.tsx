@@ -6,8 +6,8 @@ import type { ReactNode } from "react";
 const mocks = vi.hoisted(() => ({ getJson: vi.fn(), sendJson: vi.fn(), push: vi.fn(), notifyBotSidebarChanged: vi.fn() }));
 vi.mock("@/lib/client", () => mocks);
 vi.mock("@/lib/events", () => ({ notifyBotSidebarChanged: mocks.notifyBotSidebarChanged }));
-vi.mock("next/navigation", () => ({ useRouter: () => ({ push: mocks.push }) }));
-vi.mock("next/link", () => ({
+vi.mock("@/spa/navigation", () => ({ useRouter: () => ({ push: mocks.push }) }));
+vi.mock("@/spa/link", () => ({
   default: ({ children, ...props }: { children: ReactNode; href?: string; className?: string }) => <a {...props}>{children}</a>,
 }));
 vi.mock("@/components/shell/MobileMenuHeader", () => ({ MobileMenuHeader: () => null }));

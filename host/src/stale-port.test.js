@@ -5,7 +5,7 @@ import { join } from "node:path";
 import test from "node:test";
 import { isLeafCodeWebUi, reclaimStalePort } from "./stale-port.js";
 
-const NEXT = "node /x/node_modules/next/dist/bin/next start --hostname 100.1.1.1 --port 3010";
+const GATEWAY = "node /x/.spa/generations/11111111-1111-4111-8111-111111111111/gateway/dist/gateway/src/index.mjs";
 
 function harness({ pids, procs, lock, alive = () => false }) {
   const stopped = [];
@@ -31,18 +31,19 @@ function harness({ pids, procs, lock, alive = () => false }) {
   };
 }
 
-test("recognizes the renamed next-server by the host-set port environment", () => {
-  assert.equal(isLeafCodeWebUi(3010, { commandLine: "next-server (v15.5.0)", environment: ["LEAFCODE_PI_PORT=3010"] }), true);
-  assert.equal(isLeafCodeWebUi(3010, { commandLine: "next-server (v15.5.0)", environment: ["LEAFCODE_PI_PORT=3011"] }), false);
-  assert.equal(isLeafCodeWebUi(3010, { commandLine: NEXT, environment: [] }), true);
-  assert.equal(isLeafCodeWebUi(3010, { commandLine: NEXT.replace("3010", "30100"), environment: [] }), false);
-  assert.equal(isLeafCodeWebUi(3010, { commandLine: "python -m http.server 3010", environment: ["LEAFCODE_PI_PORT=3010"] }), false);
+test("recognizes only native UUID generation entries with the matching Host port", () => {
+  const environment = ["LEAFCODE_PI_PORT=3010"];
+  assert.equal(isLeafCodeWebUi(3010, { commandLine: GATEWAY, environment }), true);
+  assert.equal(isLeafCodeWebUi(3010, { commandLine: GATEWAY, environment: [] }), false);
+  assert.equal(isLeafCodeWebUi(3011, { commandLine: GATEWAY, environment }), false);
+  assert.equal(isLeafCodeWebUi(3010, { commandLine: GATEWAY.replace("11111111-1111-4111-8111-111111111111", "arbitrary"), environment }), false);
+  assert.equal(isLeafCodeWebUi(3010, { commandLine: "python -m http.server 3010", environment }), false);
 });
 
 test("stops an orphaned WebUI and leaves other programs alone", async () => {
   const { options, stopped } = harness({
     pids: [10, 20],
-    procs: { 10: { cmd: NEXT }, 20: { cmd: "nginx: master" } },
+    procs: { 10: { cmd: GATEWAY, env: ["LEAFCODE_PI_PORT=3010"] }, 20: { cmd: "nginx: master" } },
   });
   const result = await reclaimStalePort(options);
   assert.deepEqual(stopped, [10]);
@@ -55,12 +56,12 @@ test("does nothing while the host from host.lock is alive", async () => {
   try {
     const lockFile = join(dir, "host.lock");
     writeFileSync(lockFile, JSON.stringify({ pid: 4242 }));
-    const live = harness({ pids: [10], procs: { 10: { cmd: NEXT } }, lock: lockFile, alive: (pid) => pid === 4242 });
+    const live = harness({ pids: [10], procs: { 10: { cmd: GATEWAY, env: ["LEAFCODE_PI_PORT=3010"] } }, lock: lockFile, alive: (pid) => pid === 4242 });
     const result = await reclaimStalePort(live.options);
     assert.match(result.skipped, /4242/);
     assert.deepEqual(live.stopped, []);
 
-    const dead = harness({ pids: [10], procs: { 10: { cmd: NEXT } }, lock: lockFile, alive: () => false });
+    const dead = harness({ pids: [10], procs: { 10: { cmd: GATEWAY, env: ["LEAFCODE_PI_PORT=3010"] } }, lock: lockFile, alive: () => false });
     await reclaimStalePort(dead.options);
     assert.deepEqual(dead.stopped, [10]);
   } finally {
@@ -76,6 +77,6 @@ test("is a no-op when the port is free", async () => {
 });
 
 test("skips on Windows", async () => {
-  const { options } = harness({ pids: [10], procs: { 10: { cmd: NEXT } } });
+  const { options } = harness({ pids: [10], procs: { 10: { cmd: GATEWAY, env: ["LEAFCODE_PI_PORT=3010"] } } });
   assert.equal((await reclaimStalePort({ ...options, platform: "win32" })).skipped, "unsupported platform");
 });

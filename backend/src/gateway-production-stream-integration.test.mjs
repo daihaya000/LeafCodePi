@@ -13,10 +13,10 @@ import { TaskLeaseService } from "../core/task-runtime-lease.mjs";
 import { runtimeAliases, runtimeExternals, assertBackendInputs } from "../../scripts/build-backend-runtime.mjs";
 const ROOT = resolve("."), require = createRequire(join(ROOT, "backend/package.json")), { build } = require("esbuild"), MIB = 1024 * 1024;
 const id = "11111111-1111-4111-8111-111111111111", token = "t".repeat(32);
-test("actual Next production adapter:256MiB cold branch,512MiB files,125sec SSE,cancel,Range,HEAD,reconnect/restart", { timeout: 300000 }, async t => {
+test("actual native gateway production adapter:256MiB cold branch,512MiB files,125sec SSE,cancel,Range,HEAD,reconnect/restart", { timeout: 300000 }, async t => {
   const dir = mkdtempSync(join(tmpdir(), "lcp-next-production-stream-")), app = join(dir, "next"), data = join(dir, "data"), agent = join(dir, "agent"), session = join(dir, "s.jsonl"), media = join(dir, "large.wav"), children = [], streams = [], samples = { backend: [], next: [] };
   for (const path of [app, data, agent]) mkdirSync(path); let backend, next, base, phase = "build";
-  const owner = join(ROOT, "backend/runtime/cold-production.fixture-" + process.pid + ".mjs"), entry = join(dir, "owner.ts");
+  const owner = join(dir, "cold-production.fixture.mjs"), entry = join(dir, "owner.ts");
   t.after(async () => { await Promise.all(streams.map(close)); for (const c of children.reverse()) await stop(c); rmSync(owner, { force: true }); rmSync(dir, { recursive: true, force: true }); });
   let fd = openSync(session, "w"), parentId = null, length = 0;
   const rowId = i => "u" + String(i).padStart(32,"0");
@@ -35,11 +35,11 @@ test("actual Next production adapter:256MiB cold branch,512MiB files,125sec SSE,
   assert.ok(foreign.acquireTaskLease("task")); t.after(() => foreign.releaseTaskLease("task"));
   writeFileSync(entry, ["export {openLiveEvents,readLiveEventDiagnostics} from " + JSON.stringify(join(ROOT, "backend/runtime-src/event-stream/index.ts")), "export {openTaskFileStream,readTaskFileStreamDiagnostics} from " + JSON.stringify(join(ROOT, "backend/runtime-src/file-stream/task-files.ts")), "export {readColdSnapshotDiagnostics} from " + JSON.stringify(join(ROOT, "backend/runtime-src/event-stream/cold-snapshot.ts"))].join(";\n"));
   const bundle = await build({ bundle: true, platform: "node", format: "esm", logLevel: "silent", entryPoints: [entry], outfile: owner, alias: runtimeAliases(), external: runtimeExternals(), tsconfig: join(ROOT, "backend/tsconfig.runtime.json"), banner: { js: 'import{createRequire as _require}from"node:module";const require=_require(' + JSON.stringify(join(ROOT, "backend/package.json")) + ');' }, metafile: true }); assertBackendInputs(bundle.metafile);
-  const env = { ...process.env, NODE_ENV: "production", NEXT_TELEMETRY_DISABLED: "1", LEAFCODE_PI_DATA_DIR: data, PI_CODING_AGENT_DIR: agent, APPDATA: join(dir, "appdata"), LEAFCODE_PI_DEFAULT_DIR: join(dir, "workspaces"), LEAFCODE_PI_BACKEND_TOKEN: token, LEAFCODE_PI_BACKEND_GENERATION: "", LEAFCODE_PI_BACKEND_GENERATION_FILE: "", LEAFCODE_PI_WEBUI_AUTH: "", LEAFCODE_PI_BACKEND_RUNTIME: "" };
+  const env = { ...process.env, NODE_ENV: "production", LEAFCODE_PI_DATA_DIR: data, PI_CODING_AGENT_DIR: agent, APPDATA: join(dir, "appdata"), LEAFCODE_PI_DEFAULT_DIR: join(dir, "workspaces"), LEAFCODE_PI_BACKEND_TOKEN: token, LEAFCODE_PI_BACKEND_GENERATION: "", LEAFCODE_PI_BACKEND_GENERATION_FILE: "", LEAFCODE_PI_WEBUI_AUTH: "", LEAFCODE_PI_BACKEND_RUNTIME: "" };
   const routes=PRODUCTION_STREAM_ROUTES, built=await buildStreamProductionApp(app,env,children);
-  t.diagnostic("actual Next production build: "+built.routes+" unchanged API routes / "+built.modules+" source modules");
+  t.diagnostic("actual native gateway production build: "+built.routes+" unchanged API routes / "+built.modules+" source modules");
   async function launch(role, extra = {}) {
-    const c = fork(join(ROOT, "backend/src/next-production-stream-fixture.mjs"), [], { env: { ...env, ...extra, LEAFCODE_PI_PROCESS_ROLE: role === "backend" ? "backend" : "next", STREAM_PRODUCTION_ROLE: role, STREAM_PRODUCTION_BUNDLE: owner, STREAM_NEXT_PACKAGE: join(ROOT, "web/package.json"), STREAM_NEXT_APP: app }, stdio: ["ignore", "pipe", "pipe", "ipc"] }); children.push(c); let output = ""; for (const s of [c.stdout, c.stderr]) s.on("data", b => output = (output + b).slice(-20000));
+    const c = fork(join(ROOT, "backend/src/gateway-production-stream-fixture.mjs"), [], { env: { ...env, ...extra, LEAFCODE_PI_PROCESS_ROLE: role === "backend" ? "backend" : "next", STREAM_PRODUCTION_ROLE: role, STREAM_PRODUCTION_BUNDLE: owner, STREAM_GATEWAY_ROUTES: built.manifest }, stdio: ["ignore", "pipe", "pipe", "ipc"] }); children.push(c); let output = ""; for (const s of [c.stdout, c.stderr]) s.on("data", b => output = (output + b).slice(-20000));
     return await new Promise((resolve, reject) => { const timer = setTimeout(() => reject(Error(output || "fixture startup timeout")), 15000); c.on("message", m => { samples[role].push({ ...m, phase }); if (m.type === "ready") { clearTimeout(timer); resolve({ child: c, port: m.port }); } }); c.once("exit", code => { clearTimeout(timer); if (code) reject(Error(output)); }); });
   }
   async function stop(c) { if (c.exitCode !== null || c.signalCode !== null) return; const exited = new Promise(r => c.once("exit", r)); c.disconnect?.(); await Promise.race([exited, delay(1000)]); if (c.exitCode === null && c.signalCode === null) { c.kill(); await exited; } }

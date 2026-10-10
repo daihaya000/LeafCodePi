@@ -1,7 +1,7 @@
+import { BackendTestRequest as Request } from "@/test-request";
 import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { NextRequest } from "next/server";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { defaultTypesafeCookiePath } from "@/lib/codexbar/browser-cookies";
 import { DELETE, GET, POST } from "@backend-runtime/json-business/handlers/typesafe-cookie/route";
@@ -20,8 +20,8 @@ afterEach(() => {
   rmSync(appData, { recursive: true, force: true });
 });
 
-function request(body: unknown): NextRequest {
-  return new NextRequest("http://localhost/api/typesafe-cookie", {
+function request(body: unknown): Request {
+  return new Request("http://localhost/api/typesafe-cookie", {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify(body),

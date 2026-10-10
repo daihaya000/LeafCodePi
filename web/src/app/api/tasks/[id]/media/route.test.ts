@@ -1,8 +1,8 @@
+import { BackendTestRequest as Request } from "@/test-request";
 import { mkdirSync, mkdtempSync, rmSync, truncateSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { NextRequest } from "next/server";
 
 const store = vi.hoisted(() => ({ getTask: vi.fn(), getProject: vi.fn(), listProjects: vi.fn(() => []) }));
 vi.mock("@/lib/store", () => store);
@@ -21,7 +21,7 @@ const mp4 = Buffer.from([0, 0, 0, 20, ...Buffer.from("ftypisom"), 0, 0, 0, 0, ..
 const wav = Buffer.from("RIFF0000WAVEfmt data PCM samples");
 const params = () => ({ params: Promise.resolve({ id: "task" }) });
 function request(path: string, range?: string, method = "GET") {
-  return new NextRequest(`http://localhost/api/tasks/task/media?path=${encodeURIComponent(path)}`, {
+  return new Request(`http://localhost/api/tasks/task/media?path=${encodeURIComponent(path)}`, {
     method, headers: range === undefined ? {} : { range },
   });
 }

@@ -1,4 +1,4 @@
-import { NextRequest } from "next/server";
+import { BackendTestRequest as Request } from "@/test-request";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
@@ -17,10 +17,10 @@ vi.mock("@/lib/accounts", () => ({ resolvePiAgentDir: mocks.resolvePiAgentDir })
 
 import { POST } from "@backend-runtime/json-business/handlers/providers/[id]/login/route";
 
-function request(body: unknown, accountId?: string): NextRequest {
+function request(body: unknown, accountId?: string): Request {
   const url = new URL("http://localhost/api/providers/anthropic/login");
   if (accountId) url.searchParams.set("accountId", accountId);
-  return new NextRequest(url, {
+  return new Request(url, {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify(body),

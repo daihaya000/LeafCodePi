@@ -1,7 +1,7 @@
+import { BackendTestRequest as Request } from "@/test-request";
 import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { NextRequest } from "next/server";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { writePeerConfig } from "@backend-core/peer-auth-config.mjs";
 import { __resetPiAgentDirCacheForTests, accountAuthPath, accountDir, createAccount, getAccount } from "@/lib/accounts";
@@ -18,7 +18,7 @@ import { DELETE, PATCH } from "@backend-runtime/json-business/handlers/accounts/
 
 let root: string;
 const agentDir = () => join(root, "agent");
-const request = () => new NextRequest("http://lcp.test/api/accounts/x", { method: "DELETE" });
+const request = () => new Request("http://lcp.test/api/accounts/x", { method: "DELETE" });
 
 beforeEach(() => {
   root = mkdtempSync(join(tmpdir(), "leafcode-pi-account-delete-"));
@@ -64,7 +64,7 @@ describe.each([{ provider: "openai-codex", flag: "codexResetAutoConsume" }, { pr
     const a = createAccount({ label: "A", providers: [provider], note: "keep" });
     const b = createAccount({ label: "B", providers: [provider] });
     for (const enabled of [false, true]) {
-      const req = new NextRequest("http://lcp.test/api/accounts/" + a.id, {
+      const req = new Request("http://lcp.test/api/accounts/" + a.id, {
         method: "PATCH", body: JSON.stringify({ [flag]: enabled }),
       });
       const result = await PATCH(req, { params: Promise.resolve({ id: a.id }) });
@@ -76,7 +76,7 @@ describe.each([{ provider: "openai-codex", flag: "codexResetAutoConsume" }, { pr
   });
   it.each(["false", null, 0])("rejects invalid flags %j without updating the account", async (value) => {
     const a = createAccount({ label: "A", providers: [provider] });
-    const req = new NextRequest("http://lcp.test/api/accounts/" + a.id, {
+    const req = new Request("http://lcp.test/api/accounts/" + a.id, {
       method: "PATCH", body: JSON.stringify({ [flag]: value }),
     });
     expect((await PATCH(req, { params: Promise.resolve({ id: a.id }) })).status).toBe(400);
@@ -84,7 +84,7 @@ describe.each([{ provider: "openai-codex", flag: "codexResetAutoConsume" }, { pr
   });
   it("refuses the preference for an unrelated provider account", async () => {
     const a = createAccount({ label: "Claude", providers: [provider === "anthropic" ? "openai-codex" : "anthropic"] });
-    const req = new NextRequest("http://lcp.test/api/accounts/" + a.id, {
+    const req = new Request("http://lcp.test/api/accounts/" + a.id, {
       method: "PATCH", body: JSON.stringify({ [flag]: false }),
     });
     expect((await PATCH(req, { params: Promise.resolve({ id: a.id }) })).status).toBe(400);

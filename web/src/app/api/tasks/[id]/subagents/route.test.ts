@@ -1,7 +1,7 @@
+import { BackendTestRequest as Request } from "@/test-request";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { NextRequest } from "next/server";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import type { SubagentRunDto } from "@/lib/types";
 import { GET } from "@backend-runtime/json-business/handlers/tasks/[id]/subagents/route";
@@ -71,7 +71,7 @@ afterAll(() => {
 });
 
 function get(taskId: string, query = ""): Promise<Response> {
-  return GET(new NextRequest(`http://localhost/api/tasks/${taskId}/subagents${query}`), {
+  return GET(new Request(`http://localhost/api/tasks/${taskId}/subagents${query}`), {
     params: Promise.resolve({ id: taskId }),
   });
 }

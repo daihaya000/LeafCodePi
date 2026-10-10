@@ -1,4 +1,4 @@
-import { NextRequest } from "next/server";
+import { BackendTestRequest as Request } from "@/test-request";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
@@ -20,8 +20,8 @@ vi.mock("@/lib/pi/harness", () => mocks);
 
 import { DELETE, POST } from "@backend-runtime/json-business/handlers/providers/[id]/login/answer/route";
 
-function request(body: unknown): NextRequest {
-  return new NextRequest("http://localhost/api/providers/anthropic/login/answer", {
+function request(body: unknown): Request {
+  return new Request("http://localhost/api/providers/anthropic/login/answer", {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify(body),
@@ -67,7 +67,7 @@ describe("DELETE /api/providers/[id]/login/answer", () => {
 
   it("rejects cancel without sessionId", async () => {
     const response = await DELETE(
-      new NextRequest("http://localhost/api/providers/anthropic/login/answer", {
+      new Request("http://localhost/api/providers/anthropic/login/answer", {
         method: "DELETE",
       }),
     );
@@ -78,7 +78,7 @@ describe("DELETE /api/providers/[id]/login/answer", () => {
   it("forwards sessionId from the query string", async () => {
     mocks.cancelProviderLogin.mockReturnValue(undefined);
     const response = await DELETE(
-      new NextRequest(
+      new Request(
         "http://localhost/api/providers/anthropic/login/answer?sessionId=sess-9",
         { method: "DELETE" },
       ),
@@ -92,7 +92,7 @@ describe("DELETE /api/providers/[id]/login/answer", () => {
       throw Object.assign(new Error("ログインセッションが一致しません"), { status: 409 });
     });
     const response = await DELETE(
-      new NextRequest(
+      new Request(
         "http://localhost/api/providers/anthropic/login/answer?sessionId=other",
         { method: "DELETE" },
       ),

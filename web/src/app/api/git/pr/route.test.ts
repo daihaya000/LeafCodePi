@@ -1,4 +1,4 @@
-import { NextRequest } from "next/server";
+import { BackendTestRequest as Request } from "@/test-request";
 import { describe, expect, it, vi } from "vitest";
 
 const spawnMock = vi.hoisted(() => vi.fn(() => {
@@ -26,8 +26,8 @@ vi.mock("@/lib/git", () => gitMocks);
 
 import { GET, POST } from "@backend-runtime/json-business/handlers/git/pr/route";
 
-function request(body: unknown): NextRequest {
-  return new NextRequest("http://localhost/api/git/pr", {
+function request(body: unknown): Request {
+  return new Request("http://localhost/api/git/pr", {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify(body),
@@ -37,7 +37,7 @@ function request(body: unknown): NextRequest {
 it("refuses unauthorized PR-check directories before invoking gh", async () => {
   gitMocks.gitDirectoryError.mockReturnValueOnce("directory is not allowed" as never);
   const before = spawnMock.mock.calls.length;
-  const response = await GET(new NextRequest("http://localhost/api/git/pr?directory=C:/Windows"));
+  const response = await GET(new Request("http://localhost/api/git/pr?directory=C:/Windows"));
   expect(response.status).toBe(403); expect(spawnMock.mock.calls.length).toBe(before);
 });
 

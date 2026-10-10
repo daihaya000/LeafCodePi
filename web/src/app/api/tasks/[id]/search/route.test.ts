@@ -1,4 +1,4 @@
-import { NextRequest } from "next/server";
+import { BackendTestRequest as Request } from "@/test-request";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { GET } from "@backend-runtime/json-business/handlers/tasks/[id]/search/route";
 import { resetTaskTranscriptCache } from "@/lib/task-transcript";
@@ -6,7 +6,7 @@ const mocks=vi.hoisted(()=>({getTaskDetailBounded:vi.fn(),jsonError:vi.fn((error
 vi.mock("@backend-runtime/lib/pi/get-task-detail-bounded",()=>({getTaskDetailBounded:mocks.getTaskDetailBounded}));
 vi.mock("@/lib/pi/harness",()=>({jsonError:mocks.jsonError}));
 const message=(id:string,text:string,extra:Record<string,unknown>={})=>({id,role:"user",createdAt:1,parts:[{id:`${id}:text`,type:"text",text}],...extra});
-const context={params:Promise.resolve({id:"task-1"})};const request=(query:string)=>new NextRequest(`http://localhost/api/tasks/task-1/search${query}`);
+const context={params:Promise.resolve({id:"task-1"})};const request=(query:string)=>new Request(`http://localhost/api/tasks/task-1/search${query}`);
 describe("owner whole-transcript search",()=>{
  beforeEach(()=>{mocks.getTaskDetailBounded.mockReset();resetTaskTranscriptCache();});
  it("shares bounded read-only reads for refinements and retries failed reads only on a new request",async()=>{mocks.getTaskDetailBounded.mockRejectedValueOnce(Object.assign(new Error("busy"),{status:503}));expect((await GET(request("?q=needle"),context)).status).toBe(503);mocks.getTaskDetailBounded.mockResolvedValue({messages:[message("u1","needle haystack")]});for(const query of ["need","needle","hay"]){expect((await(await GET(request(`?q=${query}`),context)).json()).total).toBe(1);}expect(mocks.getTaskDetailBounded).toHaveBeenCalledTimes(2);expect(mocks.getTaskDetailBounded).toHaveBeenLastCalledWith("task-1",{readOnly:true});});

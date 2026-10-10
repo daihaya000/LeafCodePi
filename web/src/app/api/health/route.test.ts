@@ -1,8 +1,7 @@
-import { NextRequest } from "next/server";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { GET } from "./route";
 const health = { ok: true, engine: "pi", engineOk: true, version: "1.0.0", modelCount: 3, dataDir: "C:\\Users\\PRIVATE\\leafcode-pi", warnings: ["PRIVATE"], startedAt: 10, platform: "win32", token: "PRIVATE" };
-const request = (headers: Record<string, string> = {}) => new NextRequest("http://127.0.0.1:3010/api/health", { headers });
+const request = (headers: Record<string, string> = {}) => new Request("http://127.0.0.1:3010/api/health", { headers });
 const fetcher = vi.fn();
 beforeEach(() => {
   vi.stubEnv("LEAFCODE_PI_BACKEND_TOKEN", "fixture-backend-token"); vi.stubEnv("LEAFCODE_PI_BACKEND_URL", "http://127.0.0.1:19999");

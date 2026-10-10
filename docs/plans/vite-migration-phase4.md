@@ -2,7 +2,7 @@
 
 ## 状態
 
-新gateと本番CLI/compilerの切替まで。**P4全体は未完了、Next package/config/旧bridge/mockは未撤去**。本番build/start/compilerはNext専用helperに到達しない。旧検査とbuilderは比較用fixtureとして隔離した。
+**P4の受入対象は完了**。禁止依存gateを先行導入後、Next package/config/生成型参照/import/mock、旧bridge/checker/builder/mirrorを撤去。Nextなしのclean install・型・native build/start・stream・Backend/SDK独立性を確認した。稼働Host/Backendの切替・実SDK更新・物理操作の保証は含まない。以下のturn 1–3は撤去前の履歴。
 
 ## 先行gate
 
@@ -60,10 +60,34 @@
 - 新/旧gate groupは初回47/48件成功。原因: gatewayの隔離fixtureがvalue source/sidecarだけをコピーし、新compilerが解決する3個のerased-type依存を欠いた。shared型閉包をfixtureへコピーし、拒否規則を緩めず当該2テストを再実行して成功。証拠: `%LOCALAPPDATA%/Temp/p4-cli-validation/`、当該再実行は `node --test scripts/build-gateway.test.mjs`。
 - actual CLI clean installにはNext packageがまだ含まれる。成功は**Next-free installの証明ではない**。UI/CSS変更、live切替、実SDK更新はしていない。
 
-## 次の単位
+## Next撤去（turn 4）
 
-1. 新gateの拒否と本番build成立を維持し、比較用旧Next検査/builder/helperを削除。
-2. manifest/lock/config/生成型/テストmockを含むNext撤去。互換コードは利用箇所・value/type到達性を確認して限定削除。
-3. Nextなしのclean install/build/typecheck、SDK/Backend独立性を再検証してからP4完了判定。
+- Web manifest/lockから`next`、`@next/*`、`eslint-config-next`を除去。Next config/plugin/生成型参照・tsbuildinfo、未到達のSSR layout/proxy/instrumentation/settings snapshot/compression monkeypatch、`platform` bridgeを撤去。UIは既存SPA adapterへ直接bindし、CSS・business処理を変更しない。`next-themes`はNext非依存のReact部品として維持する。
+- 新value/type/runtime gateで拒否・実build成立を確認した後、旧Next checker/builder/mirrorと専用fixtureを削除。Host workspace/extension repair/lifecycleの有効な16件は`host/src/build-workspace.test.js`へ移設。cold/generated streamとSDK継続性の実integrationはcompiled native gatewayへ移行し、捨てていない。
+- `framework-free.mjs`はroot/Web/gateway/Backend/Hostの9 manifest/lock、2344 sourceをAST監査。package alias/nested override、type-only/re-export/import(type)/import-equals、literal dynamic/require/mock/resolve、config/plugin復活、source symlinkを拒否。data内の拒否fixture文字列はimportとして誤検出しない。source/type/runtime閉包gateを置き換えるものではない。
+- paired compilerは外部workspaceのTypeScriptで元checkoutも監査する。snapshotから除外されるtest/owner manifestの復活もbuild前に拒否し、workerはtransport snapshotを別途検査する。rootにWeb dependenciesが未導入でも、workspaceのclean install後に実行できる。
+- auth504件、cookie serialization9件/parsing6件、compression347件は`349f0640`の実装から撤去前に独立採取した固定golden。Next runtimeの再install不要。owner handler testのRequestはBackend native adapterと同じURL annotationを持つfixtureのみで、framework module mockはない。
 
-ここでの検査は静的な境界と有限fixtureの検証。任意に難読化されたJavaScriptの完全sandbox証明、same-user攻撃、live deployment切替や実SDK更新は主張しない。
+### 最終検証
+
+証拠: `%LOCALAPPDATA%/Temp/p4-next-free-verified/`（`state.json`・各log）。修正前の失敗は`p4-next-free-{validation,final}/`と区別する。
+
+- `npm --prefix web ci --ignore-scripts --no-audit --no-fund`:311 packages/16秒。実installed treeに`next`・`@next`・`eslint-config-next`なし。新lockから外部workspaceもclean offline install成功。
+- 新境界/復活拒否/ownership/Host helper/世代/CLI/golden:228件成功。変更対象のWeb144ファイル/1295件成功。SPA型検査成功。neutral ESLintでnavigation/JSON relayの関連lint成功。旧repository全体の型検査・全lint・無関係なpeer testの成功は主張しない。
+- Browser337 value/525 type、gateway166 routes/267 operations/254 value/486 type、Undici8.10.2の41 runtime filesを再監査。未知owner/SDK/store/間接loader/type-only/symlink拒否を維持。
+- canonical CLIで2世代をbuild/seal/start（501 files、143.2秒）。7 URL、稼働中旧世代のimmutable bytes、失敗build/start後のpaired rollbackを確認。実native production browserとcold開発SPA6画面・optimizer/auth/CSS HMRも成功。実headless Hostのgateway restart/crash recoveryでもBackend SDK/session/lease/heartbeatを維持（101.6秒、provider call1、外部fetch転送なし）。
+- native cold stream:269584138-byte transcript、536870912-byte file、125002ms SSE/550064915 bytes、32 SSE cuts・8 scan cuts・16 file cuts、foreign lease polling、Range/HEAD/reconnect/restartとreader/descriptor/queue解放が成功。
+- native generated stream:539148152-byte profile、536870912-byte TTS、125013ms Provider SSE/534295090 bytes、各reader8 heartbeat、切断/取消/再接続/再起動、bounded heap/queue・非再実行・owner resource解放が成功。TTSは隔離finite engineで、実課金providerではない。
+- Web directoryのないfresh checkoutでBackend runtime build、実SDK/AgentSession/session/leaseのfinite providerが成功。gateway停止/再起動中のPID/generation/session/token/heartbeat維持、SDK結果2回各一度、SSE再接続、operation replay3回拒否、外部fetch転送0を確認。Backend SDK更新/rollback/CLI/Webなしの32ケースも成功。live SDK install/updateはしていない。
+
+### 失敗・修正の根拠
+
+- 原因:移設したowner bundleのESM SDK解決先とcompiled route manifestの階層が不一致。隔離fixtureへBackend依存だけを結び、`buildGateway`の実outputからmanifest/serverを読み込むよう修正。両長時間streamを再実行して成功。
+- 原因:Next削除後の一部testに未定義`NextRequest`、またはowner用`nextUrl` annotation欠落が残った。standard Request/owner fixtureへ限定移行し、1295件を再実行して成功。既存ownership testのhealth/cacheと119-route/184-operation inventory前提も現transport構造に合わせた。
+- 検証中のsource変更で一度SDK integrationのSPA snapshotが拒否された。境界を緩めずsource固定で再実行し成功。peerの長時間harness-limit-fallback testは変更せず、当該実行だけ停止・所有対象から除外した。
+- peerのGoal Loop testはRequest移行だけHEAD基準でstageし、35行の意味変更と他の既存差分をコミットに含めない。indexだけをTempへ展開し、peerの3未追跡shared sourceがないことを確認。Nextなしの実clean offline install・両境界/型・stage済Goal/JSON relay63件・Webなし実SDK probeも成功（`p4-index-{review,clean-review}/`）。借用Web dependency symlinkの初回は正しくescape拒否されたため、拒否規則を変更せず実installへ切替。
+- この範囲はP4受入。Phase5の全HTTP/UI/secret matrixの確定HEAD隔離受入を代替しない。
+
+## 次の確認範囲
+
+Phase5の確定HEAD隔離受入matrixと独立した総合回帰/運用レビュー。稼働generationの切替・実SDK deployment/update・physical tray/Tailscale/audio・power-lossは別途明示操作と検証が必要。静的な境界と有限fixtureは任意JavaScriptの完全sandbox、same-user攻撃への完全防御を証明しない。

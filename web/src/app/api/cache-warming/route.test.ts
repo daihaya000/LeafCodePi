@@ -1,4 +1,4 @@
-import { NextRequest } from "next/server";
+import { BackendTestRequest as Request } from "@/test-request";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const harness = vi.hoisted(() => ({
@@ -14,8 +14,8 @@ vi.mock("@/lib/pi/harness", () => harness);
 
 import { GET, PATCH } from "@backend-runtime/configuration/handlers/cache-warming/route";
 
-function request(body: unknown): NextRequest {
-  return new NextRequest("http://127.0.0.1:3010/api/cache-warming", {
+function request(body: unknown): Request {
+  return new Request("http://127.0.0.1:3010/api/cache-warming", {
     method: "PATCH",
     headers: { "content-type": "application/json" },
     body: JSON.stringify(body),

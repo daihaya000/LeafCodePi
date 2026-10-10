@@ -31,11 +31,11 @@ vi.mock("@/components/shell/TaskPanesContext", () => ({
   useReportStatus: () => mocks.useTaskPanes().reportStatus,
   useGetStatusFor: () => mocks.useTaskPanes().statusFor,
 }));
-vi.mock("next/navigation", () => ({
+vi.mock("@/spa/navigation", () => ({
   usePathname: mocks.usePathname,
   useSearchParams: mocks.useSearchParams,
 }));
-vi.mock("next/dynamic", () => ({
+vi.mock("@/spa/dynamic", () => ({
   default: () => function DynamicPane({ taskId, id, active }: { taskId?: string; id?: string; active?: boolean }) {
     const key = taskId ? `task:${taskId}` : id ? `bot:${id}` : "home";
     const { prompt, setPrompt } = useComposerDraft(key);

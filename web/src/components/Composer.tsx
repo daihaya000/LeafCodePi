@@ -209,7 +209,7 @@ export function ImageLightbox({
         onClick={() => setOpen(true)}
         className={`block cursor-zoom-in border-0 bg-transparent p-0 ${triggerClassName ?? ""}`}
       >
-        {/* eslint-disable-next-line @next/next/no-img-element */}
+
         <img src={src} alt={alt} className={className} onError={onError} referrerPolicy={referrerPolicy} />
       </button>
       {open &&
@@ -231,7 +231,7 @@ export function ImageLightbox({
             >
               <X className="h-5 w-5" />
             </button>
-            {/* eslint-disable-next-line @next/next/no-img-element */}
+
             <img
               src={src}
               alt={alt}

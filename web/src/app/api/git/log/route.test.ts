@@ -1,4 +1,4 @@
-import { NextRequest } from "next/server";
+import { BackendTestRequest as Request } from "@/test-request";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
@@ -17,8 +17,8 @@ import { GET } from "@backend-runtime/json-business/handlers/git/log/route";
 
 const url = "http://localhost/api/git/log?directory=C%3A%5Crepo&limit=80&skip=0";
 
-function makeRequest(ifNoneMatch?: string): NextRequest {
-  return new NextRequest(url, {
+function makeRequest(ifNoneMatch?: string): Request {
+  return new Request(url, {
     headers: ifNoneMatch ? { "if-none-match": ifNoneMatch } : undefined,
   });
 }

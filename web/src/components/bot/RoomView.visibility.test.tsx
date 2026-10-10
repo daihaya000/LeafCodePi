@@ -7,8 +7,8 @@ const mocks = vi.hoisted(() => ({ getJson: vi.fn(), sendJson: vi.fn(), push: vi.
 
 vi.mock("@/lib/bot-unread", () => ({ markRead: mocks.markRead }));
 vi.mock("@/lib/client", () => ({ getJson: mocks.getJson, sendJson: mocks.sendJson }));
-vi.mock("next/navigation", () => ({ useRouter: () => ({ push: mocks.push }) }));
-vi.mock("next/link", () => ({
+vi.mock("@/spa/navigation", () => ({ useRouter: () => ({ push: mocks.push }) }));
+vi.mock("@/spa/link", () => ({
   default: ({ children, ...props }: { children: ReactNode; [key: string]: unknown }) => <a {...props}>{children}</a>,
 }));
 

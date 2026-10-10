@@ -1,4 +1,4 @@
-import { NextRequest } from "next/server";
+import { BackendTestRequest as Request } from "@/test-request";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { UiMessage } from "@/lib/types";
 
@@ -79,7 +79,7 @@ function extraFields(extra: Record<string, unknown> | (() => Record<string, unkn
   return typeof extra === "function" ? extra() : extra;
 }
 
-const request = () => new NextRequest("http://localhost/api/bots/one/events");
+const request = () => new Request("http://localhost/api/bots/one/events");
 const params = { params: Promise.resolve({ id: "one" }) };
 
 beforeEach(() => {
@@ -143,7 +143,7 @@ describe("GET /api/bots/[id]/events", () => {
     });
 
     const response = await GET(
-      new NextRequest("http://localhost/api/bots/one/events?cachedTaskUpdatedAt=revision-1&cachedSessionId=session-1"),
+      new Request("http://localhost/api/bots/one/events?cachedTaskUpdatedAt=revision-1&cachedSessionId=session-1"),
       params,
     );
     const events = await readEvents(response, 3);
@@ -171,7 +171,7 @@ describe("GET /api/bots/[id]/events", () => {
       .mockResolvedValueOnce({ ...bootstrap, messages: [message("latest", "最新履歴")] });
 
     const response = await GET(
-      new NextRequest("http://localhost/api/bots/one/events?cachedTaskUpdatedAt=revision-1&cachedSessionId=session-1"),
+      new Request("http://localhost/api/bots/one/events?cachedTaskUpdatedAt=revision-1&cachedSessionId=session-1"),
       params,
     );
     const events = await readEvents(response);

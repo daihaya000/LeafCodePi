@@ -1,4 +1,4 @@
-import { NextRequest } from "next/server";
+import { BackendTestRequest as Request } from "@/test-request";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { PATCH, POST } from "@backend-runtime/json-business/handlers/tasks/[id]/title/route";
 import { afterEach } from "vitest";
@@ -25,8 +25,8 @@ vi.mock("@/lib/pi/harness", () => ({
   emitTaskChanged: vi.fn(),
 }));
 
-function request(body: unknown, method: "POST" | "PATCH" = "POST"): NextRequest {
-  return new NextRequest("http://127.0.0.1:3010/api/tasks/task-1/title", {
+function request(body: unknown, method: "POST" | "PATCH" = "POST"): Request {
+  return new Request("http://127.0.0.1:3010/api/tasks/task-1/title", {
     method,
     headers: { "content-type": "application/json" },
     body: JSON.stringify(body),

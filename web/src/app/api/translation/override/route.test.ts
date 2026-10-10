@@ -1,4 +1,3 @@
-import { NextRequest } from "next/server";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const { resolveHostControlUrl } = vi.hoisted(() => ({
@@ -13,7 +12,7 @@ vi.mock("@/lib/host-http-client", async (importOriginal) => {
 import { POST } from "./route";
 
 function request(body: unknown) {
-  return new NextRequest("http://127.0.0.1:3000/api/translation/override", {
+  return new Request("http://127.0.0.1:3000/api/translation/override", {
     method: "POST",
     headers: {
       host: "127.0.0.1:3000",

@@ -1,7 +1,7 @@
+import { BackendTestRequest as Request } from "@/test-request";
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { NextRequest } from "next/server";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { POST } from "@backend-runtime/json-business/handlers/prompts/transfer/route";
 
@@ -17,7 +17,7 @@ beforeEach(() => {
 });
 afterEach(() => { vi.unstubAllEnvs(); rmSync(root, { recursive: true, force: true }); });
 
-const request = (body: unknown, headers: Record<string, string> = {}) => new NextRequest("http://localhost/api/prompts/transfer", {
+const request = (body: unknown, headers: Record<string, string> = {}) => new Request("http://localhost/api/prompts/transfer", {
   method: "POST", headers: { "content-type": "application/json", ...headers }, body: JSON.stringify(body),
 });
 
@@ -48,6 +48,6 @@ it("rejects cross-origin, unauthenticated remote access and malicious selected n
   vi.stubEnv("LEAFCODE_PI_BIND_HOST", "127.0.0.1");
   const backup = { format: "leafcode-pi-prompts", version: 1, exportedAt: new Date().toISOString(), files: { "USER.md": "changed" } };
   expect((await POST(request({ action: "import", backup, selected: ["../auth.json"] }))).status).toBe(400);
-  expect((await POST(new NextRequest("http://localhost/api/prompts/transfer", { method: "POST", body: "{" }))).status).toBe(400);
+  expect((await POST(new Request("http://localhost/api/prompts/transfer", { method: "POST", body: "{" }))).status).toBe(400);
   expect(readFileSync(join(root, "agent", "USER.md"), "utf8")).toBe("keep");
 });

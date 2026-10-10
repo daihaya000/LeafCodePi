@@ -23,7 +23,7 @@ export function ProviderIcon({
 
   if (src && !broken) {
     return (
-      // eslint-disable-next-line @next/next/no-img-element
+
       <img
         src={src}
         alt=""

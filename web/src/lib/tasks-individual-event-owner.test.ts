@@ -1,4 +1,4 @@
-import { NextRequest } from "next/server";
+import { BackendTestRequest as Request } from "@/test-request";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { TaskDetail } from "@/lib/types";
 import { GET } from "@backend-runtime/event-stream/handlers/tasks/route";
@@ -90,7 +90,7 @@ describe("/api/tasks/[id]/events", () => {
     mocks.getTaskBootstrap.mockReturnValue(bootstrap);
     mocks.subscribeTask.mockReturnValue(vi.fn());
     mocks.readColdIndividualDetail.mockRejectedValue(Object.assign(new Error("bounded history"), { code: "COLD_TRANSCRIPT_UNAVAILABLE" }));
-    const response = await GET(new NextRequest("http://localhost/api/tasks/task-1/events"), { params: Promise.resolve({ id: "task-1" }) });
+    const response = await GET(new Request("http://localhost/api/tasks/task-1/events"), { params: Promise.resolve({ id: "task-1" }) });
     const reader = response.body!.getReader();
     await readChunk(reader);
     expect(eventData(await readChunk(reader))).toEqual({ error: "bounded history", code: "COLD_TRANSCRIPT_UNAVAILABLE" });
@@ -104,7 +104,7 @@ describe("/api/tasks/[id]/events", () => {
     mocks.getTaskBootstrap.mockReturnValue(detail);
     mocks.readColdIndividualDetail.mockResolvedValue(detail);
     mocks.subscribeTask.mockImplementation((_id: string, fn: typeof listener) => { listener = fn; return vi.fn(); });
-    const response = await GET(new NextRequest(`http://localhost/api/tasks/task-1/events?history=omit&cachedSessionId=session-1&cachedTaskUpdatedAt=${encodeURIComponent(detail.updatedAt)}`), { params: Promise.resolve({ id: "task-1" }) });
+    const response = await GET(new Request(`http://localhost/api/tasks/task-1/events?history=omit&cachedSessionId=session-1&cachedTaskUpdatedAt=${encodeURIComponent(detail.updatedAt)}`), { params: Promise.resolve({ id: "task-1" }) });
     const reader = response.body!.getReader();
     await readChunk(reader);
     const ready = eventData(await readChunk(reader));
@@ -128,7 +128,7 @@ describe("/api/tasks/[id]/events", () => {
     mocks.subscribeTask.mockReturnValue(unsubscribe);
 
     const response = await GET(
-      new NextRequest("http://127.0.0.1:3010/api/tasks/task-1/events", { signal: request.signal }),
+      new Request("http://127.0.0.1:3010/api/tasks/task-1/events", { signal: request.signal }),
       { params: Promise.resolve({ id: "task-1" }) },
     );
     await response.body?.cancel();
@@ -144,7 +144,7 @@ describe("/api/tasks/[id]/events", () => {
     mocks.getTaskBootstrap.mockReturnValue(detail);
     mocks.getTaskDetail.mockResolvedValue(detail);
     mocks.subscribeTask.mockImplementation((_id: string, fn: typeof listener) => { listener = fn; return vi.fn(); });
-    const response = await GET(new NextRequest("http://localhost/api/tasks/task-1/events"), { params: Promise.resolve({ id: "task-1" }) });
+    const response = await GET(new Request("http://localhost/api/tasks/task-1/events"), { params: Promise.resolve({ id: "task-1" }) });
     const reader = response.body!.getReader();
     await readChunk(reader);
     const ready = eventData(await readChunk(reader));
@@ -175,7 +175,7 @@ describe("/api/tasks/[id]/events", () => {
     });
 
     const response = await GET(
-      new NextRequest("http://127.0.0.1:3010/api/tasks/task-1/events"),
+      new Request("http://127.0.0.1:3010/api/tasks/task-1/events"),
       { params: Promise.resolve({ id: "task-1" }) },
     );
     expect(response.headers.get("cache-control")).toBe("no-store, no-cache, no-transform");
@@ -241,7 +241,7 @@ describe("/api/tasks/[id]/events", () => {
       return vi.fn();
     });
     const response = await GET(
-      new NextRequest("http://127.0.0.1:3010/api/tasks/task-1/events?streamDeltas=0&streamMessages=0"),
+      new Request("http://127.0.0.1:3010/api/tasks/task-1/events?streamDeltas=0&streamMessages=0"),
       { params: Promise.resolve({ id: "task-1" }) },
     );
     const reader = response.body!.getReader();
@@ -276,7 +276,7 @@ describe("/api/tasks/[id]/events", () => {
     mocks.subscribeTask.mockReturnValue(vi.fn());
 
     const response = await GET(
-      new NextRequest(
+      new Request(
         "http://127.0.0.1:3010/api/tasks/task-1/events?cachedTaskUpdatedAt=2026-01-01T00%3A00%3A00.000Z&cachedSessionId=session-1",
       ),
       { params: Promise.resolve({ id: "task-1" }) },
@@ -314,7 +314,7 @@ describe("/api/tasks/[id]/events", () => {
     mocks.subscribeTask.mockReturnValue(vi.fn());
 
     const response = await GET(
-      new NextRequest(
+      new Request(
         "http://127.0.0.1:3010/api/tasks/task-1/events?cachedTaskUpdatedAt=2026-01-01T00%3A00%3A00.000Z&cachedSessionId=session-1&cachedSilentResumeCandidate=1",
       ),
       { params: Promise.resolve({ id: "task-1" }) },
@@ -348,7 +348,7 @@ describe("/api/tasks/[id]/events", () => {
     mocks.subscribeTask.mockReturnValue(vi.fn());
 
     const response = await GET(
-      new NextRequest(
+      new Request(
         "http://127.0.0.1:3010/api/tasks/task-1/events?cachedTaskUpdatedAt=2026-01-01T00%3A00%3A00.000Z&cachedSessionId=session-1",
       ),
       { params: Promise.resolve({ id: "task-1" }) },
@@ -396,7 +396,7 @@ describe("/api/tasks/[id]/events", () => {
     });
 
     const response = await GET(
-      new NextRequest("http://127.0.0.1:3010/api/tasks/task-1/events"),
+      new Request("http://127.0.0.1:3010/api/tasks/task-1/events"),
       { params: Promise.resolve({ id: "task-1" }) },
     );
     const reader = response.body!.getReader();
@@ -457,7 +457,7 @@ describe("/api/tasks/[id]/events", () => {
       mocks.subscribeTask.mockReturnValue(vi.fn());
 
       const response = await GET(
-        new NextRequest("http://127.0.0.1:3010/api/tasks/task-1/events"),
+        new Request("http://127.0.0.1:3010/api/tasks/task-1/events"),
         { params: Promise.resolve({ id: "task-1" }) },
       );
       const reader = response.body!.getReader();
@@ -496,7 +496,7 @@ describe("/api/tasks/[id]/events", () => {
       mocks.subscribeTask.mockReturnValue(vi.fn());
 
       const response = await GET(
-        new NextRequest("http://127.0.0.1:3010/api/tasks/task-1/events?delta=1"),
+        new Request("http://127.0.0.1:3010/api/tasks/task-1/events?delta=1"),
         { params: Promise.resolve({ id: "task-1" }) },
       );
       const reader = response.body!.getReader();
@@ -572,7 +572,7 @@ describe("/api/tasks/[id]/events", () => {
       mocks.subscribeTask.mockReturnValue(vi.fn());
 
       const response = await GET(
-        new NextRequest(
+        new Request(
           `http://127.0.0.1:3010/api/tasks/task-1/events?delta=1&cachedTaskUpdatedAt=${encodeURIComponent(updatedAt)}&cachedSessionId=session-1`,
         ),
         { params: Promise.resolve({ id: "task-1" }) },
@@ -626,7 +626,7 @@ describe("/api/tasks/[id]/events", () => {
     mocks.subscribeTask.mockReturnValue(vi.fn());
 
     const response = await GET(
-      new NextRequest(
+      new Request(
         "http://127.0.0.1:3010/api/tasks/task-1/events?cachedTaskUpdatedAt=2026-01-01T00%3A00%3A00.000Z&cachedSessionId=session-1",
       ),
       { params: Promise.resolve({ id: "task-1" }) },
@@ -657,7 +657,7 @@ describe("/api/tasks/[id]/events", () => {
     mocks.subscribeTask.mockReturnValue(vi.fn());
 
     const response = await GET(
-      new NextRequest("http://127.0.0.1:3010/api/tasks/task-1/events?perf=1"),
+      new Request("http://127.0.0.1:3010/api/tasks/task-1/events?perf=1"),
       { params: Promise.resolve({ id: "task-1" }) },
     );
     const reader = response.body!.getReader();
@@ -695,7 +695,7 @@ describe("/api/tasks/[id]/events", () => {
     });
 
     const response = await GET(
-      new NextRequest("http://127.0.0.1:3010/api/tasks/task-1/events"),
+      new Request("http://127.0.0.1:3010/api/tasks/task-1/events"),
       { params: Promise.resolve({ id: "task-1" }) },
     );
     const reader = response.body!.getReader();
@@ -744,7 +744,7 @@ describe("/api/tasks/[id]/events", () => {
     });
 
     const response = await GET(
-      new NextRequest("http://127.0.0.1:3010/api/tasks/task-1/events"),
+      new Request("http://127.0.0.1:3010/api/tasks/task-1/events"),
       { params: Promise.resolve({ id: "task-1" }) },
     );
     const reader = response.body!.getReader();
@@ -799,7 +799,7 @@ describe("/api/tasks/[id]/events", () => {
     mocks.subscribeTask.mockReturnValue(vi.fn());
 
     const response = await GET(
-      new NextRequest("http://127.0.0.1:3010/api/tasks/task-1/events"),
+      new Request("http://127.0.0.1:3010/api/tasks/task-1/events"),
       { params: Promise.resolve({ id: "task-1" }) },
     );
     const reader = response.body!.getReader();
@@ -831,7 +831,7 @@ describe("/api/tasks/[id]/events", () => {
 
     try {
       const response = await GET(
-        new NextRequest("http://127.0.0.1:3010/api/tasks/task-1/events"),
+        new Request("http://127.0.0.1:3010/api/tasks/task-1/events"),
         { params: Promise.resolve({ id: "task-1" }) },
       );
       const reader = response.body!.getReader();
@@ -874,7 +874,7 @@ describe("/api/tasks/[id]/events", () => {
     mocks.subscribeTask.mockReturnValue(vi.fn());
 
     const response = await GET(
-      new NextRequest("http://127.0.0.1:3010/api/tasks/task-1/events"),
+      new Request("http://127.0.0.1:3010/api/tasks/task-1/events"),
       { params: Promise.resolve({ id: "task-1" }) },
     );
     const reader = response.body!.getReader();
@@ -911,7 +911,7 @@ describe("/api/tasks/[id]/events", () => {
     });
 
     const response = await GET(
-      new NextRequest("http://127.0.0.1:3010/api/tasks/task-1/events"),
+      new Request("http://127.0.0.1:3010/api/tasks/task-1/events"),
       { params: Promise.resolve({ id: "task-1" }) },
     );
     const reader = response.body!.getReader();
@@ -968,7 +968,7 @@ describe("/api/tasks/[id]/events", () => {
     });
 
     const response = await GET(
-      new NextRequest("http://127.0.0.1:3010/api/tasks/task-1/events"),
+      new Request("http://127.0.0.1:3010/api/tasks/task-1/events"),
       { params: Promise.resolve({ id: "task-1" }) },
     );
     const reader = response.body!.getReader();
@@ -1052,7 +1052,7 @@ describe("/api/tasks/[id]/events", () => {
     mocks.pendingPermissionForTask.mockReturnValue(stalePermission);
 
     const response = await GET(
-      new NextRequest("http://127.0.0.1:3010/api/tasks/task-1/events"),
+      new Request("http://127.0.0.1:3010/api/tasks/task-1/events"),
       { params: Promise.resolve({ id: "task-1" }) },
     );
     const reader = response.body!.getReader();

@@ -9,11 +9,11 @@ const mocks = vi.hoisted(() => ({
 }));
 
 vi.mock("@/lib/client", () => ({ getJson: mocks.getJson, sendJson: vi.fn() }));
-vi.mock("next/navigation", () => ({ useRouter: () => ({ push: mocks.push }) }));
-vi.mock("next/link", () => ({
+vi.mock("@/spa/navigation", () => ({ useRouter: () => ({ push: mocks.push }) }));
+vi.mock("@/spa/link", () => ({
   default: ({ children, ...props }: { children: ReactNode; [key: string]: unknown }) => <a {...props}>{children}</a>,
 }));
-vi.mock("next/image", () => ({
+vi.mock("@/spa/image", () => ({
   default: () => <span data-testid="next-image" />,
 }));
 

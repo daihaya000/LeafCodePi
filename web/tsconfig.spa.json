@@ -7,10 +7,6 @@
     "paths": {
       "@/*": ["./src/*"],
       "@shared/*": ["../shared/*"],
-      "@/platform/navigation": ["./src/spa/navigation.tsx"],
-      "@/platform/link": ["./src/spa/link.ts"],
-      "@/platform/image": ["./src/spa/image.ts"],
-      "@/platform/dynamic": ["./src/spa/dynamic.ts"],
       "@/lib/pi/messages": ["../shared/ui/pi/messages.ts"],
       "@/lib/tts-backends": ["../shared/ui/tts-backends.ts"],
       "@/lib/host-launch-hints": ["../shared/ui/host-launch-hints.ts"],

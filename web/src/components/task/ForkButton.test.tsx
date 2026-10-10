@@ -2,7 +2,7 @@
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 const mocks = vi.hoisted(() => ({ send: vi.fn(), push: vi.fn(), notify: vi.fn() }));
-vi.mock("next/navigation", () => ({ useRouter: () => ({ push: mocks.push }) }));
+vi.mock("@/spa/navigation", () => ({ useRouter: () => ({ push: mocks.push }) }));
 vi.mock("@/lib/client", () => ({ sendJson: mocks.send }));
 vi.mock("@/lib/events", () => ({ notifyTasksChanged: mocks.notify }));
 import { ForkButton } from "./ForkButton";

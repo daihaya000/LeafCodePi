@@ -1,7 +1,7 @@
+import { BackendTestRequest as Request } from "@/test-request";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, dirname, join } from "node:path";
-import { NextRequest } from "next/server";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { __resetPiAgentDirCacheForTests, accountAuthPath, accountDir, createAccount, listAccounts } from "@/lib/accounts";
 import { readPeerConfig, writePeerConfig } from "@backend-core/peer-auth-config.mjs";
@@ -33,15 +33,15 @@ function setup() {
   return root;
 }
 function request(body: unknown, headers: Record<string, string> = {}) {
-  return new NextRequest("http://localhost/api/settings/transfer", {
+  return new Request("http://localhost/api/settings/transfer", {
     method: "POST", headers: { "content-type": "application/json", ...headers }, body: JSON.stringify(body),
   });
 }
 function getRequest(headers: Record<string, string> = {}) {
-  return new NextRequest("http://localhost/api/settings/transfer", { headers });
+  return new Request("http://localhost/api/settings/transfer", { headers });
 }
 function deleteRequest(headers: Record<string, string> = {}) {
-  return new NextRequest("http://localhost/api/settings/transfer", { method: "DELETE", headers });
+  return new Request("http://localhost/api/settings/transfer", { method: "DELETE", headers });
 }
 function restore(key: keyof typeof saved, env: string) {
   if (saved[key] === undefined) delete process.env[env];
@@ -269,7 +269,7 @@ describe("/api/settings/transfer", () => {
     process.env.LEAFCODE_PI_BIND_HOST = "127.0.0.1";
     const localAllowed = await POST(request({ action: "export", scope: "credentials" }));
     expect(localAllowed.status).toBe(200);
-    const rebinding = await POST(new NextRequest("http://rebinding.example/api/settings/transfer", {
+    const rebinding = await POST(new Request("http://rebinding.example/api/settings/transfer", {
       method: "POST",
       headers: { origin: "http://rebinding.example", "content-type": "application/json" },
       body: JSON.stringify({ action: "export", scope: "credentials" }),

@@ -1,4 +1,3 @@
-import { NextRequest } from "next/server";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const hostControl = vi.hoisted(() => ({
@@ -10,8 +9,8 @@ vi.mock("@/lib/host-http-client", () => hostControl);
 
 import { GET, POST } from "./route";
 
-function request(body: unknown): NextRequest {
-  return new NextRequest("http://127.0.0.1:3010/api/host/webui-auth", {
+function request(body: unknown): Request {
+  return new Request("http://127.0.0.1:3010/api/host/webui-auth", {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify(body),

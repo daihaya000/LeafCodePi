@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import Link from "@/platform/link";
+import Link from "@/spa/link";
 import { GoalLoopOptions, GoalLoopToggle } from "@/components/GoalLoopComposer";
 import { GoalLoopPanel } from "@/components/GoalLoopPanel";
 import { Button } from "@/components/ui";

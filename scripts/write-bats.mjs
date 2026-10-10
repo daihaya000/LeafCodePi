@@ -180,7 +180,7 @@ echo [LeafCodePi] WARNING: PowerShell 7 is unavailable; the powershell tool uses
 exit /b 0
 
 :install_web
-if not exist "%~dp0..\\web\\node_modules\\next" (
+if not exist "%~dp0..\\web\\node_modules\\vite" (
   echo [LeafCodePi] Installing web dependencies...
   call npm --prefix "%~dp0..\\web" install
   if errorlevel 1 (
@@ -189,7 +189,7 @@ if not exist "%~dp0..\\web\\node_modules\\next" (
   )
 )
 rem The production build lives in the hard-link mirror outside OneDrive
-rem (scripts\\web-build-mirror.mjs), so this batch cannot check BUILD_ID here.
+rem (scripts\\spa-build-generation.mjs), so this batch cannot check the paired generation pointer here.
 echo [LeafCodePi] Host will build the WebUI on start if it is missing or stale.
 exit /b 0
 

@@ -1,9 +1,9 @@
+import { BackendTestRequest as Request } from "@/test-request";
 import assert from "node:assert/strict";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, it } from "vitest";
-import { NextRequest } from "next/server";
 import { GET, PATCH as PATCH_ACCOUNTS, POST } from "@backend-runtime/json-business/handlers/accounts/route";
 import { DELETE, PATCH } from "@backend-runtime/json-business/handlers/accounts/[id]/route";
 import { insertTask, patchTask, upsertProject } from "@/lib/store";
@@ -25,8 +25,8 @@ function tempDataDir() {
   return dir;
 }
 
-function jsonRequest(url: string, method: string, body?: unknown): NextRequest {
-  return new NextRequest(url, {
+function jsonRequest(url: string, method: string, body?: unknown): Request {
+  return new Request(url, {
     method,
     headers: { "content-type": "application/json" },
     body: body === undefined ? undefined : JSON.stringify(body),
@@ -224,7 +224,7 @@ describe("/api/accounts", () => {
 
     // 実行中タスクからの参照が無ければ削除できる
     const first = await DELETE(
-      new NextRequest(`http://localhost/api/accounts/${id}`),
+      new Request(`http://localhost/api/accounts/${id}`),
       idContext(id),
     );
     assert.equal(first.status, 200);
@@ -241,7 +241,7 @@ describe("/api/accounts", () => {
     assert.ok(patchLoose(task.id, { status: "working", accountId: busyId }));
 
     const conflict = await DELETE(
-      new NextRequest(`http://localhost/api/accounts/${busyId}`),
+      new Request(`http://localhost/api/accounts/${busyId}`),
       idContext(busyId),
     );
     assert.equal(conflict.status, 409);
@@ -249,13 +249,13 @@ describe("/api/accounts", () => {
     // 実行中参照が外れれば削除できる
     patchLoose(task.id, { status: "idle" });
     const second = await DELETE(
-      new NextRequest(`http://localhost/api/accounts/${busyId}`),
+      new Request(`http://localhost/api/accounts/${busyId}`),
       idContext(busyId),
     );
     assert.equal(second.status, 200);
 
     const gone = await DELETE(
-      new NextRequest(`http://localhost/api/accounts/${busyId}`),
+      new Request(`http://localhost/api/accounts/${busyId}`),
       idContext(busyId),
     );
     assert.equal(gone.status, 404);

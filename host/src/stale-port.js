@@ -6,7 +6,7 @@ import { pidAlive, readLock } from "./lock.js";
 import { getListeningPids } from "./port-scanner.js";
 import { stopProcessTreeGracefully } from "./process-stop.js";
 
-const NEXT_PROCESS = /next-server|next[\\/]dist[\\/]bin[\\/]next|\bnext\s+(start|dev)\b/;
+const GATEWAY_PROCESS = /[\\/]generations[\\/][a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}[\\/]gateway[\\/]dist[\\/]gateway[\\/]src[\\/]index\.mjs(?:\s|$)/;
 
 function defaultCommandLine(pid) {
   try {
@@ -29,14 +29,11 @@ function defaultEnvironment(pid) {
 }
 
 /**
- * True only for a Next.js server the LeafCodePi host launched for this port.
- * Next renames its server process (`next-server (v15…)`), so the command line
- * alone cannot carry the port; the host-set LEAFCODE_PI_PORT environment does.
+ * Recognize only a native sealed-generation entry with the Host-set port.
+ * Development listeners and arbitrary Node/foreign programs remain untouched.
  */
 export function isLeafCodeWebUi(port, { commandLine, environment }) {
-  if (!NEXT_PROCESS.test(commandLine)) return false;
-  if (environment.includes(`LEAFCODE_PI_PORT=${port}`)) return true;
-  return new RegExp(`--port[ =]${port}(\\s|$)`).test(commandLine);
+  return GATEWAY_PROCESS.test(commandLine) && environment.includes(`LEAFCODE_PI_PORT=${port}`);
 }
 
 /**

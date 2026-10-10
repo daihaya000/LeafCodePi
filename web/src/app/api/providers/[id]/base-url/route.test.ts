@@ -1,4 +1,4 @@
-import { NextRequest } from "next/server";
+import { BackendTestRequest as Request } from "@/test-request";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const getBaseUrl = vi.hoisted(() => vi.fn());
@@ -18,8 +18,8 @@ vi.mock("@/lib/pi/harness", () => ({
 
 import { GET, PUT } from "@backend-runtime/json-business/handlers/providers/[id]/base-url/route";
 
-function request(method: "GET" | "PUT", body?: unknown): NextRequest {
-  return new NextRequest("http://127.0.0.1:3010/api/providers/ollama-cloud/base-url", {
+function request(method: "GET" | "PUT", body?: unknown): Request {
+  return new Request("http://127.0.0.1:3010/api/providers/ollama-cloud/base-url", {
     method,
     ...(body === undefined
       ? {}

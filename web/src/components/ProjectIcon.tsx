@@ -28,7 +28,7 @@ export const ProjectIcon = memo(function ProjectIcon({ project, className }: { p
   const tone = PROJECT_ICON_TONES[savedColor ?? PROJECT_ICON_COLOR_KEYS[hash % PROJECT_ICON_COLOR_KEYS.length]!];
   const showImage = Boolean(project.icon && project.icon !== failedIcon);
   return showImage ? (
-    // eslint-disable-next-line @next/next/no-img-element
+
     <img src={project.icon!} alt="" onError={() => setFailedIcon(project.icon!)} className={cx("rounded-md object-cover", className)} />
   ) : (
     <span className={cx(tone, className)}>{Array.from(project.name.trim().toUpperCase())[0] ?? "?"}</span>

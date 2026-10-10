@@ -5,6 +5,7 @@ import { dirname, isAbsolute, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { collectRoutes, validateInventory } from "./check-api-ownership.mjs";
 import { checkGatewayRuntimePackage, GATEWAY_HTTP_IMPORTS } from "./gateway-runtime-boundary.mjs";
+import { checkFrameworkFree } from "./framework-free.mjs";
 
 const ROOT = resolve(fileURLToPath(new URL("../", import.meta.url)));
 const norm = path => path.replaceAll("\\", "/");
@@ -134,7 +135,7 @@ function gatewayCapability(file, specifier, ts, source) {
     : file === "shared/host-http-client.ts" ? ["node:fs", "node:os", "node:path"]
     : file === "shared/backend-http-client.ts" ? ["node:fs"]
     : file === "shared/webui-presentation.mjs" ? ["node:os"]
-    : file === "web/src/lib/http-compression-fix.ts" ? ["node:http"] : ["node:crypto", "node:zlib"];
+    : ["node:crypto", "node:zlib"];
   assert.ok(cap.includes(specifier), `${file}: forbidden gateway OS/store capability ${specifier}`);
   if (file === "gateway/src/static.mjs" && ["node:fs", "node:fs/promises"].includes(specifier)) {
     const ast = ts.createSourceFile(file, source, ts.ScriptTarget.Latest, true);
@@ -250,7 +251,7 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
   try {
     const args = process.argv.slice(2);
     assert.ok(args.length === 0 || args.length === 1 && ["--browser", "--gateway"].includes(args[0]), "Unsupported production boundary option");
-    console.log(JSON.stringify({ ...(args[0] !== "--gateway" ? { browser: checkBrowserBoundary() } : {}), ...(args[0] !== "--browser" ? { gateway: checkGatewayBoundary() } : {}) }));
+    console.log(JSON.stringify({ framework: checkFrameworkFree(), ...(args[0] !== "--gateway" ? { browser: checkBrowserBoundary() } : {}), ...(args[0] !== "--browser" ? { gateway: checkGatewayBoundary() } : {}) }));
   }
   catch (error) { console.error(error.message); process.exitCode = 1; }
 }

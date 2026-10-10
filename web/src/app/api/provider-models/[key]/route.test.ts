@@ -1,4 +1,4 @@
-import { NextRequest } from "next/server";
+import { BackendTestRequest as Request } from "@/test-request";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
@@ -24,8 +24,8 @@ vi.mock("@/lib/provider-model-state", () => ({
 
 import { PATCH } from "@backend-runtime/json-business/handlers/provider-models/[key]/route";
 
-function request(body: unknown): NextRequest {
-  return new NextRequest("http://localhost/api/provider-models/provider%3A%3Amodel", {
+function request(body: unknown): Request {
+  return new Request("http://localhost/api/provider-models/provider%3A%3Amodel", {
     method: "PATCH",
     headers: { "content-type": "application/json" },
     body: JSON.stringify(body),

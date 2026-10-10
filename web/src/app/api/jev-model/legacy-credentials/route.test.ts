@@ -1,4 +1,4 @@
-import { NextRequest } from "next/server";
+import { BackendTestRequest as Request } from "@/test-request";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { DELETE, GET } from "@backend-runtime/configuration/handlers/jev-model/legacy-credentials/route";
 
@@ -8,7 +8,7 @@ vi.mock("@/lib/pi/jev-model-config", () => ({
   deleteLegacyJevCredential: mocks.remove,
 }));
 const id = `jev-compatible-${"a".repeat(64)}`;
-const request = (body: unknown, headers: Record<string, string> = {}) => new NextRequest("http://localhost/api/jev-model/legacy-credentials", {
+const request = (body: unknown, headers: Record<string, string> = {}) => new Request("http://localhost/api/jev-model/legacy-credentials", {
   method: "DELETE", headers: { "content-type": "application/json", ...headers }, body: JSON.stringify(body),
 });
 

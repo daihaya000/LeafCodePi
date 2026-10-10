@@ -10,7 +10,7 @@ const mocks = vi.hoisted(() => ({
 }));
 
 vi.mock("@/lib/client", () => ({ getJson: mocks.getJson }));
-vi.mock("next/navigation", () => ({ usePathname: mocks.usePathname }));
+vi.mock("@/spa/navigation", () => ({ usePathname: mocks.usePathname }));
 vi.mock("@/lib/task-panes", async () => {
   const actual = await vi.importActual<typeof import("@/lib/task-panes")>("@/lib/task-panes");
   return {

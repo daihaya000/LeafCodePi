@@ -12,7 +12,7 @@ vi.mock("@/lib/client", () => ({ getJson: mocks.getJson, sendJson: mocks.sendJso
 vi.mock("@/lib/session-complete-sound", () => ({
   playAttentionRequiredSound: mocks.playAttentionRequiredSound,
 }));
-vi.mock("next/navigation", () => ({
+vi.mock("@/spa/navigation", () => ({
   useRouter: () => ({ push: vi.fn() }),
   usePathname: () => window.location.pathname,
 }));

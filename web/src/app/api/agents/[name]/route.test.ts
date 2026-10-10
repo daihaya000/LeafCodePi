@@ -1,4 +1,4 @@
-import { NextRequest } from "next/server";
+import { BackendTestRequest as Request } from "@/test-request";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
@@ -23,8 +23,8 @@ vi.mock("@/lib/pi/harness", () => ({
 
 import { DELETE, PATCH } from "@backend-runtime/json-business/handlers/agents/[name]/route";
 
-function request(body: unknown): NextRequest {
-  return new NextRequest("http://localhost/api/agents/custom", {
+function request(body: unknown): Request {
+  return new Request("http://localhost/api/agents/custom", {
     method: "PATCH",
     headers: { "content-type": "application/json" },
     body: JSON.stringify(body),
@@ -159,7 +159,7 @@ describe("DELETE /api/agents/:name", () => {
   });
 
   it("returns deletion without applying live changes before the owner command checkpoint", async () => {
-    const response = await DELETE(new NextRequest("http://localhost/api/agents/custom", { method: "DELETE" }), context());
+    const response = await DELETE(new Request("http://localhost/api/agents/custom", { method: "DELETE" }), context());
     await flushImmediate();
 
     expect(response.status).toBe(200);

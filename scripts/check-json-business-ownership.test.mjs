@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -8,9 +8,16 @@ import { JSON_BUSINESS_ROUTES, publicJsonBusinessResult } from "../shared/json-b
 const root = dirname(dirname(fileURLToPath(import.meta.url)));
 const ts = createRequire(join(root, "backend/package.json"))("typescript");
 for (const [route, methods] of Object.entries(JSON_BUSINESS_ROUTES)) {
-  test(`Next ${route} is transport only`, () => {
+  test(`Gateway ${route} is transport only`, () => {
+    if (route === "health/cache") {
+      assert.equal(existsSync(join(root, "web/src/app/api/health/cache/route.ts")), false, "owner-only health cache must not reappear in gateway"); return;
+    }
+    if (route === "health") {
+      const text = readFileSync(join(root, "web/src/app/api/health/route.ts"), "utf8");
+      assert.match(text, /relayBackendHealth/); assert.doesNotMatch(text, /(?:readFile|writeFile|jsonBusinessRequest)/); return;
+    }
     const path = join(root, "web/src/app/api", route, "route.ts"), source = ts.createSourceFile(path, readFileSync(path, "utf8"), ts.ScriptTarget.Latest, true);
-    assert.deepEqual(source.statements.filter(ts.isImportDeclaration).map(n => n.moduleSpecifier.text).sort(), ["@/lib/json-business-relay", "next/server", ...(route === "browse/dirs" ? ["@/lib/host-folder-relay"] : [])].sort());
+    assert.deepEqual(source.statements.filter(ts.isImportDeclaration).map(n => n.moduleSpecifier.text).sort(), ["@/lib/json-business-relay", ...(route === "browse/dirs" ? ["@/lib/host-folder-relay"] : [])].sort());
     for (const method of methods) {
       const handler = source.statements.find(n => ts.isFunctionDeclaration(n) && n.name?.text === method);
       assert.equal(handler?.body?.statements.length, 1);
@@ -43,7 +50,7 @@ for (const [route, methods] of Object.entries(JSON_BUSINESS_ROUTES)) {
     } else assert.doesNotMatch(readFileSync(join(root, "backend/runtime-src/json-business/handlers", route, "route.ts"), "utf8"), /from ["']next\//);
   });
 }
-test("all 118 Phase0 Backend JSON routes / 182 operations are registered as transport-only", () => {
+test("all 119 Phase0 Backend JSON routes / 184 operations are registered as transport-only", () => {
   const inventory = JSON.parse(readFileSync(join(root, "docs/plans/next-thin-phase0.json"), "utf8"));
   let routes = 0, operations = 0;
   for (const item of inventory.routes) {
@@ -54,11 +61,11 @@ test("all 118 Phase0 Backend JSON routes / 182 operations are registered as tran
     assert.ok(JSON_BUSINESS_ROUTES[route], route);
     for (const operation of methods) assert.ok(JSON_BUSINESS_ROUTES[route].includes(operation.method), `${route} ${operation.method}`);
   }
-  assert.equal(routes, 118); assert.equal(operations, 182);
+  assert.equal(routes, 119); assert.equal(operations, 184);
 });
 test("Next login SSE is an opaque subscriber relay, not a local SDK/session owner", () => {
   const path = join(root, "web/src/app/api/providers/[id]/login/events/route.ts"), source = ts.createSourceFile(path, readFileSync(path, "utf8"), ts.ScriptTarget.Latest, true);
-  assert.deepEqual(source.statements.filter(ts.isImportDeclaration).map(n => n.moduleSpecifier.text).sort(), ["@/lib/provider-auth-events-relay", "next/server"].sort());
+  assert.deepEqual(source.statements.filter(ts.isImportDeclaration).map(n => n.moduleSpecifier.text).sort(), ["@/lib/provider-auth-events-relay"].sort());
   const handler = source.statements.find(n => ts.isFunctionDeclaration(n) && n.name?.text === "GET");
   assert.equal(handler.body.statements.length, 1); const statement = handler.body.statements[0];
   assert.ok(ts.isReturnStatement(statement) && ts.isCallExpression(statement.expression));

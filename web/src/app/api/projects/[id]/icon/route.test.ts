@@ -1,6 +1,5 @@
 // @vitest-environment node
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { NextRequest } from "next/server";
 
 const store = vi.hoisted(() => ({ getProjectIcon: vi.fn() }));
 vi.mock("@/lib/store", () => store);

@@ -1,7 +1,7 @@
 "use client";
 
 import { memo, type AnchorHTMLAttributes, type ReactNode, type RefObject, useEffect, useLayoutEffect, useRef, useState } from "react";
-import Link from "@/platform/link";
+import Link from "@/spa/link";
 import Markdown, { type ExtraProps } from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { FileText, RotateCcw } from "lucide-react";

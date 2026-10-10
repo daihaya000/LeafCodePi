@@ -1,4 +1,4 @@
-import { NextRequest } from "next/server";
+import { BackendTestRequest as Request } from "@/test-request";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const TOKEN = "tts-settings-webui-token";
@@ -28,7 +28,7 @@ afterEach(() => vi.unstubAllEnvs());
 describe("/api/settings/tts", () => {
   it("marks authenticated custom URL changes as allowed for the extension", async () => {
     mocks.isSafeUnauthenticatedTtsUrl.mockReturnValue(false);
-    const patchResponse = await PATCH(new NextRequest("http://lcp.test/api/settings/tts", {
+    const patchResponse = await PATCH(new Request("http://lcp.test/api/settings/tts", {
       method: "PATCH", headers: { ...authHeaders, "content-type": "application/json" }, body: JSON.stringify({ url: "http://10.0.0.5:10101" }),
     }));
     expect(patchResponse.status).toBe(200);
@@ -42,13 +42,13 @@ describe("/api/settings/tts", () => {
     vi.stubEnv("LEAFCODE_PI_WEBUI_AUTH", "");
     vi.stubEnv("LEAFCODE_PI_WEBUI_TOKEN", "");
     const getResponse = await GET();
-    const safePatch = await PATCH(new NextRequest("http://lcp.test/api/settings/tts", { method: "PATCH", body: JSON.stringify({ enabled: true }) }));
-    const clearUrl = await PATCH(new NextRequest("http://lcp.test/api/settings/tts", { method: "PATCH", body: JSON.stringify({ url: "" }) }));
+    const safePatch = await PATCH(new Request("http://lcp.test/api/settings/tts", { method: "PATCH", body: JSON.stringify({ enabled: true }) }));
+    const clearUrl = await PATCH(new Request("http://lcp.test/api/settings/tts", { method: "PATCH", body: JSON.stringify({ url: "" }) }));
     mocks.isSafeUnauthenticatedTtsUrl.mockReturnValue(true);
-    const localUrlPatch = await PATCH(new NextRequest("http://lcp.test/api/settings/tts", { method: "PATCH", body: JSON.stringify({ url: "http://127.0.0.1:10101" }) }));
+    const localUrlPatch = await PATCH(new Request("http://lcp.test/api/settings/tts", { method: "PATCH", body: JSON.stringify({ url: "http://127.0.0.1:10101" }) }));
     mocks.isSafeUnauthenticatedTtsUrl.mockReturnValue(false);
-    const unsafeLoopbackPatch = await PATCH(new NextRequest("http://lcp.test/api/settings/tts", { method: "PATCH", body: JSON.stringify({ url: "http://127.0.0.1:18080" }) }));
-    const unsafePatch = await PATCH(new NextRequest("http://lcp.test/api/settings/tts", { method: "PATCH", body: JSON.stringify({ url: "http://10.0.0.9:10101", allowCustomUrl: true }) }));
+    const unsafeLoopbackPatch = await PATCH(new Request("http://lcp.test/api/settings/tts", { method: "PATCH", body: JSON.stringify({ url: "http://127.0.0.1:18080" }) }));
+    const unsafePatch = await PATCH(new Request("http://lcp.test/api/settings/tts", { method: "PATCH", body: JSON.stringify({ url: "http://10.0.0.9:10101", allowCustomUrl: true }) }));
     expect(getResponse.status).toBe(200);
     expect(safePatch.status).toBe(200);
     expect(clearUrl.status).toBe(200);

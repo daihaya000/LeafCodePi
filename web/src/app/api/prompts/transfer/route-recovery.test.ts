@@ -1,4 +1,4 @@
-import { NextRequest } from "next/server";
+import { BackendTestRequest as Request } from "@/test-request";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { TransferRecoveryError } from "@/lib/pi/transfer-recovery";
 import { MAX_PROMPT_BACKUP_BYTES, PROMPT_FILE_NAMES } from "@/lib/prompt-transfer-format";
@@ -11,7 +11,7 @@ const { importPromptBackup, reloadLiveSessionsContext } = vi.hoisted(() => ({
 vi.mock("@/lib/pi/prompt-transfer", () => ({ exportPromptBackup: vi.fn(), importPromptBackup }));
 vi.mock("@/lib/pi/harness", () => ({ reloadLiveSessionsContext }));
 
-const request = () => new NextRequest("http://localhost/api/prompts/transfer", {
+const request = () => new Request("http://localhost/api/prompts/transfer", {
   method: "POST", body: JSON.stringify({ action: "import", backup: {}, selected: ["USER.md"] }),
 });
 
@@ -43,7 +43,7 @@ it("accepts the request envelope around a valid near-limit backup", async () => 
   const body = JSON.stringify({ action: "import", backup, selected: ["USER.md"] });
   expect(Buffer.byteLength(body, "utf8")).toBeGreaterThan(MAX_PROMPT_BACKUP_BYTES);
   importPromptBackup.mockResolvedValueOnce(["USER.md"]);
-  const response = await POST(new NextRequest("http://localhost/api/prompts/transfer", { method: "POST", body }));
+  const response = await POST(new Request("http://localhost/api/prompts/transfer", { method: "POST", body }));
   expect(response.status).toBe(200);
   expect((await response.json()).imported).toEqual(["USER.md"]);
 });

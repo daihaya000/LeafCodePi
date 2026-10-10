@@ -1,4 +1,4 @@
-import { NextRequest } from "next/server";
+import { BackendTestRequest as Request } from "@/test-request";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
@@ -44,8 +44,8 @@ vi.mock("@/lib/backend-forward", () => ({
 import { GET, POST } from "@backend-runtime/json-business/handlers/bots/[id]/code-requests/route";
 beforeEach(()=>{vi.stubEnv("LEAFCODE_PI_PROCESS_ROLE","backend");vi.stubEnv("LEAFCODE_PI_BACKEND_RUNTIME","attach");});
 
-function request(body: unknown): NextRequest {
-  return new NextRequest("http://localhost/api/bots/bot-1/code-requests", {
+function request(body: unknown): Request {
+  return new Request("http://localhost/api/bots/bot-1/code-requests", {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify(body),
@@ -60,7 +60,7 @@ describe("GET /api/bots/[id]/code-requests", () => {
       { id: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", codeTaskId: null, state: "running", prompt: "run" },
     ]);
     const url = "http://localhost/api/bots/bot-1/code-requests";
-    const first = await GET(new NextRequest(url), params);
+    const first = await GET(new Request(url), params);
     expect(first.status).toBe(200);
     expect(await first.json()).toEqual({
       requests: [{ id: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", codeTaskId: null, state: "running", prompt: "run" }],
@@ -68,7 +68,7 @@ describe("GET /api/bots/[id]/code-requests", () => {
     const etag = first.headers.get("etag");
     expect(etag?.startsWith("W/")).toBe(true);
 
-    const second = await GET(new NextRequest(url, { headers: { "if-none-match": etag! } }), params);
+    const second = await GET(new Request(url, { headers: { "if-none-match": etag! } }), params);
     expect(second.status).toBe(304);
     expect(await second.text()).toBe("");
     expect(mocks.listBotCodeRequests).toHaveBeenCalledTimes(2);

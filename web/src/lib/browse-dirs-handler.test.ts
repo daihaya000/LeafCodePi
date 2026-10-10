@@ -1,7 +1,7 @@
+import { BackendTestRequest as Request } from "@/test-request";
 import { mkdirSync, mkdtempSync, rmSync, symlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { NextRequest } from "next/server";
 import { afterAll, describe, expect, it, vi } from "vitest";
 
 const { listBrowseDrives } = vi.hoisted(() => ({ listBrowseDrives: vi.fn() }));
@@ -27,8 +27,8 @@ symlinkSync(join(drive, "Projects"), join(drive, "linked"), "dir");
 
 afterAll(() => rmSync(root, { recursive: true, force: true }));
 
-function request(path: string): NextRequest {
-  return new NextRequest(`http://localhost/api/browse/dirs?path=${encodeURIComponent(path)}`);
+function request(path: string): Request {
+  return new Request(`http://localhost/api/browse/dirs?path=${encodeURIComponent(path)}`);
 }
 
 describe("/api/browse/dirs drives", () => {

@@ -1,9 +1,9 @@
-import { NextRequest } from "next/server";
+import { BackendTestRequest as Request } from "@/test-request";
 import { describe, expect, it } from "vitest";
 import { isCrossOriginRequest } from "./same-origin";
 
 const req = (headers: Record<string, string>, url = "http://100.127.32.3:3000/api/x") =>
-  new NextRequest(url, { method: "PUT", headers });
+  new Request(url, { method: "PUT", headers });
 
 describe("isCrossOriginRequest", () => {
   it("allows requests without Origin or with the identical origin", () => {

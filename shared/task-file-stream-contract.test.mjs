@@ -15,7 +15,7 @@ test("Room targets require UUID-shaped rooms and generated attachment components
 });
 for(const [route, methods] of Object.entries(TASK_FILE_ROUTES)) test("Next "+route+" is a single opaque streaming relay",()=>{
  const path=new URL("../web/src/app/api/"+route+"/route.ts",import.meta.url),source=ts.createSourceFile(path.href,readFileSync(path,"utf8"),ts.ScriptTarget.Latest,true);
- assert.deepEqual(source.statements.filter(ts.isImportDeclaration).map(x=>x.moduleSpecifier.text).sort(),(route==="profile"?["@/lib/configuration-relay","@/lib/task-file-stream-relay","next/server"]:["@/lib/task-file-stream-relay","next/server"]));
+ assert.deepEqual(source.statements.filter(ts.isImportDeclaration).map(x=>x.moduleSpecifier.text).sort(),(route==="profile"?["@/lib/configuration-relay","@/lib/task-file-stream-relay"]:["@/lib/task-file-stream-relay"]));
  for(const method of methods){const fn=source.statements.find(x=>ts.isFunctionDeclaration(x)&&x.name.text===method);assert.equal(fn.body.statements.length,1);assert.equal(fn.body.statements[0].expression.expression.getText(source),"relayTaskFileStream");const parts = [...route.matchAll(/\[([^\]]+)\]/g)].map(m => m[1]); const arg = fn.body.statements[0].expression.arguments[1]; const spans = arg.templateSpans ?? []; if (!parts.length) assert.equal(arg.text, route); assert.equal(spans.length, parts.length); parts.forEach((part,i)=>assert.equal(spans[i].expression.getText(source),`encodeURIComponent((await context.params).${part})`));}
 });
 test("Next never reads or decodes whole response bodies",()=>{

@@ -25,7 +25,7 @@ test("cold actual SPA renders six protected screens through gateway, serves only
   for (const dir of [webRoot, join(staticRoot, "assets"), scratchRoot]) mkdirSync(dir, { recursive: true });
   for (const name of ["src", "public", "index.html", "vite.config.ts", "postcss.config.mjs", "package.json"]) cpSync(join(ROOT, "web", name), join(webRoot, name), { recursive: true });
   cpSync(join(ROOT, "shared"), join(root, "shared"), { recursive: true });
-  for (const file of ["production-boundary.mjs", "check-api-ownership.mjs", "gateway-contracts.json"]) {
+  for (const file of ["production-boundary.mjs", "framework-free.mjs", "gateway-runtime-boundary.mjs", "gateway-runtime-contracts.json", "check-api-ownership.mjs", "gateway-contracts.json"]) {
     mkdirSync(join(root, "scripts"), { recursive: true }); cpSync(join(ROOT, "scripts", file), join(root, "scripts", file));
   }
   symlinkSync(join(ROOT, "web/node_modules"), dependencyLink, process.platform === "win32" ? "junction" : "dir");

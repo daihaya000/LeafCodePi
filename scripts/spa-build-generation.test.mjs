@@ -7,7 +7,6 @@ import { fileURLToPath } from "node:url";
 import test from "node:test";
 import { buildSpaGeneration, readSpaGeneration, resolveSpaMirrorRoot, rollbackSpaGeneration, selectSpaGeneration, spaBuildEnvironment, spaSourceSnapshot } from "./spa-build-generation.mjs";
 import { ensureSpaGeneration, startSpaWithFallback } from "../host/src/spa-build.js";
-import { syncMirror } from "./web-build-mirror.mjs";
 const ROOT = resolve(fileURLToPath(new URL("../", import.meta.url)));
 function fixture(t) {
   const base = mkdtempSync(join(tmpdir(), "spa-generation-test-")), checkout = join(base, "checkout"), mirrorRoot = join(base, "mirror/.spa");
@@ -36,13 +35,7 @@ test("external root derives from the established mirror; source and child enviro
   writeFileSync(join(f.checkout, "shared/example.test.ts"), "dummy");
   const snapshot = spaSourceSnapshot(f.checkout); assert.ok(![...snapshot.files.keys()].some(path => /\.env|node_modules|backend\/|\.test\./.test(path)));
   const env = spaBuildEnvironment({ PATH: "safe-path", NODE_OPTIONS: "--import private", VITE_SECRET: "dummy", OPENAI_API_KEY: "dummy", LEAFCODE_PI_BACKEND_TOKEN: "dummy", NODE_ENV: "dev" });
-  assert.deepEqual(env, { PATH: "safe-path", NODE_ENV: "production", NEXT_TELEMETRY_DISABLED: "1" });
-});
-test("legacy Next source synchronization cannot prune managed SPA generations", t => {
-  const f = fixture(t), legacy = join(f.base, "legacy");
-  mkdirSync(join(legacy, ".spa/generations"), { recursive: true }); writeFileSync(join(legacy, ".spa/state.json"), "retain");
-  syncMirror({ sourceDir: join(f.checkout, "web"), mirrorRoot: legacy });
-  assert.equal(readFileSync(join(legacy, ".spa/state.json"), "utf8"), "retain");
+  assert.deepEqual(env, { PATH: "safe-path", NODE_ENV: "production" });
 });
 test("sealed pre-OpenDesign generations remain recoverable, but new builds must include the new route", async t => {
   const f = fixture(t), first = await build(f);

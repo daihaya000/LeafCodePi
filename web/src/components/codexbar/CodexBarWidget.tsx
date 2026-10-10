@@ -128,7 +128,7 @@ function ProviderIcon({ p, tone }: { p: CodexBarProvider; tone: UsageTone }) {
     (p.opencodeId ? providerIconSrcForOpencodeId(p.opencodeId) : null);
   if (src && !broken) {
     return (
-      // eslint-disable-next-line @next/next/no-img-element
+
       <img
         src={src}
         alt=""
@@ -147,7 +147,7 @@ function SettingsProviderIcon({ id }: { id: string }) {
   const src = providerIconSrc(id);
   if (src && !broken) {
     return (
-      // eslint-disable-next-line @next/next/no-img-element
+
       <img
         src={src}
         alt=""

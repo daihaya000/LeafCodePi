@@ -1,15 +1,15 @@
+import { BackendTestRequest as Request } from "@/test-request";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 const roomApiTestState = vi.hoisted(() => ({ root: "" }));
 vi.mock("../../../../lib/paths", async (importOriginal) => { const actual = await importOriginal<typeof import("../../../../lib/paths")>(); return { ...actual, dataDir: () => roomApiTestState.root }; });
-import { NextRequest } from "next/server";
 import { MAX_ROOM_NAME_CHARS } from "../../../../lib/rooms";
 import { GET, POST } from "@backend-runtime/json-business/handlers/bots/rooms/route";
 
-function request(body: unknown): NextRequest {
-  return new NextRequest("http://localhost/api/bots/rooms", { method: "POST", body: JSON.stringify(body) });
+function request(body: unknown): Request {
+  return new Request("http://localhost/api/bots/rooms", { method: "POST", body: JSON.stringify(body) });
 }
 
 describe("/api/bots/rooms", () => {

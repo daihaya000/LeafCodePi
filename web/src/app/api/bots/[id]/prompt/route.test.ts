@@ -1,7 +1,7 @@
+import { BackendTestRequest as Request } from "@/test-request";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { NextRequest } from "next/server";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const state = vi.hoisted(() => ({
@@ -37,8 +37,8 @@ import { createBot, patchBot } from "../../../../../lib/bots";
 import { MAX_PROMPT_IMAGE_BYTES, MAX_PROMPT_IMAGE_TOTAL_BYTES, MAX_PROMPT_TEXT_CHARS } from "../../../../../lib/prompt-images";
 import { POST } from "@backend-runtime/json-business/handlers/bots/[id]/prompt/route";
 
-function request(prompt: unknown, goalLoop?: unknown, images?: unknown): NextRequest {
-  return new NextRequest("http://localhost", {
+function request(prompt: unknown, goalLoop?: unknown, images?: unknown): Request {
+  return new Request("http://localhost", {
     method: "POST",
     body: JSON.stringify({ prompt, ...(goalLoop === undefined ? {} : { goalLoop }), ...(images === undefined ? {} : { images }) }),
   });
@@ -81,7 +81,7 @@ describe("POST /api/bots/[id]/prompt", () => {
   it("keeps Goal Loop starts image-only before forwarding", async () => {
     const bot = createBot({ name: "Loop bot" });
     state.localRuntimeBlocked.mockReturnValue(true);
-    const response = await POST(new NextRequest("http://localhost", {
+    const response = await POST(new Request("http://localhost", {
       method: "POST",
       body: JSON.stringify({ prompt: "調べる", goalLoop: {}, files: [{ name: "memo.txt", mimeType: "text/plain", data: "aGk=" }] }),
     }), { params: Promise.resolve({ id: bot.id }) });

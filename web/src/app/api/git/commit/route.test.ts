@@ -1,7 +1,7 @@
+import { BackendTestRequest as Request } from "@/test-request";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { NextRequest } from "next/server";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
@@ -18,8 +18,8 @@ vi.mock("@/lib/pi/web-settings", () => ({ getSetting: mocks.getSetting }));
 
 import { POST } from "@backend-runtime/json-business/handlers/git/commit/route";
 
-function request(body: unknown): NextRequest {
-  return new NextRequest("http://localhost/api/git/commit", {
+function request(body: unknown): Request {
+  return new Request("http://localhost/api/git/commit", {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify(body),

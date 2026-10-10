@@ -1,4 +1,4 @@
-import { NextRequest, NextResponse } from "next/server";
+import { BackendTestRequest as Request } from "@/test-request";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
@@ -22,10 +22,10 @@ const dto = {
   hasToken: true, hasUser: true, device: "iphone", enabled: true,
   envManaged: { token: false, user: false, device: false },
 };
-const request = (body: unknown) => new NextRequest("http://localhost/api/pushover", {
+const request = (body: unknown) => new Request("http://localhost/api/pushover", {
   method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify(body),
 });
-const read = () => new NextRequest("http://localhost/api/pushover");
+const read = () => new Request("http://localhost/api/pushover");
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -68,7 +68,7 @@ describe("Pushover settings API", () => {
   });
 
   it("rejects unauthorized requests before parsing submitted secrets", async () => {
-    mocks.guard.mockReturnValue(NextResponse.json({ error: "Forbidden" }, { status: 403 }));
+    mocks.guard.mockReturnValue(Response.json({ error: "Forbidden" }, { status: 403 }));
     expect((await PUT(request({ token: "secret" }))).status).toBe(403);
     expect((await GET(read())).status).toBe(403);
     expect((await POST(read())).status).toBe(403);
@@ -77,7 +77,7 @@ describe("Pushover settings API", () => {
   });
 
   it("rejects cross-site requests even when Origin is omitted", async () => {
-    const crossSite = new NextRequest("http://localhost/api/pushover", {
+    const crossSite = new Request("http://localhost/api/pushover", {
       method: "PUT", headers: { "content-type": "application/json", "sec-fetch-site": "cross-site" },
       body: JSON.stringify({ token: "secret" }),
     });
@@ -91,7 +91,7 @@ describe("Pushover settings API", () => {
     const response = await PUT(request({ token: "secretleak" }));
     expect(response.status).toBe(500);
     expect(await response.text()).not.toContain("secret");
-    const malformed = new NextRequest("http://localhost/api/pushover", {
+    const malformed = new Request("http://localhost/api/pushover", {
       method: "PUT", headers: { "content-type": "application/json" }, body: "secret-leak{",
     });
     expect(await (await PUT(malformed)).text()).not.toContain("secret-leak");

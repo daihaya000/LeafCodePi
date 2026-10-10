@@ -1,4 +1,4 @@
-import { NextRequest } from "next/server";
+import { BackendTestRequest as Request } from "@/test-request";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
@@ -97,8 +97,8 @@ const bot = {
   enabled: true,
 };
 
-function request(method: string, body?: unknown): NextRequest {
-  return new NextRequest("http://localhost/api/bots/bot-1/code-session", {
+function request(method: string, body?: unknown): Request {
+  return new Request("http://localhost/api/bots/bot-1/code-session", {
     method,
     ...(body === undefined ? {} : { body: JSON.stringify(body) }),
   });
@@ -621,12 +621,12 @@ describe("Bot Code session control", () => {
     mocks.getBotCodeSessionPanelState.mockResolvedValue(panel);
     const url = request("GET").url;
     const context = { params: Promise.resolve({ id: "bot-1" }) };
-    const first = await GET(new NextRequest(url), context);
+    const first = await GET(new Request(url), context);
     const etag = first.headers.get("etag");
     expect(first.status).toBe(200);
     expect(etag?.startsWith("W/")).toBe(true);
 
-    const second = await GET(new NextRequest(url, { headers: { "if-none-match": etag! } }), context);
+    const second = await GET(new Request(url, { headers: { "if-none-match": etag! } }), context);
     expect(second.status).toBe(304);
     expect(await second.text()).toBe("");
     expect(mocks.getBotCodeSessionPanelState).toHaveBeenCalledTimes(2);

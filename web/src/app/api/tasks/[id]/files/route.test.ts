@@ -1,8 +1,8 @@
+import { BackendTestRequest as Request } from "@/test-request";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { NextRequest } from "next/server";
 import type { WorkspaceListingDto } from "@/lib/types";
 
 const mocks = vi.hoisted(() => ({ getProject: vi.fn(), getTask: vi.fn() }));
@@ -11,7 +11,7 @@ vi.mock("@/lib/store", () => mocks);
 import { GET } from "@backend-runtime/json-business/handlers/tasks/[id]/files/route";
 
 function request(query: string) {
-  return new NextRequest(`http://localhost/api/tasks/t1/files${query}`);
+  return new Request(`http://localhost/api/tasks/t1/files${query}`);
 }
 
 function params(id: string) {

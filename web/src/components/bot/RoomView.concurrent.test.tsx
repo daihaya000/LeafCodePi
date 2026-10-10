@@ -5,7 +5,7 @@ import type { RoomDto } from "@/lib/types";
 
 const mocks = vi.hoisted(() => ({ getJson: vi.fn(), sendJson: vi.fn() }));
 vi.mock("@/lib/client", () => mocks);
-vi.mock("next/navigation", () => ({ useRouter: () => ({ push: vi.fn() }) }));
+vi.mock("@/spa/navigation", () => ({ useRouter: () => ({ push: vi.fn() }) }));
 import { applyRoomSnapshot, RoomView } from "./RoomView";
 
 afterEach(() => { cleanup(); vi.unstubAllGlobals(); vi.clearAllMocks(); });

@@ -1,8 +1,8 @@
+import { BackendTestRequest as Request } from "@/test-request";
 import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { NextRequest } from "next/server";
 
 const mocks = vi.hoisted(() => ({ getProject: vi.fn(), getTask: vi.fn(), listProjects: vi.fn() }));
 vi.mock("@/lib/store", () => mocks);
@@ -23,7 +23,7 @@ const tempDirs: string[] = [];
 
 function request(path: string) {
   const query = path ? `?path=${encodeURIComponent(path)}` : "";
-  return new NextRequest(`http://localhost/api/tasks/task-1/image${query}`);
+  return new Request(`http://localhost/api/tasks/task-1/image${query}`);
 }
 
 function params(id = "task-1") {

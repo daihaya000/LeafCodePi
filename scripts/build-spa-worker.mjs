@@ -5,9 +5,11 @@ import { isAbsolute, join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { buildGateway } from "./build-gateway.mjs";
 import { checkBrowserBoundary } from "./production-boundary.mjs";
+import { checkFrameworkFree } from "./framework-free.mjs";
 const root = resolve(fileURLToPath(new URL("../", import.meta.url))), stage = process.argv[2];
 assert.ok(stage && isAbsolute(stage), "Explicit SPA generation stage required");
 // The source/type refusal gate precedes compiler/build output; Vite also audits emitted values.
+const framework = checkFrameworkFree(root);
 const boundary = checkBrowserBoundary(root);
 const require = createRequire(join(root, "web/package.json")), ts = require("typescript");
 const config = ts.readConfigFile(join(root, "web/tsconfig.spa.json"), ts.sys.readFile);
@@ -24,4 +26,4 @@ const gateway = buildGateway(root);
 cpSync(gateway.output, join(stage, "gateway/dist"), { recursive: true });
 // The scratch dotenv directory is not a published artifact.
 const { rmSync } = await import("node:fs"); rmSync(envDir, { recursive: true });
-console.log(JSON.stringify({ type: "spa_pair_compiled", ...gateway, typeSources: program.getSourceFiles().length, browserBoundary: boundary }));
+console.log(JSON.stringify({ type: "spa_pair_compiled", ...gateway, typeSources: program.getSourceFiles().length, browserBoundary: boundary, framework }));

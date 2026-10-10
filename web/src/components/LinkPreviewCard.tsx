@@ -64,7 +64,7 @@ function PreviewCard({ url, label }: { url: string; label?: string }) {
       <span className="relative flex w-24 shrink-0 items-center justify-center self-stretch bg-surface-2 sm:w-36" aria-hidden="true">
         {preview?.image && !imageFailed
           // Metadata-selected images are served by the bounded same-origin proxy, never fetched directly by the browser.
-          // eslint-disable-next-line @next/next/no-img-element
+
           ? <img src={preview.image} alt="" loading="lazy" decoding="async" referrerPolicy="no-referrer" onError={() => setImageFailed(true)} className="absolute inset-0 h-full w-full object-cover" />
           : <LinkIcon className="h-6 w-6 text-faint" />}
       </span>

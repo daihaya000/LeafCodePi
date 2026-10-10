@@ -1,4 +1,4 @@
-import { NextRequest } from "next/server";
+import { BackendTestRequest as Request } from "@/test-request";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { POST } from "@backend-runtime/json-business/handlers/projects/[id]/next-task/route";
 
@@ -22,8 +22,8 @@ vi.mock("@/lib/git", () => ({
 }));
 vi.mock("@/lib/pi/web-settings", () => ({ getSetting: mocks.getSetting }));
 
-function request(body: unknown): NextRequest {
-  return new NextRequest("http://127.0.0.1:3010/api/projects/project-1/next-task", {
+function request(body: unknown): Request {
+  return new Request("http://127.0.0.1:3010/api/projects/project-1/next-task", {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify(body),

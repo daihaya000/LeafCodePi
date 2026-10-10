@@ -17,48 +17,24 @@
     "resolveJsonModule": true,
     "isolatedModules": true,
     "jsx": "react-jsx",
-    "incremental": true,
+    "incremental": false,
     "baseUrl": ".",
-    "plugins": [
-      {
-        "name": "next"
-      }
-    ],
     "paths": {
-      "@earendil-works/pi-coding-agent": [
-        "../backend/node_modules/@earendil-works/pi-coding-agent"
-      ],
-      "@earendil-works/pi-ai": [
-        "../backend/node_modules/@earendil-works/pi-ai"
-      ],
       "@/*": [
         "./src/*"
       ],
       "@shared/*": [
-        "./shared/*",
         "../shared/*"
-      ],
-      "@backend-runtime/*": [
-        "./backend/runtime-src/*",
-        "../backend/runtime-src/*"
-      ],
-      "@backend-core/*": [
-        "./backend/core/*",
-        "../backend/core/*"
-      ],
-      "@extensions/*": [
-        "./extensions/*",
-        "../extensions/*"
       ]
-    }
+    },
+    "types": [
+      "react",
+      "react-dom"
+    ]
   },
   "include": [
-    "**/*.ts",
-    "**/*.tsx",
-    ".next/types/**/*.ts",
-    "next-env.d.ts",
-    ".next/dev/types/**/*.ts",
-    ".next/dev/dev/types/**/*.ts"
+    "src/spa/main.tsx",
+    "src/spa/browser-env.d.ts"
   ],
   "exclude": [
     "node_modules"

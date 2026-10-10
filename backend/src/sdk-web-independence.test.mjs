@@ -1,16 +1,14 @@
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
 import { randomUUID, createHash } from "node:crypto";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
-import { createRequire } from "node:module";
+import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, unlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { createServer } from "node:net";
 import { setTimeout as delay } from "node:timers/promises";
 import test from "node:test";
-import { syncMirror } from "../../scripts/web-build-mirror.mjs";
-import { checkNextEntryBoundary, productionTypeConfig } from "../../scripts/check-next-entry-boundary.mjs";
+import { buildSpaGeneration } from "../../scripts/spa-build-generation.mjs";
 const ROOT = resolve(fileURLToPath(new URL("../../", import.meta.url)));
 async function stop(child) {
   if (!child || child.exitCode !== null || child.signalCode !== null) return;
@@ -28,7 +26,7 @@ async function until(check, message, timeout = 15000) {
   throw new Error(message);
 }
 
-test("real SDK/harness/lease keep running across production Next stop and restart without replay", { timeout: 240000 }, async t => {
+test("real SDK/harness/lease keep running across production native gateway stop and restart without replay", { timeout: 240000 }, async t => {
   const root = mkdtempSync(join(tmpdir(), "leafcode-sdk-web-independent-")), data = join(root, "data"), agent = join(root, "agent"), nextData = join(root, "no-next-data"), mirror = join(root, "web"), children = [], pending = new Map();
   const browsers = [];
   t.after(async () => {
@@ -39,15 +37,24 @@ test("real SDK/harness/lease keep running across production Next stop and restar
     rmSync(root, { recursive: true, force: true });
   });
   mkdirSync(data); mkdirSync(agent);
+  const backendCheckout = join(root, "backend-only");
+  for (const folder of ["backend", "shared", "scripts", "extensions"]) cpSync(join(ROOT, folder), join(backendCheckout, folder), { recursive: true, filter: path => !/(?:^|[\\/])(?:node_modules|runtime|dist|\.git)(?:[\\/]|$)/.test(path) });
+  const dependencies = join(backendCheckout, "backend/node_modules");
+  symlinkSync(join(ROOT, "backend/node_modules"), dependencies, process.platform === "win32" ? "junction" : "dir");
+  t.after(() => { if (existsSync(dependencies)) unlinkSync(dependencies); });
+  assert.equal(existsSync(join(backendCheckout, "web")), false);
   writeFileSync(join(agent, "settings.json"), JSON.stringify({ packages: [], extensions: [], skills: [], promptTemplates: [], compaction: { enabled: false }, retry: { enabled: false } }));
   const env = { ...process.env, NODE_ENV: "test", NODE_OPTIONS: "", HOME: root, USERPROFILE: root,
     PI_CODING_AGENT_DIR: agent, APPDATA: join(root, "roaming"), LEAFCODE_PI_DATA_DIR: data, LEAFCODE_PI_DEFAULT_DIR: join(root, "workspaces"),
     LEAFCODE_PI_PROCESS_ROLE: "backend", LEAFCODE_PI_BACKEND_PORT: "0", LEAFCODE_PI_BACKEND_RUNTIME: "1", LEAFCODE_PI_MCP_NATIVE: "",
     LEAFCODE_PI_BACKEND_TOKEN: "isolated-sdk-" + randomUUID(), LEAFCODE_PI_BACKEND_GENERATION: "", LEAFCODE_PI_BACKEND_GENERATION_FILE: "",
-    LEAFCODE_PI_BACKEND_RUNTIME_BUNDLE: join(ROOT, "backend/runtime/runtime.bundle.mjs"), LEAFCODE_PI_WEBUI_AUTH: "required", LEAFCODE_PI_WEBUI_TOKEN: "finite-browser",
-    LEAFCODE_PI_PUSHOVER_TOKEN: "", LEAFCODE_PI_PUSHOVER_USER: "", NEXT_TELEMETRY_DISABLED: "1" };
+    LEAFCODE_PI_BACKEND_RUNTIME_BUNDLE: join(backendCheckout, "backend/runtime/runtime.bundle.mjs"), LEAFCODE_PI_WEBUI_AUTH: "required", LEAFCODE_PI_WEBUI_TOKEN: "finite-browser",
+    LEAFCODE_PI_PUSHOVER_TOKEN: "", LEAFCODE_PI_PUSHOVER_USER: "" };
+  const compile = spawn(process.execPath, [join(backendCheckout, "scripts/build-backend-runtime.mjs")], { cwd: backendCheckout, env, stdio: ["ignore", "pipe", "pipe"], windowsHide: true }); children.push(compile);
+  let compileLog = ""; for (const stream of [compile.stdout, compile.stderr]) stream.on("data", part => { compileLog += part; });
+  assert.equal(await new Promise((resolve, reject) => { compile.once("error", reject); compile.once("exit", resolve); }), 0, compileLog);
   let backendOutput = "", backendError = "";
-  const backend = spawn(process.execPath, [join(ROOT, "backend/src/sdk-web-independence-fixture.mjs")], { cwd: root, env, stdio: ["ignore", "pipe", "pipe", "ipc"], windowsHide: true }); children.push(backend);
+  const backend = spawn(process.execPath, [join(backendCheckout, "backend/src/sdk-web-independence-fixture.mjs")], { cwd: root, env, stdio: ["ignore", "pipe", "pipe", "ipc"], windowsHide: true }); children.push(backend);
   backend.stdout.on("data", b => backendOutput = (backendOutput + b).slice(-20000)); backend.stderr.on("data", b => backendError = (backendError + b).slice(-20000));
   backend.on("message", m => { const waiter = pending.get(m?.reply); if (waiter) { pending.delete(m.reply); clearTimeout(waiter.timer); m.error ? waiter.reject(new Error(m.error)) : waiter.resolve(m.value); } });
   function command(action, extra = {}) { return new Promise((resolveCommand, reject) => { const id = randomUUID(), timer = setTimeout(() => { pending.delete(id); reject(new Error(`Backend IPC timeout: ${action}; ${backendError}`)); }, 15000); pending.set(id, { resolve: resolveCommand, reject, timer }); backend.send({ id, action, ...extra }); }); }
@@ -71,23 +78,13 @@ test("real SDK/harness/lease keep running across production Next stop and restar
     catch (error) { throw new Error(`${error}; ${JSON.stringify(lastSample)}; ${backendError}`); }
     t.diagnostic("real Backend entry/harness/SDK/session/lease, finite provider, no Web"); return;
   }
-  const boundary = checkNextEntryBoundary(ROOT); syncMirror({ sourceDir: join(ROOT, "web"), mirrorRoot: mirror });
-  writeFileSync(join(mirror, "tsconfig.production.json"), JSON.stringify(productionTypeConfig(boundary.entries)));
-  const packages = ["next", "react", "react-dom", "lucide-react", "next-themes", "react-markdown", "remark-gfm", "undici", "typescript", "tailwindcss", "@tailwindcss/postcss", "@types/node", "@types/react", "@types/react-dom", "@types/mdast", "@types/unist"];
-  const installed = process.env.LEAFCODE_PI_NEXT_DEPENDENCY_DIR || join(ROOT, "web/node_modules");
-  for (const name of packages) { const from = join(installed, name); if (!existsSync(from)) continue; const to = join(mirror, "node_modules", name); mkdirSync(dirname(to), { recursive: true }); symlinkSync(from, to, process.platform === "win32" ? "junction" : "dir"); }
-  for (const name of ["@earendil-works/pi-coding-agent", "@earendil-works/pi-ai", "better-sqlite3", "jiti"]) assert.equal(existsSync(join(mirror, "node_modules", name)), false);
-  assert.equal(existsSync(join(mirror, "backend")), false);
-  writeFileSync(join(mirror, "next.config.ts"), readFileSync(join(mirror, "next.config.ts"), "utf8").replace("  experimental: {", "  experimental: {\n    cpus: 2,"));
+  const frontend = await buildSpaGeneration({ checkout: ROOT, mirrorRoot: mirror, offline: true });
+  const traces = Object.keys(frontend.files).length;
+  for (const path of Object.keys(frontend.files)) assert.doesNotMatch(path, /node_modules\/(?:next|@earendil)|^(?:backend|host|extensions)\//);
   const port = await freePort(), base = `http://127.0.0.1:${port}`, headers = { cookie: "leafcode-pi-token=finite-browser" };
-  const webEnv = { ...env, NODE_ENV: "production", LEAFCODE_PI_PROCESS_ROLE: "next", LEAFCODE_PI_DATA_DIR: nextData, LEAFCODE_PI_BACKEND_URL: backendBase, LEAFCODE_PI_BACKEND_GENERATION: generation };
-  const cli = createRequire(join(installed, "../package.json")).resolve("next/dist/bin/next");
-  function launch(args) { let output = ""; const c = spawn(process.execPath, args, { cwd: mirror, env: webEnv, stdio: ["ignore", "pipe", "pipe"], windowsHide: true }); children.push(c); for (const s of [c.stdout, c.stderr]) s.on("data", b => output = (output + b).slice(-20000)); return { c, log: () => output }; }
-  for (const args of [[join(mirror, "node_modules/typescript/bin/tsc"), "--noEmit", "-p", "tsconfig.production.json"], [cli, "build", "--webpack", mirror], [join(mirror, "node_modules/typescript/bin/tsc"), "--noEmit", "-p", "tsconfig.production.json"]]) { const run = launch(args); assert.equal(await new Promise(r => run.c.once("exit", r)), 0, run.log()); }
-  let traces = 0;
-  function checkTraces(dir) { for (const e of readdirSync(dir, { withFileTypes: true })) { const p = join(dir, e.name); if (e.isDirectory()) checkTraces(p); else if (p.endsWith(".nft.json")) { traces++; for (const name of JSON.parse(readFileSync(p, "utf8")).files) assert.doesNotMatch(name.replaceAll("\\", "/"), /(?:^|\/)backend\/(?:runtime(?:-src)?|core|src|node_modules)(?:\/|$)|extensions\/leafcode-|node_modules\/(?:@earendil-works\/pi-[^/]+|@rahularya01\/pi-cursor|pi-commandcode-provider|better-sqlite3|jiti)(?:\/|$)/); } } }
-  checkTraces(join(mirror, ".next")); assert.ok(traces >= 165);
-  async function web() { const run = launch([cli, "start", "-p", String(port), "-H", "127.0.0.1", mirror]); await until(async () => { assert.equal(run.c.exitCode, null, run.log()); try { return (await fetch(base + "/api/health", { signal: AbortSignal.timeout(1000) })).ok; } catch { return false; } }, "Next did not start"); return run.c; }
+  const webEnv = { ...env, NODE_ENV: "production", LEAFCODE_PI_PROCESS_ROLE: "next", LEAFCODE_PI_DATA_DIR: nextData, LEAFCODE_PI_BACKEND_URL: backendBase, LEAFCODE_PI_BACKEND_GENERATION: generation, LEAFCODE_PI_PORT: String(port), LEAFCODE_PI_BIND_HOST: "127.0.0.1", LEAFCODE_PI_SPA_DIR: frontend.staticRoot };
+  function launch() { let output = ""; const c = spawn(process.execPath, [frontend.entry], { cwd: frontend.cwd, env: webEnv, stdio: ["ignore", "pipe", "pipe"], windowsHide: true }); children.push(c); for (const stream of [c.stdout, c.stderr]) stream.on("data", part => { output = (output + part).slice(-20000); }); return { c, log: () => output }; }
+  async function web() { const run = launch(); await until(async () => { assert.equal(run.c.exitCode, null, run.log()); try { return (await fetch(base + "/api/health", { signal: AbortSignal.timeout(1000) })).ok; } catch { return false; } }, "Native gateway did not start"); return run.c; }
   async function detail() { const r = await fetch(base + `/api/tasks/${id}`, { headers, signal: AbortSignal.timeout(3000) }); assert.equal(r.status, 200); return r.json(); }
   async function prompt(text) { const r = await fetch(base + `/api/tasks/${id}/prompt`, { method: "POST", headers: { ...headers, "content-type": "application/json", origin: base }, body: JSON.stringify({ prompt: text }), signal: AbortSignal.timeout(10000) }); assert.equal(r.status, 200, await r.clone().text()); return r.json(); }
   async function identity() { const s = await command("sample"); assert.equal(s.pid, sdkIdentity.pid); assert.equal(s.sessionId, sdkIdentity.sessionId); assert.equal(s.realAgentSession, true); assert.equal(s.sameSession, true); assert.equal(s.liveCount, 1); assert.deepEqual(s.owner, sdkIdentity.owner); const h = await (await fetch(backendBase + "/internal/health", { headers: privateHeaders, signal: AbortSignal.timeout(1500) })).json(); assert.equal(h.runtimeGeneration, generation); assert.equal(h.ready, true); return s; }

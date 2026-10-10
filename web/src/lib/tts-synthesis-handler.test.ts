@@ -1,7 +1,7 @@
+import { BackendTestRequest as Request } from "@/test-request";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { NextRequest } from "next/server";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createBot, patchBot } from "@/lib/bots";
 import { writeTtsConfig } from "@/lib/tts-config";
@@ -13,8 +13,8 @@ vi.mock("@backend-runtime/lib/tts-engine-transport", () => ({
 }));
 const WEBUI_TOKEN = "tts-synthesis-webui-token";
 
-function request(text: unknown, botId?: string, token?: string): NextRequest {
-  return new NextRequest("http://localhost/api/tts/synthesize", {
+function request(text: unknown, botId?: string, token?: string): Request {
+  return new Request("http://localhost/api/tts/synthesize", {
     method: "POST",
     headers: token ? { authorization: `Bearer ${token}` } : undefined,
     body: JSON.stringify({ text, ...(botId ? { botId } : {}) }),

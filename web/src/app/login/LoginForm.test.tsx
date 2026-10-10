@@ -7,7 +7,7 @@ const { routerReplace, routerRefresh } = vi.hoisted(() => ({
   routerRefresh: vi.fn(),
 }));
 
-vi.mock("next/navigation", () => ({
+vi.mock("@/spa/navigation", () => ({
   useRouter: () => ({ replace: routerReplace, refresh: routerRefresh }),
   useSearchParams: () => new URLSearchParams("next=%2Fsettings"),
 }));

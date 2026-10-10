@@ -1,11 +1,11 @@
-import { NextRequest } from "next/server";
+import { BackendTestRequest as Request } from "@/test-request";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { POST } from "@backend-runtime/json-business/handlers/tasks/[id]/supervisor/route";
 const mocks=vi.hoisted(()=>({handoffTaskToBot:vi.fn(),releaseTaskFromBot:vi.fn(),jsonError:(error:any)=>({error:error.message,status:error.status??500})}));
 vi.mock("@/lib/pi/harness",()=>mocks);
 beforeEach(()=>{vi.stubEnv("LEAFCODE_PI_PROCESS_ROLE","backend");vi.stubEnv("LEAFCODE_PI_BACKEND_RUNTIME","attach");mocks.handoffTaskToBot.mockReset();mocks.releaseTaskFromBot.mockReset();});
 afterEach(()=>vi.unstubAllEnvs());
-const post=(body:unknown)=>POST(new NextRequest("http://localhost/api/tasks/task-1/supervisor",{method:"POST",body:JSON.stringify(body)}),{params:Promise.resolve({id:"task-1"})});
+const post=(body:unknown)=>POST(new Request("http://localhost/api/tasks/task-1/supervisor",{method:"POST",body:JSON.stringify(body)}),{params:Promise.resolve({id:"task-1"})});
 describe("Backend Task supervisor",()=>{
  it("hands the trimmed selected Bot/task to SDK without caller control flags",async()=>{
   const task={id:"task-1",status:"working",supervisorBotId:"bot-1"};mocks.handoffTaskToBot.mockResolvedValue(task);

@@ -1,8 +1,8 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import Link from "@/platform/link";
-import { useRouter } from "@/platform/navigation";
+import Link from "@/spa/link";
+import { useRouter } from "@/spa/navigation";
 import { CopyPlus, Sparkles } from "lucide-react";
 import { getJson, sendJson } from "@/lib/client";
 import { subscribeBotsEvents } from "@/lib/bots-events-hub";

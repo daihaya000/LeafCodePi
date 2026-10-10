@@ -1,9 +1,9 @@
-import { NextRequest } from "next/server";
+import { BackendTestRequest as Request } from "@/test-request";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 const mocks = vi.hoisted(() => ({ addProject: vi.fn(), archiveProjectAndStopTasks: vi.fn(), destroyProject: vi.fn(), getProjects: vi.fn(), jsonError: vi.fn((error: unknown) => ({ error: error instanceof Error ? error.message : String(error), status: 500 })), migrateProject: vi.fn(), patchProject: vi.fn(), restoreProject: vi.fn() }));
 vi.mock("@/lib/pi/harness", () => mocks);
 import { GET, POST, DELETE, PATCH } from "@backend-runtime/json-business/handlers/projects/route";
-const request = (method: string, body?: unknown, query = "") => new NextRequest(`http://localhost/api/projects${query}`, { method, ...(body === undefined ? {} : { body: JSON.stringify(body) }) });
+const request = (method: string, body?: unknown, query = "") => new Request(`http://localhost/api/projects${query}`, { method, ...(body === undefined ? {} : { body: JSON.stringify(body) }) });
 beforeEach(() => { vi.clearAllMocks(); });
 describe("Backend Project lifecycle handlers", () => {
   it("reads icon URLs/ETag and creates a registered project", async () => {

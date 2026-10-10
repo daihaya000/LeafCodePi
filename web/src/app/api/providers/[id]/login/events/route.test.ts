@@ -1,4 +1,4 @@
-import { NextRequest } from "next/server";
+import { BackendTestRequest as Request } from "@/test-request";
 import { describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
@@ -9,7 +9,7 @@ const mocks = vi.hoisted(() => ({
 vi.mock("@/lib/pi/harness", () => mocks);
 
 import { openProviderLoginEvents } from "@backend-runtime/json-business/provider-auth-events";
-async function GET(req: NextRequest, context: { params: Promise<{ id: string }> }) {
+async function GET(req: Request, context: { params: Promise<{ id: string }> }) {
   return openProviderLoginEvents({ route: (await context.params).id, method: "GET", url: req.url, headers: {}, authorized: true, signal: req.signal });
 }
 
@@ -40,7 +40,7 @@ describe("GET /api/providers/[id]/login/events", () => {
     });
 
     const response = await GET(
-      new NextRequest("http://localhost/api/providers/openai-codex/login/events?sessionId=session-1"),
+      new Request("http://localhost/api/providers/openai-codex/login/events?sessionId=session-1"),
       { params: Promise.resolve({ id: "openai-codex" }) },
     );
 

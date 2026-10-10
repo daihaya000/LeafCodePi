@@ -9,7 +9,7 @@ const mocks = vi.hoisted(() => ({
   push: vi.fn(),
 }));
 vi.mock("@/lib/client", () => mocks);
-vi.mock("next/navigation", () => ({ useRouter: () => ({ push: mocks.push }) }));
+vi.mock("@/spa/navigation", () => ({ useRouter: () => ({ push: mocks.push }) }));
 vi.mock("@/components/AddProjectButton", () => ({ AddProjectButton: () => null }));
 vi.mock("@/components/home/NextTaskSuggest", () => ({ NextTaskSuggest: () => null }));
 vi.mock("@/components/shell/MobileMenuHeader", () => ({ MobileMenuHeader: () => null }));

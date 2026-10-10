@@ -52,10 +52,6 @@ export default defineConfig({
     // Exact neutral bindings precede the generic @ alias. Legacy bridges must
     // never be visited by SPA builds; bare next/* imports now fail closed.
     alias: {
-      "@/platform/navigation": resolve(spa, "navigation.tsx"),
-      "@/platform/link": resolve(spa, "link.ts"),
-      "@/platform/image": resolve(spa, "image.ts"),
-      "@/platform/dynamic": resolve(spa, "dynamic.ts"),
       "@/lib/pi/messages": resolve(root, "../shared/ui/pi/messages.ts"),
       "@/lib/tts-backends": resolve(root, "../shared/ui/tts-backends.ts"),
       "@/lib/host-launch-hints": resolve(root, "../shared/ui/host-launch-hints.ts"),

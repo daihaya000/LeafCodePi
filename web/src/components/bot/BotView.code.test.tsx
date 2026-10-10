@@ -7,9 +7,9 @@ vi.mock("@/components/shell/TaskPanesContext", () => ({ useReportStatus: () => m
 vi.mock("@/lib/events", () => ({ notifyBotSidebarChanged: mocks.notifyBotSidebarChanged }));
 vi.mock("@/lib/bot-unread", () => ({ markRead: mocks.markRead }));
 vi.mock("@/lib/client", () => mocks);
-vi.mock("next/navigation", () => ({ useRouter: () => ({ push: vi.fn() }) }));
-vi.mock("next/link", () => ({ default: ({ children }: { children: ReactNode }) => <span>{children}</span> }));
-vi.mock("next/image", () => ({ default: () => null }));
+vi.mock("@/spa/navigation", () => ({ useRouter: () => ({ push: vi.fn() }) }));
+vi.mock("@/spa/link", () => ({ default: ({ children }: { children: ReactNode }) => <span>{children}</span> }));
+vi.mock("@/spa/image", () => ({ default: () => null }));
 import { BotView } from "./BotView";
 import { BotCodeRequests } from "./BotCodeRequests";
 import { BOT_AVATAR_SHAPES } from "@/lib/bot-avatar";

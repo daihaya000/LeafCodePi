@@ -28,7 +28,7 @@ export function BotAvatar({
 }: BotAvatarProps) {
   if (avatarImage) {
     return (
-      // eslint-disable-next-line @next/next/no-img-element
+
       <img
         src={avatarImage}
         alt={name ? `${name}のアバター` : "ボットアバター"}

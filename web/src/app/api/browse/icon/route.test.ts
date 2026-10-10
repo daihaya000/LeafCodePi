@@ -1,4 +1,3 @@
-import { NextRequest } from "next/server";
 import { mkdtempSync,readdirSync,rmSync } from "node:fs";
 import { join } from "node:path";import { tmpdir } from "node:os";
 import { afterEach,beforeEach,expect,it,vi } from "vitest";
@@ -8,12 +7,12 @@ beforeEach(()=>{root=mkdtempSync(join(tmpdir(),"leafcode-browse-bff-"));for(cons
 afterEach(()=>{expect(readdirSync(root)).toEqual([]);vi.unstubAllGlobals();vi.unstubAllEnvs();rmSync(root,{recursive:true,force:true});});
 it("GET keeps opaque query and canonical owner projection, without filesystem/command fallback",async()=>{
  remote.mockResolvedValueOnce(Response.json({status:200,body:{path:"owner",parent:null,entries:[],secret:"PRIVATE"}}));
- const result=await GET(new NextRequest("http://localhost/api/browse/icon?path=opaque%2Fselection"));expect(result.status).toBe(200);expect(JSON.stringify(await result.json())).not.toContain("PRIVATE");expect(remote.mock.calls[0][0]).toContain("?path=opaque%2Fselection");
- remote.mockRejectedValueOnce(new Error("PRIVATE"));expect((await GET(new NextRequest("http://localhost"))).status).toBe(503);
- vi.stubEnv("LEAFCODE_PI_BACKEND_TOKEN","");expect((await GET(new NextRequest("http://localhost"))).status).toBe(503);expect(remote).toHaveBeenCalledTimes(2);
+ const result=await GET(new Request("http://localhost/api/browse/icon?path=opaque%2Fselection"));expect(result.status).toBe(200);expect(JSON.stringify(await result.json())).not.toContain("PRIVATE");expect(remote.mock.calls[0][0]).toContain("?path=opaque%2Fselection");
+ remote.mockRejectedValueOnce(new Error("PRIVATE"));expect((await GET(new Request("http://localhost"))).status).toBe(503);
+ vi.stubEnv("LEAFCODE_PI_BACKEND_TOKEN","");expect((await GET(new Request("http://localhost"))).status).toBe(503);expect(remote).toHaveBeenCalledTimes(2);
 });
 it("POST enforces Origin/auth/bounds before one opaque owner call",async()=>{
- const req=(body:string,headers:Record<string,string>={})=>new NextRequest("http://localhost/api/browse/icon",{method:"POST",body,headers});
+ const req=(body:string,headers:Record<string,string>={})=>new Request("http://localhost/api/browse/icon",{method:"POST",body,headers});
  expect((await POST(req("{}",{origin:"https://evil.example"}))).status).toBe(403);
  vi.stubEnv("LEAFCODE_PI_WEBUI_AUTH","required");vi.stubEnv("LEAFCODE_PI_WEBUI_TOKEN","private-web-token-1234567890123456789");expect((await POST(req("{}"))).status).toBe(401);vi.stubEnv("LEAFCODE_PI_WEBUI_AUTH","");
  expect((await POST(req("x".repeat(256*1024+1)))).status).toBe(413);expect(remote).not.toHaveBeenCalled();
@@ -23,5 +22,5 @@ it("POST enforces Origin/auth/bounds before one opaque owner call",async()=>{
  expect(options.headers["x-leafcode-business-operation"]).toBeUndefined();
 });
 it("POST unknown result is sanitized, never re-executed locally",async()=>{
- remote.mockRejectedValueOnce(new Error("PRIVATE"));const response=await POST(new NextRequest("http://localhost",{method:"POST",body:"{}"}));expect(response.status).toBe(503);expect(JSON.stringify(await response.json())).not.toContain("PRIVATE");expect(remote).toHaveBeenCalledOnce();
+ remote.mockRejectedValueOnce(new Error("PRIVATE"));const response=await POST(new Request("http://localhost",{method:"POST",body:"{}"}));expect(response.status).toBe(503);expect(JSON.stringify(await response.json())).not.toContain("PRIVATE");expect(remote).toHaveBeenCalledOnce();
 });

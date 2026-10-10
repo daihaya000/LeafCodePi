@@ -1,4 +1,3 @@
-import { NextRequest } from "next/server";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 const relay=vi.hoisted(()=>vi.fn());
 vi.mock("@/lib/json-business-relay",()=>({relayJsonBusiness:relay}));
@@ -6,7 +5,7 @@ import { POST, maxDuration } from "./route";
 beforeEach(()=>relay.mockReset());
 describe("compact transport-only route",()=>{
  it("passes the opaque original request to the owner and encodes only the parameter",async()=>{
-  const req=new NextRequest("http://localhost/api/tasks/x/compact",{method:"POST",body:"not-json"});
+  const req=new Request("http://localhost/api/tasks/x/compact",{method:"POST",body:"not-json"});
   const response=Response.json({error:"owner refusal"},{status:409});relay.mockResolvedValue(response);
   expect(await POST(req,{params:Promise.resolve({id:"bot:fixture"})})).toBe(response);
   expect(relay).toHaveBeenCalledExactlyOnceWith(req,"tasks/bot%3Afixture/compact");

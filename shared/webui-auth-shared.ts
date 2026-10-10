@@ -41,7 +41,6 @@ export function isPublicWebUiPath(pathname: string): boolean {
     pathname === "/api/peer-auth/resolve" ||
     pathname === "/api/peer-auth/usage"
   ) return true;
-  if (pathname.startsWith("/_next/")) return true;
   if (pathname === "/favicon.ico") return true;
   return false;
 }

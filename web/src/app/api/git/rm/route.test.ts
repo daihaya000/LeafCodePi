@@ -1,7 +1,7 @@
+import { BackendTestRequest as Request } from "@/test-request";
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { NextRequest } from "next/server";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
@@ -14,8 +14,8 @@ vi.mock("@/lib/git", () => mocks);
 
 import { POST } from "@backend-runtime/json-business/handlers/git/rm/route";
 
-function request(body: unknown): NextRequest {
-  return new NextRequest("http://localhost/api/git/rm", {
+function request(body: unknown): Request {
+  return new Request("http://localhost/api/git/rm", {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify(body),

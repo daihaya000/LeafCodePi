@@ -1,4 +1,4 @@
-import { NextRequest } from "next/server";
+import { BackendTestRequest as Request } from "@/test-request";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const profile = vi.hoisted(() => ({
@@ -12,12 +12,12 @@ import { DELETE, PATCH, POST, PUT } from "@backend-runtime/configuration/handler
 const url = "http://127.0.0.1:3010/api/profile";
 const summary = { fileCount: 1, bytes: 12 };
 function jsonRequest(method: string, body: unknown) {
-  return new NextRequest(url, { method, headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
+  return new Request(url, { method, headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
 }
 function importRequest() {
   const form = new FormData();
   form.set("profile", new File(["fixture-archive"], "profile.lcp.gz"));
-  return new NextRequest(url, { method: "POST", body: form });
+  return new Request(url, { method: "POST", body: form });
 }
 function expectNoProfileWork() {
   for (const work of Object.values(profile)) expect(work).not.toHaveBeenCalled();
@@ -90,7 +90,7 @@ describe("/api/profile ownership", () => {
 
   it("rejects an upload whose declared size exceeds the archive limit before parsing it", async () => {
     vi.stubEnv("NODE_ENV", "test");
-    const request = new NextRequest(url, { method: "POST", headers: { "content-length": String(300 * 1024 * 1024) }, body: new FormData() });
+    const request = new Request(url, { method: "POST", headers: { "content-length": String(300 * 1024 * 1024) }, body: new FormData() });
     const form = vi.spyOn(request, "formData");
     expect((await POST(request)).status).toBe(413);
     expect(form).not.toHaveBeenCalled(); expectNoProfileWork();
@@ -107,7 +107,7 @@ describe("/api/profile ownership", () => {
         controller.enqueue(new Uint8Array(8 * 1024 * 1024));
       },
     });
-    const request = new NextRequest(url, { method: "POST", body: stream, duplex: "half" } as never);
+    const request = new Request(url, { method: "POST", body: stream, duplex: "half" } as never);
     const form = vi.spyOn(request, "formData");
     expect((await POST(request)).status).toBe(413);
     expect(form).not.toHaveBeenCalled(); expectNoProfileWork();
@@ -115,7 +115,7 @@ describe("/api/profile ownership", () => {
 
   it("local owner validation still rejects missing upload and invalid backup selector", async () => {
     vi.stubEnv("NODE_ENV", "test");
-    expect((await POST(new NextRequest(url, { method: "POST", body: new FormData() }))).status).toBe(400);
+    expect((await POST(new Request(url, { method: "POST", body: new FormData() }))).status).toBe(400);
     expect((await PUT(jsonRequest("PUT", { backup: 42 }))).status).toBe(400);
     expectNoProfileWork();
   });

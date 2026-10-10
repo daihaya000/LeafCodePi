@@ -1,12 +1,12 @@
+import { BackendTestRequest as Request } from "@/test-request";
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { NextRequest } from "next/server";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { GET, PATCH } from "@backend-runtime/configuration/handlers/settings/intercom/route";
 
-function request(body: unknown): NextRequest {
-  return new NextRequest("http://127.0.0.1:3010/api/settings/intercom", {
+function request(body: unknown): Request {
+  return new Request("http://127.0.0.1:3010/api/settings/intercom", {
     method: "PATCH",
     headers: { "content-type": "application/json" },
     body: JSON.stringify(body),

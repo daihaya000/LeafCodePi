@@ -1,4 +1,4 @@
-import { NextRequest } from "next/server";
+import { BackendTestRequest as Request } from "@/test-request";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
@@ -68,7 +68,7 @@ describe("GET /api/tasks", () => {
     mocks.listTasks.mockReturnValue(tasks);
 
     const response = await GET(
-      new NextRequest("http://localhost/api/tasks?archived=1&titles=1&kind=all"),
+      new Request("http://localhost/api/tasks?archived=1&titles=1&kind=all"),
     );
 
     expect(response.status).toBe(200);
@@ -83,7 +83,7 @@ describe("GET /api/tasks", () => {
     ]);
     mocks.autoArchiveOldTasks.mockImplementation(() => new Promise(() => undefined));
 
-    const response = await GET(new NextRequest("http://localhost/api/tasks?paneCandidates=1"));
+    const response = await GET(new Request("http://localhost/api/tasks?paneCandidates=1"));
 
     expect(response.status).toBe(200);
     expect(await response.json()).toEqual({
@@ -102,7 +102,7 @@ describe("GET /api/tasks", () => {
       id: "orphan", status: reconciled ? "error" : "working", updatedAt: "2026-01-01",
     }]);
 
-    const response = await GET(new NextRequest("http://localhost/api/tasks?paneCandidates=1"));
+    const response = await GET(new Request("http://localhost/api/tasks?paneCandidates=1"));
 
     expect((await response.json()).tasks).toEqual([{
       id: "orphan", status: "error", updatedAt: "2026-01-01",
@@ -114,7 +114,7 @@ describe("GET /api/tasks", () => {
     mocks.getTaskSummariesWithTodoProgress.mockResolvedValue(tasks);
 
     const response = await GET(
-      new NextRequest("http://localhost/api/tasks?archived=1&kind=all"),
+      new Request("http://localhost/api/tasks?archived=1&kind=all"),
     );
 
     expect(response.status).toBe(200);
@@ -130,8 +130,8 @@ describe("GET /api/tasks", () => {
     };
     mocks.getTaskSummariesWithTodoProgress.mockResolvedValue([task]);
 
-    const sidebar = await (await GET(new NextRequest("http://localhost/api/tasks?kind=all&view=sidebar"))).json();
-    const full = await (await GET(new NextRequest("http://localhost/api/tasks?kind=all"))).json();
+    const sidebar = await (await GET(new Request("http://localhost/api/tasks?kind=all&view=sidebar"))).json();
+    const full = await (await GET(new Request("http://localhost/api/tasks?kind=all"))).json();
 
     expect(sidebar.tasks).toEqual([{
       id: "t1", kind: "code", status: "idle", title: "T", projectId: "p", updatedAt: "u", todoProgress: { done: 1, total: 2 },
@@ -158,13 +158,13 @@ describe("POST /api/tasks", () => {
 
   it.each([400, 404, 409, 413, 422])("preserves owner create validation status %s", async (status) => {
     mocks.createTask.mockRejectedValue(Object.assign(new Error("owner refusal"), { status }));
-    const response = await POST(new NextRequest("http://localhost/api/tasks", { method: "POST", body: JSON.stringify({ projectId: "missing", prompt: "start" }) }));
+    const response = await POST(new Request("http://localhost/api/tasks", { method: "POST", body: JSON.stringify({ projectId: "missing", prompt: "start" }) }));
     expect(response.status).toBe(status); expect(await response.json()).toEqual({ error: "owner refusal" }); expect(mocks.createTaskOnBackend).not.toHaveBeenCalled();
   });
 
   it("passes null as the project id for a no-project task", async () => {
     const response = await POST(
-      new NextRequest("http://localhost/api/tasks", {
+      new Request("http://localhost/api/tasks", {
         method: "POST",
         body: JSON.stringify({ projectId: null, prompt: "一時作業" }),
       }),
@@ -180,7 +180,7 @@ describe("POST /api/tasks", () => {
     mocks.resolveAutoAgent.mockResolvedValue("reviewer");
 
     const response = await POST(
-      new NextRequest("http://localhost/api/tasks", {
+      new Request("http://localhost/api/tasks", {
         method: "POST",
         body: JSON.stringify({ projectId: null, prompt: "差分をレビューして", agent: AUTO_AGENT_VALUE }),
       }),
@@ -203,7 +203,7 @@ describe("POST /api/tasks", () => {
     mocks.resolveAutoAgent.mockResolvedValue("reviewer");
 
     const response = await POST(
-      new NextRequest("http://localhost/api/tasks", {
+      new Request("http://localhost/api/tasks", {
         method: "POST",
         body: JSON.stringify({
           projectId: null,
@@ -233,7 +233,7 @@ describe("POST /api/tasks", () => {
 
   it("does not pin soft accountId alone on create", async () => {
     const response = await POST(
-      new NextRequest("http://localhost/api/tasks", {
+      new Request("http://localhost/api/tasks", {
         method: "POST",
         body: JSON.stringify({
           projectId: null,
@@ -257,7 +257,7 @@ describe("POST /api/tasks", () => {
     mocks.resolveAutoAgent.mockResolvedValue("reviewer");
 
     const response = await POST(
-      new NextRequest("http://localhost/api/tasks", {
+      new Request("http://localhost/api/tasks", {
         method: "POST",
         body: JSON.stringify({
           projectId: null,
@@ -288,7 +288,7 @@ describe("POST /api/tasks", () => {
       reason: "test",
     });
     const response = await POST(
-      new NextRequest("http://localhost/api/tasks", {
+      new Request("http://localhost/api/tasks", {
         method: "POST",
         body: JSON.stringify({
           projectId: null,
@@ -349,7 +349,7 @@ describe("POST /api/tasks", () => {
     mocks.resolveAutoAgent.mockResolvedValue("builder");
 
     const pending = POST(
-      new NextRequest("http://localhost/api/tasks", {
+      new Request("http://localhost/api/tasks", {
         method: "POST",
         body: JSON.stringify({
           projectId: null,
@@ -387,7 +387,7 @@ describe("POST /api/tasks", () => {
     });
 
     const response = await POST(
-      new NextRequest("http://localhost/api/tasks", {
+      new Request("http://localhost/api/tasks", {
         method: "POST",
         body: JSON.stringify({
           projectId: null,
@@ -410,7 +410,7 @@ describe("POST /api/tasks", () => {
     );
 
     const response = await POST(
-      new NextRequest("http://localhost/api/tasks", {
+      new Request("http://localhost/api/tasks", {
         method: "POST",
         body: JSON.stringify({
           projectId: null,
@@ -435,7 +435,7 @@ describe("POST /api/tasks", () => {
     for (const body of [{ prompt: "作業" }, { projectId: "", prompt: "作業" }]) {
       mocks.createTask.mockClear();
       const response = await POST(
-        new NextRequest("http://localhost/api/tasks", {
+        new Request("http://localhost/api/tasks", {
           method: "POST",
           body: JSON.stringify(body),
         }),
@@ -448,7 +448,7 @@ describe("POST /api/tasks", () => {
 
   it("creates a task from images when the prompt is empty", async () => {
     const response = await POST(
-      new NextRequest("http://localhost/api/tasks", {
+      new Request("http://localhost/api/tasks", {
         method: "POST",
         body: JSON.stringify({
           projectId: null,
@@ -471,7 +471,7 @@ describe("POST /api/tasks", () => {
   it("creates a task from a UTF-8 text file when the prompt is empty", async () => {
     const file = { name: "notes.txt", mimeType: "text/plain", data: Buffer.from("添付内容", "utf8").toString("base64") };
     const response = await POST(
-      new NextRequest("http://localhost/api/tasks", {
+      new Request("http://localhost/api/tasks", {
         method: "POST",
         body: JSON.stringify({ projectId: null, prompt: "", files: [file] }),
       }),
@@ -484,7 +484,7 @@ describe("POST /api/tasks", () => {
   it("rejects binary files and too many combined attachments before creating a task", async () => {
     const binary = { name: "data.bin", mimeType: "application/octet-stream", data: Buffer.from([0xff]).toString("base64") };
     const binaryResponse = await POST(
-      new NextRequest("http://localhost/api/tasks", {
+      new Request("http://localhost/api/tasks", {
         method: "POST",
         body: JSON.stringify({ projectId: null, prompt: "確認", files: [binary] }),
       }),
@@ -494,7 +494,7 @@ describe("POST /api/tasks", () => {
 
     const files = Array.from({ length: MAX_PROMPT_ATTACHMENTS }, (_, index) => ({ name: `${index}.txt`, mimeType: "text/plain", data: "YQ==" }));
     const tooManyResponse = await POST(
-      new NextRequest("http://localhost/api/tasks", {
+      new Request("http://localhost/api/tasks", {
         method: "POST",
         body: JSON.stringify({ projectId: null, prompt: "確認", images: [{ mimeType: "image/png", data: "YQ==" }], files }),
       }),
@@ -505,7 +505,7 @@ describe("POST /api/tasks", () => {
 
   it("rejects oversized or aggregate images before creating a task", async () => {
     const response = await POST(
-      new NextRequest("http://localhost/api/tasks", {
+      new Request("http://localhost/api/tasks", {
         method: "POST",
         body: JSON.stringify({
           projectId: null,
@@ -520,7 +520,7 @@ describe("POST /api/tasks", () => {
 
     const half = Math.floor(MAX_PROMPT_IMAGE_TOTAL_BYTES / 2) + 1;
     const aggregateResponse = await POST(
-      new NextRequest("http://localhost/api/tasks", {
+      new Request("http://localhost/api/tasks", {
         method: "POST",
         body: JSON.stringify({
           projectId: null,
@@ -539,7 +539,7 @@ describe("POST /api/tasks", () => {
 
   it("rejects oversized text before creating a task", async () => {
     const response = await POST(
-      new NextRequest("http://localhost/api/tasks", {
+      new Request("http://localhost/api/tasks", {
         method: "POST",
         body: JSON.stringify({ projectId: null, prompt: "x".repeat(MAX_PROMPT_TEXT_CHARS + 1) }),
       }),
@@ -551,7 +551,7 @@ describe("POST /api/tasks", () => {
 
   it("rejects an empty prompt when there are no images", async () => {
     const response = await POST(
-      new NextRequest("http://localhost/api/tasks", {
+      new Request("http://localhost/api/tasks", {
         method: "POST",
         body: JSON.stringify({ projectId: null, prompt: "   " }),
       }),
@@ -563,7 +563,7 @@ describe("POST /api/tasks", () => {
 
   it("ignores Composer permission fields because Settings decide them", async () => {
     const response = await POST(
-      new NextRequest("http://localhost/api/tasks", {
+      new Request("http://localhost/api/tasks", {
         method: "POST",
         body: JSON.stringify({
           projectId: null,
@@ -584,7 +584,7 @@ describe("POST /api/tasks", () => {
 
   it("rejects an invalid thinking level before creating a task", async () => {
     const response = await POST(
-      new NextRequest("http://localhost/api/tasks", {
+      new Request("http://localhost/api/tasks", {
         method: "POST",
         body: JSON.stringify({ projectId: null, prompt: "作業", thinkingLevel: "invalid" }),
       }),
@@ -596,7 +596,7 @@ describe("POST /api/tasks", () => {
 
   it("rejects a non-string account id before creating a task", async () => {
     const response = await POST(
-      new NextRequest("http://localhost/api/tasks", {
+      new Request("http://localhost/api/tasks", {
         method: "POST",
         body: JSON.stringify({ projectId: null, prompt: "作業", accountId: 123 }),
       }),
@@ -623,16 +623,16 @@ describe("Backend GET /api/tasks never forwards to another owner", () => {
 
   it("serves its own raw rows even if a legacy relay mock can answer", async () => {
     mocks.relayTaskRows.mockResolvedValue([{ id: "from-backend", status: "idle" }]);
-    const titles = await GET(new NextRequest("http://127.0.0.1:3010/api/tasks?titles=1"));
+    const titles = await GET(new Request("http://127.0.0.1:3010/api/tasks?titles=1"));
     expect(await titles.json()).toEqual({ tasks: [{ id: "local", status: "idle" }] });
-    const pane = await GET(new NextRequest("http://127.0.0.1:3010/api/tasks?paneCandidates=1"));
+    const pane = await GET(new Request("http://127.0.0.1:3010/api/tasks?paneCandidates=1"));
     expect(await pane.json()).toEqual({ tasks: [{ id: "local", status: "idle" }] });
     expect(mocks.relayTaskRows).not.toHaveBeenCalled();
   });
 
   it("reads its own store independently of the legacy relay", async () => {
     mocks.relayTaskRows.mockResolvedValue(null);
-    const response = await GET(new NextRequest("http://127.0.0.1:3010/api/tasks?titles=1"));
+    const response = await GET(new Request("http://127.0.0.1:3010/api/tasks?titles=1"));
     expect(await response.json()).toEqual({ tasks: [{ id: "local", status: "idle" }] });
   });
 
@@ -640,9 +640,9 @@ describe("Backend GET /api/tasks never forwards to another owner", () => {
     // After the cutover the Backend owns the store: a relay miss must not be hidden by stale reads.
     mocks.relayTaskRows.mockResolvedValue(null);
     mocks.relayFallbackAllowed.mockReturnValue(false);
-    const titles = await GET(new NextRequest("http://127.0.0.1:3010/api/tasks?titles=1"));
+    const titles = await GET(new Request("http://127.0.0.1:3010/api/tasks?titles=1"));
     expect(titles.status).toBe(200);
-    const pane = await GET(new NextRequest("http://127.0.0.1:3010/api/tasks?paneCandidates=1"));
+    const pane = await GET(new Request("http://127.0.0.1:3010/api/tasks?paneCandidates=1"));
     expect(pane.status).toBe(200);
     expect(mocks.listTasks).toHaveBeenCalled();
   });
@@ -650,9 +650,9 @@ describe("Backend GET /api/tasks never forwards to another owner", () => {
   it("never relays the derived summary with the raw row relay", async () => {
     mocks.getTaskSummariesWithTodoProgress.mockResolvedValue([]);
     mocks.listPendingAttention.mockReturnValue([{ taskId: "local", kinds: ["permission"] }]);
-    await GET(new NextRequest("http://127.0.0.1:3010/api/tasks"));
+    await GET(new Request("http://127.0.0.1:3010/api/tasks"));
     // The owner's attention comes from its own memory; only a client reads it from the Backend.
-    const attention = await GET(new NextRequest("http://127.0.0.1:3010/api/tasks?attention=1"));
+    const attention = await GET(new Request("http://127.0.0.1:3010/api/tasks?attention=1"));
     expect(await attention.json()).toEqual({ attention: [{ taskId: "local", kinds: ["permission"] }] });
     expect(mocks.forwardPendingAttention).not.toHaveBeenCalled();
     expect(mocks.relayTaskRows).not.toHaveBeenCalled();
@@ -664,12 +664,12 @@ describe("Backend GET /api/tasks never forwards to another owner", () => {
       ok: true,
       items: [{ taskId: "remote", kinds: ["question"] }],
     });
-    const response = await GET(new NextRequest("http://127.0.0.1:3010/api/tasks?attention=1"));
+    const response = await GET(new Request("http://127.0.0.1:3010/api/tasks?attention=1"));
     expect(await response.json()).toEqual({ attention: [{ taskId: "local", kinds: ["permission"] }] });
     expect(mocks.listPendingAttention).toHaveBeenCalled();
     // A failed read is reported, not answered with the empty local memory.
     mocks.forwardPendingAttention.mockResolvedValue({ ok: false, reason: "unreachable" });
-    const failed = await GET(new NextRequest("http://127.0.0.1:3010/api/tasks?attention=1"));
+    const failed = await GET(new Request("http://127.0.0.1:3010/api/tasks?attention=1"));
     expect(failed.status).toBe(200);
     expect(mocks.forwardPendingAttention).not.toHaveBeenCalled();
   });

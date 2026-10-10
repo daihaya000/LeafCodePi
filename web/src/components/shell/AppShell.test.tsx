@@ -8,7 +8,7 @@ const mocks = vi.hoisted(() => ({
   useTaskPanes: vi.fn(() => ({ mdUp: true })),
 }));
 
-vi.mock("next/navigation", () => ({ usePathname: mocks.usePathname }));
+vi.mock("@/spa/navigation", () => ({ usePathname: mocks.usePathname }));
 vi.mock("./Sidebar", () => ({ Sidebar: () => <aside data-testid="sidebar" /> }));
 vi.mock("./ShellContext", () => ({
   ShellProvider: ({ children }: { children: ReactNode }) => <>{children}</>,

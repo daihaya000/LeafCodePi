@@ -3,13 +3,15 @@ import { spawn } from "node:child_process";
 import { copyFileSync, existsSync, lstatSync, mkdirSync, openSync, closeSync, readdirSync, readFileSync, realpathSync, renameSync, rmSync, unlinkSync, writeFileSync } from "node:fs";
 import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
+import { createRequire } from "node:module";
+import { checkFrameworkFree } from "./framework-free.mjs";
 import { resolveMirrorRoot } from "./build-workspace.mjs";
 import { createStaticHandler } from "../gateway/src/static.mjs";
 const ROOT = resolve(fileURLToPath(new URL("../", import.meta.url)));
 const idPattern = /^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/;
 const hash = value => createHash("sha256").update(value).digest("hex");
 const norm = path => path.replaceAll("\\", "/");
-const skipped = new Set(["node_modules", "dist", "dist-spa", "coverage", "next-env.d.ts", "tsconfig.tsbuildinfo"]);
+const skipped = new Set(["node_modules", "dist", "dist-spa", "coverage", "tsconfig.tsbuildinfo"]);
 function regular(path, directory = false) { const stat = lstatSync(path); if (stat.isSymbolicLink() || !(directory ? stat.isDirectory() : stat.isFile())) throw new Error("SPA mirror requires regular files/directories"); return stat; }
 function safeAncestors(path) { for (let here = resolve(path); ; here = dirname(here)) { if (existsSync(here) && lstatSync(here).isSymbolicLink()) throw new Error("Linked SPA mirror ancestor"); if (dirname(here) === here) break; } }
 function overlaps(a, b) { const lower = path => process.platform === "win32" ? path.toLowerCase() : path; a = lower(resolve(a)); b = lower(resolve(b)); return a === b || a.startsWith(b + sep) || b.startsWith(a + sep); }
@@ -108,7 +110,7 @@ export async function rollbackSpaGeneration(root, { expectedCurrent, checkout = 
 }
 export function spaBuildEnvironment(env = process.env) {
   const safe = Object.fromEntries(Object.entries(env).filter(([key]) => /^(PATH|Path|SystemRoot|SYSTEMROOT|WINDIR|TEMP|TMP|LOCALAPPDATA|APPDATA|USERPROFILE|HOME|COMSPEC|PATHEXT|NUMBER_OF_PROCESSORS)$/.test(key)));
-  return { ...safe, NODE_ENV: "production", NEXT_TELEMETRY_DISABLED: "1" };
+  return { ...safe, NODE_ENV: "production" };
 }
 async function run(args, cwd, env, log = () => {}) {
   await new Promise((resolve, reject) => {
@@ -118,11 +120,14 @@ async function run(args, cwd, env, log = () => {}) {
     child.once("error", error => { clearTimeout(timer); reject(error); }); child.once("close", code => { clearTimeout(timer); code === 0 ? resolve() : reject(new Error(`SPA build command exited ${code}`)); });
   });
 }
-async function compile({ workspace, stage, offline, log }) {
+async function compile({ checkout, workspace, stage, offline, log }) {
   const env = spaBuildEnvironment(), npm = join(dirname(process.execPath), "node_modules/npm/bin/npm-cli.js"), args = ["ci", "--ignore-scripts", "--no-audit", "--no-fund", ...(offline ? ["--offline"] : [])];
   const stamp = join(workspace, "web/node_modules/.spa-build-deps"), dependencyHash = hash(readFileSync(join(workspace, "web/package.json"))) + hash(readFileSync(join(workspace, "web/package-lock.json")));
   const ready = existsSync(stamp) && readFileSync(stamp, "utf8") === dependencyHash && ["vite", "typescript", "react", "@tailwindcss/postcss"].every(name => existsSync(join(workspace, "web/node_modules", name, "package.json")));
   if (!ready) { await run([npm, ...args, "--include=dev"], join(workspace, "web"), env, log); writeFileSync(stamp, dependencyHash); }
+  // Tests and owner manifests are deliberately absent from the transport snapshot.
+  // Audit the original checkout too, using only the installed workspace compiler.
+  checkFrameworkFree(checkout, createRequire(join(workspace, "web/package.json"))("typescript"));
   await run([join(workspace, "scripts/build-spa-worker.mjs"), stage], workspace, env, log);
   await run([npm, ...args, "--omit=dev"], join(stage, "gateway"), env, log);
   // Re-check the actual locked install before sealing; the workspace package is not the artifact.
@@ -145,7 +150,7 @@ export async function buildSpaGeneration({ checkout = ROOT, mirrorRoot = resolve
     mkdirSync(stage); mkdirSync(join(stage, "gateway"));
     for (const name of ["package.json", "package-lock.json"]) copyFileSync(join(workspace, "gateway", name), join(stage, "gateway", name));
     try {
-      await compileBuild({ workspace, stage, offline, log });
+      await compileBuild({ checkout, workspace, stage, offline, log });
       if (spaSourceSnapshot(checkout).digest !== snapshot.digest) throw new Error("SPA sources changed during build");
       await validatePair(stage);
       const metadata = { version: 1, id, sourceDigest: snapshot.digest, builtAt: Date.now(), files: artifactFiles(stage) };

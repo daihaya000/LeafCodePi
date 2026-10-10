@@ -1,4 +1,4 @@
-import { NextRequest } from "next/server";
+import { BackendTestRequest as Request } from "@/test-request";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { GET, POST } from "@backend-runtime/json-business/handlers/codexbar/reset-credits/route";
 
@@ -96,7 +96,7 @@ describe("/api/codexbar/reset-credits", () => {
     });
 
     const response = await GET(
-      new NextRequest("http://localhost/api/codexbar/reset-credits"),
+      new Request("http://localhost/api/codexbar/reset-credits"),
     );
     expect(response.status).toBe(200);
     expect(withOpenaiCodexWhamAuth.mock.calls[0][0]).toBeNull();
@@ -125,7 +125,7 @@ describe("/api/codexbar/reset-credits", () => {
     });
 
     const response = await GET(
-      new NextRequest(
+      new Request(
         "http://localhost/api/codexbar/reset-credits?accountId=acc-1",
       ),
     );
@@ -138,7 +138,7 @@ describe("/api/codexbar/reset-credits", () => {
     isAccountEnabled.mockReturnValueOnce(false);
 
     const response = await GET(
-      new NextRequest(
+      new Request(
         "http://localhost/api/codexbar/reset-credits?accountId=acc-paused",
       ),
     );
@@ -151,7 +151,7 @@ describe("/api/codexbar/reset-credits", () => {
 
   it("POST rejects missing creditId", async () => {
     const response = await POST(
-      new NextRequest("http://localhost/api/codexbar/reset-credits", {
+      new Request("http://localhost/api/codexbar/reset-credits", {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({}),
@@ -182,7 +182,7 @@ describe("/api/codexbar/reset-credits", () => {
     });
 
     const response = await POST(
-      new NextRequest("http://localhost/api/codexbar/reset-credits", {
+      new Request("http://localhost/api/codexbar/reset-credits", {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ creditId: "c1", redeemRequestId: "r1" }),
@@ -219,7 +219,7 @@ describe("/api/codexbar/reset-credits", () => {
     });
 
     const response = await POST(
-      new NextRequest("http://localhost/api/codexbar/reset-credits", {
+      new Request("http://localhost/api/codexbar/reset-credits", {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ creditId: "c1" }),
@@ -244,7 +244,7 @@ describe("/api/codexbar/reset-credits", () => {
     });
 
     const response = await POST(
-      new NextRequest("http://localhost/api/codexbar/reset-credits", {
+      new Request("http://localhost/api/codexbar/reset-credits", {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ creditId: "g1", accountId: "acc-1", provider: "anthropic" }),
@@ -263,7 +263,7 @@ describe("/api/codexbar/reset-credits", () => {
   it("POST provider=anthropic without cookie returns 401", async () => {
     extractAnthropicConsoleSession.mockReturnValueOnce(null);
     const response = await POST(
-      new NextRequest("http://localhost/api/codexbar/reset-credits", {
+      new Request("http://localhost/api/codexbar/reset-credits", {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ creditId: "g1", provider: "anthropic" }),

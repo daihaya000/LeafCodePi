@@ -1,4 +1,4 @@
-import { NextRequest } from "next/server";
+import { BackendTestRequest as Request } from "@/test-request";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
@@ -43,8 +43,8 @@ import { AUTO_AGENT_VALUE } from "@/lib/default-agent";
 import { MAX_PROMPT_IMAGE_BYTES, MAX_PROMPT_TEXT_CHARS } from "@/lib/prompt-images";
 import { POST } from "@backend-runtime/json-business/handlers/tasks/[id]/prompt/route";
 
-function request(body: unknown): NextRequest {
-  return new NextRequest("http://localhost/api/tasks/task-1/prompt", {
+function request(body: unknown): Request {
+  return new Request("http://localhost/api/tasks/task-1/prompt", {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify(body),

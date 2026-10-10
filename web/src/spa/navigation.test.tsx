@@ -3,7 +3,7 @@ import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-libra
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { Image, Link } from "./primitives";
 import { installNavigation, routeParams, useLocation, useParams, usePathname, useRouter, useSearchParams } from "./navigation";
-vi.mock("next/navigation", async () => import("./navigation"));
+vi.mock("@/spa/navigation", async () => import("./navigation"));
 import LoginForm from "../app/login/LoginForm";
 function Probe() {
   return <output>{JSON.stringify({ location: useLocation(), path: usePathname(), query: useSearchParams().get("q"), params: useParams() })}</output>;

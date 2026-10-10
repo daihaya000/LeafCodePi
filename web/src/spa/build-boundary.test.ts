@@ -33,7 +33,7 @@ describe("SPA production boundary", () => {
     }
   });
   it("binds every neutral UI import to React adapters without loading legacy Next bridges", async () => {
-    const root = await fixture(`import * as navigation from '@/platform/navigation'; import Link from '@/platform/link'; import Image from '@/platform/image'; import dynamic from '@/platform/dynamic'; document.body.platform = [navigation, Link, Image, dynamic];`);
+    const root = await fixture(`import * as navigation from '@/spa/navigation'; import Link from '@/spa/link'; import Image from '@/spa/image'; import dynamic from '@/spa/dynamic'; document.body.platform = [navigation, Link, Image, dynamic];`);
     // React dedupe resolves from the configured fixture root, not the importer.
     await symlink(fileURLToPath(new URL("../../node_modules", import.meta.url)), join(root, "node_modules"), process.platform === "win32" ? "junction" : "dir");
     const modules: string[] = [];

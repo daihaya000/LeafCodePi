@@ -16,12 +16,11 @@
     "preview:spa": "vite preview --config vite.config.ts",
     "typecheck:spa": "tsc -p tsconfig.spa.json",
     "check:production": "node ../scripts/production-boundary.mjs",
-    "test:spa:browser": "node ../scripts/spa-browser-contract.mjs",
+    "test:spa:browser": "node --test ../scripts/spa-production-gateway.test.mjs",
     "test:spa:secrets": "node --test ../scripts/spa-secret-canary.test.mjs && vitest run src/spa/build-boundary.test.ts --maxWorkers=1"
   },
   "dependencies": {
     "lucide-react": "^1.24.0",
-    "next": "^16.3.1",
     "next-themes": "^0.4.6",
     "react": "19.1.0",
     "react-dom": "19.1.0",
@@ -36,17 +35,12 @@
     "@types/react": "^19",
     "@types/react-dom": "^19",
     "eslint": "^9",
-    "eslint-config-next": "16.3.1",
+    "typescript-eslint": "8.68.0",
     "happy-dom": "^20.11.6",
     "playwright": "1.62.1",
     "tailwindcss": "^4",
     "typescript": "^5",
     "vite": "7.3.6",
     "vitest": "3.2.7"
-  },
-  "overrides": {
-    "next": {
-      "postcss": "8.5.23"
-    }
   }
 }

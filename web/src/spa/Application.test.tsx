@@ -6,7 +6,7 @@ const mocks = vi.hoisted(() => ({ settings: vi.fn(), writer: vi.fn() }));
 vi.mock("next-themes", () => ({ ThemeProvider: ({ children }: { children: ReactNode }) => children }));
 vi.mock("@/components/shell/AutoUpdateActivity", () => ({ AutoUpdateActivity: () => null }));
 vi.mock("@/lib/setting-sync", () => ({ ensureServerSettingsHydrated: mocks.settings }));
-vi.mock("next/navigation", async () => import("./navigation"));
+vi.mock("@/spa/navigation", async () => import("./navigation"));
 vi.mock("./ProtectedApp", () => ({ default: () => { useEffect(() => { mocks.writer(); }, []); return <><p>protected UI</p><HostnameLabel /></>; } }));
 import { HostnameLabel } from "@/components/shell/HostnameContext";
 import { Application } from "./Application";

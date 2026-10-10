@@ -6,7 +6,7 @@ import type { ReactNode } from "react";
 const mocks = vi.hoisted(() => ({ getJson: vi.fn(), sendJson: vi.fn(), notifyBotSidebarChanged: vi.fn() }));
 vi.mock("@/lib/client", () => mocks);
 vi.mock("@/lib/events", () => ({ notifyBotSidebarChanged: mocks.notifyBotSidebarChanged }));
-vi.mock("next/link", () => ({ default: ({ children }: { children: ReactNode }) => <span>{children}</span> }));
+vi.mock("@/spa/link", () => ({ default: ({ children }: { children: ReactNode }) => <span>{children}</span> }));
 
 import { BotCodeSessionPanel } from "./BotCodeSessionPanel";
 

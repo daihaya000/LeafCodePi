@@ -1,4 +1,4 @@
-import { NextRequest } from "next/server";
+import { BackendTestRequest as Request } from "@/test-request";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const settings = vi.hoisted(() => ({
@@ -22,8 +22,8 @@ vi.mock("@/lib/machine-name", () => ({ getMachineName: () => "x870" }));
 
 import { GET, PUT } from "@backend-runtime/configuration/handlers/settings/[key]/route";
 
-function request(key: string, body: unknown): NextRequest {
-  return new NextRequest(`http://127.0.0.1:3010/api/settings/${key}`, {
+function request(key: string, body: unknown): Request {
+  return new Request(`http://127.0.0.1:3010/api/settings/${key}`, {
     method: "PUT",
     headers: { "content-type": "application/json" },
     body: JSON.stringify(body),
@@ -48,7 +48,7 @@ describe("/api/settings/[key]", () => {
   it("reads the persisted model throughput window", async () => {
     const key = "model-throughput-window";
     settings.getSetting.mockReturnValue("100");
-    const response = await GET(new NextRequest(`http://127.0.0.1/api/settings/${key}`), { params: Promise.resolve({ key }) });
+    const response = await GET(new Request(`http://127.0.0.1/api/settings/${key}`), { params: Promise.resolve({ key }) });
     expect(response.status).toBe(200);
     expect(await response.json()).toEqual({ value: "100" });
   });
@@ -215,7 +215,7 @@ describe("/api/settings/[key]", () => {
     });
     settings.getSetting.mockReturnValue(value);
 
-    const response = await GET(new NextRequest(`http://127.0.0.1:3010/api/settings/${key}`), {
+    const response = await GET(new Request(`http://127.0.0.1:3010/api/settings/${key}`), {
       params: Promise.resolve({ key }),
     });
 
@@ -223,7 +223,7 @@ describe("/api/settings/[key]", () => {
   });
 
   it("reads and writes the generation model", async () => {
-    const getResponse = await GET(new NextRequest("http://127.0.0.1:3010/api/settings/generation-model"), {
+    const getResponse = await GET(new Request("http://127.0.0.1:3010/api/settings/generation-model"), {
       params: Promise.resolve({ key: "generation-model" }),
     });
     expect(await getResponse.json()).toEqual({ value: "llama-server::local-model" });
@@ -401,7 +401,7 @@ describe("/api/settings/[key]", () => {
 
   it("exposes the default Auto agent selector prompt", async () => {
     const response = await GET(
-      new NextRequest("http://127.0.0.1:3010/api/settings/auto-agent-prompt"),
+      new Request("http://127.0.0.1:3010/api/settings/auto-agent-prompt"),
       { params: Promise.resolve({ key: "auto-agent-prompt" }) },
     );
 

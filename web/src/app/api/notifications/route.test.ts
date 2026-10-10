@@ -1,4 +1,4 @@
-import { NextRequest, NextResponse } from "next/server";
+import { BackendTestRequest as Request } from "@/test-request";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({ read: vi.fn(), save: vi.fn(), guard: vi.fn() }));
@@ -13,8 +13,8 @@ vi.mock("@/lib/pi/transfer-access", () => ({
 
 import { GET, PUT } from "@backend-runtime/configuration/handlers/notifications/route";
 
-const getRequest = () => new NextRequest("http://localhost/api/notifications");
-const putRequest = (body: unknown) => new NextRequest("http://localhost/api/notifications", {
+const getRequest = () => new Request("http://localhost/api/notifications");
+const putRequest = (body: unknown) => new Request("http://localhost/api/notifications", {
   method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify(body),
 });
 
@@ -44,12 +44,12 @@ describe("shared notification delivery API", () => {
   );
 
   it("blocks unauthenticated and cross-site requests before writing", async () => {
-    mocks.guard.mockReturnValue(NextResponse.json({ error: "Forbidden" }, { status: 403 }));
+    mocks.guard.mockReturnValue(Response.json({ error: "Forbidden" }, { status: 403 }));
     expect((await GET(getRequest())).status).toBe(403);
     expect((await PUT(putRequest({ enabled: false }))).status).toBe(403);
     expect(mocks.save).not.toHaveBeenCalled();
     mocks.guard.mockClear().mockReturnValue(null);
-    const crossSite = new NextRequest("http://localhost/api/notifications", {
+    const crossSite = new Request("http://localhost/api/notifications", {
       method: "PUT", headers: { "content-type": "application/json", "sec-fetch-site": "cross-site" },
       body: JSON.stringify({ enabled: false }),
     });

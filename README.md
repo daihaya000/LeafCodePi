@@ -1,6 +1,6 @@
 ﻿# LeafCodePi
 
-[LeafCode](https://github.com/daihaya000/LeafCode) の UI/UX 構造を維持した、[Pi Coding Agent](https://github.com/earendil-works/pi) 向けの最低限フロントエンドです。OpenCode は使いません。Pi SDK（`@earendil-works/pi-coding-agent`）を Next.js の BFF に埋め込み、ブラウザからセッションを操作します。
+[LeafCode](https://github.com/daihaya000/LeafCode) の UI/UX 構造を維持した、[Pi Coding Agent](https://github.com/earendil-works/pi) 向けの最低限フロントエンドです。OpenCode は使いません。Vite/React SPAとnative gatewayから、独立Backend内のPi SDK（`@earendil-works/pi-coding-agent`）のセッションを操作します。
 
 ## クイックスタート
 
@@ -417,7 +417,7 @@ chmod +x start.sh
 ./start.sh
 ```
 
-`start.sh` は起動前に、host が異常終了して残った LeafCodePi の WebUI（`LEAFCODE_PI_PORT`、既定 3010 を listen している Next.js）だけを停止し、`EADDRINUSE` での再起動失敗を防ぎます。host が起動中の場合や、別プログラムがポートを使っている場合は何も止めず、後者は警告だけ表示します。無効化は `LEAFCODE_PI_RECLAIM_PORT=0` です。
+`start.sh` は起動前に、host が異常終了して残った LeafCodePi の WebUI（`LEAFCODE_PI_PORT`、既定 3010 を listen しているsealed native gateway）だけを停止し、`EADDRINUSE` での再起動失敗を防ぎます。host が起動中の場合や、別プログラムがポートを使っている場合は何も止めず、後者は警告だけ表示します。無効化は `LEAFCODE_PI_RECLAIM_PORT=0` です。
 
 手動で起動する場合は `npm --prefix web install`、`npm --prefix host install` の後に `npm run host` でも構いません。
 
@@ -450,7 +450,7 @@ LEAFCODE_PI_HEADLESS=1 ./start.sh
 
 本番WebUIはVite/React SPAとnative gatewayのsealed generationを配信します。`scripts/build-web.mjs`は新しいpaired generationを発行するだけで、稼働Host/Backendを再起動しません。切替はトレイの Restart WebUIなどの明示操作で行います。失敗buildは稼働中のimmutable generationを置き換えません。
 
-本番のセッション・Goal Loop は独立バックエンドで動き、WebUI の再起動中も継続します。バックエンド・トレイホストの再起動は実行中のセッションを終了します。実行中の Goal Loop がある場合はランタイム再起動を拒否するため、先にループを停止・完了してください（開発モードでは WebUI がランタイムを持つため WebUI 再起動も同じ制約）。
+本番のセッション・Goal Loop は独立バックエンドで動き、WebUI の再起動中も継続します。バックエンド・トレイホストの再起動は実行中のセッションを終了します。実行中の Goal Loop がある場合はランタイム再起動を拒否するため、先にループを停止・完了してください（開発モードもSDK/runtimeの所有者はBackend）。
 
 設定画面の再起動は次の操作に統一しています。サイドバーフッターからも WebUI・バックエンド・トレイホストを再起動できます（トレイホストは再接続オーバーレイが新しい WebUI を検知して自動的にページを再読み込みします）。
 
@@ -466,11 +466,11 @@ production buildはcheckout別の外部領域を使います。Windowsは **`%LO
 - `npm --prefix web start`はseal検証済native gatewayだけを起動し、build/install/dev fallbackはしません。Host管理中の同じportには別途起動しないでください。
 - Web依存は外部workspaceへ`npm ci --include=dev`、gatewayの監査済runtime依存は新stageへclean installします。初回はcacheまたはネットワークと空き容量が必要です。失敗時は旧generationを保持します。
 - Browser/gatewayのvalue/type/runtime gateとSPA型検査をpublication前に実行します。`npm --prefix web run check:production`は両境界、`check:browser` / `check:gateway`は各境界、`typecheck`はSPA configを検証します。
-- ビルド出力・依存・cacheをOneDriveへ書き戻しません。`npm run dev`も認証済native gateway経由でViteを使います。Nextの比較fixtureとpackage/config撤去はP4の残タスクです。
-- PiはHost起動時に自動更新しません。既定の厳密バージョン（`shared/pi-dependencies.mjs` の `DEFAULT_PI_VERSION`、現在は 1.0.0）をそのまま使います。Web・Backendのmanifest・lock・実体が揃っていることだけを確認し、不一致が残る場合は起動・ビルドを拒否します。
-- 更新は設定画面の「Pi アップデート」から予約します。予約は次回のトレイホスト起動時に適用されます。同期はSDK・AI両パッケージを同じ厳密バージョンへ一括適用し、推移依存もoverrideで統一、両側の準備・モジュール検証が成功してから適用、失敗時は以前の依存を維持します。npm処理の待ち時間は合計最大120秒（後始末・ビルドを除く）。オフラインでも以前の同期済みバージョンで起動します。
+- ビルド出力・依存・cacheをOneDriveへ書き戻しません。`npm run dev`も認証済native gateway経由でViteを使います。Next package/config/import/mockと旧builder/checkerは撤去済み。`next-themes`はNext非依存のReact theme部品として維持します。
+- PiはHost起動時に自動更新しません。既定の厳密バージョン（`shared/pi-dependencies.mjs` の `DEFAULT_PI_VERSION`、現在は 1.0.0）をそのまま使います。Backendのmanifest・lock・実体が揃っていることだけを確認し、不一致が残る場合は起動・ビルドを拒否します。
+- 更新は設定画面の「Pi アップデート」から予約します。予約は次回のトレイホスト起動時に適用されます。同期はSDK・AI両パッケージを同じ厳密バージョンへ一括適用し、推移依存もoverrideで統一、Backendの準備・モジュール検証が成功してから適用、失敗時は以前の依存を維持します。npm処理の待ち時間は合計最大120秒（後始末・ビルドを除く）。オフラインでも以前の同期済みバージョンで起動します。
 - 手動同期はHost停止後に `npm run sync:pi`（既定バージョンへ揃える場合は `npm run sync:pi -- --target 1.0.0`、npm `latest` へ上げる場合は `--target` なし）。整合性だけの確認は `npm run sync:pi -- --check`。production mirrorが異なる依存を持つ場合は起動前に再ビルドします。
-- `next build` / `next start` / 旧Next専用gateは本番入口から到達しません。旧builderはreference-test用途に隔離し、直接CLI実行を拒否します。
+- Next package/lock/configとsource/type import・test mockの復活を`framework-free.mjs`で拒否します。元checkoutのテスト/owner manifestも、外部workspaceのcompilerでbuild前に検査します。auth/cookie/compressionの旧挙動は固定golden fixtureで検証し、Nextの再installを必要としません。
 
 トレイメニュー:
 
@@ -523,11 +523,13 @@ npm run check
 
 ## 構成
 
-- `web/` — Next.js UI と BFF
-- `host/` — Next.js の起動・監視・再起動。グラフィカルデスクトップではトレイ常駐（SSH / `LEAFCODE_PI_HEADLESS=1` ではトレイなし）
+- `web/` — Vite/React SPAとtransport-only API source
+- `gateway/` — native HTTP ingress/static serving（SDK/business ownerなし）
+- `backend/` — SDK/session/store/leaseとbusiness handlerの正本
+- `host/` — native gatewayとBackendの起動・監視・再起動。グラフィカルデスクトップではトレイ常駐（SSH / `LEAFCODE_PI_HEADLESS=1` ではトレイなし）
 - `start.bat` / `start.sh` — 導入とホスト起動
-- `scripts/build-web.mjs` — production build の唯一の入口（ソース差分同期 → ローカル依存準備 → `next build` と並列の `tsc --noEmit` → BUILD_ID 検証）
-- `scripts/web-build-mirror.mjs` — 既存のOneDrive外ビルド領域へのソース差分同期
+- `scripts/build-web.mjs` — production paired buildの唯一の入口（immutable snapshot → clean依存準備 → 境界/型検査 → Vite/native compile → runtime再監査 → seal/atomic publication）
+- `scripts/spa-build-generation.mjs` — OneDrive外のworkspace/generation・整合性・rollback管理
 - `extensions/` — Pi 拡張（Goal Loop、memory、subagents など）
 - `docs/` — 実装計画と仕様
 - `translation/` — 推論テキスト翻訳サービス
