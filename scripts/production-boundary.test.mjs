@@ -79,6 +79,46 @@ test("emitted Browser values retain global, alias, reflection and constructor lo
   }
 });
 
+test("global taint survives local parameters, aliases and returned values without allowing escape", () => {
+  for (const source of [
+    'const key = name; function invoke(root) { root[key]("hidden"); } invoke(globalThis);',
+    'const key = name; function invoke(root) { root[key]("hidden"); } invoke((0, globalThis));',
+    'const key = name; function identity(g) { return (0, g); } identity(globalThis)[key]("hidden");',
+    'const key = name; function invoke(root) { root[key]("hidden"); } const g = globalThis; invoke(g);',
+    'const key = name; function forward(root) { return root; } const g = forward(window); g[key]("hidden");',
+    'const key = name; const forward = root => root; const alias = forward; const g = alias(self); g[key]("hidden");',
+    'const key = name; let forward; forward = root => root; const g = forward(globalThis); g[key]("hidden");',
+    'const key = name; function root() { return globalThis; } root()[key]("hidden");',
+    'const key = name; function one(g) { return two(g); } function two(g) { return g; } one(globalThis)[key]("hidden");',
+    'const key = name; const g = (root => root)(globalThis); g[key]("hidden");',
+    'const key = name; function invoke(g = globalThis) { g[key]("hidden"); } invoke();',
+    'const g = globalThis; const holder = {}; holder.root = g;',
+    'const g = globalThis; unknown(g);', 'const g = globalThis; holder.invoke(g);',
+    'function identity(g) { return g; } function factory() { return g => g[key]("hidden"); } let fn = identity; fn = factory(); fn(globalThis);',
+    'function identity(g) { return g; } let fn = identity; fn = unknown; fn(globalThis);',
+    'function entry() { invoke(globalThis); } let invoke; invoke = root => root[key]("hidden"); entry();',
+    'const g = globalThis; const holder = { root: g };', 'const g = globalThis; const values = [g];',
+    'const holder = { root: typeof self === "object" ? self : globalThis };',
+    'function invoke(...args) { args[0][key]("hidden"); } invoke(globalThis);',
+    'function invoke() { arguments[0][key]("hidden"); } invoke(globalThis);',
+    'const g = globalThis; function invoke({ root }) {} invoke({ root: g });',
+    'const g = globalThis; const holder = { root() { return g; } };',
+    'function outer() { return { root() { return globalThis; } }; }',
+  ]) assert.throws(() => dependencyReferences(source, "global-flow.js", undefined, { kind: "browser", bundled: true }), /loader|evaluation/, source);
+  for (const source of [
+    'function focus(w) { w.document.body.focus(); } focus(window);',
+    'const focus = w => w.document.body.focus(); const fn = focus; const root = globalThis; fn(root);',
+    'function identity(w) { return w; } const root = identity(window); root.document;',
+    'const root = (w => w)(window); root.document;',
+    'function getRoot() { return typeof self === "object" ? self : globalThis; } getRoot().document;',
+    'const root = globalThis; if (root && root.document) root.document.body.focus();',
+    'function inspect(g = globalThis) { return g.document; } inspect();',
+    'function identity(g) { return g; } let fn = identity; fn = identity; fn(window).document;',
+    'const root = globalThis; const label = "Window: " + root; switch (root) { default: break; }',
+    'function entry() { focus(window); } let focus; focus = root => root.document.body.focus(); entry();',
+  ]) assert.doesNotThrow(() => dependencyReferences(source, "global-flow.js", undefined, { kind: "browser", bundled: true }), source);
+});
+
 test("destructuring cannot extract constructors or untracked reflection loaders", () => {
   const probes = [
     'const key = ["constr", "uctor"].join(""); const { [key]: run } = () => {}; run("hidden")();',

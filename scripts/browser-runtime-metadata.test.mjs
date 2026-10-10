@@ -27,6 +27,24 @@ test("metadata requires byte-pinned compiler origin, not just an Event or descri
   assert.throws(() => check(mapped(event.code, "var nextBlockedOn = findInstanceBlockingEvent")), /evaluation/);
 });
 
+test("React global transport, private reads and cache gets require byte-pinned compiler provenance", () => {
+  for (const chunk of [
+    mapped('const root = globalThis; const event = { target: root };', 'this.target = nativeEventTarget;'),
+    mapped('const root = globalThis; root[slot];', 'nativeEventTarget[internalPropsKey]'),
+    mapped('const root = globalThis; cache.get(root);', 'CapturedStacks.get(value)'),
+  ]) {
+    assert.doesNotThrow(() => check(chunk));
+    assert.throws(() => check({ ...chunk, map: null }), /source map required/);
+    assert.throws(() => check({ ...chunk, map: { ...chunk.map, sourcesContent: [content + "\n// drift"] } }), /source changed/);
+    for (const source of ["../../node_modules/next-themes/dist/index.mjs", "../../src/spa/copied-react.js"]) {
+      assert.throws(() => check({ ...chunk, map: { ...chunk.map, sources: [source] } }), /loader|evaluation/);
+    }
+  }
+  for (const code of ['const root = globalThis; Reflect.get(root, "eval")("hidden");', 'const root = globalThis; root["eval"]("hidden");', 'new Function("hidden")();']) {
+    assert.throws(() => check(mapped(code, 'CapturedStacks.get(value)')), /loader|evaluation/);
+  }
+});
+
 test("upstream inline/external maps cannot forge compiler identity; comment stripping preserves strings and offsets", () => {
   const directives = ["//# sourceMappingURL=spoof.map", "//@ sourceMappingURL=data:application/json;base64,FAKE", "/*# sourceMappingURL=spoof.map */"];
   for (const directive of directives) {

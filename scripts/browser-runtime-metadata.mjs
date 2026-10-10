@@ -9,6 +9,8 @@ const require = createRequire(resolve(ROOT, "web/package.json"));
 // React 19.1.0: value tracking reads only checked/value; replay clones native Events.
 // extend 3.0.2 reads only an own __proto__ descriptor under its fixed-name guard.
 // These exact upstream bytes, not an arbitrary matching call shape, are trusted.
+// React also transports DOM/window values through callbacks and SyntheticEvents;
+// only its pinned compiler-origin sites may escape the local global-flow model.
 export const BROWSER_METADATA_SOURCES = Object.freeze({
   "react/cjs/react.production.js": "66fdfbcc9c1c7e1c35f8ccf462ea24ead8fba28172ac9d6cbc13a9d6d650094e",
   "react-dom/cjs/react-dom-client.production.js": "2f60615d2504361fadca40064af1b64b3657a85e32fdac09ce22b424dab522c5",
@@ -35,7 +37,7 @@ export function browserSourceWithoutMapDirectives(code, file, ts = require("type
   return code;
 }
 
-/** Private compiler provenance allows only five audited metadata access sites. */
+/** Private compiler provenance for audited metadata sites and fixed React DOM flow. */
 export function browserMetadataVerifier(chunk, ts = require("typescript")) {
   assert.ok(chunk.map, `${chunk.fileName}: Browser metadata source map required`);
   const { TraceMap, originalPositionFor } = require("@jridgewell/trace-mapping");
@@ -53,9 +55,14 @@ export function browserMetadataVerifier(chunk, ts = require("typescript")) {
       if (ts.isCallExpression(node) && node.expression.getText(ast) === "Object.getOwnPropertyDescriptor"
         && node.arguments[0]?.getText(ast) === "node.constructor.prototype" && node.arguments[1]?.getText(ast) === "valueField") allowed.push({ kind: "descriptor", start: node.getStart(ast), end: node.expression.end });
       if (name === "extend/index.js" && ts.isCallExpression(node) && text === "gOPD(obj, name)") allowed.push({ kind: "descriptor", start: node.getStart(ast), end: node.expression.end });
+      // In these fixed React files, .get sites are Map/WeakMap caches (fiber,
+      // resources, captured stacks), not reflection. No external source is exempt.
+      if ((name.startsWith("react/") || name.startsWith("react-dom/")) && ts.isCallExpression(node)
+        && ts.isPropertyAccessExpression(node.expression) && node.expression.name.text === "get"
+        && node.expression.expression.getText(ast) !== "Reflect") allowed.push({ kind: "global-map-get", start: node.getStart(ast), end: node.end });
       ts.forEachChild(node, visit);
     }
-    visit(ast); sites.set(map.resolvedSources[i], { ast, allowed });
+    visit(ast); sites.set(map.resolvedSources[i], { ast, allowed, globalFlow: name.startsWith("react/") || name.startsWith("react-dom/") });
   }
   return (kind, node) => {
     const generated = node.getSourceFile().getLineAndCharacterOfPosition(node.getStart());
@@ -63,6 +70,7 @@ export function browserMetadataVerifier(chunk, ts = require("typescript")) {
     const source = sites.get(original.source);
     if (!source || original.line === null || original.column === null) return false;
     const position = source.ast.getPositionOfLineAndCharacter(original.line - 1, original.column);
+    if (kind === "global-flow" || kind === "global-read") return source.globalFlow && position >= 0 && position < source.ast.end;
     return source.allowed.some(site => site.kind === kind && position >= site.start && position < site.end);
   };
 }

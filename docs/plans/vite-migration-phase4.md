@@ -127,6 +127,16 @@
 - 独立したレビュー工程で差分・許可/拒否条件・テスト・証拠を再照合。for-in/ofの代入pattern漏れとliteral numeric keyの過剰拒否を補修してunitを追加し、最終sourceで上記全検証を再実行した。`review.json`で検証source3ファイルのSHA256と作業treeのbyte一致、対象4ファイルのUTF-8無BOM/LF round-trip、初回失敗log保持を確認する。別セッションへのread-onlyレビュー依頼は応答timeoutで、外部レビュー済みとは主張しない。
 - 今回はP4全体の完了ではなく、destructuring反例の補修。Backend/SDK更新独立性・2世代build/start/rollback・UI/stream matrixはこのターンで再実行しておらず、上記履歴の証拠と区別する。稼働サービスの変更・Pushなし。
 
+## 引継ぎturn 2: local call / return経由のglobal拒否漏れ
+
+- 原因: emitted Browserでglobalをlocal functionへ渡すことを許可していた一方、parameter・return・function aliasを追跡していなかった。`function invoke(root) { root[key](code); } invoke(globalThis)`とidentity helperの返却値は隔離VMでcanaryを実行し、`ba8f91c1`のgateを通った。旧HEADの実vendor production buildもexit 0で、canaryが生成JSに残った（`p4-turn2-validation/baseline-unsafe-build.log`、`state.json`）。
+- 補修: symbol単位のglobal taintをlocal functionのpositional parameter・default parameter・return・function alias・comma expressionへ固定点で伝播する。unknown targetがknown helperと混在しても落とさず拒否する。object/array/rest/unknown callへの未追跡escapeを拒否し、通常のDOM helper・boolean/文字列データ利用は保持する。
+- 初回の厳格化は正常Reactのevent target・Symbol iterator・private DOM slots・callback/Map cacheも拒否した。compiler出力6chunksをprivate Tempへ採取して原因を照合した。string prefixやSymbol名による一般的な許可を試したが最終実装には残していない。正常処理のglobal-flow/global-readとMap/WeakMapのgetだけを、既存のReact 19.1.0固定SHA256＋実compiler originへ限定して保存する。constructor/descriptorの従来5site許可とは別で、任意vendor・copied call形・変更されたReact bytesへの許可ではない。既知loader名・constructor・Reflect getterの拒否は維持する。
+- 回帰: local/global flowの25負例と10正常例、pinned React provenanceの正常/変更/他source/明示eval負例を追加。新`browser-global-flow.integration.test.mjs`はclean installと正常production build後、argument・return・function alias・遅延定義helper・React origin偽装mapの5実vendor負例を拒否し、index/unsafe JSを出力しないことを検証する。raw vendor mapは既存load hookで除去し、mapは公開しない。
+- 最終隔離基準は`ba8f91c1`＋対象5source/testだけ。peerのGoal Loop/provider-overload差分と一時debug helperは含めない。初回の正常build拒否はlog/stateに保持する。`%LOCALAPPDATA%/Temp/p4-turn2-validation/final-state.json`の5コマンドは全exit 0。clean offline ci311 packages、unit26件、SPA型、新gate、正常production build＋実vendor拒否4件が成功（integration173.3秒、合計27テスト）。レビューで、AST上のhelper宣言より前にfunction bodyを走査した場合の固定点更新漏れを確認し、assignments収集の新規辺でも再走査するよう補修した。遅延定義helperの負例/正常例を追加し、`review-rerun-state.json`の最終5コマンドは全exit 0。最終source5件でもclean install・unit26件・型・gate・正常build・5実vendor拒否が成功した（integration249.9秒、合計27テスト）。Browser337/525、gateway166/267・254/486・Undici41、framework9 manifest/lock・2345 sourceを確認。検証5sourceと作業treeのSHA256一致・対象6ファイルのUTF-8無BOM/LFを`review.json`で照合する。
+- 独立したレビュー工程でsymbol候補・unknown混在・global escape・pin/compiler provenanceと負例を再確認した。今回の修正ではconstructor/descriptorの既存許可位置やframework packageを変更していない。Map getの許可は固定React sourceの実call位置だけで、Reflect aliasには適用しない。外部レビュー済みとは主張しない。
+- P4全体の完了ではない。SDK更新/Backend build/2世代/stream matrixは今回再実行しておらず、過去の証拠と区別する。残存する間接loader/function capability経路と7条件の独立再検証を継続する。稼働サービスの変更・Pushなし。
+
 ## 次の確認範囲
 
 P4の残存反例・受入7条件の独立再検証。成立前にPhase5へ進めない。その後にPhase5の確定HEAD隔離受入matrixと独立した総合回帰/運用レビュー。稼働generationの切替・実SDK deployment/update・physical tray/Tailscale/audio・power-lossは別途明示操作と検証が必要。静的な境界と有限fixtureは任意JavaScriptの完全sandbox、same-user攻撃への完全防御を証明しない。
