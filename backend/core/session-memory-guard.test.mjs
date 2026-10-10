@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync, writeSync } from "node:fs";
+import { createHash } from "node:crypto";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { SessionManager } from "@earendil-works/pi-coding-agent";
@@ -57,6 +58,101 @@ test("slims only inactive results, preserves current context verbatim and append
   const after = readFileSync(source);
   assert.deepEqual(after.subarray(0, original.length), original, "existing bytes survive real SDK append");
   assert.equal(SessionManager.open(source).getEntryCount(), full.getEntryCount() + 1);
+  assert.deepEqual(readdirSync(dir), ["session.jsonl"]);
+});
+function sourceDigest(source) {
+  return createHash("sha256").update(readFileSync(source)).digest("hex");
+}
+function largeMessages(role) {
+  const text = "x".repeat(14 * MIB);
+  return Array.from({ length: 5 }, (_, i) => ({
+    ...message(`large-${i}`, i === 0 ? null : `large-${i - 1}`, [{ type: "text", text }]),
+    message: role === "toolResult"
+      ? message(`large-${i}`, null, [{ type: "text", text }]).message
+      : { role, content: text, timestamp: i },
+  }));
+}
+test("automatically compresses inactive conversation when older-tool slimming still exceeds the limit", (t) => {
+  const old = largeMessages("user");
+  const state = { type: "custom", id: "state", parentId: "large-4", customType: "extension-state", data: { enabled: true } };
+  const model = { type: "model_change", id: "model", parentId: "state", provider: "test", modelId: "model-1" };
+  const active = { ...message("current", "model", []), message: { role: "user", content: "current request", timestamp: 6 } };
+  const { source, dir, options } = setup(t, [...old, state, model, active, checkpoint("compact", "current", "current")]);
+  assert.ok(statSync(source).size > MAX_SESSION_LOAD_BYTES);
+  const original = sourceDigest(source);
+  const expected = SessionManager.open(source).buildSessionContext();
+  const manager = openSessionManagerSafely(source, (file, dir) => SessionManager.open(file, dir), options);
+  assert.equal(manager.memorySlimStats.compressionLevel, 1);
+  assert.ok(manager.memorySlimStats.loadedBytes < MAX_SESSION_LOAD_BYTES);
+  assert.deepEqual(manager.buildSessionContext(), expected);
+  assert.deepEqual(manager.getEntry("state"), state, "extension state is preserved even before compaction");
+  assert.match(manager.getEntry("large-0").message.content[0].text, /automatically compacted/);
+  assert.equal(sourceDigest(source), original);
+  const leaf = manager.getLeafId();
+  assert.throws(() => manager.branch("large-0"), { code: "SESSION_FULL_HISTORY_REQUIRED" });
+  assert.throws(() => manager.createBranchedSession(leaf), { code: "SESSION_FULL_HISTORY_REQUIRED" });
+  assert.throws(() => manager._rewriteFile(), { code: "SESSION_FULL_HISTORY_REQUIRED" });
+  assert.equal(manager.getLeafId(), leaf);
+  manager.appendMessage({ role: "user", content: "continue", timestamp: 7 });
+  const reopened = openSessionManagerSafely(source, (file, dir) => SessionManager.open(file, dir), options);
+  assert.equal(reopened.buildSessionContext().messages.at(-1).content, "continue");
+  assert.deepEqual(readdirSync(dir), ["session.jsonl"]);
+});
+test("automatically compacts active tool text as a last resort without dropping images or conversation", (t) => {
+  const tools = largeMessages("toolResult");
+  const user = { ...message("user", "large-4", []), message: { role: "user", content: "keep this request", timestamp: 8 } };
+  const request = { ...message("request", null, []), message: { role: "user", content: "run tools", timestamp: 0 } };
+  const assistant = {
+    ...message("assistant", "request", []),
+    message: { role: "assistant", provider: "test", model: "model-1", timestamp: 1, content: tools.map((tool) => ({ type: "toolCall", id: tool.id, name: "read", arguments: {} })) },
+  };
+  tools[0].parentId = "assistant";
+  tools[0].message.content.push(image("b".repeat(MIB)));
+  const visual = message("visual", "user", [image("a".repeat(MIB))]);
+  const { source, dir, options } = setup(t, [request, assistant, ...tools, user, visual]);
+  const original = sourceDigest(source);
+  const manager = openSessionManagerSafely(source, (file, dir) => SessionManager.open(file, dir), options);
+  assert.equal(manager.memorySlimStats.compressionLevel, 2);
+  assert.ok(manager.memorySlimStats.loadedBytes < MAX_SESSION_LOAD_BYTES);
+  assert.match(manager.getEntry("large-0").message.content[0].text, /tool output automatically compacted/);
+  assert.deepEqual(manager.getEntry("request"), request);
+  assert.deepEqual(manager.getEntry("assistant"), assistant, "tool-call arguments and model attribution are unchanged");
+  assert.deepEqual(manager.getEntry("large-0").message.content[1], tools[0].message.content[1], "images survive in a result whose text was compacted");
+  assert.deepEqual(manager.getEntry("user"), user);
+  assert.deepEqual(manager.getEntry("visual"), visual);
+  assert.equal(manager.getLeafId(), "visual");
+  assert.equal(manager.buildSessionContext().messages.length, 9);
+  assert.equal(sourceDigest(source), original);
+  assert.throws(() => manager.branch("visual"), { code: "SESSION_FULL_HISTORY_REQUIRED" });
+  assert.deepEqual(readdirSync(dir), ["session.jsonl"]);
+});
+test("automatic compression never discards oversized active user messages or swallows retry write failures", (t) => {
+  const { source, dir, options } = setup(t, largeMessages("user"));
+  const original = sourceDigest(source);
+  assert.throws(() => openSessionManagerSafely(source, () => assert.fail("must not open"), options), { code: "SESSION_SLIM_TOO_LARGE" });
+  assert.equal(sourceDigest(source), original);
+  // Four 14 MiB lines are written on each pass before the fifth exceeds the limit.
+  let writtenBytes = 0;
+  assert.throws(() => openSessionManagerSafely(source, () => assert.fail("must not open"), {
+    ...options,
+    write: (fd, buffer, offset, length) => {
+      writtenBytes += length;
+      if (writtenBytes > MAX_SESSION_LOAD_BYTES) throw Object.assign(new Error("disk full on retry"), { code: "ENOSPC" });
+      return writeSync(fd, buffer, offset, length);
+    },
+  }), { code: "ENOSPC" });
+  assert.equal(sourceDigest(source), original);
+  let mutated = false;
+  assert.throws(() => openSessionManagerSafely(source, () => assert.fail("must not open"), {
+    ...options,
+    write: (fd, buffer, offset, length) => {
+      if (!mutated) {
+        mutated = true;
+        writeFileSync(source, "concurrent append\n", { flag: "a" });
+      }
+      return writeSync(fd, buffer, offset, length);
+    },
+  }), { code: "SESSION_CHANGED_DURING_SLIM" });
   assert.deepEqual(readdirSync(dir), ["session.jsonl"]);
 });
 test("refuses excessive ACTIVE images instead of silently deleting current vision input", (t) => {

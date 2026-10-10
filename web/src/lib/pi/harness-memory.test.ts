@@ -54,7 +54,7 @@ function idleLive(root: string, taskId: string, now: number) {
     session: {
       sessionId: `session-${taskId}`, sessionFile: join(root, `${taskId}.jsonl`),
       isStreaming: false, isCompacting: false,
-      sessionManager: { getCwd: () => root },
+      sessionManager: { getCwd: () => root, getBranch: () => [] },
       extensionRunner: { hasHandlers: () => true, emit: vi.fn(async () => {}) },
       dispose: vi.fn(),
     },

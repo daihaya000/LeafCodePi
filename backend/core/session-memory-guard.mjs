@@ -125,8 +125,8 @@ function selectActiveEntries(file) {
   if (retained > MAX_RETAINED_SESSION_IMAGE_CHARS) throw refusal("Active session images exceed the safe memory budget; compact this session before reopening", "SESSION_ACTIVE_IMAGES_TOO_LARGE");
   return { activeIds, retained };
 }
-function slimToolResult(entry, active) {
-  if (active) return entry; // Never alter the current model context.
+function slimToolResult(entry, active, compactActive = false) {
+  if (active && !compactActive) return entry; // Preserve current context unless the stronger fallback is needed.
   const content = contentOf(entry);
   if (!content) return entry;
   let remaining = MAX_RETAINED_TOOL_RESULT_CHARS;
@@ -135,12 +135,14 @@ function slimToolResult(entry, active) {
   let changed = false;
   const next = [];
   for (const part of content) {
-    if (part?.type === "image" && typeof part.data === "string") {
+    if (!active && part?.type === "image" && typeof part.data === "string") {
       omittedImage = true;
       changed = true;
     } else if (part?.type === "text" && typeof part.text === "string" && part.text.length > remaining) {
       if (!omittedText) {
-        const marker = "\n[older tool output omitted in memory; original session file is unchanged]";
+        const marker = active
+          ? "\n[tool output automatically compacted in memory; full output remains in the original session file]"
+          : "\n[older tool output omitted in memory; original session file is unchanged]";
         let head = Math.max(0, remaining - marker.length);
         if (head > 0 && /[\uD800-\uDBFF]/.test(part.text[head - 1])) head -= 1;
         next.push({ ...part, text: `${part.text.slice(0, head)}${marker}` });
@@ -155,6 +157,26 @@ function slimToolResult(entry, active) {
   }
   if (omittedImage) next.push({ type: "text", text: "[older tool-result image omitted in memory; original session file is unchanged]" });
   return changed ? { ...entry, message: { ...entry.message, content: next } } : entry;
+}
+// Only payloads outside the current model context are replaced. Keep tree IDs,
+// model attribution and extension state so appends and runtime restoration remain valid.
+function compactInactiveEntry(entry) {
+  const marker = "[older history automatically compacted in memory; original session file is unchanged]";
+  switch (entry?.type) {
+    case "message":
+      if (!entry.message) return entry;
+      return { ...entry, message: { ...entry.message, content: entry.message.role === "system" ? marker : [{ type: "text", text: marker }], details: undefined } };
+    case "compaction":
+      return { ...entry, summary: marker, systemMessage: undefined, details: undefined };
+    case "branch_summary":
+      return { ...entry, summary: marker, details: undefined };
+    case "custom_message":
+      return { ...entry, content: marker, details: undefined };
+    case "context_edit":
+      return { ...entry, replacement: null };
+    default:
+      return entry;
+  }
 }
 function assertUnchanged(before, after) {
   if (before.size !== after.size || before.mtimeNs !== after.mtimeNs || before.ctimeNs !== after.ctimeNs || before.ino !== after.ino || before.dev !== after.dev) {
@@ -193,7 +215,8 @@ function protectSlimManager(manager, sourceFile, omittedIds) {
     };
   }
 }
-/** Large history is projected only in memory. Source bytes and active context are preserved. */
+/** Large history is projected only in memory. Escalate compression automatically,
+ * preserving source bytes, user/assistant messages in context and active images. */
 export function openSessionManagerSafely(sourceFile, openSession, {
   readMemory = readRuntimeMemory, stat = statSync, tempRoot = tmpdir(), write = writeSync,
 } = {}) {
@@ -220,22 +243,39 @@ export function openSessionManagerSafely(sourceFile, openSession, {
   let fd;
   let loadedBytes = 0;
   try {
-    fd = openSync(slimFile, "wx", 0o600);
-    scanJsonl(sourceFile, (entry) => {
-      const sanitized = slimToolResult(entry, activeIds.has(entry.id));
-      if (sanitized !== entry) omittedIds.add(entry.id);
-      const bytes = Buffer.from(`${JSON.stringify(sanitized)}\n`);
-      loadedBytes += bytes.length;
-      if (loadedBytes > MAX_SESSION_LOAD_BYTES) throw refusal("Session remains too large after omitting old tool results; original file is unchanged", "SESSION_SLIM_TOO_LARGE");
-      let offset = 0;
-      while (offset < bytes.length) {
-        const written = write(fd, bytes, offset, bytes.length - offset);
-        if (!Number.isInteger(written) || written <= 0) throw refusal("Incomplete session projection write", "SESSION_SLIM_WRITE_FAILED", 500);
-        offset += written;
+    let compressionLevel = 0;
+    for (; compressionLevel <= 2; compressionLevel += 1) {
+      omittedIds.clear();
+      loadedBytes = 0;
+      fd = openSync(slimFile, compressionLevel === 0 ? "wx" : "w", 0o600);
+      try {
+        scanJsonl(sourceFile, (entry) => {
+          const active = activeIds.has(entry.id);
+          const sanitized = compressionLevel > 0 && !active
+            ? compactInactiveEntry(entry)
+            : slimToolResult(entry, active, compressionLevel === 2);
+          if (sanitized !== entry) omittedIds.add(entry.id);
+          const bytes = Buffer.from(`${JSON.stringify(sanitized)}\n`);
+          loadedBytes += bytes.length;
+          if (loadedBytes > MAX_SESSION_LOAD_BYTES) throw refusal("Session exceeds the safe load limit even after automatic compression; original file is unchanged", "SESSION_SLIM_TOO_LARGE");
+          let offset = 0;
+          while (offset < bytes.length) {
+            const written = write(fd, bytes, offset, bytes.length - offset);
+            if (!Number.isInteger(written) || written <= 0) throw refusal("Incomplete session projection write", "SESSION_SLIM_WRITE_FAILED", 500);
+            offset += written;
+          }
+        });
+      } catch (error) {
+        if (error.code !== "SESSION_SLIM_TOO_LARGE" || compressionLevel === 2) throw error;
+        assertUnchanged(before, stat(sourceFile, { bigint: true }));
+        assertMemoryHeadroom(MAX_SESSION_LINE_BYTES, readMemory());
+        continue;
+      } finally {
+        closeSync(fd);
+        fd = undefined;
       }
-    });
-    closeSync(fd);
-    fd = undefined;
+      break;
+    }
     assertUnchanged(before, stat(sourceFile, { bigint: true }));
     assertMemoryHeadroom(loadedBytes, readMemory());
     const manager = openSession(slimFile, dirname(sourceFile));
@@ -243,7 +283,7 @@ export function openSessionManagerSafely(sourceFile, openSession, {
     protectSlimManager(manager, sourceFile, omittedIds);
     manager.sessionFile = sourceFile;
     manager.memorySlimmed = true;
-    manager.memorySlimStats = { sourceBytes: Number(before.size), retainedImageChars: retained, loadedBytes };
+    manager.memorySlimStats = { sourceBytes: Number(before.size), retainedImageChars: retained, loadedBytes, compressionLevel };
     return manager;
   } finally {
     try { if (fd !== undefined) closeSync(fd); }
