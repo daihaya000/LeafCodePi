@@ -1,7 +1,7 @@
 "use client";
 
 import { Suspense, useEffect } from "react";
-import { usePathname } from "next/navigation";
+import { usePathname } from "@/platform/navigation";
 import { writeAutoOptimizeMode } from "@/lib/auto-settings";
 import { readComposerDefaults } from "@/lib/composer-defaults";
 import { writeStoredAgent } from "@/lib/default-agent";

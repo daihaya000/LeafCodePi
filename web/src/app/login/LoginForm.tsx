@@ -1,6 +1,6 @@
 "use client";
 
-import { useRouter, useSearchParams } from "next/navigation";
+import { useRouter, useSearchParams } from "@/platform/navigation";
 import { FormEvent, useCallback, useEffect, useState } from "react";
 
 export default function LoginForm({ authFileDisplayPath }: { authFileDisplayPath: string }) {

@@ -1,7 +1,7 @@
 "use client";
 
 import { Fragment, type KeyboardEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter } from "@/platform/navigation";
 import { useComposerDraft } from "@/lib/use-composer-draft";
 import { Users, X } from "lucide-react";
 import { getJson, sendJson } from "@/lib/client";

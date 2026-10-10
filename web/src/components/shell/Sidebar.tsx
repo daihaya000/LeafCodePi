@@ -1,8 +1,8 @@
 "use client";
 
 import { memo, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
-import Link from "next/link";
-import { usePathname, useRouter } from "next/navigation";
+import Link from "@/platform/link";
+import { usePathname, useRouter } from "@/platform/navigation";
 import {
   Activity,
   Archive,

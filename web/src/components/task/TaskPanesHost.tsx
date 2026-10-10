@@ -1,8 +1,8 @@
 "use client";
 
-import dynamic from "next/dynamic";
+import dynamic from "@/platform/dynamic";
 import { PanelRight } from "lucide-react";
-import { usePathname, useSearchParams } from "next/navigation";
+import { usePathname, useSearchParams } from "@/platform/navigation";
 import { useCallback, useEffect, useRef, useState, type DragEvent } from "react";
 import { useGetStatusFor, useReportStatus, useTaskPanesNavigation } from "@/components/shell/TaskPanesContext";
 import { WorkingTasksButton } from "@/components/WorkingTasksButton";

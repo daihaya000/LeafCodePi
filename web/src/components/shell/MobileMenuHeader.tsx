@@ -1,7 +1,7 @@
 "use client";
 
 import { Menu } from "lucide-react";
-import Image from "next/image";
+import Image from "@/platform/image";
 import { HostnameLabel } from "./HostnameContext";
 import { useOptionalShellMobileNav } from "./ShellContext";
 

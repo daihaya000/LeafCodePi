@@ -12,12 +12,10 @@ const nodeBuiltins = new Set(builtinModules.map(name => name.replace(/^node:/, "
 const forbidden = /(?:^node:|^(?:next(?:\/|$)|@earendil-works\/|@backend|@extensions)|(?:^|\/)(?:backend(?:-core)?|host|extensions)\/)/;
 /** Existing presentation stays unchanged; SPA imports use local browser implementations. */
 export function spaBoundary(): Plugin {
-  const replacements: Record<string, string> = { "next/navigation": "navigation.tsx", "next/link": "link.ts", "next/image": "image.ts", "next/dynamic": "dynamic.ts" };
   return {
     name: "spa-browser-boundary", enforce: "pre",
     resolveId(id, importer) {
       if (!importer) return;
-      if (replacements[id]) return resolve(spa, replacements[id]);
       if (nodeBuiltins.has(id) || forbidden.test(id.replaceAll("\\", "/"))) throw new Error(`SPA runtime dependency forbidden: ${id}`);
     },
     generateBundle(_options, bundle) {
@@ -25,7 +23,7 @@ export function spaBoundary(): Plugin {
         if (chunk.type !== "chunk") continue;
         for (const id of Object.keys(chunk.modules)) {
           const path = id.replaceAll("\\", "/");
-          if (/\/node_modules\/(?:next\/|@earendil-works\/)|\/(?:backend|host|extensions)\/|\/web\/src\/app\/api\//.test(path)) throw new Error(`SPA owner/framework module forbidden: ${path}`);
+          if (/\/node_modules\/(?:next\/|@earendil-works\/)|\/(?:backend|host|extensions)\/|\/web\/src\/app\/api\/|\/src\/platform\/(?:navigation|link|image|dynamic)\.ts$/.test(path)) throw new Error(`SPA owner/framework module forbidden: ${path}`);
         }
       }
     },
@@ -33,7 +31,18 @@ export function spaBoundary(): Plugin {
 }
 export default defineConfig({
   root, appType: "spa", envPrefix: [], plugins: [spaBoundary()],
-  resolve: { alias: { "@": resolve(root, "src"), "@shared": resolve(root, "../shared") }, dedupe: ["react", "react-dom"] },
+  resolve: {
+    // Exact neutral bindings precede the generic @ alias. Legacy bridges must
+    // never be visited by SPA builds; bare next/* imports now fail closed.
+    alias: {
+      "@/platform/navigation": resolve(spa, "navigation.tsx"),
+      "@/platform/link": resolve(spa, "link.ts"),
+      "@/platform/image": resolve(spa, "image.ts"),
+      "@/platform/dynamic": resolve(spa, "dynamic.ts"),
+      "@": resolve(root, "src"), "@shared": resolve(root, "../shared"),
+    },
+    dedupe: ["react", "react-dom"],
+  },
   esbuild: { jsx: "automatic" },
   css: { postcss: { plugins: [tailwind()] } },
   build: { outDir: "dist-spa", emptyOutDir: true },

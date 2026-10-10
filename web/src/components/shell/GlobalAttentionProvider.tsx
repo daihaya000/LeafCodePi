@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { usePathname, useRouter } from "next/navigation";
+import { usePathname, useRouter } from "@/platform/navigation";
 import { BellRing } from "lucide-react";
 import { Button, cx } from "@/components/ui";
 import { PermissionAdvice } from "@/components/task/PermissionAdvice";

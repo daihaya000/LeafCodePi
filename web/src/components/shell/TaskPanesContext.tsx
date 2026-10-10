@@ -11,7 +11,7 @@ import {
   useState,
   useSyncExternalStore,
 } from "react";
-import { usePathname } from "next/navigation";
+import { usePathname } from "@/platform/navigation";
 import { setOpenBotTabIds } from "@/lib/open-bot-tabs";
 import {
   createState,

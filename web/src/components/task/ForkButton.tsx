@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useId, useRef, useState } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter } from "@/platform/navigation";
 import { GitBranch } from "lucide-react";
 import { Button } from "@/components/ui";
 import { sendJson } from "@/lib/client";

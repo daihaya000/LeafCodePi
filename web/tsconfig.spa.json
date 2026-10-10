@@ -6,10 +6,10 @@
     "paths": {
       "@/*": ["./src/*"],
       "@shared/*": ["../shared/*"],
-      "next/navigation": ["./src/spa/navigation.tsx"],
-      "next/link": ["./src/spa/link.ts"],
-      "next/image": ["./src/spa/image.ts"],
-      "next/dynamic": ["./src/spa/dynamic.ts"]
+      "@/platform/navigation": ["./src/spa/navigation.tsx"],
+      "@/platform/link": ["./src/spa/link.ts"],
+      "@/platform/image": ["./src/spa/image.ts"],
+      "@/platform/dynamic": ["./src/spa/dynamic.ts"]
     }
   },
   "include": ["src/spa/main.tsx"],

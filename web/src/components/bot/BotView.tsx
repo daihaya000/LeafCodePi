@@ -1,7 +1,7 @@
 "use client";
 
 import { memo, startTransition, type CSSProperties, type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter } from "@/platform/navigation";
 import { useComposerDraft } from "@/lib/use-composer-draft";
 import { Volume2, VolumeX, X } from "lucide-react";
 import Markdown from "react-markdown";

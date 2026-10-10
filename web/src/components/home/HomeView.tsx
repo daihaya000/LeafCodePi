@@ -1,7 +1,7 @@
 "use client";
 
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter } from "@/platform/navigation";
 import { useComposerDraft } from "@/lib/use-composer-draft";
 import { ArrowUp, FolderGit2, GitGraph, PanelRight } from "lucide-react";
 import { AddProjectButton } from "@/components/AddProjectButton";
