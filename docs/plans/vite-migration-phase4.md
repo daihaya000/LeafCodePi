@@ -88,6 +88,25 @@
 - peerのGoal Loop testはRequest移行だけHEAD基準でstageし、35行の意味変更と他の既存差分をコミットに含めない。indexだけをTempへ展開し、peerの3未追跡shared sourceがないことを確認。Nextなしの実clean offline install・両境界/型・stage済Goal/JSON relay63件・Webなし実SDK probeも成功（`p4-index-{review,clean-review}/`）。借用Web dependency symlinkの初回は正しくescape拒否されたため、拒否規則を変更せず実installへ切替。
 - この範囲はP4受入。Phase5の全HTTP/UI/secret matrixの確定HEAD隔離受入を代替しない。
 
+## 独立検証で判明したbundle拒否漏れの補修（turn 6）
+
+- 原因: `dependencyReferences(..., { bundled: true })`がglobal receiver/aliasの検査を省略していた。`9cd3b67a`の隔離clean install後、到達する`next-themes`へ`Reflect.get(globalThis, "eval")`を追加しても実production buildはexit 0で、呼び出しが生成JSに残った。従来のP4完了報告だけでは条件3を満たしていなかった。独立した再現証拠: `%LOCALAPPDATA%/Temp/p4-independent-audit-sMXs7F/`。
+- 補修: emitted Browser値にもglobal receiver・symbol単位のalias・reflection getter alias・連結されたloader名を検査。constructorの一括例外をやめ、prototype metadata/代入/boolean guardとReactのEvent clone形だけに限定した。`@ungap/structured-clone`の動的constructorは、6個の危険型をthrowする正確な2-statement guard形だけを許可し、guard削除・break化・constructor抽出は拒否する。型/first-party/Undiciの既存境界を緩めていない。
+- 新しいunitは23個のbundle loader/eval負例、4個のguard改変負例と8個の正常metadata/DOM例を追加。`browser-bundle-boundary.integration.test.mjs`は実clean offline installと正常build後にvendorへ同じcanaryを注入し、型/first-party gateは通るが実production buildが拒否し、unsafe JSもindexも出力しないことを確認する。canaryをBrowserで実行したり公開したりしない。
+- 最終証拠: `%LOCALAPPDATA%/Temp/p4-bundle-fix-8ZOTG3/`。baseは`9cd3b67a`のarchive、上書きは今回のgate/unit/integrationだけ。peerの差分・未追跡sourceを取り込まない。初回integrationは`NODE_ENV=production`のnpmがdev dependenciesを省略しViteを欠いて失敗したため、fixtureの`ci --include=dev`を明示し、`vendor-eval-rerun.json`/`.log`で再実行exit 0。`state.json`の初回失敗を成功に書き換えていない。
+
+| 条件 | 今回の観測 |
+| --- | --- |
+| 1 Browser value/type | first-party 337/type 525、実production bundleのmodule ID/値監査と新vendor拒否fixture成功。Node/owner/SDKの既存負例も成功 |
+| 2 gateway value/type | 166 routes/267 operations、first-party 254/type 486、Undici 8.10.2の固定41 files。業務/SDK/store/OS capability拒否成功 |
+| 3 erased/dynamic/indirect/eval/link | 既存type-only/dynamic/内外symlink負例、新bundle reflection/alias/constructor負例と実vendor eval拒否成功 |
+| 4 Next撤去 | 9 manifest/lockと2342 sourceを監査。Next/@next/eslint-config-nextの実installなし、canonical native CLIの到達性検査成功 |
+| 5 clean/build/types/gates | clean offline ci 311 packages、SPA型、新gate等35件、Web build/secret/preview18件、2実世代build/seal/start/rollback（501 files・7 URL）、実native browser42 direct/reload/HEAD・2 viewport成功 |
+| 6 Backend/SDK独立 | Webなしfresh Backend buildと実SDK/AgentSession/lease成功。gateway再起動中もPID/generation/session/token/heartbeat維持、結果2回各一度・replay3拒否・外部fetch転送0。更新/rollback32テスト成功。実稼働SDK更新はしていない |
+| 7 撤去順序 | Git履歴で`c3131257`の新gate/build組込み、`bbb5d21f`の外部runtime拒否追加時には旧checkerが残り、`9cd3b67a`で撤去。今回の補修で新たな旧検査削除なし |
+
+- 最終の関連検証は合計89テスト成功（35 unit、18 Web、32 SDK更新、4 integration）。native production browser、Webless SDK、2世代CLIとvendor拒否の各logを確認した。UI/CSS/business処理、Host/Backend deployment、既存・peer差分は変更していない。有限AST検査/fixtureの範囲を、任意JavaScriptの完全sandboxに拡大して主張しない。
+
 ## 次の確認範囲
 
 Phase5の確定HEAD隔離受入matrixと独立した総合回帰/運用レビュー。稼働generationの切替・実SDK deployment/update・physical tray/Tailscale/audio・power-lossは別途明示操作と検証が必要。静的な境界と有限fixtureは任意JavaScriptの完全sandbox、same-user攻撃への完全防御を証明しない。

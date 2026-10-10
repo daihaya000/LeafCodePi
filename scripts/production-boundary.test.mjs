@@ -34,6 +34,39 @@ test("static, erased, mixed and import(type) references are all collected", () =
   assert.deepEqual(edges.map(e => e.specifier), ["./a", "./b", "./c", "./d", "./lazy"]);
 });
 
+test("emitted Browser values retain global, alias, reflection and constructor loader refusals", () => {
+  for (const source of [
+    'Reflect.get(globalThis, "eval")("hidden");', 'Reflect.get(window, "ev" + "al")("hidden");',
+    'Reflect.get({}, process.env.KEY)("hidden");', 'Object.getOwnPropertyDescriptor(globalThis, "eval").value("hidden");',
+    'globalThis["ev" + "al"]("hidden");', 'const g = globalThis; g["ev" + "al"]("hidden");',
+    'let g; g = window; const h = g; Reflect.get(h, "eval")("hidden");',
+    'const g = typeof self === "object" ? self : globalThis; g["ev" + "al"]("hidden");',
+    'Reflect.get(typeof window === "object" ? window : globalThis, "eval")("hidden");',
+    'const { eval: run } = globalThis;', 'const run = (() => {}).constructor; run("hidden");',
+    'const run = value.constructor; run("hidden");', 'value.constructor("hidden");',
+    'new value.constructor("hidden");', 'const run = value["constr" + "uctor"]; run("hidden");',
+    'import(moduleName);', 'const load = require; load("hidden");', 'eval("hidden");',
+    'const read = Reflect.get; read(globalThis, "eval")("hidden");',
+    'const R = Reflect; const g = globalThis; R.get(g, "eval")("hidden");',
+    'const R = globalThis.Reflect; const g = globalThis; R.get(g, key)("hidden");',
+    'const read = Object.getOwnPropertyDescriptor; read(globalThis, "eval").value("hidden");',
+    'const { getOwnPropertyDescriptor: read } = Object; read(globalThis, "eval").value("hidden");',
+  ]) assert.throws(() => dependencyReferences(source, "emitted.js", undefined, { kind: "browser", bundled: true }), /loader|loading|evaluation/, source);
+  for (const source of [
+    'const window = { label: "local" }; Reflect.get(window, "label");',
+    'const root = typeof self === "object" ? self : globalThis; root.document;',
+    'function focus(w) { w.document.body.focus(); } const target = event.view || window; focus(target);',
+    'const ownsFeature = "TextEvent" in window;', 'Widget.prototype.constructor = Widget;',
+    'const prototype = value.constructor && value.constructor.prototype;',
+    'const cloned = new event.constructor(event.type, event);',
+  ]) assert.doesNotThrow(() => dependencyReferences(source, "emitted.js", undefined, { kind: "browser", bundled: true }), source);
+  const clone = 'const root = typeof self === "object" ? self : globalThis; const clone = (key, value) => { switch(key) { case "Function": case "SharedWorker": case "Worker": case "eval": case "setInterval": case "setTimeout": throw new TypeError("unable to deserialize " + key); } return new root[key](value); }; clone("Date", 0);';
+  assert.doesNotThrow(() => dependencyReferences(clone, "emitted.js", undefined, { kind: "browser", bundled: true }));
+  for (const altered of [clone.replace('case "Function":', ''), clone.replace('case "eval":', ''), clone.replace('throw new TypeError("unable to deserialize " + key)', 'break'), clone.replace('return new root[key](value)', 'const ctor = root[key]; return new ctor(value)')]) {
+    assert.throws(() => dependencyReferences(altered, "emitted.js", undefined, { kind: "browser", bundled: true }), /loader/, altered);
+  }
+});
+
 for (const kind of ["browser", "gateway"]) {
   test(`${kind}: literals, type-only and indirect loaders fail closed`, t => {
     const f = fixture(t, kind);

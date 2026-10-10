@@ -28,6 +28,86 @@ export function dependencyReferences(source, file = "boundary.ts", ts = parser()
   const checker = ts.createProgram([ast.fileName], { noLib: true, noResolve: true, allowJs: true }, host).getTypeChecker();
   const isGlobal = node => ts.isIdentifier(node) && globals.has(node.text)
     && !checker.getSymbolAtLocation(node)?.declarations?.some(d => d.getSourceFile() === ast);
+  const unwrap = node => {
+    while (node && (ts.isAsExpression(node) || ts.isParenthesizedExpression(node) || ts.isNonNullExpression(node))) node = node.expression;
+    return node;
+  };
+  const aliases = new Set(), reflectionAliases = new Map();
+  const reflectionKind = node => {
+    node = unwrap(node);
+    if (!node) return;
+    if (ts.isIdentifier(node)) return reflectionAliases.get(checker.getSymbolAtLocation(node));
+    if (ts.isPropertyAccessExpression(node)) {
+      if (node.name.text === "getOwnPropertyDescriptor") return "descriptor";
+      if (node.getText(ast) === "Reflect.get") return "get";
+    }
+  };
+  const globalValue = node => {
+    node = unwrap(node);
+    return node && (isGlobal(node) || ts.isIdentifier(node) && aliases.has(checker.getSymbolAtLocation(node))
+      || ts.isConditionalExpression(node) && (globalValue(node.whenTrue) || globalValue(node.whenFalse))
+      || ts.isBinaryExpression(node) && [ts.SyntaxKind.BarBarToken, ts.SyntaxKind.AmpersandAmpersandToken, ts.SyntaxKind.QuestionQuestionToken].includes(node.operatorToken.kind) && (globalValue(node.left) || globalValue(node.right)));
+  };
+  // Rollup/vendor DOM fallbacks can bind window/self/globalThis. Track their symbols,
+  // rather than exempting all global receiver/alias checks in emitted values.
+  {
+    let changed;
+    do {
+      changed = false;
+      const bind = node => {
+        const name = ts.isVariableDeclaration(node) ? node.name : ts.isBinaryExpression(node) && node.operatorToken.kind === ts.SyntaxKind.EqualsToken ? node.left : null;
+        const value = ts.isVariableDeclaration(node) ? node.initializer : node.right;
+        if (name && ts.isIdentifier(name)) {
+          const symbol = checker.getSymbolAtLocation(name), reflected = reflectionKind(value);
+          if (symbol && bundled && globalValue(value) && !aliases.has(symbol)) { aliases.add(symbol); changed = true; }
+          if (symbol && reflected && (!reflectionAliases.has(symbol) || reflectionAliases.get(symbol) === "descriptor" && reflected === "get")) { reflectionAliases.set(symbol, reflected); changed = true; }
+        }
+        if (ts.isBindingElement(node) && (node.propertyName ?? node.name).getText(ast) === "getOwnPropertyDescriptor" && ts.isIdentifier(node.name)) {
+          const symbol = checker.getSymbolAtLocation(node.name);
+          if (symbol && !reflectionAliases.has(symbol)) { reflectionAliases.set(symbol, "descriptor"); changed = true; }
+        }
+        ts.forEachChild(node, bind);
+      };
+      bind(ast);
+    } while (changed);
+  }
+  const staticString = node => {
+    node = unwrap(node);
+    if (node && ts.isStringLiteralLike(node)) return node.text;
+    if (node && ts.isBinaryExpression(node) && node.operatorToken.kind === ts.SyntaxKind.PlusToken) {
+      const left = staticString(node.left), right = staticString(node.right);
+      if (left !== undefined && right !== undefined) return left + right;
+    }
+  };
+  function constructorMetadata(node) {
+    if (!bundled) return false;
+    const parent = node.parent;
+    if (ts.isPropertyAccessExpression(parent) && parent.expression === node && parent.name.text === "prototype") return true;
+    if (ts.isBinaryExpression(parent) && parent.left === node && [ts.SyntaxKind.EqualsToken, ts.SyntaxKind.AmpersandAmpersandToken].includes(parent.operatorToken.kind)) return true;
+    // React DOM clones an Event with its own type and the Event init object.
+    // This is not permission to extract/call an arbitrary constructor as a loader.
+    return ts.isNewExpression(parent) && parent.expression === node && ts.isIdentifier(node.expression)
+      && parent.arguments?.length === 2 && ts.isPropertyAccessExpression(parent.arguments[0])
+      && parent.arguments[0].name.text === "type" && parent.arguments[0].expression.getText(ast) === node.expression.getText(ast)
+      && parent.arguments[1].getText(ast) === node.expression.getText(ast);
+  }
+  function guardedCloneConstructor(node) {
+    if (!bundled || !ts.isNewExpression(node.parent) || node.parent.expression !== node || node.parent.arguments?.length !== 1) return false;
+    const returned = node.parent.parent, body = returned.parent, fn = body.parent;
+    if (!ts.isReturnStatement(returned) || !ts.isBlock(body) || !(ts.isArrowFunction(fn) || ts.isFunctionExpression(fn))
+      || fn.parameters.length !== 2 || body.statements.length !== 2 || !ts.isSwitchStatement(body.statements[0])) return false;
+    const [key, value] = fn.parameters.map(parameter => parameter.name.getText(ast)), guard = body.statements[0];
+    if (node.argumentExpression.getText(ast) !== key || node.parent.arguments[0].getText(ast) !== value || guard.expression.getText(ast) !== key) return false;
+    const cases = guard.caseBlock.clauses;
+    const blocked = ["Function", "SharedWorker", "Worker", "eval", "setInterval", "setTimeout"];
+    return cases.length === blocked.length && cases.every((clause, index) => ts.isCaseClause(clause)
+      && staticString(clause.expression) === blocked[index] && (index < cases.length - 1 ? clause.statements.length === 0
+        : clause.statements.length === 1 && ts.isThrowStatement(clause.statements[0])
+          && ts.isNewExpression(clause.statements[0].expression) && clause.statements[0].expression.expression.getText(ast) === "TypeError"));
+  }
+  // @ungap/structured-clone probes a type, then uses the exact guarded constructor above.
+  // typeof alone does not expose a callable; arbitrary extraction/altered guards still fail.
+  const computedMetadata = node => bundled && (ts.isTypeOfExpression(node.parent) || guardedCloneConstructor(node));
   const references = [];
   function add(node, typeOnly = false) {
     assert.ok(node && ts.isStringLiteralLike(node), `${file}: nonliteral module loading is forbidden`);
@@ -51,16 +131,43 @@ export function dependencyReferences(source, file = "boundary.ts", ts = parser()
     if (!inType) {
       if (kind === "gateway" && ts.isIdentifier(node) && (mutations.has(node.text) || norm(file).endsWith("gateway/src/static.mjs") && node.text === "write")) fail(file, `store/filesystem mutation forbidden: ${node.text}`);
       if (ts.isBindingElement(node) && node.propertyName?.getText(ast) === "constructor") fail(file, "constructor code evaluation alias forbidden");
+      if (ts.isIdentifier(node) && node.text === "Reflect" && !checker.getSymbolAtLocation(node)?.declarations?.some(d => d.getSourceFile() === ast)) {
+        const parent = node.parent;
+        assert.ok(ts.isPropertyAccessExpression(parent) || ts.isTypeOfExpression(parent), `${file}: reflected loader namespace alias forbidden`);
+      }
       if (ts.isIdentifier(node) && loaders.has(node.text)) fail(file, `indirect loader/code evaluation forbidden: ${node.text}`);
-      if (ts.isPropertyAccessExpression(node) && (loaders.has(node.name.text) || !bundled && node.name.text === "constructor" || node.getText(ast).startsWith("import.meta.glob"))) fail(file, "indirect loader/code evaluation forbidden");
-      if (ts.isElementAccessExpression(node) && (ts.isStringLiteralLike(node.argumentExpression) && (loaders.has(node.argumentExpression.text) || !bundled && node.argumentExpression.text === "constructor") || !bundled && isGlobal(node.expression))) fail(file, "computed loader/global access forbidden");
-      if (!bundled && isGlobal(node)) {
+      if (ts.isPropertyAccessExpression(node) && (loaders.has(node.name.text) || node.name.text === "constructor" && !constructorMetadata(node) || node.getText(ast).startsWith("import.meta.glob"))) fail(file, "indirect loader/code evaluation forbidden");
+      if (ts.isElementAccessExpression(node) && (loaders.has(staticString(node.argumentExpression)) || staticString(node.argumentExpression) === "constructor" || globalValue(node.expression) && !computedMetadata(node))) fail(file, `computed loader/global access forbidden: ${node.getText(ast).slice(0,100)}`);
+      if (reflectionKind(node)) {
+        const parent = node.parent;
+        assert.ok(ts.isCallExpression(parent) && parent.expression === node || ts.isVariableDeclaration(parent)
+          || ts.isBindingElement(parent) || ts.isBinaryExpression(parent) && parent.operatorToken.kind === ts.SyntaxKind.EqualsToken
+          || ts.isTypeOfExpression(parent) || ts.isIfStatement(parent) && parent.expression === node
+          || ts.isConditionalExpression(parent) && parent.condition === node || ts.isPrefixUnaryExpression(parent) && parent.operator === ts.SyntaxKind.ExclamationToken
+          || ts.isBinaryExpression(parent) && parent.operatorToken.kind === ts.SyntaxKind.AmpersandAmpersandToken,
+        `${file}: reflected loader alias escape forbidden: ${parent.getText(ast).slice(0,100)}`);
+      }
+      if (ts.isCallExpression(node) && (reflectionKind(node.expression)
+        || ts.isPropertyAccessExpression(node.expression) && node.expression.name.text === "get" && globalValue(node.arguments[0]))) {
+        const key = staticString(node.arguments[1]);
+        const descriptor = reflectionKind(node.expression) === "descriptor";
+        assert.ok((descriptor || key !== undefined) && !loaders.has(key) && key !== "constructor" && !globalValue(node.arguments[0]), `${file}: reflected loader/global access forbidden: ${node.expression.getText(ast)}`);
+      }
+      if (isGlobal(node)) {
         let receiver = node;
         while (ts.isAsExpression(receiver.parent) || ts.isParenthesizedExpression(receiver.parent) || ts.isNonNullExpression(receiver.parent)) receiver = receiver.parent;
-        const direct = ts.isPropertyAccessExpression(receiver.parent) && receiver.parent.expression === receiver;
+        const direct = (ts.isPropertyAccessExpression(receiver.parent) || ts.isElementAccessExpression(receiver.parent) && computedMetadata(receiver.parent)) && receiver.parent.expression === receiver;
         const typeOf = ts.isTypeOfExpression(receiver.parent);
         const named = node.parent.name === node && !ts.isShorthandPropertyAssignment(node.parent);
-        assert.ok(direct || typeOf || named, `${file}: global loader alias/destructuring forbidden`);
+        const parent = receiver.parent;
+        const flow = bundled && (ts.isVariableDeclaration(parent) && parent.initializer === receiver
+          || ts.isReturnStatement(parent) || ts.isConditionalExpression(parent)
+          || ts.isBinaryExpression(parent) && [ts.SyntaxKind.BarBarToken, ts.SyntaxKind.AmpersandAmpersandToken, ts.SyntaxKind.QuestionQuestionToken, ts.SyntaxKind.EqualsToken, ts.SyntaxKind.InKeyword, ts.SyntaxKind.EqualsEqualsToken, ts.SyntaxKind.EqualsEqualsEqualsToken, ts.SyntaxKind.ExclamationEqualsToken, ts.SyntaxKind.ExclamationEqualsEqualsToken].includes(parent.operatorToken.kind)
+          || ts.isPrefixUnaryExpression(parent) && parent.operator === ts.SyntaxKind.ExclamationToken);
+        // Bound local DOM helpers may receive a window; unbound reflection/loaders may not.
+        const localCall = bundled && ts.isCallExpression(parent) && ts.isIdentifier(parent.expression)
+          && checker.getSymbolAtLocation(parent.expression)?.declarations?.some(d => d.getSourceFile() === ast);
+        assert.ok(direct || typeOf || named || flow || localCall, `${file}: global loader alias/destructuring forbidden: ${parent.getText(ast).slice(0,100)}`);
       }
       if (!bundled && kind === "browser" && ts.isIdentifier(node) && node.text === "process") {
         let parent = node; while (ts.isPropertyAccessExpression(parent.parent) && parent.parent.expression === parent) parent = parent.parent;
