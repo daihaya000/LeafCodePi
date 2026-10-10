@@ -36,6 +36,8 @@ let hydration: Promise<void> | null = null;
 let refreshing: Promise<void> | null = null;
 /** このタブでのユーザー起点のサーバ書き込み番号（取得中に変更された値を古いスナップショットで戻さないため）。 */
 let localWriteSeq = 0;
+let requestSeq = 0;
+let appliedRequestSeq = 0;
 
 function nextLocalWriteSeq(): number {
   localWriteSeq += 1;
@@ -84,19 +86,30 @@ export function primeServerSettings(values: SettingsSnapshot): void {
 }
 
 async function fetchAndApply(): Promise<void> {
-  const seq = localWriteSeq;
+  const seq = localWriteSeq, request = ++requestSeq;
   const data = await getJson<{ values?: SettingsSnapshot }>("/api/settings", undefined, { coalesce: false });
-  applyAll(data?.values, seq);
+  const values = data?.values;
+  if (!values || typeof values !== "object" || Array.isArray(values) || Object.entries(values).some(([key, value]) =>
+    ["__proto__", "constructor", "prototype"].includes(key) || value !== null && typeof value !== "string")) {
+    throw new Error("Invalid settings snapshot");
+  }
+  if (request < appliedRequestSeq) return;
+  appliedRequestSeq = request;
+  applyAll(values, seq);
 }
 
 /** `/api/settings` を一括取得して登録済み設定へ反映する。起動ごとに1回（失敗時は次回再試行）。 */
-export function hydrateServerSettings(): Promise<void> {
+export function ensureServerSettingsHydrated(): Promise<void> {
   if (typeof window === "undefined") return Promise.resolve();
   hydration ??= fetchAndApply().catch((err) => {
     hydration = null;
-    console.warn("settings hydrate failed", err);
+    throw err;
   });
   return hydration;
+}
+
+export function hydrateServerSettings(): Promise<void> {
+  return ensureServerSettingsHydrated().catch((err) => console.warn("settings hydrate failed", err));
 }
 
 /** 他PCでの変更を取り込むため再取得する（タブ復帰時など）。同時実行は1つに束ねる。 */
@@ -117,6 +130,8 @@ export function resetServerSettingsHydration(): void {
   snapshotSeq = 0;
   hydration = null;
   refreshing = null;
+  requestSeq = 0;
+  appliedRequestSeq = 0;
 }
 
 /** 取込前に既存の保存キューを待ち、成功後は旧 pending 値の再送を止める。 */

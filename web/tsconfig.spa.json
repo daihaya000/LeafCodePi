@@ -1,0 +1,17 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "incremental": false,
+    "plugins": [],
+    "paths": {
+      "@/*": ["./src/*"],
+      "@shared/*": ["../shared/*"],
+      "next/navigation": ["./src/spa/navigation.tsx"],
+      "next/link": ["./src/spa/link.ts"],
+      "next/image": ["./src/spa/image.ts"],
+      "next/dynamic": ["./src/spa/dynamic.ts"]
+    }
+  },
+  "include": ["src/spa/main.tsx"],
+  "exclude": ["node_modules", "**/*.test.*"]
+}

@@ -12,7 +12,11 @@
     "check:transport": "node ../scripts/check-next-transport-boundary.mjs",
     "check:ui": "node ../scripts/check-next-ui-boundary.mjs",
     "check:entries": "node ../scripts/check-next-entry-boundary.mjs",
-    "test": "vitest run"
+    "test": "vitest run",
+    "dev:spa": "vite --config vite.config.ts",
+    "build:spa": "vite build --config vite.config.ts",
+    "preview:spa": "vite preview --config vite.config.ts",
+    "typecheck:spa": "tsc -p tsconfig.spa.json"
   },
   "dependencies": {
     "lucide-react": "^1.24.0",
@@ -35,7 +39,8 @@
     "happy-dom": "^20.11.6",
     "tailwindcss": "^4",
     "typescript": "^5",
-    "vitest": "3.2.7"
+    "vitest": "3.2.7",
+    "vite": "7.3.6"
   },
   "overrides": {
     "next": {
