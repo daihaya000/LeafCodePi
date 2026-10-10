@@ -12,6 +12,7 @@ import { runNotificationContracts } from "./spa-notification-contract.mjs";
 import { runPaneContracts } from "./spa-panes-contract.mjs";
 import { runPointerContracts } from "./spa-pointer-contract.mjs";
 import { runOAuthContracts } from "./spa-oauth-contract.mjs";
+import { runStateContracts } from "./spa-state-contract.mjs";
 import { seedMissingBrowserSettings } from "./spa-browser-storage.mjs";
 import { assertNoCanary, auditCanaryResponses, canaryProbePlugin, createSecretCanaries, scanCanaryArtifacts, withCanaryEnvironment } from "./spa-secret-canary.mjs";
 const ROOT = resolve(fileURLToPath(new URL("../", import.meta.url))), web = join(ROOT, "web");
@@ -263,6 +264,8 @@ try {
   assertNoCanary(state.pointerEvidence, canaries.entries, "all pointer interaction records"); save();
   state.oauthEvidence = await runOAuthContracts({ pageFor, ready, checked, fixture, spaOrigin, nextOrigin });
   assertNoCanary(state.oauthEvidence, canaries.entries, "all provider OAuth interaction records"); save();
+  state.storageEvidence = await runStateContracts({ pageFor, ready, checked, fixture, spaOrigin, nextOrigin });
+  assertNoCanary(state.storageEvidence, canaries.entries, "all draft/theme/storage interaction records"); save();
   await checked("SPA reachable env probe, seven-route browser sinks and dotenv HTTP denial", async () => {
     const { page, context } = await pageFor(auditOrigin, { width: 390, height: 844 });
     for (const path of paths) {

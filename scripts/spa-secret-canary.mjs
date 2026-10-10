@@ -79,7 +79,7 @@ export function auditCanaryResponses(context, entries, onError) {
       assert.ok(response, "Finished request must have a response");
       if (response.headers()["content-type"]?.includes("text/event-stream")) return;
       assertNoCanary(await response.body(), entries, "browser response body"); completed++;
-    }).catch(error => onError(`Browser response audit failed: ${error.message}`)));
+    }).catch(error => onError(`Browser response audit failed (${request.resourceType()} ${new URL(request.url()).pathname}): ${error.message}`)));
   };
   context.on("response", onResponse); context.on("requestfinished", onFinished);
   return async (stop = false) => {
