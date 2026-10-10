@@ -1,10 +1,12 @@
 import { createServer } from "node:http";
+import { readWebUiPresentation } from "../shared/webui-presentation.mjs";
 export const settings = { "composer-defaults": JSON.stringify({ model: "auto", autoOptimize: "cost", agent: "default", thinkingLevel: "high" }), "task-pane-prefer-new": "0" };
 const at = "2026-01-01T00:00:00.000Z";
 export const tasks = ["task-a", "task-b"].map((id, i) => ({ id, kind: "code", projectId: null, projectName: "", title: `Fixture task ${i + 1}`, directory: "/fixture", isolation: "current_folder", status: "idle", sessionId: id, sessionFile: null, createdAt: at, updatedAt: at }));
 export const bot = { id: "bot-a", name: "Fixture Bot", label: "Fixture", soul: "", avatarColor: "#0071E3", avatarImage: null, model: null, thinkingLevel: "off", permissionMode: null, skills: { mode: "inherit", include: [], exclude: [] }, tools: [], extraRoots: [], enabled: true, notificationsEnabled: false, codeAutoApprove: false, createdAt: at, updatedAt: at };
 export const room = { id: "room-a", name: "Fixture Room", members: [bot.id], botRelayEnabled: false, codeAutoApprove: false, messages: [], createdAt: at, updatedAt: at };
-export async function startFixture() {
+export async function startFixture({ dataDir } = {}) {
+  const presentation = readWebUiPresentation(dataDir);
   const log = [], streams = new Set();
   const server = createServer(async (request, response) => {
     const url = new URL(request.url, "http://fixture"), path = url.pathname;
@@ -26,6 +28,7 @@ export async function startFixture() {
       }
       return;
     }
+    if (path === "/webui-bootstrap.json") return json(presentation);
     if (path === "/api/settings") return json({ values: settings });
     if (path === "/api/peer-auth/peers") return json({ enabled: false, authRequired: false, grants: [] });
     if (path === "/api/llama-server/status") return json({ running: false, pid: null, listeningPids: [], health: null });
@@ -62,6 +65,6 @@ export async function startFixture() {
     return json({ error: "Fixture owner unavailable" }, 503);
   });
   await new Promise(resolve => server.listen(0, "127.0.0.1", resolve));
-  return { origin: `http://127.0.0.1:${server.address().port}`, log, streams,
+  return { origin: `http://127.0.0.1:${server.address().port}`, presentation, log, streams,
     close: async () => { for (const stream of streams) stream.end(); server.closeAllConnections(); await new Promise(resolve => server.close(resolve)); } };
 }

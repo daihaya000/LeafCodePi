@@ -1,0 +1,31 @@
+import assert from "node:assert/strict";
+import { hostname } from "node:os";
+import test from "node:test";
+import { createGatewayServer } from "./server.mjs";
+import { displayLeafcodePiDataPath } from "../../shared/display-data-path.mjs";
+
+test("public display bootstrap preserves the legacy metadata without opening siblings or business APIs", async t => {
+  const names = ["LEAFCODE_PI_WEBUI_AUTH", "LEAFCODE_PI_WEBUI_TOKEN", "LEAFCODE_PI_DATA_DIR"];
+  const previous = names.map(name => process.env[name]);
+  t.after(() => names.forEach((name, i) => { if (previous[i] === undefined) delete process.env[name]; else process.env[name] = previous[i]; }));
+  process.env.LEAFCODE_PI_WEBUI_AUTH = "required";
+  process.env.LEAFCODE_PI_WEBUI_TOKEN = "dummy-owner-secret-not-for-display";
+  process.env.LEAFCODE_PI_DATA_DIR = "/fixture-display-only";
+  const server = createGatewayServer([], { hostname: "127.0.0.1" });
+  await new Promise(resolve => server.listen(0, "127.0.0.1", resolve));
+  t.after(async () => { server.closeAllConnections(); await new Promise(resolve => server.close(resolve)); });
+  const origin = `http://127.0.0.1:${server.address().port}`;
+  const response = await fetch(origin + "/webui-bootstrap.json?fixture=1", { headers: { host: "browser-alias.invalid", "x-forwarded-host": "not-the-server.invalid" } });
+  assert.equal(response.status, 200); assert.equal(response.headers.get("cache-control"), "no-store");
+  assert.equal(response.headers.has("access-control-allow-origin"), false);
+  assert.equal(response.headers.has("set-cookie"), false);
+  const body = await response.text(); assert.equal(body.includes("dummy-owner-secret-not-for-display"), false);
+  assert.deepEqual(JSON.parse(body), { hostname: hostname(), authFileDisplayPath: displayLeafcodePiDataPath("webui-auth.json") });
+  const approved = await fetch(origin + "/webui-bootstrap.json", { headers: { cookie: "leafcode-pi-token=dummy-owner-secret-not-for-display" } });
+  assert.equal(await approved.text(), body);
+  const head = await fetch(origin + "/webui-bootstrap.json", { method: "HEAD" }); assert.equal(head.status, 200); assert.equal(await head.text(), "");
+  const options = await fetch(origin + "/webui-bootstrap.json", { method: "OPTIONS" }); assert.equal(options.status, 204); assert.equal(options.headers.get("allow"), "GET, HEAD, OPTIONS");
+  assert.equal((await fetch(origin + "/webui-bootstrap.json", { method: "POST" })).status, 405);
+  assert.equal((await fetch(origin + "/api/protected")).status, 401);
+  const sibling = await fetch(origin + "/webui-bootstrap.json-extra", { redirect: "manual" }); assert.equal(sibling.status, 307); assert.match(sibling.headers.get("location"), /\/login\?next=/);
+});

@@ -42,10 +42,6 @@ async function prepareReference(origin) {
   writeFileSync(join(reference, "next.config.mjs"), `export default { typescript: { ignoreBuildErrors: true }, experimental: { optimizePackageImports: ['lucide-react'], cpus: 2 }, async rewrites(){ return [{source:'/api/:path*',destination:${JSON.stringify(origin)}+'/api/:path*'}]; } };`);
   const layout = join(reference, "src/app/(app)/layout.tsx");
   writeFileSync(layout, `import {MainLayoutClient} from '@/components/shell/MainLayoutClient'; export default function Layout({children}:{children:React.ReactNode}){return <MainLayoutClient initialSettings={${JSON.stringify(settings)}}>{children}</MainLayoutClient>;}`);
-  const rootLayout = join(reference, "src/app/layout.tsx");
-  writeFileSync(rootLayout, readFileSync(rootLayout, "utf8").replaceAll("hostname()", '"127.0.0.1"'));
-  const login = join(reference, "src/app/login/page.tsx");
-  writeFileSync(login, readFileSync(login, "utf8").replace('displayLeafcodePiDataPath("webui-auth.json")', '"webui-auth.json"'));
   const env = Object.fromEntries(Object.entries(process.env).filter(([name]) => /^(PATH|Path|SystemRoot|SYSTEMROOT|WINDIR|TEMP|TMP|LOCALAPPDATA|APPDATA|USERPROFILE|HOME|COMSPEC|PATHEXT|NUMBER_OF_PROCESSORS)$/.test(name)));
   Object.assign(env, { NODE_ENV: "production", NEXT_TELEMETRY_DISABLED: "1", LEAFCODE_PI_DATA_DIR: join(output, "data") });
   const cli = require.resolve("next/dist/bin/next"); await run([cli, "build", "--webpack", reference], reference, env);
@@ -89,7 +85,7 @@ async function pageFor(origin, viewport, seed = {}) {
       assertNoCanary(snapshot, canaries.entries, "browser DOM/env/storage");
     }
     assertNoCanary(await context.cookies(), canaries.entries, "browser cookies");
-    responseCount += await flushResponses();
+    responseCount += await flushResponses(true);
     await close();
   };
   const page = await context.newPage();
@@ -102,19 +98,21 @@ async function ready(page, path) {
   else if (path.startsWith("/bots/rooms/")) await page.locator('[aria-label="メンバー 1人"]').waitFor({ timeout: 20000 });
   else if (path.startsWith("/task/")) await page.getByRole("heading", { name: "Fixture task 1", exact: true }).waitFor({ timeout: 20000 });
   else { await page.locator("textarea").first().waitFor({ state: "attached", timeout: 20000 }).catch(async () => { await page.getByText("エンジン", { exact: true }).first().waitFor({ timeout: 20000 }); }); }
+  await page.waitForFunction(hostname => document.title.replace(/^\(\d+\) /, "") === `LCP ${hostname}`, fixture.presentation.hostname);
+  if (path.startsWith("/login")) await page.locator("code").filter({ hasText: fixture.presentation.authFileDisplayPath }).waitFor();
   await delay(450);
 }
 async function visual(page) {
   return page.evaluate(() => {
     const visible = element => { const box = element.getBoundingClientRect(); const style = getComputedStyle(element); return box.width > 0 && box.height > 0 && style.visibility !== "hidden" && style.display !== "none" && box.bottom > 0 && box.top < innerHeight; };
-    return [...document.querySelectorAll("button,input,textarea,h1,h2,img")].filter(visible).map(element => {
+    return [...document.querySelectorAll("button,input,textarea,h1,h2,img,span[title],code")].filter(visible).map(element => {
       const box = element.getBoundingClientRect(), style = getComputedStyle(element);
       return { tag: element.tagName, text: element.textContent?.trim().replace(/\s+/g, " "), label: element.getAttribute("aria-label"), placeholder: element.getAttribute("placeholder"), x: Math.round(box.x), y: Math.round(box.y), width: Math.round(box.width), height: Math.round(box.height), color: style.color, background: style.backgroundColor, font: style.font, borderRadius: style.borderRadius };
     });
   });
 }
 try {
-  fixture = await startFixture();
+  fixture = await startFixture({ dataDir: join(output, "data") });
   await checked("SPA default production and reachable-env/source-map canary artifacts", async () => {
     await withCanaryEnvironment(canaries, async () => {
       const loaded = loadEnv("production", envDir, "");
@@ -130,7 +128,7 @@ try {
     assert.ok(audit.maps > 0, "Canary audit must inspect actual source maps");
     state.canaryArtifacts = { production, audit };
   });
-  const previewOptions = outDir => ({ configFile: join(web, "vite.config.ts"), envDir, logLevel: "silent", build: { outDir }, preview: { host: "127.0.0.1", port: 0, proxy: { "/api": { target: fixture.origin, changeOrigin: false } } } });
+  const previewOptions = outDir => ({ configFile: join(web, "vite.config.ts"), envDir, logLevel: "silent", build: { outDir }, preview: { host: "127.0.0.1", port: 0, proxy: { "/api": { target: fixture.origin, changeOrigin: false }, "^/webui-bootstrap\\.json(?:\\?|$)": { target: fixture.origin, changeOrigin: false } } } });
   spa = await preview(previewOptions(join(output, "spa")));
   auditSpa = await preview(previewOptions(join(output, "spa-audit")));
   const spaOrigin = `http://127.0.0.1:${spa.httpServer.address().port}`, auditOrigin = `http://127.0.0.1:${auditSpa.httpServer.address().port}`;
@@ -145,7 +143,7 @@ try {
         const { page, context } = await pageFor(origin, viewport);
         await page.goto(origin + path + "?fixture=1", { waitUntil: "domcontentloaded" }); await ready(page, path);
         assert.equal(new URL(page.url()).pathname, path);
-        observations.push(await visual(page));
+        observations.push({ title: await page.title(), items: await visual(page) });
         const filename = `${kind}-${size}-${path.replaceAll("/", "_") || "home"}.png`; await page.screenshot({ path: join(output, filename), animations: "disabled" }); screenshots.push(filename);
         await page.reload({ waitUntil: "domcontentloaded" }); await ready(page, path); assert.equal(new URL(page.url()).pathname, path);
         const overflow = await page.evaluate(() => document.documentElement.scrollWidth > innerWidth); assert.equal(overflow, false, `${kind} ${path} overflows`);
@@ -204,6 +202,43 @@ try {
     const callback = fixture.log.find(item => item.path.endsWith("/login/callback"));
     assert.equal(callback?.body.sessionId, "fixture-login"); assert.equal(callback?.body.input, spaOrigin + "/fixture-callback?code=fixture-code&state=fixture-state");
     await panel.getByText("ログイン完了", { exact: true }).waitFor();
+    await context.close();
+  });
+  await checked("SPA metadata failure/retry keeps saved-setting writers unmounted", async () => {
+    const { page, context } = await pageFor(spaOrigin, { width: 390, height: 844 }); const start = fixture.log.length;
+    let failed = false;
+    await context.route("**/webui-bootstrap.json", route => {
+      if (!failed) { failed = true; return route.fulfill({ status: 503, contentType: "application/json", body: '{"error":"private dummy metadata failure"}' }); }
+      return route.fallback();
+    });
+    await page.goto(spaOrigin + "/settings?q=metadata#models");
+    await page.getByRole("alert").waitFor();
+    assert.equal(await page.getByText("private dummy metadata failure", { exact: true }).count(), 0);
+    assert.equal(fixture.log.slice(start).some(item => item.path.startsWith("/api/settings")), false);
+    await page.getByRole("button", { name: "再試行", exact: true }).click(); await ready(page, "/settings");
+    assert.equal(fixture.log.slice(start).filter(item => item.path === "/webui-bootstrap.json").length, 1);
+    await context.close();
+  });
+  await checked("SPA Login fragment and destination survive delayed public metadata", async () => {
+    const { page, context } = await pageFor(spaOrigin, { width: 390, height: 844 }); const start = fixture.log.length;
+    let release, seen; const allowed = new Promise(resolve => { release = resolve; }), requested = new Promise(resolve => { seen = resolve; });
+    await context.route("**/webui-bootstrap.json", async route => { seen(); await allowed; await route.fallback(); });
+    await page.goto(spaOrigin + "/login?next=%2Fsettings%3Fq%3Ddelayed%23models#token=fixture-not-a-secret"); await requested;
+    await page.waitForURL("**/settings?q=delayed#models");
+    assert.equal(fixture.log.slice(start).filter(item => item.path === "/api/auth/webui").length, 1);
+    assert.equal(fixture.log.slice(start).some(item => item.path.startsWith("/api/settings")), false);
+    release(); await ready(page, "/settings");
+    assert.equal(fixture.log.slice(start).filter(item => item.path === "/api/auth/webui").length, 1);
+    await context.close();
+  });
+  await checked("SPA settings 401 retains query/hash with public server metadata", async () => {
+    const { page, context } = await pageFor(spaOrigin, { width: 390, height: 844 }); const start = fixture.log.length;
+    await context.route("**/api/settings", route => route.fulfill({ status: 401, contentType: "application/json", body: '{"error":"Unauthorized"}' }));
+    await page.goto(spaOrigin + "/settings?q=protected#models");
+    await page.waitForURL(url => url.pathname === "/login"); await ready(page, "/login");
+    assert.equal(new URL(page.url()).searchParams.get("next"), "/settings?q=protected#models");
+    assert.equal(fixture.log.slice(start).filter(item => item.path === "/webui-bootstrap.json").length, 1);
+    assert.equal(fixture.log.slice(start).some(item => item.path.startsWith("/api/bots")), false);
     await context.close();
   });
   await checked("SPA reachable env probe, seven-route browser sinks and dotenv HTTP denial", async () => {

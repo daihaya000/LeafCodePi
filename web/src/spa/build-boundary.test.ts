@@ -19,7 +19,7 @@ async function sourceText(root: string): Promise<string> {
   return (await Promise.all(entries.map(entry => entry.isDirectory() ? sourceText(join(root, entry.name)) : readFile(join(root, entry.name), "utf8")))).join("\n");
 }
 describe("SPA production boundary", () => {
-  it.each(["node:fs", "fs", "fs/promises", "next/server", "@earendil-works/pi-coding-agent", "@backend-core/task-store", "@extensions/leafcode-goal-loop"])("rejects runtime import %s", async id => {
+  it.each(["node:fs", "fs", "fs/promises", "next/server", "@earendil-works/pi-coding-agent", "@backend-core/task-store", "@extensions/leafcode-goal-loop", "@shared/webui-presentation.mjs"])("rejects runtime import %s", async id => {
     const root = await fixture(`import '${id}'; document.body.textContent = 'fixture';`);
     await expect(buildFixture(root)).rejects.toThrow("SPA runtime dependency forbidden");
   });
@@ -57,10 +57,10 @@ describe("SPA production boundary", () => {
   it("production preview serves every direct/reloaded URL and forwards API only to the isolated fixture", async () => {
     const output = await mkdtemp(join(tmpdir(), "leafcode-spa-production-")); directories.push(output);
     await build({ ...config, configFile: false, logLevel: "silent", build: { outDir: output, emptyOutDir: true } });
-    const owner = createServer((request, response) => { expect(request.url).toBe("/api/settings?fixture=1"); response.setHeader("content-type", "application/json"); response.end('{"values":{"fixture":"saved"}}'); });
+    const owner = createServer((request, response) => { expect(["/api/settings?fixture=1", "/webui-bootstrap.json?fixture=1"]).toContain(request.url); response.setHeader("content-type", "application/json"); response.end(request.url?.startsWith("/webui-bootstrap.json") ? '{"hostname":"fixture-host","authFileDisplayPath":"/fixture/webui-auth.json"}' : '{"values":{"fixture":"saved"}}'); });
     await new Promise<void>(done => owner.listen(0, "127.0.0.1", done));
     const ownerAddress = owner.address(); if (!ownerAddress || typeof ownerAddress === "string") throw Error("Fixture did not listen");
-    const server = await preview({ ...config, configFile: false, logLevel: "silent", build: { outDir: output }, preview: { host: "127.0.0.1", port: 0, proxy: { "/api": { target: `http://127.0.0.1:${ownerAddress.port}`, changeOrigin: false } } } });
+    const server = await preview({ ...config, configFile: false, logLevel: "silent", build: { outDir: output }, preview: { host: "127.0.0.1", port: 0, proxy: { "/api": { target: `http://127.0.0.1:${ownerAddress.port}`, changeOrigin: false }, "^/webui-bootstrap\\.json(?:\\?|$)": { target: `http://127.0.0.1:${ownerAddress.port}`, changeOrigin: false } } } });
     try {
       const address = server.httpServer.address(); if (!address || typeof address === "string") throw Error("Preview did not listen");
       const origin = `http://127.0.0.1:${address.port}`, expected = await readFile(join(output, "index.html"), "utf8");
@@ -68,6 +68,7 @@ describe("SPA production boundary", () => {
         for (let reload = 0; reload < 2; reload++) { const response = await fetch(`${origin}${path}?fixture=1`); expect(response.status).toBe(200); expect(await response.text()).toBe(expected); }
       }
       expect(await (await fetch(`${origin}/api/settings?fixture=1`)).json()).toEqual({ values: { fixture: "saved" } });
+      expect(await (await fetch(`${origin}/webui-bootstrap.json?fixture=1`)).json()).toEqual({ hostname: "fixture-host", authFileDisplayPath: "/fixture/webui-auth.json" });
       expect((await fetch(`${origin}/icon.svg`)).status).toBe(200);
     } finally { await new Promise<void>((done, reject) => server.httpServer.close(error => error ? reject(error) : done())); await new Promise<void>((done, reject) => owner.close(error => error ? reject(error) : done())); }
   }, 25_000);

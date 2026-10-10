@@ -303,6 +303,14 @@ describe("Bot mode list", () => {
     render(<Sidebar mobileOpen={false} onClose={vi.fn()} />);
 
     await waitFor(() => expect(document.title).toBe("(4) LCP X870"));
+    // Next may stream a fresh title after hydration; replacing the node must retain counts.
+    act(() => { document.title = "LCP X870"; });
+    await waitFor(() => expect(document.title).toBe("(4) LCP X870"));
+    act(() => {
+      const title = document.createElement("title"); title.textContent = "LCP X870";
+      document.head.replaceChild(title, document.querySelector("title")!);
+    });
+    await waitFor(() => expect(document.title).toBe("(4) LCP X870"));
     act(() => markRead("task", "title-code", Date.parse(updatedAt)));
     await waitFor(() => expect(document.title).toBe("(3) LCP X870"));
     act(() => {

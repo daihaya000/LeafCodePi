@@ -6,6 +6,8 @@ import tailwind from "@tailwindcss/postcss";
 
 const root = fileURLToPath(new URL(".", import.meta.url));
 const spa = resolve(root, "src/spa");
+const apiOrigin = process.env.LEAFCODE_SPA_API_ORIGIN ?? "http://127.0.0.1:3010";
+const proxy = { "/api": { target: apiOrigin, changeOrigin: false }, "^/webui-bootstrap\\.json(?:\\?|$)": { target: apiOrigin, changeOrigin: false } };
 const nodeBuiltins = new Set(builtinModules.map(name => name.replace(/^node:/, "")));
 const forbidden = /(?:^node:|^(?:next(?:\/|$)|@earendil-works\/|@backend|@extensions)|(?:^|\/)(?:backend(?:-core)?|host|extensions)\/)/;
 /** Existing presentation stays unchanged; SPA imports use local browser implementations. */
@@ -35,6 +37,6 @@ export default defineConfig({
   esbuild: { jsx: "automatic" },
   css: { postcss: { plugins: [tailwind()] } },
   build: { outDir: "dist-spa", emptyOutDir: true },
-  server: { host: "127.0.0.1", proxy: { "/api": { target: process.env.LEAFCODE_SPA_API_ORIGIN ?? "http://127.0.0.1:3010", changeOrigin: false } } },
-  preview: { host: "127.0.0.1", proxy: { "/api": { target: process.env.LEAFCODE_SPA_API_ORIGIN ?? "http://127.0.0.1:3010", changeOrigin: false } } },
+  server: { host: "127.0.0.1", proxy },
+  preview: { host: "127.0.0.1", proxy },
 });

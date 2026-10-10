@@ -119,6 +119,16 @@ test("SSE bodies are not buffered, including fetch-based streams", async () => {
   assert.equal(await flush(), 0); assert.equal(bodyCalls, 0); assert.deepEqual(errors, []);
 });
 
+test("closing-context late completions are outside the audit cutoff, not read after disposal", async () => {
+  const context = new EventEmitter(), errors = [];
+  let bodyCalls = 0;
+  const flush = auditCanaryResponses(context, createSecretCanaries().entries, error => errors.push(error));
+  const request = { url: () => "http://fixture/api/settings", resourceType: () => "fetch", response: async () => ({ headers: () => ({}), body: async () => { bodyCalls++; throw Error("closed target"); } }) };
+  assert.equal(await flush(true), 0);
+  context.emit("requestfinished", request);
+  await flush(); assert.equal(bodyCalls, 0); assert.deepEqual(errors, []);
+});
+
 test("a completed response that cannot be read fails the audit rather than passing silently", async () => {
   const context = new EventEmitter(), errors = [];
   const flush = auditCanaryResponses(context, createSecretCanaries().entries, error => errors.push(error));

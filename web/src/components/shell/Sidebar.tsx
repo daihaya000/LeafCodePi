@@ -1897,9 +1897,18 @@ const SidebarView = memo(function SidebarView({
   };
   const tabCount = unreadCodeCount + unreadBotCount + workingCounts.code + workingCounts.bot;
   useEffect(() => {
-    const baseTitle = document.title.replace(/^\(\d+\) /, "");
-    document.title = tabCount > 0 ? `(${tabCount}) ${baseTitle}` : baseTitle;
-    return () => { document.title = baseTitle; };
+    let baseTitle = document.title.replace(/^\(\d+\) /, "");
+    const updateTitle = () => {
+      baseTitle = document.title.replace(/^\(\d+\) /, "");
+      const title = tabCount > 0 ? `(${tabCount}) ${baseTitle}` : baseTitle;
+      if (document.title !== title) document.title = title;
+    };
+    updateTitle();
+    // Streaming server metadata (or the SPA bootstrap) can arrive after this effect.
+    // Reconcile without losing the current unread count or repeatedly rewriting head.
+    const observer = new MutationObserver(updateTitle);
+    observer.observe(document.head, { childList: true, subtree: true, characterData: true });
+    return () => { observer.disconnect(); document.title = baseTitle; };
   }, [tabCount, pathname]);
 
   const openTask = useCallback(

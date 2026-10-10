@@ -30,6 +30,8 @@ export function tokensMatch(given: string, expected: string): boolean {
 
 export function isPublicWebUiPath(pathname: string): boolean {
   if (pathname === "/login") return true;
+  // Legacy root/login layouts already expose these display-only values publicly.
+  if (pathname === "/webui-bootstrap.json") return true;
   if (pathname.startsWith("/api/auth/webui")) return true;
   if (pathname === "/api/health") return true;
   if (pathname === "/api/host-probe") return true;

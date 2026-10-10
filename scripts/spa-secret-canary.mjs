@@ -68,10 +68,10 @@ export async function scanCanaryArtifacts(root, entries) {
 export function auditCanaryResponses(context, entries, onError) {
   const pending = [];
   let completed = 0;
-  context.on("response", response => {
+  const onResponse = response => {
     try { assertNoCanary(response.headers(), entries, "browser response headers"); } catch (error) { onError(error.message); }
-  });
-  context.on("requestfinished", request => {
+  };
+  const onFinished = request => {
     if (request.resourceType() === "eventsource" || new URL(request.url()).pathname.endsWith("/events")) return;
     // The response event precedes body completion and reload cancellation.
     // Only requestfinished gives us a finite non-stream body to inspect.
@@ -80,8 +80,12 @@ export function auditCanaryResponses(context, entries, onError) {
       if (response.headers()["content-type"]?.includes("text/event-stream")) return;
       assertNoCanary(await response.body(), entries, "browser response body"); completed++;
     }).catch(error => onError(`Browser response audit failed: ${error.message}`)));
-  });
-  return async () => {
+  };
+  context.on("response", onResponse); context.on("requestfinished", onFinished);
+  return async (stop = false) => {
+    // Stop capturing before disposing a context; close can emit late completion
+    // events whose target/body is already gone. They were incomplete at cutoff.
+    if (stop) { context.off("response", onResponse); context.off("requestfinished", onFinished); }
     while (pending.length) await Promise.all(pending.splice(0));
     return completed;
   };

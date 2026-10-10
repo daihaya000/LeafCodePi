@@ -81,7 +81,7 @@ export function checkNextTransportBoundary(root = ROOT, ts = defaultParser(), ro
       if (EXTERNALS.has(specifier)) continue;
       if (kind !== "transport" && ["react", "react-dom", "lucide-react", "next-themes", "next/dynamic", "next/image", "next/link", "next/navigation", "next/headers", "next/og", "react-markdown", "remark-gfm"].includes(specifier)) continue;
       if (kind === "entry" && canonical === resolve(web, "lib/http-compression-fix.ts") && specifier === "node:http") continue;
-      if (kind !== "transport" && canonical === resolve(web, "app/layout.tsx") && specifier === "node:os") {
+      if (specifier === "node:os" && (canonical === resolve(shared, "webui-presentation.mjs") || kind !== "transport" && canonical === resolve(web, "app/layout.tsx"))) {
         const syntax = ts.createSourceFile(canonical, source, ts.ScriptTarget.Latest, true);
         const imports = syntax.statements.filter(n => ts.isImportDeclaration(n) && n.moduleSpecifier.text === "node:os");
         assert.equal(imports.length, 1, "UI hostname permits only a static named import");

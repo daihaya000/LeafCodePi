@@ -1,4 +1,5 @@
 import { webAuthGate, refreshAuthCookie } from "./auth.mjs";
+import { webUiPresentationResponse } from "../../shared/webui-presentation.mjs";
 const METHODS = ["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"];
 
 export function compileRoutes(records) {
@@ -52,6 +53,8 @@ export function createDispatcher(records, { gate = webAuthGate } = {}) {
       response.headers.set("vary", "rsc, next-router-state-tree, next-router-prefetch, next-router-segment-prefetch" + (vary ? `, ${vary}` : ""));
       return refreshAuthCookie(response, auth);
     };
+    // Display bootstrap is not an API/business route; retain the frozen P0 API inventory.
+    if (url.pathname === "/webui-bootstrap.json") return respond(webUiPresentationResponse(request.method));
     if (!url.pathname.startsWith("/api/")) return respond(Response.json({ error: "Gateway serves API only during Phase1" }, { status: 404 }));
     const route = routes.find(record => record.match.test(url.pathname));
     if (!route) return respond(Response.json({ error: "Not Found" }, { status: 404 }));
