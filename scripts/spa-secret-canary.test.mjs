@@ -109,6 +109,15 @@ test("response audit checks finished bodies and headers and reports disclosure",
   assert.ok(errors.every(error => !error.includes(entries[0].value)));
 });
 
+test("draining completed responses before navigation keeps old-document body handles readable", async () => {
+  const context = new EventEmitter(), errors = [];
+  let navigated = false, bodyCalls = 0;
+  const flush = auditCanaryResponses(context, createSecretCanaries().entries, error => errors.push(error));
+  context.emit("requestfinished", { url: () => "http://fixture/api/bots/sidebar", resourceType: () => "fetch", response: async () => ({ headers: () => ({}), body: async () => { assert.equal(navigated, false); bodyCalls++; return Buffer.from("safe"); } }) });
+  await flush(); navigated = true;
+  assert.equal(bodyCalls, 1); assert.deepEqual(errors, []);
+});
+
 test("SSE bodies are not buffered, including fetch-based streams", async () => {
   const context = new EventEmitter(), errors = [];
   let bodyCalls = 0;

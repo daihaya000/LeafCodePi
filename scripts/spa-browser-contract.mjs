@@ -7,7 +7,8 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import { createRequire } from "node:module";
 import { createServer } from "node:http";
 import { setTimeout as delay } from "node:timers/promises";
-import { settings, startFixture } from "./spa-browser-fixture.mjs";
+import { startFixture } from "./spa-browser-fixture.mjs";
+import { runNotificationContracts } from "./spa-notification-contract.mjs";
 import { assertNoCanary, auditCanaryResponses, canaryProbePlugin, createSecretCanaries, scanCanaryArtifacts, withCanaryEnvironment } from "./spa-secret-canary.mjs";
 const ROOT = resolve(fileURLToPath(new URL("../", import.meta.url))), web = join(ROOT, "web");
 const require = createRequire(join(web, "package.json"));
@@ -41,7 +42,7 @@ async function prepareReference(origin) {
   cpSync(join(web, "postcss.config.mjs"), join(reference, "postcss.config.mjs"));
   writeFileSync(join(reference, "next.config.mjs"), `export default { typescript: { ignoreBuildErrors: true }, experimental: { optimizePackageImports: ['lucide-react'], cpus: 2 }, async rewrites(){ return [{source:'/api/:path*',destination:${JSON.stringify(origin)}+'/api/:path*'}]; } };`);
   const layout = join(reference, "src/app/(app)/layout.tsx");
-  writeFileSync(layout, `import {MainLayoutClient} from '@/components/shell/MainLayoutClient'; export default function Layout({children}:{children:React.ReactNode}){return <MainLayoutClient initialSettings={${JSON.stringify(settings)}}>{children}</MainLayoutClient>;}`);
+  writeFileSync(layout, `import {MainLayoutClient} from '@/components/shell/MainLayoutClient'; export default async function Layout({children}:{children:React.ReactNode}){const response=await fetch(${JSON.stringify(origin + "/api/settings")},{cache:'no-store'});if(!response.ok)throw Error('Fixture settings unavailable');const {values}=await response.json();return <MainLayoutClient initialSettings={values}>{children}</MainLayoutClient>;}`);
   const env = Object.fromEntries(Object.entries(process.env).filter(([name]) => /^(PATH|Path|SystemRoot|SYSTEMROOT|WINDIR|TEMP|TMP|LOCALAPPDATA|APPDATA|USERPROFILE|HOME|COMSPEC|PATHEXT|NUMBER_OF_PROCESSORS)$/.test(name)));
   Object.assign(env, { NODE_ENV: "production", NEXT_TELEMETRY_DISABLED: "1", LEAFCODE_PI_DATA_DIR: join(output, "data") });
   const cli = require.resolve("next/dist/bin/next"); await run([cli, "build", "--webpack", reference], reference, env);
@@ -81,7 +82,7 @@ async function pageFor(origin, viewport, seed = {}) {
   const close = context.close.bind(context);
   context.close = async () => {
     for (const page of context.pages()) if (!page.isClosed() && /^https?:/.test(page.url())) {
-      const snapshot = await page.evaluate(() => ({ html: document.documentElement.outerHTML, inputs: [...document.querySelectorAll("input,textarea")].map(element => element.value), local: { ...localStorage }, session: { ...sessionStorage }, cookies: document.cookie, probe: window.__leafcodeCanaryProbe }));
+      const snapshot = await page.evaluate(() => ({ html: document.documentElement.outerHTML, inputs: [...document.querySelectorAll("input,textarea")].map(element => element.value), local: { ...localStorage }, session: { ...sessionStorage }, cookies: document.cookie, probe: window.__leafcodeCanaryProbe, notifications: window.__notificationProbe }));
       assertNoCanary(snapshot, canaries.entries, "browser DOM/env/storage");
     }
     assertNoCanary(await context.cookies(), canaries.entries, "browser cookies");
@@ -89,6 +90,11 @@ async function pageFor(origin, viewport, seed = {}) {
     await close();
   };
   const page = await context.newPage();
+  // Chromium discards old-document body handles during navigation. Drain the
+  // already-completed responses while their original document is still alive.
+  const goto = page.goto.bind(page), reload = page.reload.bind(page);
+  page.goto = async (...args) => { await flushResponses(); return goto(...args); };
+  page.reload = async (...args) => { await flushResponses(); return reload(...args); };
   return { page, context, flushResponses };
 }
 async function ready(page, path) {
@@ -241,6 +247,8 @@ try {
     assert.equal(fixture.log.slice(start).some(item => item.path.startsWith("/api/bots")), false);
     await context.close();
   });
+  state.notificationEvidence = await runNotificationContracts({ pageFor, ready, checked, fixture, spaOrigin, nextOrigin });
+  assertNoCanary(state.notificationEvidence, canaries.entries, "all notification producer records"); save();
   await checked("SPA reachable env probe, seven-route browser sinks and dotenv HTTP denial", async () => {
     const { page, context } = await pageFor(auditOrigin, { width: 390, height: 844 });
     for (const path of paths) {
