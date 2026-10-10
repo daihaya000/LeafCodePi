@@ -79,6 +79,41 @@ test("emitted Browser values retain global, alias, reflection and constructor lo
   }
 });
 
+test("destructuring cannot extract constructors or untracked reflection loaders", () => {
+  const probes = [
+    'const key = ["constr", "uctor"].join(""); const { [key]: run } = () => {}; run("hidden")();',
+    'const key = name; const { [key]: run } = Object.getPrototypeOf(() => {}); run("hidden")();',
+    'const { ["constr" + "uctor"]: run } = () => {}; run("hidden")();',
+    'const { "constructor": run } = () => {}; run("hidden")();',
+    'function extract({ [key]: run }) { return run("hidden")(); }',
+    'const { nested: { [key]: run } } = holder;',
+    'let run; ({ [key]: run } = () => {}); run("hidden")();',
+    'let run; ({ constructor: run } = () => {}); run("hidden")();',
+    'let run; ({ "constructor": run } = () => {}); run("hidden")();',
+    'let run; ([{ nested: { [key]: run } }] = holder);',
+    'let constructor; ({ constructor } = () => {});',
+    'let run; for ({ [key]: run } of [() => {}]) run("hidden")();',
+    'let run; for ({ constructor: run } of [() => {}]) run("hidden")();',
+    'let run; for ({ [key]: run } in data) {}',
+    'async function extract() { let run; for await ({ [key]: run } of values) run("hidden")(); }',
+    'const { ["getOwnPropertyDescriptor"]: read } = Object; read(value, key).value("hidden")();',
+    'const { "getOwnPropertyDescriptor": read } = Object; read(value, key).value("hidden")();',
+    'let read; ({ getOwnPropertyDescriptor: read } = Object); read(value, key).value("hidden")();',
+    'const { get: read } = globalThis.Reflect; read(value, key)("hidden")();',
+  ];
+  for (const kind of ["browser", "gateway"]) for (const bundled of [false, true]) {
+    for (const source of probes) assert.throws(() => dependencyReferences(source, "destructuring.js", undefined, { kind, bundled }), /loader|evaluation/, source);
+    for (const source of [
+      'const { label, "count": count, ["na" + "me"]: name } = data;',
+      'const { [0]: first } = values;',
+      'let label; ({ label } = data);',
+      'const values = { [key]: value };',
+      'function show({ label }) { return label; }',
+      'let label; for ({ label } of values) show(label);',
+    ]) assert.doesNotThrow(() => dependencyReferences(source, "destructuring.js", undefined, { kind, bundled }), source);
+  }
+});
+
 for (const kind of ["browser", "gateway"]) {
   test(`${kind}: literals, type-only and indirect loaders fail closed`, t => {
     const f = fixture(t, kind);
@@ -92,6 +127,8 @@ for (const kind of ["browser", "gateway"]) {
       'const { eval: run } = globalThis;', 'Reflect.get(globalThis, "eval")("hidden");',
       'new Function("return require(\\"node:fs\\")")();', 'const run = (() => {}).constructor; run("hidden")();',
       'process.getBuiltinModule("fs");', 'process.binding("fs");', 'const { constructor: run } = () => {}; run("hidden")();', 'import.meta.glob("../../backend/**");',
+      'const key = ["constr", "uctor"].join(""); const { [key]: run } = () => {}; run("hidden")();',
+      'let run; ({ ["constr" + "uctor"]: run } = () => {}); run("hidden")();',
       'new Worker(new URL("../../backend/owner.ts", import.meta.url));', 'import "data:text/javascript,export default 1";',
     ]) {
       put(f.root, f.entry, source); assert.throws(f.run, undefined, source);

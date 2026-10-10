@@ -33,6 +33,8 @@ test("real production Browser build refuses vendor reflection, Event spoofing an
   const vendor = join(web, "node_modules/next-themes/dist/index.mjs"), original = readFileSync(vendor, "utf8");
   const descriptor = 'const key = ["constr", "uctor"].join(""); const descriptor = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(() => {}), key); if (descriptor) { const invoke = descriptor.value; invoke("globalThis.__P4_DESCRIPTOR_EVAL__ = true")(); }';
   const event = 'const event = () => {}; event.type = ""; event.toString = () => "globalThis.__P4_EVENT_EVAL__ = true"; (new event.constructor(event.type, event))();';
+  const destructured = 'const key = ["constr", "uctor"].join(""); const { [key]: invoke } = () => {}; invoke("globalThis.__P4_DESTRUCTURED_EVAL__ = true")();';
+  const assigned = 'const key = ["constr", "uctor"].join(""); let invoke; ({ [key]: invoke } = () => {}); invoke("globalThis.__P4_PATTERN_EVAL__ = true")();';
   // A vendor-supplied map must not impersonate the audited React Event site.
   const react = readFileSync(join(web, "node_modules/react-dom/cjs/react-dom-client.production.js"), "utf8");
   const origin = react.slice(0, react.indexOf("nextBlockedOn.constructor(")).split("\n");
@@ -41,7 +43,7 @@ test("real production Browser build refuses vendor reflection, Event spoofing an
   const forged = { version: 3, names: [], sources: ["../../react-dom/cjs/react-dom-client.production.js"], sourcesContent: [react], mappings: "AA" + vlq(origin.length - 1) + vlq(origin.at(-1).length) + ";AAAA;AAAA;AAAA" };
   const probes = [
     'Reflect.get(globalThis, "eval")("globalThis.__P4_EVAL_CANARY__ = true");',
-    descriptor, event,
+    descriptor, event, destructured, assigned,
     'const key = ["constr", "uctor"].join(""); const fn = () => {}; fn[key]("globalThis.__P4_COMPUTED_EVAL__ = true")();',
     'let proto; proto = Object.getPrototypeOf(() => {}); const key = ["constr", "uctor"].join(""); proto[key]("globalThis.__P4_ASSIGNED_EVAL__ = true")();',
     event + '\n//# sourceMappingURL=data:application/json;base64,' + Buffer.from(JSON.stringify(forged)).toString("base64"),
@@ -56,10 +58,13 @@ test("real production Browser build refuses vendor reflection, Event spoofing an
   }
   writeFileSync(vendor, original);
   // The previously published first-party descriptor canary must fail before compiler output.
-  const entry = join(web, "src/spa/main.tsx"); writeFileSync(entry, readFileSync(entry, "utf8") + '\n{ ' + descriptor + ' }\n');
-  result = await run([join(root, "scripts/build-spa-worker.mjs"), join(root, "refused-stage")], root);
-  assert.notEqual(result.code, 0, "First-party descriptor eval passed paired build worker");
-  assert.match(result.output, /reflected loader.*forbidden/, result.output);
-  assert.equal(existsSync(join(root, "refused-stage/spa/index.html")), false);
-  t.diagnostic(JSON.stringify({ cleanInstall: true, healthyBuild: true, privateMapsNotPublished: true, vendorRefusals: probes.length, firstPartyRefusedBeforeOutput: true, emittedUnsafeJavaScript: false }));
+  const entry = join(web, "src/spa/main.tsx"), entrySource = readFileSync(entry, "utf8");
+  for (const source of [descriptor, destructured, assigned]) {
+    writeFileSync(entry, entrySource + '\n{ ' + source + ' }\n');
+    result = await run([join(root, "scripts/build-spa-worker.mjs"), join(root, "refused-stage")], root);
+    assert.notEqual(result.code, 0, "First-party eval passed paired build worker");
+    assert.match(result.output, /loader.*forbidden/, result.output);
+    assert.equal(existsSync(join(root, "refused-stage/spa/index.html")), false);
+  }
+  t.diagnostic(JSON.stringify({ cleanInstall: true, healthyBuild: true, privateMapsNotPublished: true, vendorRefusals: probes.length, firstPartyRefusals: 3, firstPartyRefusedBeforeOutput: true, emittedUnsafeJavaScript: false }));
 });

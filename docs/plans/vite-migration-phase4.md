@@ -2,7 +2,7 @@
 
 ## 状態
 
-**P4の受入対象は完了**。禁止依存gateを先行導入後、Next package/config/生成型参照/import/mock、旧bridge/checker/builder/mirrorを撤去。Nextなしのclean install・型・native build/start・stream・Backend/SDK独立性を確認した。稼働Host/Backendの切替・実SDK更新・物理操作の保証は含まない。以下のturn 1–3は撤去前の履歴。
+**P4の完了判定は撤回し、反例の補修・独立再検証中**。`74c678ae`でもcomputed destructuringからFunctionを取得でき、Browser/gatewayのsource/bundle gateが拒否しない反例を確認した。禁止依存gateの先行導入とNext撤去、および過去に実施した検証は以下の履歴として保持するが、条件3の成立を保証しない。稼働Host/Backendの切替・実SDK更新・物理操作の保証は含まない。以下のturn 1–3は撤去前の履歴。
 
 ## 先行gate
 
@@ -117,6 +117,16 @@
 - 最終の隔離検証: `%LOCALAPPDATA%/Temp/p4-metadata-fix-V175Xp/`。`dcc8cfb2` archiveに今回の8 source/test/config/manifestを上書きし、peer差分は含めない。全10コマンドexit 0、関連91テスト成功（gate/unit37、Web18、SDK更新32、integration4）。clean offline ci311 packages、Next実installなし、型・新gate・6実vendor負例/first-party source拒否、2世代501 files/7 URL/build/start/rollback、実Browser42 direct/reload/HEAD/2 viewport、WebなしBackend build/実SDK/session/lease/heartbeat/replay拒否を確認した。
 - Browser337 value/525 type、gateway166 routes/267 operations/254 value/486 type、Undici固定41 files、framework9 manifest/lock/2344 sourceを再監査。decoder追加以外のlock package entriesに差分なし。`review.json`は検証sourceと作業treeの8ファイルがbyte同一、UTF-8/BOM/EOL契約と7条件を確認した結果。新gate導入`c3131257`/`bbb5d21f`で旧checkerが残り、削除が`9cd3b67a`であることも再確認した。live Host/Backend/SDKの切替・更新は実行していない。
 
+## 引継ぎ後に判明したdestructuring拒否漏れの補修
+
+- 原因: `dependencyReferences`はproperty/element accessを検査する一方、BindingElementの非literal computed key・引用付きconstructorと、ObjectLiteralExpressionで表現される代入destructuringを検査していなかった。`const key = ["constr", "uctor"].join(""); const { [key]: run } = () => {}; run("globalThis.canary = true")();`は隔離VMでcanaryを実行し、Browser/gatewayのsource/bundle全4条件を通った。function prototypeを右辺にした反例も同様。
+- 補修: 宣言・関数引数・入れ子・代入・for-in/of/await-of destructuringのkeyを検査。非literal keyとloader/constructor抽出、未追跡reflection getterの抽出を拒否する。通常のobject constructionとliteralな業務property抽出は維持。gatewayのtype-only/Undici監査、metadataのhash/origin限定例外は変更しない。
+- 回帰: unitに19負例と6正常例をBrowser/gateway・source/bundleで追加。実clean install＋Vite build fixtureにvendorの宣言/代入destructuring拒否とfirst-party workerの出力前拒否を追加。今回の隔離基準は`74c678ae`＋対象3source/testのみ。他者のGoal Loop・未追跡provider-overload差分は含めない。
+- 隔離証拠: `%LOCALAPPDATA%/Temp/p4-handoff-validation/`。`baseline-unsafe-build.log` / `rerun-state.json`で旧HEADの実Vite buildはexit 0、canaryが生成JSに残ることを確認。修正版の`bundle-integration-fixed.log`は正常build＋vendor負例8件＋first-party拒否3件が成功し、unsafe JS/indexを出力しない。初回のintegrationは追加時の引用符誤りで構文失敗したため修正・再実行し、初回log/stateは保持した。
+- 最終sourceのisolated再検証はunit24件、SPA型、新gateが成功。Browser337 value/525 type、gateway166 routes/267 operations/254 value/486 type、Undici固定41 files、framework9 manifest/lock/2344 source。clean offline installは311 packages、正常のproduction buildと拒否fixture内のinstallにはNextなし。`final-state.json`の4コマンドは全exit 0、`final-bundle-integration.log`で最終sourceでも正常build＋vendor拒否8件＋first-party拒否3件を再確認（331.6秒）。
+- 独立したレビュー工程で差分・許可/拒否条件・テスト・証拠を再照合。for-in/ofの代入pattern漏れとliteral numeric keyの過剰拒否を補修してunitを追加し、最終sourceで上記全検証を再実行した。`review.json`で検証source3ファイルのSHA256と作業treeのbyte一致、対象4ファイルのUTF-8無BOM/LF round-trip、初回失敗log保持を確認する。別セッションへのread-onlyレビュー依頼は応答timeoutで、外部レビュー済みとは主張しない。
+- 今回はP4全体の完了ではなく、destructuring反例の補修。Backend/SDK更新独立性・2世代build/start/rollback・UI/stream matrixはこのターンで再実行しておらず、上記履歴の証拠と区別する。稼働サービスの変更・Pushなし。
+
 ## 次の確認範囲
 
-Phase5の確定HEAD隔離受入matrixと独立した総合回帰/運用レビュー。稼働generationの切替・実SDK deployment/update・physical tray/Tailscale/audio・power-lossは別途明示操作と検証が必要。静的な境界と有限fixtureは任意JavaScriptの完全sandbox、same-user攻撃への完全防御を証明しない。
+P4の残存反例・受入7条件の独立再検証。成立前にPhase5へ進めない。その後にPhase5の確定HEAD隔離受入matrixと独立した総合回帰/運用レビュー。稼働generationの切替・実SDK deployment/update・physical tray/Tailscale/audio・power-lossは別途明示操作と検証が必要。静的な境界と有限fixtureは任意JavaScriptの完全sandbox、same-user攻撃への完全防御を証明しない。

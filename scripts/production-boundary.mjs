@@ -140,6 +140,20 @@ export function dependencyReferences(source, file = "boundary.ts", ts = parser()
     assert.ok(node && ts.isStringLiteralLike(node), `${file}: nonliteral module loading is forbidden`);
     references.push({ specifier: node.text, typeOnly });
   }
+  // Assignment/iteration destructuring uses ObjectLiteralExpression, not BindingElement.
+  // Walk nested patterns only; normal computed object construction is not extraction.
+  const assignmentPattern = node => {
+    let pattern = node.parent;
+    while (pattern && (ts.isObjectLiteralExpression(pattern) || ts.isArrayLiteralExpression(pattern)
+      || ts.isPropertyAssignment(pattern) || ts.isSpreadAssignment(pattern) || ts.isSpreadElement(pattern)
+      || ts.isParenthesizedExpression(pattern))) {
+      const parent = pattern.parent;
+      if (ts.isBinaryExpression(parent) && parent.operatorToken.kind === ts.SyntaxKind.EqualsToken && parent.left === pattern
+        || (ts.isForOfStatement(parent) || ts.isForInStatement(parent)) && parent.initializer === pattern) return true;
+      pattern = parent;
+    }
+    return false;
+  };
   function visit(node, inType = false) {
     inType ||= declaration || ts.isTypeNode(node);
     if (ts.isImportDeclaration(node)) {
@@ -157,7 +171,19 @@ export function dependencyReferences(source, file = "boundary.ts", ts = parser()
     if (ts.isCallExpression(node) && node.expression.kind === ts.SyntaxKind.ImportKeyword) add(node.arguments[0]);
     if (!inType) {
       if (kind === "gateway" && ts.isIdentifier(node) && (mutations.has(node.text) || norm(file).endsWith("gateway/src/static.mjs") && node.text === "write")) fail(file, `store/filesystem mutation forbidden: ${node.text}`);
-      if (ts.isBindingElement(node) && node.propertyName?.getText(ast) === "constructor") fail(file, "constructor code evaluation alias forbidden");
+      const extractedName = ts.isBindingElement(node) ? node.propertyName ?? node.name
+        : (ts.isPropertyAssignment(node) || ts.isShorthandPropertyAssignment(node)) && assignmentPattern(node) ? node.name : null;
+      if (extractedName) {
+        const computed = ts.isComputedPropertyName(extractedName);
+        const key = computed ? staticString(extractedName.expression)
+          : ts.isIdentifier(extractedName) || ts.isStringLiteralLike(extractedName) ? extractedName.text : undefined;
+        if (computed && key === undefined && !ts.isNumericLiteral(unwrap(extractedName.expression))
+          || loaders.has(key) || key === "constructor") fail(file, "destructured loader/code evaluation alias forbidden");
+        // Identifier descriptor bindings are tracked above. Other extraction shapes
+        // must not create an untracked reflection getter.
+        if (["get", "getOwnPropertyDescriptor"].includes(key) && !(ts.isBindingElement(node)
+          && ts.isIdentifier(extractedName) && key === "getOwnPropertyDescriptor")) fail(file, "destructured reflection loader alias forbidden");
+      }
       if (ts.isIdentifier(node) && node.text === "Reflect" && !checker.getSymbolAtLocation(node)?.declarations?.some(d => d.getSourceFile() === ast)) {
         const parent = node.parent;
         assert.ok(ts.isPropertyAccessExpression(parent) || ts.isTypeOfExpression(parent), `${file}: reflected loader namespace alias forbidden`);
