@@ -50,6 +50,7 @@ import { readPiApiKey, readPiOAuthTokens } from "@/lib/codexbar/pi-auth";
 import { isOllamaCookieConfigured } from "@/lib/codexbar/providers/ollama-cloud";
 import { readOpenRouterManagementKey } from "@/lib/codexbar/providers/openrouter";
 import { hasAnthropicConsoleCookie } from "@/lib/codexbar/providers/anthropic";
+import { hasOpenDesignCookie } from "@/lib/codexbar/providers/opendesign";
 import { extractOpenCodeCookieHeader } from "@/lib/codexbar/browser-cookies";
 import { readPeerConfig } from "@backend-core/peer-auth-config.mjs";
 import { fetchPeerUsage, clearPeerUsageCache } from "@/lib/peer-auth/usage-client";
@@ -121,7 +122,8 @@ function accountSummary(
           (provider === "ollama-cloud" && isOllamaCookieConfigured(account.id)) ||
           (provider === "opencode-go" &&
             extractOpenCodeCookieHeader({ authPath }) !== null) ||
-          (provider === "anthropic" && hasAnthropicConsoleCookie(authPath)),
+          (provider === "anthropic" && hasAnthropicConsoleCookie(authPath)) ||
+          (provider === "opendesign" && hasOpenDesignCookie(authPath)),
       );
   return {
     id: account.id,

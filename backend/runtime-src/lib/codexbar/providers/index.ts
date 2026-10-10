@@ -44,6 +44,8 @@ import {
   orcarouterProvider,
 } from "@/lib/codexbar/providers/orcarouter";
 
+import { createOpenDesignUsageProvider, opendesignProvider } from "@/lib/codexbar/providers/opendesign";
+
 export const NATIVE_PROVIDERS: IUsageProvider[] = [
   openaiCodexProvider,
   anthropicProvider,
@@ -56,6 +58,7 @@ export const NATIVE_PROVIDERS: IUsageProvider[] = [
   qwenCloudProvider,
   typesafeProvider,
   orcarouterProvider,
+  opendesignProvider,
 ];
 
 /** アカウントごとに 1 インスタンス作る（= scope 展開する）プロバイダー。 */
@@ -69,6 +72,7 @@ const SCOPED_FACTORIES: Record<string, (scope: UsageScope) => IUsageProvider> =
     cursor: createCursorProvider,
     "opencode-go": createOpenCodeGoProvider,
     orcarouter: createOrcaRouterProvider,
+    opendesign: createOpenDesignUsageProvider,
   };
 
 /** Provider definitions used to create one isolated instance per usage scope. */

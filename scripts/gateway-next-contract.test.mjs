@@ -71,9 +71,9 @@ test("production Next versus isolated gateway: complete API failure/method matri
     if (file === "gateway/src/routes.mjs") continue;
     mkdirSync(dirname(join(candidate, file)), { recursive: true }); copyFileSync(join(ROOT, file), join(candidate, file));
   }
-  for (const file of ["gateway/package.json", "gateway/package-lock.json", "shared/http-cookie.d.mts"]) { mkdirSync(dirname(join(candidate, file)), { recursive: true }); copyFileSync(join(ROOT, file), join(candidate, file)); }
+  for (const file of ["gateway/package.json", "gateway/package-lock.json", "shared/http-cookie.d.mts", "docs/plans/next-thin-phase0.json"]) { mkdirSync(dirname(join(candidate, file)), { recursive: true }); copyFileSync(join(ROOT, file), join(candidate, file)); }
   symlinkSync(join(ROOT, "web/node_modules"), join(candidate, "web/node_modules"), process.platform === "win32" ? "junction" : "dir");
-  const built = buildGateway(candidate); assert.equal(built.routes, 165); assert.equal(built.operations, 265);
+  const built = buildGateway(candidate); assert.equal(built.routes, 166); assert.equal(built.operations, 267);
   await run(process.execPath, [join(dirname(process.execPath), "node_modules/npm/bin/npm-cli.js"), "ci", "--offline", "--ignore-scripts", "--no-audit", "--no-fund"], join(candidate, "gateway"), env);
   const lock = JSON.parse(readFileSync(join(candidate, "gateway/package-lock.json"), "utf8")); assert.deepEqual(Object.keys(lock.packages).sort(), ["", "node_modules/undici"]);
   rmSync(join(candidate, "web/node_modules"), { recursive: true });
@@ -137,8 +137,11 @@ test("production Next versus isolated gateway: complete API failure/method matri
     try { assert.deepEqual(results[1], results[0], `${method} ${path}`); } catch (error) { if (!collecting) throw error; matrixFailures.push(error.message); }
     comparisons++; return results[0];
   }
+  // Compare only the frozen baseline routes. New credential routes have dedicated owner/relay tests.
+  const baselineRoutes = new Set(JSON.parse(readFileSync(join(baseline, "docs/plans/next-thin-phase0.json"), "utf8")).routes.map(record => record.route));
   // Public probe ID and health start timestamps are process-local, deliberately not equal.
   for (const record of graph.manifest) {
+    if (!baselineRoutes.has(record.route)) continue;
     const path = record.route.replace(/\[[^\]]+\]/g, "finite-id") + "?q=%2F&cursor=keep";
     for (const method of record.methods) {
       await compare(path, method, { body: ["GET", "HEAD", "OPTIONS"].includes(method) ? undefined : { token: "finite-browser", target: "backend", mode: "default", enabled: true } });
@@ -269,5 +272,5 @@ test("production Next versus isolated gateway: complete API failure/method matri
   assert.equal((await compare("/api/tasks/finite-id/media?path=finite.bin", "GET")).status, 503);
   assert.equal(admitted.filter(request => request.url.startsWith("/internal/json-business/tasks")).length, beforeGeneration, "generation mismatch cannot admit an owner operation");
   assert.equal(existsSync(env.LEAFCODE_PI_DATA_DIR), false);
-  t.diagnostic(`Baseline ${BASELINE}; ${comparisons} exact response comparisons; 165/265 manifest; standalone gateway clean offline install (undici only); finite successful Host/settings/tasks/command/SSE/Range/HEAD; private bearer/protocol/generation/deadline/size guard; lost admission ACK not replayed; no owner data. Representative success DTOs, not billed SDK execution.`);
+  t.diagnostic(`Baseline ${BASELINE}; ${comparisons} exact response comparisons; 166/267 manifest; standalone gateway clean offline install (undici only); finite successful Host/settings/tasks/command/SSE/Range/HEAD; private bearer/protocol/generation/deadline/size guard; lost admission ACK not replayed; no owner data. Representative success DTOs, not billed SDK execution.`);
 });

@@ -343,6 +343,24 @@ describe("fetchNativeUsage", () => {
     expect(usage.accounts?.map((account) => account.id)).toEqual(["acc-a"]);
   });
 
+  it("exports OpenDesign wallet/quota per account without exposing cookie or workspace credentials", async () => {
+    const { accountDir, dataDir } = setupEmptyAccounts();
+    enabledProviderIds.splice(0, enabledProviderIds.length, "opendesign");
+    writeJson(join(dataDir, "accounts.json"), { version: 1, accounts: [{
+      id: "acc-od", label: "OpenDesign account", providers: ["opendesign"], enabled: true,
+      createdAt: "2026-10-10T00:00:00Z", updatedAt: "2026-10-10T00:00:00Z",
+    }] });
+    writeJson(join(accountDir, "accounts", "acc-od", "opendesign-cookie.json"), { cookies: "session=private-cookie", workspaceId: "private-workspace" });
+    undiciFetch.mockImplementation(async (url: string) => new Response(JSON.stringify(url.endsWith("/wallet/balance")
+      ? { balanceUsd: "8.25" }
+      : { eligible: true, tier: "go", windows: [{ policyId: "5h", durationSeconds: 18000, limitCredits: "100", remainingCredits: "75", resetsAt: null }] }), { status: 200 }));
+    const usage = await fetchNativeUsage({ forceRefresh: true, scope: { kind: "all" } });
+    expect(usage.accounts?.[0].configuredProviders).toContain("opendesign");
+    expect(usage.providers).toMatchObject([{ id: "opendesign", accountId: "acc-od", usedPercent: 25, credits: { balance: 8.25 }, windows: [{ usedPercent: 25 }] }]);
+    expect(JSON.stringify(usage)).not.toContain("private-cookie");
+    expect(JSON.stringify(usage)).not.toContain("private-workspace");
+  });
+
   it("does not fall back to local auth when no account is registered", async () => {
     const { accountDir } = setupEmptyAccounts();
     writeJson(join(accountDir, "auth.json"), {

@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
@@ -22,7 +23,7 @@ async function fakeCompile({ stage }, label = "first") {
   writeFileSync(join(stage, "spa/index.html"), `<html><script type="module" src="/assets/index-Abc123_-.js"></script>${label} 日本語 😀</html>`);
   writeFileSync(join(stage, "spa/assets/index-Abc123_-.js"), `export const fixture = ${JSON.stringify(label)};`);
   writeFileSync(join(stage, "gateway/dist/gateway/src/index.mjs"), `export const fixture = ${JSON.stringify(label)};`);
-  writeFileSync(join(stage, "gateway/dist/manifest.json"), JSON.stringify({ routes: Array.from({ length: 165 }, () => ({ source: "gateway/src/index.mjs" })), operations: 265, sources: ["gateway/src/index.mjs"] }));
+  writeFileSync(join(stage, "gateway/dist/manifest.json"), JSON.stringify({ routes: Array.from({ length: 166 }, () => ({ source: "gateway/src/index.mjs" })), operations: 267, sources: ["gateway/src/index.mjs"] }));
   writeFileSync(join(stage, "gateway/node_modules/undici/package.json"), '{"version":"8.10.2"}');
 }
 const pointer = root => JSON.parse(readFileSync(join(root, "state.json")));
@@ -42,6 +43,20 @@ test("legacy Next source synchronization cannot prune managed SPA generations", 
   mkdirSync(join(legacy, ".spa/generations"), { recursive: true }); writeFileSync(join(legacy, ".spa/state.json"), "retain");
   syncMirror({ sourceDir: join(f.checkout, "web"), mirrorRoot: legacy });
   assert.equal(readFileSync(join(legacy, ".spa/state.json"), "utf8"), "retain");
+});
+test("sealed pre-OpenDesign generations remain recoverable, but new builds must include the new route", async t => {
+  const f = fixture(t), first = await build(f);
+  const manifestFile = join(first.directory, "gateway/dist/manifest.json");
+  const legacyManifest = { routes: Array.from({ length: 165 }, () => ({ source: "gateway/src/index.mjs" })), operations: 265, sources: ["gateway/src/index.mjs"] };
+  writeFileSync(manifestFile, JSON.stringify(legacyManifest));
+  const metadataFile = join(first.directory, "generation.json"), metadata = JSON.parse(readFileSync(metadataFile, "utf8"));
+  metadata.files["gateway/dist/manifest.json"] = createHash("sha256").update(readFileSync(manifestFile)).digest("hex");
+  writeFileSync(metadataFile, JSON.stringify(metadata));
+  assert.equal((await readSpaGeneration(f.mirrorRoot, first.id, f)).id, first.id);
+  const fallback = await ensureSpaGeneration({ ...f, force: true, build: async () => { throw new Error("new build failed"); } });
+  assert.equal(fallback.id, first.id); assert.equal(fallback.fallback, true);
+  await assert.rejects(build(f, async args => { await fakeCompile(args); writeFileSync(join(args.stage, "gateway/dist/manifest.json"), JSON.stringify(legacyManifest)); }), /Invalid gateway generation manifest/);
+  assert.equal(pointer(f.mirrorRoot).current, first.id);
 });
 test("first complete pair publishes atomically; later pair retains a verified previous generation", async t => {
   const f = fixture(t), first = await build(f), second = await build(f, args => fakeCompile(args, "second"));

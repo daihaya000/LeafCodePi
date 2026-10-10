@@ -240,6 +240,16 @@
       ]
     },
     {
+      "route": "/api/accounts/[id]/opendesign-cookie",
+      "source": "web/src/app/api/accounts/[id]/opendesign-cookie/route.ts",
+      "group": "credentials",
+      "operations": [
+        { "method": "POST", "owner": "Backend", "phase": 3, "decision": "thin-backend-relay", "contract": "json", "note": "OpenDesign残量取得用CookieとworkspaceはBackendがアカウント別に所有。" },
+        { "method": "DELETE", "owner": "Backend", "phase": 3, "decision": "thin-backend-relay", "contract": "json", "note": "Cookieは公開DTOへ投影しない。" }
+      ],
+      "observedImports": ["@/lib/json-business-relay"]
+    },
+    {
       "route": "/api/accounts/[id]/opencode-go-cookie",
       "source": "web/src/app/api/accounts/[id]/opencode-go-cookie/route.ts",
       "group": "credentials",

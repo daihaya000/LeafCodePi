@@ -1774,6 +1774,35 @@ describe("ProviderAuthPanel provider-scoped accounts", () => {
   });
 });
 
+describe("ProviderAuthPanel OpenDesign usage", () => {
+  it("registers a scoped cookie separately from the model API key and clears the secret input", async () => {
+    const account = { ...ollamaAccount, id: "acc-opendesign", providers: ["opendesign"] };
+    let configured = false;
+    fetchMock.mockImplementation(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input), method = init?.method ?? "GET";
+      if (url.endsWith("/api/accounts")) return jsonResponse({ accounts: [account] });
+      if (url.endsWith(`/api/accounts/${account.id}/auth-status`)) return jsonResponse({
+        providers: ["opendesign"], credentialKinds: { opendesign: "api_key" }, opendesignCookieConfigured: configured,
+      });
+      if (url.endsWith(`/api/accounts/${account.id}/opendesign-cookie`) && method === "POST") {
+        configured = true;
+        return jsonResponse({ ok: true, configured: true });
+      }
+      return jsonResponse({});
+    });
+    render(<ProviderAuthPanel providers={[{ ...ollamaProvider, id: "opendesign", name: "OpenDesign" }]} onChanged={() => {}} />);
+    const card = await accountRegion("OpenDesign");
+    expect(within(card).getByText(/API キーだけでは残量を取得できません/)).toBeTruthy();
+    fireEvent.click(within(card).getByRole("button", { name: "登録", exact: true }));
+    fireEvent.change(within(card).getByLabelText("Cookie ヘッダー / Netscape 形式の cookie"), { target: { value: "session=fixture-secret" } });
+    fireEvent.click(within(card).getByRole("button", { name: "保存", exact: true }));
+    await waitFor(() => expect(within(card).getByText("このアカウントの cookie を登録済み")).toBeTruthy());
+    expect(within(card).queryByDisplayValue("session=fixture-secret")).toBeNull();
+    const saved = fetchMock.mock.calls.find(([url, init]) => String(url).endsWith("/opendesign-cookie") && init?.method === "POST");
+    expect(JSON.parse(String(saved?.[1]?.body))).toEqual({ cookies: "session=fixture-secret" });
+  });
+});
+
 describe("ProviderAuthPanel peer accounts", () => {
   const peerAccount = {
     id: "acc-peer",

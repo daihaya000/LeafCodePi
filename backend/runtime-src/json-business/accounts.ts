@@ -12,11 +12,13 @@ import * as ollamaCookie from "./handlers/accounts/[id]/ollama-cookie/route";
 import * as openCodeCookie from "./handlers/accounts/[id]/opencode-go-cookie/route";
 import * as openRouterBaseline from "./handlers/accounts/[id]/openrouter-baseline/route";
 import * as openRouterCredits from "./handlers/accounts/[id]/openrouter-credits/route";
+import * as openDesignCookie from "./handlers/accounts/[id]/opendesign-cookie/route";
 
 type Handler = (request: ReturnType<typeof configurationRequest>, context: { params: Promise<Record<string, string>> }) => Promise<Response>;
 const handlers = { accounts, "accounts/[id]": account, "accounts/[id]/auth-status": auth,
   "accounts/[id]/anthropic-cookie": anthropicCookie, "accounts/[id]/anthropic-baseline": anthropicBaseline,
   "accounts/[id]/ollama-cookie": ollamaCookie, "accounts/[id]/opencode-go-cookie": openCodeCookie,
+  "accounts/[id]/opendesign-cookie": openDesignCookie,
   "accounts/[id]/openrouter-baseline": openRouterBaseline, "accounts/[id]/openrouter-credits": openRouterCredits,
 } as unknown as Record<string, Record<string, Handler>>;
 /** Account records and private credentials share the configuration owner queue, save observation and result ledger. */

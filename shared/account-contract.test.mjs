@@ -4,10 +4,12 @@ import { ACCOUNT_ROUTES, accountTarget, publicAccountBody } from "./account-cont
 import { jsonBusinessCommand, publicJsonBusinessResult } from "./json-business-contract.mjs";
 const account = { id: "fixture", label: "Fixture", enabled: true, providers: ["anthropic"], createdAt: "now", updatedAt: "now", token: "PRIVATE", authPath: "PRIVATE" };
 test("account route mapping validates identifiers, decodes once and registers all operations", () => {
-  assert.equal(Object.keys(ACCOUNT_ROUTES).length, 9); assert.equal(Object.values(ACCOUNT_ROUTES).flat().length, 19);
+  assert.equal(Object.keys(ACCOUNT_ROUTES).length, 10); assert.equal(Object.values(ACCOUNT_ROUTES).flat().length, 21);
   assert.deepEqual(accountTarget("accounts/%66ixture/anthropic-cookie"), { route: "accounts/[id]/anthropic-cookie", params: { id: "fixture" } });
   for (const path of ["accounts/%2F", "accounts/%252F", "accounts/..", "accounts/%zz", "accounts/fixture/unregistered", "accounts/fixture/anthropic-cookie/extra"]) assert.equal(accountTarget(path), null);
   assert.equal(jsonBusinessCommand("accounts/fixture/openrouter-credits", "POST"), true);
+  assert.deepEqual(accountTarget("accounts/fixture/opendesign-cookie"), { route: "accounts/[id]/opendesign-cookie", params: { id: "fixture" } });
+  assert.equal(jsonBusinessCommand("accounts/fixture/opendesign-cookie", "POST"), true);
   assert.equal(jsonBusinessCommand("accounts/fixture/auth-status", "GET"), false);
 });
 test("account DTO projection strips credential and runtime fields including nested records", () => {
@@ -22,6 +24,11 @@ test("auth-status exposes only typed configured flags and credential kinds", () 
   const result = publicAccountBody("accounts/[id]/auth-status", { providers: ["anthropic"], credentialKinds: { anthropic: "oauth", token: "PRIVATE" }, peer: false, ollamaCookieConfigured: false, opencodeGoCookieConfigured: false, anthropicCookieConfigured: true, openrouterManagementKeyConfigured: false, anthropicCreditBaseline: 10, openrouterCreditBaseline: null, cookies: "PRIVATE" }, 200);
   assert.deepEqual(result.credentialKinds, { anthropic: "oauth" }); assert.ok(!JSON.stringify(result).includes("PRIVATE"));
   assert.equal(publicAccountBody("accounts/[id]/auth-status", { ...result, credentialKinds: { anthropic: { token: "PRIVATE" } } }, 200), null);
+});
+test("OpenDesign cookie acknowledgements never expose cookies or the pinned workspace", () => {
+  assert.deepEqual(publicJsonBusinessResult("accounts/fixture/opendesign-cookie", { status: 200, headers: {}, body: {
+    ok: true, configured: true, cookies: "PRIVATE", workspaceId: "PRIVATE", authPath: "PRIVATE",
+  } })?.body, { ok: true, configured: true });
 });
 test("success, partial error, null baseline and invalid acknowledgement schemas stay explicit", () => {
   assert.deepEqual(publicAccountBody("accounts/[id]/openrouter-baseline", { ok: true, baselineUsd: null, managementKey: "PRIVATE" }, 200), { ok: true, baselineUsd: null });

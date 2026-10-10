@@ -23,6 +23,7 @@ export const PROVIDER_CATALOG = [
   { id: "synthetic", name: "Synthetic" },
   { id: "openrouter", name: "OpenRouter" },
   { id: "orcarouter", name: "OrcaRouter" },
+  { id: "opendesign", name: "OpenDesign" },
   { id: "typesafe", name: "TypeSafe" },
 ] as const;
 

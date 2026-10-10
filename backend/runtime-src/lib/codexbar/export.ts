@@ -99,6 +99,8 @@ export function toOpencodeProviderId(codexBarProviderId: string): string | null 
       return "openrouter";
     case "orcarouter":
       return "orcarouter";
+    case "opendesign":
+      return "opendesign";
     case "typesafe":
       return "typesafe";
     default:

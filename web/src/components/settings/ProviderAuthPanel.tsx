@@ -134,6 +134,13 @@ const COOKIE_UI: Partial<Record<AccountProviderId, CookieUi>> = {
     providerName: "OpenRouter",
     missingHint: "アカウント残高の取得に管理キーが必要です",
   },
+  opendesign: {
+    route: "opendesign-cookie",
+    title: "OpenDesign cookie",
+    domain: "amr-api.open-design.ai",
+    providerName: "OpenDesign",
+    missingHint: "API キーだけでは残量を取得できません。cookie を登録してください",
+  },
   anthropic: {
     route: "anthropic-cookie",
     title: "Anthropic Console cookie",
@@ -599,6 +606,7 @@ export const ProviderAuthPanel = memo(function ProviderAuthPanel({
               ollamaCookieConfigured?: boolean;
               opencodeGoCookieConfigured?: boolean;
               anthropicCookieConfigured?: boolean;
+              opendesignCookieConfigured?: boolean;
             }>(`/api/accounts/${encodeURIComponent(account.id)}/auth-status`);
             return [account.id, status] as const;
           } catch (error) {
@@ -617,6 +625,7 @@ export const ProviderAuthPanel = memo(function ProviderAuthPanel({
                 ollamaCookieConfigured: false,
                 opencodeGoCookieConfigured: false,
                 anthropicCookieConfigured: false,
+                opendesignCookieConfigured: false,
               },
             ] as const;
           }
@@ -659,6 +668,7 @@ export const ProviderAuthPanel = memo(function ProviderAuthPanel({
               cookieKey("openrouter", id),
               status.openrouterManagementKeyConfigured === true,
             ],
+            [cookieKey("opendesign", id), status.opendesignCookieConfigured === true],
           ]),
         ),
       );
@@ -1951,7 +1961,7 @@ export const ProviderAuthPanel = memo(function ProviderAuthPanel({
                                 htmlFor={`${providerId}-cookie-${account.id}`}
                                 className="text-xs text-muted"
                               >
-                                {providerId === "openrouter" ? "管理キー" : "Netscape 形式の cookie"}
+                                {providerId === "openrouter" ? "管理キー" : providerId === "opendesign" ? "Cookie ヘッダー / Netscape 形式の cookie" : "Netscape 形式の cookie"}
                               </label>
                               {providerId === "openrouter" ? (
                                 <input
@@ -1971,7 +1981,7 @@ export const ProviderAuthPanel = memo(function ProviderAuthPanel({
                                   rows={5}
                                   value={cookieInput}
                                   onChange={(event) => setCookieInput(event.target.value)}
-                                  placeholder="# Netscape HTTP Cookie File"
+                                  placeholder={providerId === "opendesign" ? "Cookie: session=… または Netscape HTTP Cookie File" : "# Netscape HTTP Cookie File"}
                                   spellCheck={false}
                                   autoComplete="off"
                                   className="w-full resize-y rounded-xl border border-border bg-surface px-3 py-2 font-mono text-xs outline-none focus:border-accent"

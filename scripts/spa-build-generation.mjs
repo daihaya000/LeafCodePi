@@ -69,11 +69,12 @@ function artifactFiles(root) {
   }
   walk(root); return files;
 }
-async function validatePair(directory) {
+async function validatePair(directory, { allowLegacy = false } = {}) {
   await createStaticHandler(join(directory, "spa"));
   for (const file of ["gateway/dist/gateway/src/index.mjs", "gateway/dist/manifest.json", "gateway/package.json", "gateway/package-lock.json", "gateway/node_modules/undici/package.json"]) regular(join(directory, file));
   const manifest = JSON.parse(readFileSync(join(directory, "gateway/dist/manifest.json")));
-  if (!Array.isArray(manifest.routes) || manifest.routes.length !== 165 || manifest.operations !== 265 || !Array.isArray(manifest.sources) || !manifest.sources.every(path => typeof path === "string" && /^(gateway\/src\/|shared\/|web\/src\/app\/api\/|web\/src\/lib\/)/.test(path))) throw new Error("Invalid gateway generation manifest");
+  const validCounts = Array.isArray(manifest.routes) && ((manifest.routes.length === 166 && manifest.operations === 267) || (allowLegacy && manifest.routes.length === 165 && manifest.operations === 265));
+  if (!validCounts || !Array.isArray(manifest.sources) || !manifest.sources.every(path => typeof path === "string" && /^(gateway\/src\/|shared\/|web\/src\/app\/api\/|web\/src\/lib\/)/.test(path))) throw new Error("Invalid gateway generation manifest");
   const pkg = JSON.parse(readFileSync(join(directory, "gateway/package.json"))), lock = JSON.parse(readFileSync(join(directory, "gateway/package-lock.json"))), installed = JSON.parse(readFileSync(join(directory, "gateway/node_modules/undici/package.json")));
   if (Object.keys(pkg.dependencies ?? {}).join() !== "undici" || installed.version !== pkg.dependencies.undici || lock.packages?.["node_modules/undici"]?.version !== installed.version || Object.keys(lock.packages).some(path => path && path !== "node_modules/undici")) throw new Error("Unexpected gateway runtime dependencies");
   for (const name of readdirSync(join(directory, "gateway/node_modules"))) if (name !== "undici" && name !== ".package-lock.json") throw new Error("Extra gateway runtime dependency");
@@ -85,7 +86,7 @@ export async function readSpaGeneration(root, id, { checkout = ROOT } = {}) {
   if (metadata.version !== 1 || metadata.id !== id || !/^[a-f0-9]{64}$/.test(metadata.sourceDigest ?? "") || !metadata.files || Object.getPrototypeOf(metadata.files) !== Object.prototype) throw new Error("Invalid SPA generation metadata");
   const actual = artifactFiles(directory);
   if (JSON.stringify(actual) !== JSON.stringify(metadata.files)) throw new Error("SPA generation integrity mismatch");
-  await validatePair(directory);
+  await validatePair(directory, { allowLegacy: true });
   return { ...metadata, directory, staticRoot: join(directory, "spa"), cwd: join(directory, "gateway"), entry: join(directory, "gateway/dist/gateway/src/index.mjs") };
 }
 export async function selectSpaGeneration(root, { checkout = ROOT } = {}) {

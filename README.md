@@ -92,7 +92,8 @@ Claude も**アカウントごとに既定ON**で、設定 → モデル → Cla
 - エンドポイント: `https://amr-link.open-design.ai/v1`（OpenAI Chat Completions 互換）。API URL の変更は Backend 再起動後に反映
 - モデル一覧は認証済みの `/v1/models` から自動取得。取得失敗時は最後のキャッシュを保持
 - キーはアカウントごとに分離。共有環境変数のキーはアカウントへ流用しない
-- クレジット残高・使用枠の自動取得は未対応。[Cloud コンソール](https://open-design.ai/cloud/dashboard)で確認
+- 残量表示: CodexBar の OpenDesign を有効化し、アカウントの「OpenDesign cookie」に Cloud セッションの Cookie ヘッダーまたは Netscape cookie を登録。USD 残高と Design Plan の使用枠・リセット時刻を取得
+- 残量 API はモデル用 API キーでは認証不可。Cookie を保存前に検証し、選択中の workspace を固定してアカウント別に保存。期限切れ時は再登録。秘密の本文は画面/APIへ返さない
 
 ## サブスクリプション認証
 

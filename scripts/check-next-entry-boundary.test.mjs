@@ -14,7 +14,7 @@ function fixture(t, files = {}) {
   return root;
 }
 const check = root => checkNextEntryBoundary(root, ts);
-test("every production entry and its type closure is Web/shared-only", () => { const r=check(ROOT); assert.equal(r.routes,165); assert.ok(r.roots>300 && r.modules>500 && r.typeModules>r.modules); assert.equal(r.startupModules,2); });
+test("every production entry and its type closure is Web/shared-only", () => { const r=check(ROOT); assert.equal(r.routes,167); assert.ok(r.roots>300 && r.modules>500 && r.typeModules>r.modules); assert.equal(r.startupModules,2); });
 test("new API routes, nested metadata, render conventions and commented client directives are automatically roots", t => {
   const root=fixture(t,{"web/src/app/api/new/nested/route.ts":"export const GET=()=>{};","web/src/app/(group)/sitemap.ts":"export default ()=>[];","web/src/app/icon.tsx":"export default ()=>null;","web/src/app/(group)/error.tsx":"export default ()=>null;","web/src/widget.tsx":"/* client helper */\n// second comment\n'use client'; export const Widget=()=>null;","web/src/app/api/new/route.test.ts":"import '@backend-runtime/owner';"});
   assert.equal(check(root).routes,1); assert.ok(nextEntryRoots(root).includes("web/src/widget.tsx")); assert.equal(check(root).roots,7);

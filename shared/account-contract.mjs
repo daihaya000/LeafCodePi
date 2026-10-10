@@ -6,10 +6,11 @@ export const ACCOUNT_ROUTES = Object.freeze({
   "accounts/[id]/anthropic-baseline": ["POST", "DELETE"], "accounts/[id]/ollama-cookie": ["POST", "DELETE"],
   "accounts/[id]/opencode-go-cookie": ["GET", "POST", "DELETE"], "accounts/[id]/openrouter-baseline": ["POST", "DELETE"],
   "accounts/[id]/openrouter-credits": ["POST", "DELETE"],
+  "accounts/[id]/opendesign-cookie": ["POST", "DELETE"],
 });
 export function accountTarget(path) {
   if (path === "accounts") return { route: path, params: {} };
-  const match = /^accounts\/([^/]+)(?:\/(auth-status|anthropic-cookie|anthropic-baseline|ollama-cookie|opencode-go-cookie|openrouter-baseline|openrouter-credits))?$/.exec(path);
+  const match = /^accounts\/([^/]+)(?:\/(auth-status|anthropic-cookie|anthropic-baseline|ollama-cookie|opencode-go-cookie|opendesign-cookie|openrouter-baseline|openrouter-credits))?$/.exec(path);
   if (!match) return null;
   try {
     const id = decodeURIComponent(match[1]);
@@ -38,7 +39,7 @@ export function publicAccountBody(route, input, status) {
   if (input.ok !== undefined) { if (typeof input.ok !== "boolean") return null; body.ok = input.ok; }
   if (input.configured !== undefined) { if (typeof input.configured !== "boolean") return null; body.configured = input.configured; }
   if (input.baselineUsd !== undefined) { if (input.baselineUsd !== null && (typeof input.baselineUsd !== "number" || !Number.isFinite(input.baselineUsd))) return null; body.baselineUsd = input.baselineUsd; }
-  if (input.workspaceId !== undefined) { if (input.workspaceId !== null && typeof input.workspaceId !== "string") return null; body.workspaceId = input.workspaceId; }
+  if (input.workspaceId !== undefined && route !== "accounts/[id]/opendesign-cookie") { if (input.workspaceId !== null && typeof input.workspaceId !== "string") return null; body.workspaceId = input.workspaceId; }
   if (route.endsWith("/auth-status") && status < 400 && !input.error) {
     if (!stringArray(input.providers) || !record(input.credentialKinds)) return null;
     body.providers = input.providers;
@@ -46,6 +47,10 @@ export function publicAccountBody(route, input, status) {
     if (Object.values(body.credentialKinds).some(kind => !["oauth", "api_key"].includes(kind))) return null;
     for (const key of ["peer", "ollamaCookieConfigured", "opencodeGoCookieConfigured", "anthropicCookieConfigured", "openrouterManagementKeyConfigured"]) {
       if (typeof input[key] !== "boolean") return null; body[key] = input[key];
+    }
+    if (input.opendesignCookieConfigured !== undefined) {
+      if (typeof input.opendesignCookieConfigured !== "boolean") return null;
+      body.opendesignCookieConfigured = input.opendesignCookieConfigured;
     }
     for (const key of ["anthropicCreditBaseline", "openrouterCreditBaseline"]) {
       if (input[key] !== null && (typeof input[key] !== "number" || !Number.isFinite(input[key]))) return null; body[key] = input[key];

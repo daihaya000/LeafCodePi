@@ -49,7 +49,7 @@ test("fresh Vite output is served by the compiled native production gateway, not
   }
   cpSync(join(ROOT, "shared"), join(candidate, "shared"), { recursive: true });
   symlinkSync(join(web, "node_modules"), join(candidate, "web/node_modules"), process.platform === "win32" ? "junction" : "dir");
-  const gateway = buildGateway(candidate); assert.deepEqual([gateway.routes, gateway.operations], [165, 265]);
+  const gateway = buildGateway(candidate); assert.deepEqual([gateway.routes, gateway.operations], [166, 267]);
   await withCanaryEnvironment(createSecretCanaries(), () => build({ configFile: join(web, "vite.config.ts"), envDir: root, logLevel: "silent", build: { outDir: output, emptyOutDir: true } }));
   const index = readFileSync(join(output, "index.html"), "utf8");
   const script = [...index.matchAll(/src="(\/assets\/[^" ]+\.js)"/g)].map(match => match[1]); assert.ok(script.length);

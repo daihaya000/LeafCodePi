@@ -7,10 +7,10 @@ import test from "node:test";
 import { gatewayGraph } from "./build-gateway.mjs";
 const ROOT = resolve(fileURLToPath(new URL("../", import.meta.url)));
 
-test("gateway closure is all 165 routes and 265 operations, with no Next, SDK, owner or test module", () => {
-  const graph = gatewayGraph(); assert.deepEqual(graph.counts, { routes: 165, operations: 265 });
+test("gateway closure is all 166 routes and 267 operations, with no Next, SDK, owner or test module", () => {
+  const graph = gatewayGraph(); assert.deepEqual(graph.counts, { routes: 166, operations: 267 });
   assert.equal(graph.manifest.filter(route => route.methods.includes("GET") && !route.methods.includes("HEAD")).length, 94);
-  assert.equal(graph.manifest.filter(route => !route.methods.includes("OPTIONS")).length, 164);
+  assert.equal(graph.manifest.filter(route => !route.methods.includes("OPTIONS")).length, 165);
   for (const file of graph.sources.keys()) assert.doesNotMatch(file, /^(?:backend|host|extensions)\/|web\/src\/lib\/pi\/|\.test\./);
   assert.equal(graph.manifest.find(route => route.route === "/api/pi/latest-version").source, "web/src/app/api/pi/latest-version/route.ts");
 });
@@ -35,7 +35,7 @@ test("gateway dependency gate refuses framework/SDK imports, indirect loaders, o
     for (const code of ['import type { NextRequest } from "next/server";', 'type Hidden = import("@earendil-works/pi-ai").Model;']) {
       writeFileSync(route, source + "\n" + code); assert.throws(() => gatewayGraph(root), undefined, code);
     }
-    writeFileSync(route, source); assert.equal(gatewayGraph(root).manifest.length, 165);
+    writeFileSync(route, source); assert.equal(gatewayGraph(root).manifest.length, 166);
     // A permitted-looking filename cannot conceal a junction/symlink to owner code.
     const escaped = join(root, "shared/escaped"); symlinkSync(join(ROOT, "host/src"), escaped, process.platform === "win32" ? "junction" : "dir");
     writeFileSync(entry, original + '\nimport "../../shared/escaped/index.js";'); assert.throws(() => gatewayGraph(root), /symlink/);

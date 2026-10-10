@@ -11,6 +11,7 @@ import { isPeerAccount } from "@/lib/peer-auth/account-runtime-options";
 import { hasAnthropicConsoleCookie, readAnthropicCreditBaseline } from "@/lib/codexbar/providers/anthropic";
 import { isOllamaCookieConfigured } from "@/lib/codexbar/providers/ollama-cloud";
 import { readOpenRouterCreditBaseline, readOpenRouterManagementKey } from "@/lib/codexbar/providers/openrouter";
+import { hasOpenDesignCookie } from "@/lib/codexbar/providers/opendesign";
 import { jsonError } from "@/lib/pi/harness";
 
 export const runtime = "nodejs";
@@ -38,6 +39,7 @@ export async function GET(_req: NextRequest, context: Context) {
       // 別LCPから取り込んだアカウントは、このLCP側でログイン/ログアウトできない。
       peer: isPeerAccount(id, agentDir),
       ollamaCookieConfigured: isOllamaCookieConfigured(id),
+      opendesignCookieConfigured: hasOpenDesignCookie(accountAuthPath(id, agentDir)),
       opencodeGoCookieConfigured:
         extractOpenCodeCookieHeader({
           authPath: accountAuthPath(id, agentDir),
