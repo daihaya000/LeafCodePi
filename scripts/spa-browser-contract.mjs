@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
-import { cpSync, existsSync, mkdirSync, readFileSync, readdirSync, symlinkSync, writeFileSync } from "node:fs";
+import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -8,14 +8,18 @@ import { createRequire } from "node:module";
 import { createServer } from "node:http";
 import { setTimeout as delay } from "node:timers/promises";
 import { settings, startFixture } from "./spa-browser-fixture.mjs";
+import { assertNoCanary, auditCanaryResponses, canaryProbePlugin, createSecretCanaries, scanCanaryArtifacts, withCanaryEnvironment } from "./spa-secret-canary.mjs";
 const ROOT = resolve(fileURLToPath(new URL("../", import.meta.url))), web = join(ROOT, "web");
 const require = createRequire(join(web, "package.json"));
 const { chromium } = require("playwright");
-const { build, preview } = await import(pathToFileURL(require.resolve("vite")).href);
+const { build, loadEnv, preview } = await import(pathToFileURL(require.resolve("vite")).href);
 const output = resolve(process.env.LEAFCODE_SPA_EVIDENCE_DIR ?? join(tmpdir(), "leafcode-spa-browser-contract"));
 mkdirSync(output, { recursive: true });
 const children = [], checks = [], errors = [], references = [], screenshots = [];
-let fixture, spa, browser, state = { status: "running", output, checks };
+const canaries = createSecretCanaries(), envDir = mkdtempSync(join(output, "canary-env-"));
+for (const [filename, content] of Object.entries(canaries.files)) writeFileSync(join(envDir, filename), content);
+let responseCount = 0;
+let fixture, spa, auditSpa, browser, state = { status: "running", output, checks, canaryInputs: canaries.entries.map(({ name, source }) => ({ name, source })) };
 const save = () => writeFileSync(join(output, "state.json"), JSON.stringify(state, null, 2));
 save();
 async function run(args, cwd, env) {
@@ -53,7 +57,8 @@ async function prepareReference(origin) {
 async function pageFor(origin, viewport, seed = {}) {
   const context = await browser.newContext({ viewport, reducedMotion: "reduce" });
   await context.addInitScript(seed => {
-    for (const [key, value] of Object.entries(seed)) localStorage.setItem(key, value);
+    // newPage() starts at opaque about:blank; only seed actual top-level pages.
+    if (window.top === window && /^https?:$/.test(location.protocol)) for (const [key, value] of Object.entries(seed)) localStorage.setItem(key, value);
     const Native = EventSource;
     window.__sources = [];
     window.EventSource = class extends Native {
@@ -62,13 +67,33 @@ async function pageFor(origin, viewport, seed = {}) {
     };
     window.__documentId = Math.random().toString(36);
   }, seed);
-  await context.route("**/*", route => {
-    const url = new URL(route.request().url());
+  const flushResponses = auditCanaryResponses(context, canaries.entries, error => errors.push(error));
+  context.on("page", page => {
+    page.on("pageerror", error => errors.push(`${origin}: ${error.stack}`));
+    page.on("console", message => {
+      try { assertNoCanary(message.text(), canaries.entries, "browser console"); } catch (error) { errors.push(error.message); }
+    });
+  });
+  await context.route("**/*", async route => {
+    const request = route.request();
+    try { assertNoCanary({ url: request.url(), headers: await request.allHeaders(), body: request.postData() }, canaries.entries, "outgoing browser request"); }
+    catch (error) { errors.push(error.message); return route.abort(); }
+    const url = new URL(request.url());
     if (url.protocol === "data:" || url.protocol === "blob:" || references.includes(url.origin) || url.origin === fixture.origin) return route.continue();
     errors.push(`Forbidden browser network: ${url.origin}${url.pathname}`); return route.abort();
   });
-  const page = await context.newPage(); page.on("pageerror", error => errors.push(`${origin}: ${error.stack}`));
-  return { page, context };
+  const close = context.close.bind(context);
+  context.close = async () => {
+    for (const page of context.pages()) if (!page.isClosed() && /^https?:/.test(page.url())) {
+      const snapshot = await page.evaluate(() => ({ html: document.documentElement.outerHTML, inputs: [...document.querySelectorAll("input,textarea")].map(element => element.value), local: { ...localStorage }, session: { ...sessionStorage }, cookies: document.cookie, probe: window.__leafcodeCanaryProbe }));
+      assertNoCanary(snapshot, canaries.entries, "browser DOM/env/storage");
+    }
+    assertNoCanary(await context.cookies(), canaries.entries, "browser cookies");
+    responseCount += await flushResponses();
+    await close();
+  };
+  const page = await context.newPage();
+  return { page, context, flushResponses };
 }
 async function ready(page, path) {
   if (path.startsWith("/login")) await page.getByRole("heading", { name: "LeafCodePi にサインイン" }).waitFor();
@@ -90,12 +115,28 @@ async function visual(page) {
 }
 try {
   fixture = await startFixture();
-  await build({ configFile: join(web, "vite.config.ts"), logLevel: "silent", build: { outDir: join(output, "spa"), emptyOutDir: true } });
-  spa = await preview({ configFile: join(web, "vite.config.ts"), logLevel: "silent", build: { outDir: join(output, "spa") }, preview: { host: "127.0.0.1", port: 0, proxy: { "/api": { target: fixture.origin, changeOrigin: false } } } });
-  const spaOrigin = `http://127.0.0.1:${spa.httpServer.address().port}`;
-  const nextOrigin = await prepareReference(fixture.origin); references.push(spaOrigin, nextOrigin);
+  await checked("SPA default production and reachable-env/source-map canary artifacts", async () => {
+    await withCanaryEnvironment(canaries, async () => {
+      const loaded = loadEnv("production", envDir, "");
+      for (const entry of canaries.entries.filter(entry => entry.name !== "VITE_DOTENV_PRECEDENCE_TOKEN")) assert.ok(loaded[entry.name] === entry.value, `Canary input not loaded: ${entry.name}`);
+      assert.ok(loaded.VITE_DOTENV_PRECEDENCE_TOKEN === canaries.entries.at(-1).value, "Production-local dotenv precedence must be exercised");
+      const common = { configFile: join(web, "vite.config.ts"), envDir, logLevel: "silent" };
+      await build({ ...common, build: { outDir: join(output, "spa"), emptyOutDir: true } });
+      await build({ ...common, plugins: [canaryProbePlugin(canaries.entries)], build: { outDir: join(output, "spa-audit"), emptyOutDir: true, sourcemap: true } });
+    });
+    const production = await scanCanaryArtifacts(join(output, "spa"), canaries.entries);
+    const audit = await scanCanaryArtifacts(join(output, "spa-audit"), canaries.entries);
+    assert.equal(production.maps, 0, "Default production must not publish source maps");
+    assert.ok(audit.maps > 0, "Canary audit must inspect actual source maps");
+    state.canaryArtifacts = { production, audit };
+  });
+  const previewOptions = outDir => ({ configFile: join(web, "vite.config.ts"), envDir, logLevel: "silent", build: { outDir }, preview: { host: "127.0.0.1", port: 0, proxy: { "/api": { target: fixture.origin, changeOrigin: false } } } });
+  spa = await preview(previewOptions(join(output, "spa")));
+  auditSpa = await preview(previewOptions(join(output, "spa-audit")));
+  const spaOrigin = `http://127.0.0.1:${spa.httpServer.address().port}`, auditOrigin = `http://127.0.0.1:${auditSpa.httpServer.address().port}`;
+  const nextOrigin = await prepareReference(fixture.origin); references.push(spaOrigin, nextOrigin, auditOrigin);
   browser = await chromium.launch({ headless: true, ...(process.env.LEAFCODE_TEST_CHROMIUM ? { executablePath: process.env.LEAFCODE_TEST_CHROMIUM } : {}) });
-  state.origins = { spa: spaOrigin, next: nextOrigin }; state.browser = browser.version(); save();
+  state.origins = { spa: spaOrigin, next: nextOrigin, audit: auditOrigin }; state.browser = browser.version(); save();
   const paths = ["/", "/task/task-a", "/settings", "/bots", "/bots/bot-a", "/bots/rooms/room-a", "/login"];
   for (const [size, viewport] of [["desktop", { width: 1280, height: 900 }], ["mobile", { width: 390, height: 844 }]]) {
     for (const path of paths) await checked(`${size} direct/reload/visual ${path}`, async () => {
@@ -147,13 +188,15 @@ try {
     await context.close();
   });
   await checked("SPA OAuth popup, manual callback and SSE completion", async () => {
-    const { page, context } = await pageFor(spaOrigin, { width: 1280, height: 900 });
+    const { page, context, flushResponses } = await pageFor(spaOrigin, { width: 1280, height: 900 });
     await context.route("**/fixture-oauth", route => route.fulfill({ contentType: "text/html", body: "<h1>Fixture authorization only</h1>" }));
     await page.goto(spaOrigin + "/settings#models-providers");
     await page.getByText("Fixture OAuth", { exact: true }).first().waitFor();
     const popup = context.waitForEvent("page").catch(error => error); await page.locator("#models-providers").getByRole("button", { name: "ログイン", exact: true }).first().click();
-    const authorization = await popup; if (authorization instanceof Error) throw authorization; await authorization.waitForLoadState("domcontentloaded");
-    assert.equal(new URL(authorization.url()).pathname, "/fixture-oauth"); await authorization.close();
+    const authorization = await popup; if (authorization instanceof Error) throw authorization; await authorization.waitForLoadState("load");
+    assert.equal(new URL(authorization.url()).pathname, "/fixture-oauth");
+    assertNoCanary(await authorization.evaluate(() => ({ html: document.documentElement.outerHTML, local: { ...localStorage }, session: { ...sessionStorage } })), canaries.entries, "OAuth popup DOM/storage");
+    await flushResponses(); await authorization.close();
     const panel = page.getByRole("region", { name: "Fixture OAuth のログイン" });
     await panel.locator("#provider-login-input").fill(spaOrigin + "/fixture-callback?code=fixture-code&state=fixture-state");
     await panel.locator('button[type="submit"]').click();
@@ -163,13 +206,32 @@ try {
     await panel.getByText("ログイン完了", { exact: true }).waitFor();
     await context.close();
   });
+  await checked("SPA reachable env probe, seven-route browser sinks and dotenv HTTP denial", async () => {
+    const { page, context } = await pageFor(auditOrigin, { width: 390, height: 844 });
+    for (const path of paths) {
+      await page.goto(auditOrigin + path); await ready(page, path);
+      const probe = await page.evaluate(() => window.__leafcodeCanaryProbe);
+      assert.deepEqual(Object.keys(probe.env).sort(), ["BASE_URL", "DEV", "MODE", "PROD", "SSR"]);
+      assert.equal(probe.env.PROD, true); assert.equal(probe.env.DEV, false); assert.equal(probe.env.SSR, false);
+      assert.equal(probe.env.MODE, "production"); assert.equal(probe.nodeMode, "production");
+      assert.ok(Object.values(probe.named).every(value => value === undefined));
+      assert.ok(Object.values(probe.node).every(value => value === undefined));
+      assertNoCanary(await page.evaluate(() => ({ html: document.documentElement.outerHTML, local: { ...localStorage }, session: { ...sessionStorage }, probe: window.__leafcodeCanaryProbe })), canaries.entries, "seven-route browser snapshot");
+    }
+    for (const filename of Object.keys(canaries.files)) {
+      assertNoCanary(await (await fetch(`${auditOrigin}/${filename}`)).text(), canaries.entries, "dotenv HTTP response");
+      assertNoCanary(await (await fetch(`${auditOrigin}/@fs/${envDir.replaceAll("\\", "/")}/${filename}`)).text(), canaries.entries, "filesystem HTTP response");
+    }
+    await context.close();
+  });
+  assertNoCanary(fixture.log, canaries.entries, "owner fixture request log");
   assert.deepEqual(errors, []);
-  state = { ...state, status: "passed", checks, screenshots, requests: fixture.log, consoleErrors: errors }; save();
+  state = { ...state, status: "passed", checks, screenshots, requests: fixture.log, auditedBrowserResponses: responseCount, consoleErrors: errors }; save();
   console.log(JSON.stringify({ status: state.status, checks: checks.length, output }));
 } catch (error) { state = { ...state, status: "failed", checks, error: error.stack, consoleErrors: errors, requests: fixture?.log }; save(); console.error(error); process.exitCode = 1; }
 finally {
   await browser?.close();
-  if (spa) { spa.httpServer.closeAllConnections(); await new Promise(resolve => spa.httpServer.close(resolve)); }
+  for (const server of [spa, auditSpa]) if (server) { server.httpServer.closeAllConnections(); await new Promise(resolve => server.httpServer.close(resolve)); }
   await fixture?.close();
   for (const child of children.reverse()) if (child.exitCode === null && child.signalCode === null) { child.kill(); await Promise.race([new Promise(resolve => child.once("exit", resolve)), delay(3000)]); }
 }

@@ -17,7 +17,8 @@
     "build:spa": "vite build --config vite.config.ts",
     "preview:spa": "vite preview --config vite.config.ts",
     "typecheck:spa": "tsc -p tsconfig.spa.json",
-    "test:spa:browser": "node ../scripts/spa-browser-contract.mjs"
+    "test:spa:browser": "node ../scripts/spa-browser-contract.mjs",
+    "test:spa:secrets": "node --test ../scripts/spa-secret-canary.test.mjs && vitest run src/spa/build-boundary.test.ts --maxWorkers=1"
   },
   "dependencies": {
     "lucide-react": "^1.24.0",

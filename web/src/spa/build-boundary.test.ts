@@ -1,10 +1,11 @@
-import { build, preview } from "vite";
+import { build, loadEnv, preview, type InlineConfig } from "vite";
 import { createServer } from "node:http";
 import { mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import config, { spaBoundary } from "../../vite.config";
+import { createSecretCanaries, scanCanaryArtifacts, withCanaryEnvironment } from "../../../scripts/spa-secret-canary.mjs";
 const directories: string[] = [];
 afterEach(async () => { await Promise.all(directories.splice(0).map(path => rm(path, { recursive: true, force: true }))); });
 async function fixture(source: string) {
@@ -12,7 +13,7 @@ async function fixture(source: string) {
   await writeFile(join(root, "index.html"), '<html><body><script type="module" src="/entry.js"></script></body></html>');
   await writeFile(join(root, "entry.js"), source); return root;
 }
-async function buildFixture(root: string) { return build({ ...config, configFile: false, root, publicDir: false, logLevel: "silent", build: { outDir: "out", emptyOutDir: true } }); }
+async function buildFixture(root: string, overrides: InlineConfig = {}) { return build({ ...config, ...overrides, configFile: false, root, publicDir: false, logLevel: "silent", build: { outDir: "out", emptyOutDir: true, ...overrides.build } }); }
 async function sourceText(root: string): Promise<string> {
   const entries = await readdir(root, { withFileTypes: true });
   return (await Promise.all(entries.map(entry => entry.isDirectory() ? sourceText(join(root, entry.name)) : readFile(join(root, entry.name), "utf8")))).join("\n");
@@ -29,17 +30,29 @@ describe("SPA production boundary", () => {
       expect(() => hook({}, { main: { type: "chunk", modules: { [id]: {} } } })).toThrow("forbidden");
     }
   });
-  it("does not expose VITE_* or owner credentials to HTML/JS", async () => {
-    const previousVite = process.env.VITE_FIXTURE_SECRET, previousOwner = process.env.LEAFCODE_PI_BACKEND_TOKEN;
-    const canary = "spa-canary-not-a-real-credential";
-    process.env.VITE_FIXTURE_SECRET = canary; process.env.LEAFCODE_PI_BACKEND_TOKEN = canary;
-    try {
-      const root = await fixture('document.body.textContent = JSON.stringify([import.meta.env.VITE_FIXTURE_SECRET, import.meta.env.LEAFCODE_PI_BACKEND_TOKEN]);');
-      await buildFixture(root); expect(await sourceText(join(root, "out"))).not.toContain(canary);
-    } finally {
-      if (previousVite === undefined) delete process.env.VITE_FIXTURE_SECRET; else process.env.VITE_FIXTURE_SECRET = previousVite;
-      if (previousOwner === undefined) delete process.env.LEAFCODE_PI_BACKEND_TOKEN; else process.env.LEAFCODE_PI_BACKEND_TOKEN = previousOwner;
-    }
+  it("keeps whole/named env and HTML placeholders secret across all dotenv layers and source maps", async () => {
+    const canaries = createSecretCanaries();
+    const names = [...new Set(canaries.entries.map(entry => entry.name))];
+    const fields = names.map(name => `${name}: [import.meta.env.${name}, process.env.${name}]`).join(",");
+    const root = await fixture(`document.body.textContent = JSON.stringify({ whole: import.meta.env, ${fields} });`);
+    for (const [filename, content] of Object.entries(canaries.files)) await writeFile(join(root, filename), content as string);
+    await writeFile(join(root, "index.html"), '<html><head><meta content="%VITE_SECRET% %VITE_DOTENV_PRECEDENCE_TOKEN% %LEAFCODE_PI_WEBUI_TOKEN%"></head><body><script type="module" src="/entry.js"></script></body></html>');
+    await withCanaryEnvironment(canaries, async () => {
+      // Prove inputs were loaded, rather than passing because no secret was injected.
+      const loaded = loadEnv("production", root, "");
+      for (const entry of canaries.entries.filter(entry => entry.name !== "VITE_DOTENV_PRECEDENCE_TOKEN")) expect(loaded[entry.name] === entry.value).toBe(true);
+      expect(loaded.VITE_DOTENV_PRECEDENCE_TOKEN === canaries.entries.at(-1)?.value).toBe(true);
+      await buildFixture(root, { build: { sourcemap: true } });
+    });
+    const result = await scanCanaryArtifacts(join(root, "out"), canaries.entries);
+    expect(result.maps).toBeGreaterThan(0);
+    expect(await sourceText(join(root, "out"))).toContain("%VITE_SECRET%");
+  });
+  it("the audit detects an accidentally restored VITE_ exposure prefix", async () => {
+    const canaries = createSecretCanaries();
+    const root = await fixture('document.body.textContent = JSON.stringify(import.meta.env);');
+    await withCanaryEnvironment(canaries, () => buildFixture(root, { envPrefix: ["VITE_"] }));
+    await expect(scanCanaryArtifacts(join(root, "out"), canaries.entries)).rejects.toThrow("SPA secret canary leaked");
   });
   it("production preview serves every direct/reloaded URL and forwards API only to the isolated fixture", async () => {
     const output = await mkdtemp(join(tmpdir(), "leafcode-spa-production-")); directories.push(output);
