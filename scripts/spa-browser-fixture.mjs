@@ -1,5 +1,6 @@
 import { createServer } from "node:http";
 import { readWebUiPresentation } from "../shared/webui-presentation.mjs";
+import { createOAuthFixture } from "./spa-oauth-fixture.mjs";
 export const settings = { "composer-defaults": JSON.stringify({ model: "auto", autoOptimize: "cost", agent: "default", thinkingLevel: "high" }), "task-pane-prefer-new": "0", "pushover-notifications-enabled": "0", "notification-sound-type": "soft", "notification-sound-type-bot": "standard", "notification-sound-volume": "0" };
 const at = "2026-01-01T00:00:00.000Z";
 export const tasks = ["task-a", "task-b"].map((id, i) => ({ id, kind: "code", projectId: null, projectName: "", title: `Fixture task ${i + 1}`, directory: "/fixture", isolation: "current_folder", status: "idle", sessionId: id, sessionFile: null, createdAt: at, updatedAt: at }));
@@ -22,20 +23,17 @@ export async function startFixture({ dataDir } = {}) {
     for (const stream of streams) if (streamPaths.get(stream) === path) stream.write(`event: ${event}\ndata: ${JSON.stringify(frame)}\n\n`);
     return frame.fixtureSequence;
   };
+  const oauth = createOAuthFixture({ origin: () => `http://127.0.0.1:${server.address().port}`, streams, streamPaths });
   const server = createServer(async (request, response) => {
     const url = new URL(request.url, "http://fixture"), path = url.pathname;
     let raw = ""; for await (const chunk of request) raw += chunk;
     const item = { path, query: url.search, method: request.method, body: raw ? JSON.parse(raw) : null }; log.push(item);
     const json = (body, status = 200) => { response.writeHead(status, { "content-type": "application/json", "cache-control": "no-store" }); response.end(JSON.stringify(body)); };
+    if (oauth.handle(item, url, response, json)) return;
     if (path.endsWith("/events")) {
       response.writeHead(200, { "content-type": "text/event-stream", "cache-control": "no-cache, no-transform", connection: "keep-alive" }); streams.add(response); streamPaths.set(response, path);
       response.on("close", () => { streams.delete(response); streamPaths.delete(response); });
-      if (path.includes("/login/events")) {
-        const origin = `http://${request.headers.host}`;
-        response.write(`event: notify\ndata: ${JSON.stringify({ type: "notify", event: { type: "auth_url", url: origin + "/fixture-oauth", callbackUrl: origin + "/fixture-callback", instructions: "Fixture OAuth callback" } })}\n\n`);
-      } else {
-        response.write(`event: snapshot\ndata: ${JSON.stringify(snapshotFor(path))}\n\n`);
-      }
+      response.write(`event: snapshot\ndata: ${JSON.stringify(snapshotFor(path))}\n\n`);
       return;
     }
     if (path === "/webui-bootstrap.json") return json(presentation);
@@ -55,11 +53,6 @@ export async function startFixture({ dataDir } = {}) {
     if (path === "/api/llama-server/models") return json({ models: [], mmprojs: [], loras: [] });
     if (path === "/api/settings/llama-server-config") return json({ error: "Fixture local inference unavailable" }, 503);
     if (path === "/api/auth/webui") return json({ ok: true });
-    if (path.includes("/login/callback")) {
-      for (const stream of streams) stream.write('event: done\ndata: {"type":"done","ok":true}\n\n');
-      return json({ ok: true });
-    }
-    if (path.endsWith("/login")) return json({ sessionId: "fixture-login" });
     if (path === "/api/health") return json({ ok: true, engine: "pi", engineOk: true, version: "fixture", modelCount: 1, dataDir: "/fixture", platform: "linux", startedAt: 1 });
     if (path === "/api/projects") return json({ projects: [] });
     if (path === "/api/tasks") return json({ tasks });
@@ -90,10 +83,10 @@ export async function startFixture({ dataDir } = {}) {
     return json({ error: "Fixture owner unavailable" }, 503);
   });
   await new Promise(resolve => server.listen(0, "127.0.0.1", resolve));
-  return { origin: `http://127.0.0.1:${server.address().port}`, presentation, log, streams, values, bot: fixtureBot, snapshotFor, emit,
+  return { origin: `http://127.0.0.1:${server.address().port}`, presentation, log, streams, values, bot: fixtureBot, snapshotFor, emit, oauth,
     activeStreams: path => [...streams].filter(stream => streamPaths.get(stream) === path).length,
     disconnect: path => { for (const stream of streams) if (streamPaths.get(stream) === path) stream.end(); },
-    reset: () => { for (const key of Object.keys(values)) delete values[key]; Object.assign(values, settings); Object.assign(fixtureBot, bot); snapshots.clear(); },
+    reset: () => { for (const key of Object.keys(values)) delete values[key]; Object.assign(values, settings); Object.assign(fixtureBot, bot); snapshots.clear(); oauth.reset(); },
 
     close: async () => { for (const stream of streams) stream.end(); server.closeAllConnections(); await new Promise(resolve => server.close(resolve)); } };
 }

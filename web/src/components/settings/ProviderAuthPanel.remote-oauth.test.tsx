@@ -94,6 +94,23 @@ describe("remote provider OAuth", () => {
     expect(within(card).getByLabelText("Shared API key")).toBeTruthy();
   });
 
+  it.each(["before", "after"])("preserves the relay when auth_url arrives %s the method answer response", async (order) => {
+    await start();
+    await emit("prompt", { id: "method", prompt: { type: "select", message: "Choose method", options: [{ id: "browser", label: "Browser login" }] } });
+    let resolve!: (value: Response) => void;
+    fetchMock.mockImplementationOnce(() => new Promise<Response>(done => { resolve = done; }));
+    fireEvent.click(screen.getByRole("button", { name: "Browser login" }));
+    await waitFor(() => expect(resolve).toBeTypeOf("function"));
+    if (order === "before") await auth();
+    await act(async () => resolve(response({ ok: true })));
+    if (order === "after") await auth();
+    const input = screen.getByRole("textbox", { name: "ログイン後の戻り先URL全体" });
+    expect(input.getAttribute("placeholder")).toBe(callbackUrl);
+    expect((input as HTMLInputElement).disabled).toBe(false);
+    expect(screen.queryByRole("button", { name: "Browser login" })).toBeNull();
+    expect(window.open).toHaveBeenCalledTimes(1);
+  });
+
   it("offers full callback URL paste for providers without a native manual prompt", async () => {
     await start();
     await auth();

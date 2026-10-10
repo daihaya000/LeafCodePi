@@ -972,7 +972,13 @@ export const ProviderAuthPanel = memo(function ProviderAuthPanel({
         loginGenerationRef.current === generation &&
         prev?.sessionId === activeLogin.sessionId &&
         isSamePrompt(prev)
-          ? { ...prev, prompt: null, callbackUrl: null, input: "", busy: false, status: "続行中…" }
+          ? {
+              ...prev, prompt: null,
+              // Method selection is not callback submission. An auth_url can
+              // arrive over SSE before this HTTP answer finishes; keep its relay.
+              callbackUrl: prompt.prompt.type === "select" ? prev.callbackUrl : null,
+              input: "", busy: false, status: "続行中…",
+            }
           : prev,
       );
     } catch (error) {
