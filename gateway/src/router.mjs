@@ -25,13 +25,24 @@ export function compileRoutes(records) {
 
 export function createDispatcher(records, { gate = webAuthGate } = {}) {
   const routes = compileRoutes(records), loaded = new Map();
-  return async request => {
+  return async (request, target) => {
     const url = new URL(request.url);
-    // Next redirects before its proxy/auth gate, without route Vary or refreshed cookies.
-    if (url.pathname.length > 1 && url.pathname.endsWith("/")) {
+    // Raw target matters: WHATWG URL parsing has already replaced backslashes/dot segments.
+    const parts = (target ?? url.pathname + url.search).split("?");
+    let destination;
+    if (/\\|\/\//.test(parts[0])) {
+      // Next normalizes separators first and preserves its separate trailing-slash redirect.
+      const normalized = parts[0].replace(/\\/g, "/").replace(/\/{2,}/g, "/") + (parts[1] ? `?${parts.slice(1).join("?")}` : "");
+      const canonical = new URL(normalized, url);
+      destination = canonical.pathname + canonical.search + canonical.hash;
+    } else if (url.pathname.length > 1 && url.pathname.endsWith("/")) {
       url.pathname = url.pathname.slice(0, -1);
-      const location = url.pathname + url.search, body = new TextEncoder().encode(location);
-      return new Response(body, { status: 308, headers: { location, refresh: `0;url=${location}`, "content-length": String(body.byteLength) } });
+      destination = url.pathname + url.search;
+    }
+    // Next redirects before its proxy/auth gate, without route Vary or refreshed cookies.
+    if (destination !== undefined) {
+      const body = new TextEncoder().encode(destination);
+      return new Response(body, { status: 308, headers: { location: destination, refresh: `0;url=${destination}`, "content-length": String(body.byteLength) } });
     }
     const auth = gate(request);
     if (auth.response) return auth.response;

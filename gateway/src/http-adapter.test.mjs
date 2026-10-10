@@ -128,6 +128,37 @@ test("canonical redirect precedes auth, preserves query/body/Refresh and never r
   assert.equal((await fetch(base + "/api/tasks", { redirect: "manual" })).status, 401); assert.equal(gates, 1);
 });
 
+test("raw separator redirects preserve query, precede auth and do not admit operations", async t => {
+  let gates = 0, loaded = 0;
+  const base = await serve(t, createDispatcher([{ route: "/api/tasks", methods: ["GET", "POST"], load: () => { loaded++; throw new Error("Redirect admitted a handler"); } }], {
+    gate: () => { gates++; return { response: Response.json({ error: "Unauthorized" }, { status: 401 }) }; },
+  }));
+  const cases = [
+    ["/api//tasks?q=a//b&cursor=%2F", "/api/tasks?q=a//b&cursor=%2F"],
+    ["//api///tasks?q=%2f", "/api/tasks?q=%2f"],
+    ["/api\\tasks?q=a//b", "/api/tasks?q=a//b"],
+    ["/api/\\/tasks//?q=%2F&cursor=one&cursor=two", "/api/tasks/?q=%2F&cursor=one&cursor=two"],
+    ["/api//tasks/../settings?q=a//b", "/api/settings?q=a//b"],
+    ["/api//bots/%252F/events?q=//&cursor=%2f?keep", "/api/bots/%252F/events?q=//&cursor=%2f?keep"],
+    ["/api//tasks?q='&cursor=%2F", "/api/tasks?q=%27&cursor=%2F"],
+  ];
+  for (const [path, location] of cases) for (const method of ["GET", "HEAD", "POST"]) for (const cookie of [undefined, "leafcode-pi-token=finite-browser"]) {
+    const result = await new Promise((resolve, reject) => {
+      const request = httpRequest(base, { path, method, headers: cookie ? { cookie } : {} }, async response => {
+        try { const chunks = []; for await (const chunk of response) chunks.push(chunk); resolve({ status: response.statusCode, headers: response.headers, body: Buffer.concat(chunks).toString() }); } catch (error) { reject(error); }
+      });
+      request.on("error", reject); request.end(method === "POST" ? "finite command must not be admitted" : undefined);
+    });
+    assert.equal(result.status, 308, path); assert.equal(result.headers.location, location, path);
+    assert.equal(result.headers.refresh, `0;url=${location}`); assert.equal(result.headers["content-length"], String(Buffer.byteLength(location)));
+    for (const name of ["content-type", "vary", "set-cookie", "content-encoding"]) assert.equal(result.headers[name], undefined, name);
+    assert.equal(result.body, method === "HEAD" ? "" : location);
+  }
+  assert.equal(gates, 0); assert.equal(loaded, 0);
+  const control = await fetch(base + "/api/tasks?q=a//b&cursor=%2F", { redirect: "manual" });
+  assert.equal(control.status, 401); assert.equal(control.headers.get("location"), null); assert.equal(gates, 1);
+});
+
 test("compression negotiation matches original Next middleware including wildcard/identity/q/duplicates", async t => {
   const body = JSON.stringify({ text: "x".repeat(2048) }), headers = { "content-type": "application/json", "content-length": String(Buffer.byteLength(body)) };
   const gateway = await serve(t, () => new Response(body, { headers }));

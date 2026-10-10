@@ -129,7 +129,7 @@ export function nodeHttpHandler(dispatch, options = () => ({})) {
     let transport;
     try {
       transport = toWebRequest(incoming, outgoing, options(incoming));
-      const response = await dispatch(transport.request);
+      const response = await dispatch(transport.request, incoming.url);
       await writeWebResponse(incoming, outgoing, response);
     } catch {
       if (!outgoing.headersSent && !outgoing.destroyed) {

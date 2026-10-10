@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
-import { createServer } from "node:http";
+import { createServer, request as httpRequest } from "node:http";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -115,12 +115,23 @@ test("production Next versus isolated gateway: complete API failure/method matri
   const nextArgs = [cli, "start", "-p", String(nextPort), "-H", "127.0.0.1", mirror], gatewayArgs = [join(candidate, "gateway/dist/gateway/src/index.mjs")];
   let next = await launch(nextArgs, mirror, nextPort), gateway = await launch(gatewayArgs, join(candidate, "gateway"), gatewayPort);
   let comparisons = 0; const matrixFailures = []; let collecting = true;
-  async function compare(path, method, { anonymous = false, body, headers = {} } = {}) {
+  async function compare(path, method, { anonymous = false, body, headers = {}, raw = false } = {}) {
     const results = [];
     for (const base of [next, gateway]) {
       const requestHeaders = { ...(!anonymous ? { cookie: COOKIE } : {}), ...headers };
       if (body !== undefined) requestHeaders["content-type"] = "application/json";
-      const response = await fetch(base + path, { method, headers: requestHeaders, redirect: "manual", ...(body !== undefined && !["GET", "HEAD"].includes(method) ? { body: JSON.stringify(body) } : {}), signal: AbortSignal.timeout(5000) });
+      const payload = body !== undefined && !["GET", "HEAD"].includes(method) ? JSON.stringify(body) : undefined;
+      const response = raw ? await new Promise((resolve, reject) => {
+        const request = httpRequest(base, { path, method, headers: requestHeaders, signal: AbortSignal.timeout(5000) }, async incoming => {
+          try {
+            const chunks = []; for await (const chunk of incoming) chunks.push(chunk);
+            const headers = new Headers(); for (let i = 0; i < incoming.rawHeaders.length; i += 2) headers.append(incoming.rawHeaders[i], incoming.rawHeaders[i + 1]);
+            const response = new Response(method === "HEAD" || [204, 304].includes(incoming.statusCode) ? null : Buffer.concat(chunks), { status: incoming.statusCode, headers });
+            Object.defineProperty(response, "url", { value: base + path }); resolve(response);
+          } catch (error) { reject(error); }
+        });
+        request.on("error", reject); request.end(payload);
+      }) : await fetch(base + path, { method, headers: requestHeaders, redirect: "manual", ...(payload !== undefined ? { body: payload } : {}), signal: AbortSignal.timeout(5000) });
       const observed = await observation(response); assert.ok(!JSON.stringify(observed).includes(env.LEAFCODE_PI_BACKEND_TOKEN)); results.push(observed);
     }
     try { assert.deepEqual(results[1], results[0], `${method} ${path}`); } catch (error) { if (!collecting) throw error; matrixFailures.push(error.message); }
@@ -147,6 +158,23 @@ test("production Next versus isolated gateway: complete API failure/method matri
     assert.deepEqual(redirected.cookies, []); assert.equal(redirected.headers.vary, undefined);
     assert.equal(redirected.dto, method === "HEAD" ? "" : redirected.headers.location);
   }
+  // Use raw HTTP: fetch/WHATWG URLs would hide backslashes and dot segments before testing.
+  const separatorCases = [
+    ["/api//tasks?q=a//b&cursor=%2F", "/api/tasks?q=a//b&cursor=%2F"],
+    ["//api///tasks?q=%2f", "/api/tasks?q=%2f"],
+    ["/api\\tasks?q=a//b", "/api/tasks?q=a//b"],
+    ["/api/\\/tasks//?q=%2F&cursor=one&cursor=two", "/api/tasks/?q=%2F&cursor=one&cursor=two"],
+    ["/api//tasks/../settings?q=a//b", "/api/settings?q=a//b"],
+    ["/api//bots/%252F/events?q=//&cursor=%2f?keep", "/api/bots/%252F/events?q=//&cursor=%2f?keep"],
+    ["/api//tasks?q='&cursor=%2F", "/api/tasks?q=%27&cursor=%2F"],
+  ];
+  for (const [path, location] of separatorCases) for (const method of ["GET", "HEAD", "POST"]) for (const anonymous of [true, false]) {
+    const redirected = await compare(path, method, { raw: true, anonymous, ...(method === "POST" ? { body: { prompt: "must not admit" } } : {}) });
+    assert.equal(redirected.status, 308); assert.equal(redirected.headers.location, location); assert.equal(redirected.headers.refresh, `0;url=${location}`);
+    assert.equal(redirected.dto, method === "HEAD" ? "" : location); assert.deepEqual(redirected.cookies, []); assert.equal(redirected.headers.vary, undefined);
+  }
+  // Slashes in query values alone never cause path canonicalization.
+  assert.equal((await compare("/api/tasks?q=a//b&cursor=%2F", "GET", { anonymous: true })).status, 401);
   // Keep the independently detected wildcard/weighted negotiation differences under assertions.
   for (const value of ["*", "deflate;q=1,gzip;q=0.5", "*;q=0.5,gzip;q=0", "identity;q=1,gzip;q=0.5", "gzip;level=1;q=0.5"]) {
     await compare("/api/health", "GET", { headers: { "accept-encoding": value } });

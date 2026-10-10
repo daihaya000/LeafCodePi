@@ -19,7 +19,7 @@ P1 の HTTP 入口を実装・隔離検証した。比較基準は P0 完了コ�
 |---|---|---|
 | 1 | 165 API・265 明示操作 | ownership gate、gateway build / manifest、全 route の隔離 HTTP matrix が一致 |
 | 2 | 暗黙 HEAD 94 / OPTIONS 164、Allow・405 | manifest 検査、全 route の Next/gateway HTTP 比較、Next auto-implement-methods との比較。HEAD は元の GET handler に HEAD request を渡す挙動も保持 |
-| 3 | URL・method・status・DTO・query・headers・Cookie | **874 HTTP 比較成功**。全明示操作、暗黙 method、未対応 method、非公開 route の匿名拒否、Origin 拒否。成功例は settings、task 一覧/受付、Host restart/browser/auth、ファイル Range/HEAD。backend 側に届く origin/host/query/method と Cookie 更新順も確認。末尾スラッシュの認証前 redirect と圧縮選択の回帰 11 比較を追加 |
+| 3 | URL・method・status・DTO・query・headers・Cookie | **917 HTTP 比較成功**。全明示操作、暗黙 method、未対応 method、非公開 route の匿名拒否、Origin 拒否。成功例は settings、task 一覧/受付、Host restart/browser/auth、ファイル Range/HEAD。backend 側に届く origin/host/query/method と Cookie 更新順も確認。末尾スラッシュ・圧縮選択の回帰 11 比較に加え、raw separator redirect と query-only 対照の 43 比較を追加 |
 | 4 | 内部 bearer/protocol/generation/deadline/サイズ | owner fixture が内部 bearer と protocol=1 を検査。偽装操作 header を置換。protocol=2 のファイル応答、generation 不一致、health の 1 秒 deadline、TTS 16 KiB 超過を実 HTTP で確認。既存 relay regression は他の制限・guard も検査 |
 | 5 | owner 不在で明示失敗、ローカル fallback なし | 初期 matrix は Backend/Host を起動せず、fixture 専用の閉じた port に接続。拒否 DTO/status が Next と一致。gateway data directory は全検証後も未作成。本番閉包に owner がない |
 | 6 | 受付済操作の再送なし | 正常受付は frontend 各 1 回。owner が受付後 ACK を切断した場合も各 1 回のみで、503 / execution=unknown を保持。追加の自動再送なし |
@@ -28,7 +28,7 @@ P1 の HTTP 入口を実装・隔離検証した。比較基準は P0 完了コ�
 
 追加の検証:
 
-- `node --test gateway/src/http-adapter.test.mjs gateway/src/auth.test.mjs scripts/build-gateway.test.mjs`: **14/14 成功**。
+- `node --test gateway/src/http-adapter.test.mjs gateway/src/auth.test.mjs scripts/build-gateway.test.mjs`: **15/15 成功**。
 - adapter test 内で、既存 Next の compression middleware と **347 ケース一致**。wildcard、暗黙 identity、q 値、重複、未知/不正 token を含め、圧縮選択・decoded bytes・Vary・Content-Length を実 HTTP で比較。redirect は GET/HEAD/POST × Cookie 有無、query と Location/Refresh/body/Content-Length、gate/handler 未実行を検査。
 - auth test 内で、既存 `web/src/proxy.ts` を参照として **456 ケース一致**。missing token、bearer 優先順、query token 除去、redirect、公開/peer 例外、Cookie parse/serialize を確認。
 - 既存 Web の relay / file stream / auth / Host / health regression: **22 files / 180 tests 成功**。生成課金・実認証情報・実データを使わない隔離 env で実行。
@@ -60,6 +60,14 @@ P1 の HTTP 入口を実装・隔離検証した。比較基準は P0 完了コ�
 - `Accept-Encoding: *` と `deflate;q=1,gzip;q=0.5` を含む negotiation を旧 middleware と一致させた。新規 runtime dependency は追加していない。Next import は比較用 test のみ。
 - 874 HTTP 比較、14 native tests、7 inventory tests、22 files / 180 Web regression tests、build/ownership/entry gates を隔離再実行し、全て成功。内部制限、owner 不在、ACK-loss 非再送、SSE/file/Range/HEAD/切断、独立 install の受入確認を継続。
 
+### raw separator の追加指摘と修正（2026-10-10）
+
+独立検証で `/api//tasks` が Next の認証前 308 と異なり、gateway では匿名 401 / 認証済み 404 になることを確認した。原因は連続 separator の正規化が未実装で、標準 Request に変換する時点で backslash の元情報も失われること。
+
+- adapter から dispatcher へ raw request target を渡し、認証前に連続 slash / backslash を正規化。Next と同じ標準 URL parse の順序で dot segment / query の encoding を扱う。新規 module・runtime dependency・OS capability は追加していない。
+- 7 種の raw target × GET/HEAD/POST × Cookie 有無の 42 HTTP 比較を追加。query 内の `//` だけでは redirect しない対照も追加。Location/Refresh/body/Cookie/Vary を比較し、native test は gate/handler の未実行と Content-Length も検査する。
+- 917 HTTP 比較、15 native tests、7 inventory tests、22 files / 180 Web regression tests、build/ownership/entry gates が全て成功。165 API / 265 操作、HEAD 94 / OPTIONS 164、runtime 249 modules と全ての既存 guard / stream / 非再送検証を維持。
+
 ## 再現手順
 
 ```powershell
@@ -72,6 +80,6 @@ node --test scripts/inventory-vite-migration.test.mjs
 node --test scripts/gateway-next-contract.test.mjs
 ```
 
-最新の検証ログ: `%LOCALAPPDATA%/Temp/leafcode-gateway-p1-contract-fix/` の `contract.log` / `state.json`、`web.log` / `web-state.json`。初回の AST 比較などは `%LOCALAPPDATA%/Temp/leafcode-gateway-p1-validation/` の `api-review.json` に保存。独立検証の修正前 4 ケースは `%LOCALAPPDATA%/Temp/leafcode-gateway-independent-verification/extra-cases.json`。ログと生成 dist はコミットしない。
+最新の検証ログ: `%LOCALAPPDATA%/Temp/leafcode-gateway-p1-url-normalization/` の `contract.log` / `state.json`、`web.log` / `web-state.json`。初回の AST 比較などは `%LOCALAPPDATA%/Temp/leafcode-gateway-p1-validation/` の `api-review.json` に保存。独立検証の修正前 4 ケースは `%LOCALAPPDATA%/Temp/leafcode-gateway-independent-verification/extra-cases.json`。連続 slash 修正前の独立検証は `%LOCALAPPDATA%/Temp/leafcode-gateway-p1-independent-final/probes.json`。ログと生成 dist はコミットしない。
 
 運用サービスと別 port の隔離利用では、build 後に gateway 専用 directory で `npm ci --ignore-scripts`、`npm start`。HTTP port は `LEAFCODE_PI_PORT`（既定 3010）、bind は `LEAFCODE_PI_BIND_HOST`（既定 127.0.0.1）。remote bind の browser auth、Backend token/URL/generation、Host control URL は既存 transport env の契約をそのまま使う。実サービスの置換は後続フェーズで明示的に行う。
