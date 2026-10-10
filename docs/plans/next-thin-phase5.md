@@ -89,7 +89,18 @@ Nextは画面・ブラウザ認証・入口制限・HTTP中継だけを担当す
 - 広めの関連Web26 files/291 testsは278成功・13失敗。store daily snapshot1件とharness-routing12件は、未変更87cd8eadを別Tempへ展開した同一threads条件でも、失敗名13個・件数・期待値が同一。今回の回帰として修正せず、全Web成功とはしない。さらに広い旧SDK試験群のfork実行はBackend子プロセスreportとVitest IPCの干渉で `Unexpected call to process.send` / `ERR_INVALID_ARG_TYPE` により終了し、成功扱いにしない。初回のimport-only SDKに対するcreateRequire誤解決とHost build順序の旧文字列期待は修正・再検証した。
 - clean Web installationだけを使ったfull production Nextは312 roots/165 routes/583 runtime/649 type modulesをbuild、build前/生成後のstrict型成功、179 NFT tracesにowner/SDK/nativeなし。匿名status401・認証snapshot・秘密非露出・Web停止中Backend readiness・Web再起動・Backend不在表示・Next data未生成を1/1成功（78.9秒）。SDK生成中の継続受入ではなく、設定owner callbackは有限fixture。実provider/engine・課金生成・実サービス更新には使わない。
 
-## 残る作業
-- 隔離した実Backend/実Nextで、生成実行中のWeb停止/再起動、Backend PID/世代/SDK session/lease継続、再接続後の履歴・完了結果・受付済operationの非再実行を確認する。register関数だけの子プロセス試験は、この最終受入の代用にしない。
+## 第8区切り: 実SDK生成中のWeb停止・再起動と最終受入
 
-実資格情報・課金生成・稼働サービスの停止/再起動は検証に使わない。他セッションのharness/GoalLoop/provider-overload差分を混ぜない。
+- `backend/src/sdk-web-independence-fixture.mjs` は実Backend `entry.mjs`・runtime bundle・harness・SDK `AgentSession` を起動する。SDK/session factory・業務API・ストア・lease・receiptはmockしない。資格情報なしのin-memory ModelRuntimeとSDK公式faux providerだけを注入し、2回の有限日本語応答を制御する。外部fetchはfixtureで拒否し、optional provider discoveryは対象外。Backendはtest modeでbackground label生成を抑止、Nextは実production build/start。SDKツール実行・実provider認証の受入ではない。
+- `backend/src/sdk-web-independence.test.mjs` は確定HEAD `feb90045`＋所有fixtureだけを隔離展開して検証。第7区切りのclean Web installationを使用し、全165 API/実UIをbuild前・生成後にstrict型検査、179 NFT tracesにBackend owner/SDK/provider/nativeなし。SDKなし・owner sourceなしのNext mirrorだけを起動する。
+- Cookie認証した実Next経由でtaskを作成し、実SDK生成中にNextを停止。16秒間Web/ブラウザreader不在でもSDK streaming・Backend PID/世代・同一AgentSession/session ID・runtime-owner record・task lease token/acquiredAtを保持し、実15秒heartbeat更新を確認。生成中のNext再起動・SSE再接続で結果を受信する。
+- 同じSDK sessionの次のpromptを実Next経由で受付し、Next停止中にSDK生成を完了。再起動後の履歴に両結果が残り、SDK JSONLのsession headerは同一ID、成功assistant応答は各1件。provider call countは合計2回だけ。作成/追加promptの受付済UUIDを再要求する3回すべて409、2つの実ledgerは各1件・completeで、prompt/内部tokenを保存しない。Next data directoryは未生成。
+- Backend forced build成功。関連native81件、Webなしの実SDK probe1/1、レビュー修正後full production受入1/1（77.1秒）成功。外部fetchの6回の試行はfixture内で拒否し、転送0回。実資格情報・課金生成・稼働サービス・既存installed packageの変更なし。他者の未コミットharness/GoalLoop/provider-overload/検索UI差分は隔離検証・コミットに含めない。
+- fixture初回は空promptのtask作成自体がSDKへ送られる仕様を見落とし、後続promptを二重に数えて待機した。productionでは実Nextからの作成を第1生成とし、probeは単独promptだけに修正。外部fetchの「試行0」と「転送0」の混同も修正。独立レビューでSDK/provider NFT検査、IPC専用guard、cleanup deadline/タイマー、SSE再接続、runtime-owner不変、SDK session header・成功応答・2種receiptの検査を補強し、再完走した。
+- 再実行: Backend bundleをbuildした後、repo rootで `node --test backend/src/sdk-web-independence.test.mjs`。Webなしprobeは `LEAFCODE_PI_SDK_PROBE_ONLY=1`、clean Web installation指定は `LEAFCODE_PI_NEXT_DEPENDENCY_DIR`。すべてTempに閉じ、既存サービスの停止・ユーザーデータ更新は行わない。
+
+## 最終受入範囲
+
+Phase5の受入条件「Nextは画面・ブラウザ認証・入口制限・HTTP中継だけ」を達成。旧起動・業務経路、WebのSDK直接依存、全Next入口/value/type閉包、SDK更新owner、実SDK実行中のWeb独立停止/再起動・非再実行まで確認した。
+
+これは有限・無課金faux providerでの実SDK受入。実provider/engine・SDKツール副作用・全Web suite成功・無期限稼働の保証ではない。第5～7区切りのbaseline同一のWeb/Backend既知失敗と、Windows forks IPC失敗は引き続き記録し、成功扱いにしない。Phase4の大容量stream・メモリ閾値の証拠も別fixtureの範囲を維持する。
