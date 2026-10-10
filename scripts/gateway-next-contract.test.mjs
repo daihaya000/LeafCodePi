@@ -47,7 +47,7 @@ async function observation(response) {
     if (new URL(response.url).pathname === "/api/pi/latest-version" && dto.checkedAt !== undefined) { assert.equal(typeof dto.checkedAt, "number"); assert.ok(Math.abs(Date.now() - dto.checkedAt) < 30000); dto.checkedAt = "<request-clock>"; }
   } catch { dto = body; }
   const headers = {};
-  for (const [name, value] of response.headers) if (["content-type", "content-encoding", "cache-control", "x-content-type-options", "allow", "retry-after", "vary", "etag", "content-range", "accept-ranges", "content-disposition", "cross-origin-resource-policy", "referrer-policy"].includes(name) || name.startsWith("access-control-")) headers[name] = value;
+  for (const [name, value] of response.headers) if (["content-type", "content-encoding", "cache-control", "x-content-type-options", "allow", "retry-after", "vary", "etag", "content-range", "accept-ranges", "content-disposition", "cross-origin-resource-policy", "referrer-policy", "location", "refresh"].includes(name) || name.startsWith("access-control-")) headers[name] = value;
   const cookies = response.headers.getSetCookie().map(value => value.replace(/Expires=[^;]+/, "Expires=<clock>"));
   return { status: response.status, headers, cookies, dto };
 }
@@ -139,6 +139,18 @@ test("production Next versus isolated gateway: complete API failure/method matri
     if (!record.route.startsWith("/api/auth/webui") && !["/api/health", "/api/host-probe", "/api/peer-auth/list", "/api/peer-auth/resolve", "/api/peer-auth/usage"].includes(record.route)) await compare(path, record.methods[0], { anonymous: true });
   }
   collecting = false; assert.equal(matrixFailures.length, 0, matrixFailures.slice(0, 15).join("\n"));
+  // Canonical redirects precede auth and emit a plain redirect body, not a route response.
+  for (const method of ["GET", "HEAD", "POST"]) for (const anonymous of [true, false]) {
+    const redirected = await compare("/api/tasks/?q=%2F&cursor=a%20b&cursor=keep", method, { anonymous });
+    assert.equal(redirected.status, 308); assert.equal(redirected.headers.location, "/api/tasks?q=%2F&cursor=a%20b&cursor=keep");
+    assert.equal(redirected.headers.refresh, "0;url=/api/tasks?q=%2F&cursor=a%20b&cursor=keep");
+    assert.deepEqual(redirected.cookies, []); assert.equal(redirected.headers.vary, undefined);
+    assert.equal(redirected.dto, method === "HEAD" ? "" : redirected.headers.location);
+  }
+  // Keep the independently detected wildcard/weighted negotiation differences under assertions.
+  for (const value of ["*", "deflate;q=1,gzip;q=0.5", "*;q=0.5,gzip;q=0", "identity;q=1,gzip;q=0.5", "gzip;level=1;q=0.5"]) {
+    await compare("/api/health", "GET", { headers: { "accept-encoding": value } });
+  }
   await compare("/api/settings/default-model", "PUT", { body: { value: "ignored" }, headers: { origin: "https://rejected.invalid", "sec-fetch-site": "cross-site" } });
   for (const base of [next, gateway]) assert.equal((await fetch(base + "/api/not-registered", { headers: { cookie: COOKIE }, redirect: "manual" })).status, 404);
   const admitted = [], fileBytes = Buffer.from("0123456789"), eventsClosed = [], hostAdmitted = [];

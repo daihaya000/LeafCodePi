@@ -26,20 +26,21 @@ export function compileRoutes(records) {
 export function createDispatcher(records, { gate = webAuthGate } = {}) {
   const routes = compileRoutes(records), loaded = new Map();
   return async request => {
+    const url = new URL(request.url);
+    // Next redirects before its proxy/auth gate, without route Vary or refreshed cookies.
+    if (url.pathname.length > 1 && url.pathname.endsWith("/")) {
+      url.pathname = url.pathname.slice(0, -1);
+      const location = url.pathname + url.search, body = new TextEncoder().encode(location);
+      return new Response(body, { status: 308, headers: { location, refresh: `0;url=${location}`, "content-length": String(body.byteLength) } });
+    }
     const auth = gate(request);
     if (auth.response) return auth.response;
-    const url = new URL(request.url);
     const respond = response => {
       // Cache-key compatibility only; no Next code or RSC handling is part of the gateway.
       const vary = response.headers.get("vary");
       response.headers.set("vary", "rsc, next-router-state-tree, next-router-prefetch, next-router-segment-prefetch" + (vary ? `, ${vary}` : ""));
       return refreshAuthCookie(response, auth);
     };
-    // Framework canonicalization belongs before dispatch, never an API -> HTML fallback.
-    if (url.pathname.length > 1 && url.pathname.endsWith("/")) {
-      url.pathname = url.pathname.slice(0, -1);
-      return respond(new Response(null, { status: 308, headers: { location: url.pathname + url.search } }));
-    }
     if (!url.pathname.startsWith("/api/")) return respond(Response.json({ error: "Gateway serves API only during Phase1" }, { status: 404 }));
     const route = routes.find(record => record.match.test(url.pathname));
     if (!route) return respond(Response.json({ error: "Not Found" }, { status: 404 }));

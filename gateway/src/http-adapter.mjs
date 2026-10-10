@@ -40,6 +40,42 @@ export function toWebRequest(message, response, options = {}) {
   return { request, cleanup() { message.removeListener("aborted", abort); response.removeListener("close", close); } };
 }
 
+// Preserve the old negotiator's wildcard, implicit identity and duplicate-token priorities.
+function compressionEncoding(header = "") {
+  const accepted = []; let identity = false, minimum = 1;
+  for (const [order, part] of header.split(",").entries()) {
+    const match = /^\s*([^\s;]+)\s*(?:;(.*))?$/.exec(part);
+    if (!match) continue;
+    let quality = 1;
+    for (const parameter of (match[2] ?? "").split(";")) {
+      const [name, value] = parameter.trim().split("=");
+      if (name === "q") { quality = parseFloat(value); break; }
+    }
+    const name = match[1].toLowerCase();
+    accepted.push({ name, quality, order });
+    identity ||= name === "identity" || name === "*";
+    minimum = Math.min(minimum, quality || 1);
+  }
+  if (!identity) accepted.push({ name: "identity", quality: minimum, order: header.split(",").length });
+  function preferred(names) {
+    return names.map((name, index) => {
+      let best = { name, index, specificity: 0, quality: 0, order: -1 };
+      for (const token of accepted) {
+        const specificity = Number(token.name === name);
+        if (!specificity && token.name !== "*") continue;
+        if ((best.specificity - specificity || best.quality - token.quality || best.order - token.order) < 0)
+          best = { name, index, specificity, quality: token.quality, order: token.order };
+      }
+      return best;
+    }).filter(value => value.quality > 0)
+      .sort((a, b) => b.quality - a.quality || b.specificity - a.specificity || a.order - b.order || a.index - b.index)[0]?.name;
+  }
+  let selected = preferred(["gzip", "deflate", "identity"]);
+  // The old compression middleware prefers acceptable gzip even if deflate ranks first.
+  if (selected === "deflate" && preferred(["gzip"])) selected = preferred(["gzip", "identity"]);
+  return selected;
+}
+
 function compressionResponse(message, response) {
   const type = response.headers.get("content-type")?.split(";")[0].trim().toLowerCase() ?? "";
   const compressible = /^(?:text\/|application\/(?:json|javascript|xml|wasm)$|image\/svg\+xml$)|\+(?:json|text|xml)$/.test(type);
@@ -48,15 +84,11 @@ function compressionResponse(message, response) {
   const vary = response.headers.get("vary");
   if (!vary?.split(",").some(value => ["accept-encoding", "*"].includes(value.trim().toLowerCase()))) response.headers.set("vary", vary ? `${vary}, Accept-Encoding` : "Accept-Encoding");
   if (!response.body || message.method === "HEAD" || response.headers.has("content-encoding") || response.headers.has("content-length") && Number(response.headers.get("content-length")) < 1024) return response;
-  const accepted = (message.headers["accept-encoding"] ?? "").split(",").map((part, index) => {
-    const [name, parameter] = part.trim().toLowerCase().split(";");
-    return { name, quality: parameter?.trim().startsWith("q=") ? Number(parameter.trim().slice(2)) : 1, index };
-  }).filter(value => value.quality > 0).sort((a, b) => b.quality - a.quality || a.index - b.index);
-  const selected = accepted.find(value => ["gzip", "deflate", "identity"].includes(value.name));
-  if (!selected || selected.name === "identity") return response;
+  const selected = compressionEncoding(message.headers["accept-encoding"]);
+  if (!selected || selected === "identity") return response;
   // Unknown-length streamed responses are compressed without buffering, just as the old HTTP entry.
-  response.headers.set("content-encoding", selected.name); response.headers.delete("content-length");
-  return new Response(response.body.pipeThrough(new CompressionStream(selected.name)), { status: response.status, statusText: response.statusText, headers: response.headers });
+  response.headers.set("content-encoding", selected); response.headers.delete("content-length");
+  return new Response(response.body.pipeThrough(new CompressionStream(selected)), { status: response.status, statusText: response.statusText, headers: response.headers });
 }
 
 export async function writeWebResponse(message, outgoing, response) {
