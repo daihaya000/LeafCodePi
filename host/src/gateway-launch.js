@@ -1,16 +1,17 @@
 import { startSpaWithFallback } from "./spa-build.js";
 
 /** The production Web child owns ingress only; never starts or probes the runtime owner. */
-export function gatewayLaunchPlan(generation, env = {}) {
+export function gatewayLaunchPlan(generation, env = {}, developmentEntry) {
   if (!generation?.entry || !generation?.cwd || !generation?.staticRoot) throw new Error("Verified gateway generation required");
-  if (env.LEAFCODE_PI_MODE === "dev") throw new Error("Secure gateway development entry is not configured");
-  return { args: [generation.entry], cwd: generation.cwd, env: { ...env, NODE_ENV: "production", LEAFCODE_PI_PROCESS_ROLE: "next", LEAFCODE_PI_SPA_DIR: generation.staticRoot } };
+  const development = env.LEAFCODE_PI_MODE === "dev";
+  if (development && (!developmentEntry || !generation.directory)) throw new Error("Controlled development entry required");
+  return { args: development ? [developmentEntry, generation.directory] : [generation.entry], cwd: generation.cwd, env: { ...env, NODE_ENV: development ? "development" : "production", LEAFCODE_PI_PROCESS_ROLE: "next", LEAFCODE_PI_SPA_DIR: generation.staticRoot } };
 }
 
 /** Listen acknowledgement is Web liveness, not Backend/SDK readiness. Early failures cannot enter the crash budget. */
-export async function launchProductionGateway({ mirrorRoot, checkout, env, spawn, stop, pipe = () => {}, log = () => {}, timeoutMs = 10000 } = {}) {
+export async function launchProductionGateway({ mirrorRoot, checkout, env, spawn, stop, pipe = () => {}, log = () => {}, developmentEntry, timeoutMs = 10000 } = {}) {
   return startSpaWithFallback({ mirrorRoot, checkout, log, start: async generation => {
-    const plan = gatewayLaunchPlan(generation, env), child = spawn(plan.args, { cwd: plan.cwd, env: plan.env });
+    const plan = gatewayLaunchPlan(generation, env, developmentEntry), child = spawn(plan.args, { cwd: plan.cwd, env: plan.env });
     try {
       await new Promise((resolve, reject) => {
         let buffer = "";

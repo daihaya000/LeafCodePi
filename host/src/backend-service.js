@@ -29,14 +29,13 @@ export function isBackendRequested(env = {}) {
  *
  * The shipped architecture owns the runtime there, so production always runs one: a WebUI started
  * without a Backend would be a client of nothing. An explicit `LEAFCODE_PI_BACKEND=0` (tests,
- * headless probes) and an explicit development mode (where `next dev` owns the runtime itself) turn
- * it off.
+ * headless probes) turns it off. Development ingress is also a client, never an SDK owner.
  */
 export function shouldRunBackend(env = {}) {
   const value = (env.LEAFCODE_PI_BACKEND ?? "").trim().toLowerCase();
   if (DISABLED_VALUES.has(value)) return false;
   if (value === "dev") return false;
-  return (env.LEAFCODE_PI_MODE ?? "").trim().toLowerCase() !== "dev";
+  return true;
 }
 
 export function createBackendService({

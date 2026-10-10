@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "dev": "next dev",
+    "dev": "node ../scripts/start-dev-gateway.mjs",
     "build": "node ../scripts/build-web.mjs",
     "start": "next start",
     "lint": "eslint",
@@ -13,7 +13,7 @@
     "check:ui": "node ../scripts/check-next-ui-boundary.mjs",
     "check:entries": "node ../scripts/check-next-entry-boundary.mjs",
     "test": "vitest run",
-    "dev:spa": "vite --config vite.config.ts",
+    "dev:spa": "node ../scripts/start-dev-gateway.mjs",
     "build:spa": "vite build --config vite.config.ts",
     "preview:spa": "vite preview --config vite.config.ts",
     "typecheck:spa": "tsc -p tsconfig.spa.json",

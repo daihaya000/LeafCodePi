@@ -43,8 +43,8 @@ test("production runs the Backend by default, and only an explicit opt-out stops
   for (const value of ["0", "false", "no", "off", " OFF "]) {
     assert.equal(shouldRunBackend({ LEAFCODE_PI_BACKEND: value }), false, value);
   }
-  // A development WebUI owns the runtime itself, so there is no Backend to run next to it.
-  assert.equal(shouldRunBackend({ LEAFCODE_PI_MODE: "dev" }), false);
+  // Vite development is ingress only; the independent Backend still owns the SDK.
+  assert.equal(shouldRunBackend({ LEAFCODE_PI_MODE: "dev" }), true);
   assert.equal(shouldRunBackend({ LEAFCODE_PI_BACKEND: "dev" }), false);
 });
 

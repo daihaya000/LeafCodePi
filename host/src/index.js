@@ -466,7 +466,6 @@ async function startBackendForHost() {
 }
 
 async function spawnWeb({ pull = true, forceBuild = false } = {}) {
-  if (process.env.LEAFCODE_PI_MODE === "dev") throw new Error("Secure gateway development entry is not configured");
   const skipStaleBuild = consumeSkipStaleRebuild(process.env);
   await ensureSpaGeneration({
     checkout: REPO_ROOT, mirrorRoot: SPA_MIRROR_DIR, force: forceBuild, skipStale: skipStaleBuild, log,
@@ -493,9 +492,10 @@ async function spawnWeb({ pull = true, forceBuild = false } = {}) {
     getListeningPids, stopProcessTreeGracefully, excludePids: webProc?.pid ? [webProc.pid] : [], log,
   }).catch(err => error(`Orphaned WebUI check failed: ${err instanceof Error ? err.message : String(err)}`));
   WEBUI_AUTH = ensureWebUiAuth(process.env, WEBUI_HOST, DATA_DIR);
-  log(`Starting LeafCodePi (production gateway) on ${WEBUI_URL}`);
+  log(`Starting LeafCodePi (${process.env.LEAFCODE_PI_MODE === "dev" ? "controlled development gateway" : "production gateway"}) on ${WEBUI_URL}`);
   const launched = await launchProductionGateway({
     checkout: REPO_ROOT, mirrorRoot: SPA_MIRROR_DIR, log,
+    developmentEntry: join(REPO_ROOT, "scripts/start-dev-gateway.mjs"),
     spawn: runNodeScript, pipe: child => pipeChild("webui", child),
     stop: async child => {
       if (!child?.pid || child.exitCode !== null || child.signalCode !== null) return;

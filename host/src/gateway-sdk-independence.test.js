@@ -25,7 +25,11 @@ test("real headless Host controls/crash-recovers native gateway without replacin
   for (const folder of [candidate, data, hostData, agent, join(candidate, "extensions")]) mkdirSync(folder, { recursive: true });
   writeFileSync(join(agent, "settings.json"), JSON.stringify({ packages: [], extensions: [], skills: [], promptTemplates: [], compaction: { enabled: false }, retry: { enabled: false } }));
   for (const folder of ["host/src", "shared", "scripts", "gateway/src", "backend/core"]) cpSync(join(ROOT, folder), join(candidate, folder), { recursive: true });
-  for (const folder of ["host", "backend"]) {
+  const development = process.env.LEAFCODE_TEST_GATEWAY_DEV === "1";
+  if (development) {
+    for (const name of ["src", "public", "index.html", "vite.config.ts", "postcss.config.mjs"]) if (existsSync(join(ROOT, "web", name))) cpSync(join(ROOT, "web", name), join(candidate, "web", name), { recursive: true });
+  }
+  for (const folder of development ? ["host", "backend", "web"] : ["host", "backend"]) {
     for (const file of ["package.json", "package-lock.json"]) if (existsSync(join(ROOT, folder, file))) cpSync(join(ROOT, folder, file), join(candidate, folder, file));
     const link = join(candidate, folder, "node_modules"); symlinkSync(join(ROOT, folder, "node_modules"), link, process.platform === "win32" ? "junction" : "dir"); links.push(link);
   }
@@ -46,7 +50,7 @@ test("real headless Host controls/crash-recovers native gateway without replacin
   await until(async () => (await (await fetch(backendBase + "/internal/health", { headers: privateHeaders })).json()).ready, "SDK readiness deadline");
   const generation = await buildSpaGeneration({ mirrorRoot, offline: true, log: text => process.stdout.write(text) });
   const port = await freePort(), control = await freePort(), base = `http://127.0.0.1:${port}`, controlBase = `http://127.0.0.1:${control}`;
-  const hostEnv = { ...spaBuildEnvironment(), LEAFCODE_PI_MODE: "prod", LEAFCODE_PI_HEADLESS: "1", LEAFCODE_PI_TRAY: "0", LEAFCODE_PI_NO_BROWSER: "1", LEAFCODE_PI_LCP_AUTO_UPDATE: "0", LEAFCODE_PI_BACKEND: "0",
+  const hostEnv = { ...spaBuildEnvironment(), LEAFCODE_PI_MODE: development ? "dev" : "prod", LEAFCODE_PI_HEADLESS: "1", LEAFCODE_PI_TRAY: "0", LEAFCODE_PI_NO_BROWSER: "1", LEAFCODE_PI_LCP_AUTO_UPDATE: "0", LEAFCODE_PI_BACKEND: "0",
     LEAFCODE_PI_SKIP_STALE_REBUILD: "1", LEAFCODE_PI_BUILD_DIR: mirror, LEAFCODE_PI_DATA_DIR: hostData, LEAFCODE_PI_HOST: "127.0.0.1", LEAFCODE_PI_PORT: String(port), LEAFCODE_PI_HOST_CONTROL_PORT: String(control), LEAFCODE_PI_LLAMA_PORT: String(await freePort()),
     LEAFCODE_PI_BACKEND_URL: backendBase, LEAFCODE_PI_BACKEND_TOKEN: token, LEAFCODE_PI_BACKEND_GENERATION: sdkGeneration };
   let hostOut = "", hostErr = "";
@@ -55,6 +59,7 @@ test("real headless Host controls/crash-recovers native gateway without replacin
   const gatewayPids = () => [...hostOut.matchAll(/Gateway child pid=(\d+) generation=([a-f0-9-]+)/g)].map(match => ({ pid: Number(match[1]), generation: match[2] }));
   await until(async () => { assert.equal(host.exitCode, null, hostErr); try { return hostOut.includes("Headless mode") && (await fetch(base + "/login")).ok; } catch { return false; } }, "Host startup deadline");
   const firstPid = gatewayPids().at(-1); assert.equal(firstPid.generation, generation.id);
+  if (development) { const client = await fetch(base + "/@vite/client"); assert.equal(client.status, 200); assert.ok((await client.text()).includes("vite")); }
   const created = await command("create"); assert.equal(created.realAgentSession, true); assert.equal(created.liveCount, 1);
   const before = await until(async () => { const value = await command("sample"); return value.activeGate === 1 && value; }, "SDK stream gate deadline");
   assert.equal(before.calls, 1); assert.equal(before.lease.pid, backend.pid);
@@ -81,5 +86,5 @@ test("real headless Host controls/crash-recovers native gateway without replacin
   const recover = await fetch(controlBase + "/restart/webui", { method: "POST", headers: { origin: base } }); assert.equal(recover.status, 202);
   await until(() => gatewayPids().length >= 4, "Web recovery with unavailable Backend deadline");
   assert.equal((await fetch(base + "/login")).status, 200);
-  t.diagnostic(JSON.stringify({ host: host.pid, gateways: gatewayPids(), backend: backend.pid, sdkGeneration, sameSession: true, sameLease: true, heartbeatAdvanced: true, providerCalls: after.calls, deniedNetwork: after.deniedNetwork, sealedGeneration: generation.id }));
+  t.diagnostic(JSON.stringify({ development, host: host.pid, gateways: gatewayPids(), backend: backend.pid, sdkGeneration, sameSession: true, sameLease: true, heartbeatAdvanced: true, providerCalls: after.calls, deniedNetwork: after.deniedNetwork, sealedGeneration: generation.id }));
 });

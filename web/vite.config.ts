@@ -14,6 +14,9 @@ const forbidden = /(?:^node:|^(?:next(?:\/|$)|@earendil-works\/|@backend|@extens
 export function spaBoundary(): Plugin {
   return {
     name: "spa-browser-boundary", enforce: "pre",
+    configureServer(server) {
+      if (!server.config.server.middlewareMode) throw new Error("Use the authenticated gateway development entry, not a standalone Vite listener");
+    },
     resolveId(id, importer) {
       if (!importer) return;
       if (nodeBuiltins.has(id) || forbidden.test(id.replaceAll("\\", "/"))) throw new Error(`SPA runtime dependency forbidden: ${id}`);
