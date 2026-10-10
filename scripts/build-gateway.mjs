@@ -7,11 +7,12 @@ import { collectRoutes, validateInventory } from "./check-api-ownership.mjs";
 import { startupImports } from "./check-next-startup-boundary.mjs";
 import { checkNextTransportBoundary } from "./check-next-transport-boundary.mjs";
 import { checkGatewayBoundary } from "./production-boundary.mjs";
+import { GATEWAY_HTTP_IMPORTS } from "./gateway-runtime-boundary.mjs";
 
 const ROOT = resolve(fileURLToPath(new URL("../", import.meta.url)));
 const norm = value => value.replaceAll("\\", "/");
 const emitted = file => file.replace(/\.tsx?$/, ".mjs");
-const externals = new Set(["undici", "node:http", "node:stream", "node:events", "node:crypto", "node:zlib", "node:fs", "node:fs/promises", "node:os", "node:path"]);
+const externals = new Set([...GATEWAY_HTTP_IMPORTS, "node:http", "node:stream", "node:events", "node:crypto", "node:zlib", "node:fs", "node:fs/promises", "node:os", "node:path"]);
 
 export function gatewayGraph(root = ROOT, ts = createRequire(resolve(ROOT, "web/package.json"))("typescript")) {
   const actual = collectRoutes(root);
@@ -24,7 +25,7 @@ export function gatewayGraph(root = ROOT, ts = createRequire(resolve(ROOT, "web/
     const specifier = "../../" + record.source;
     return `  { route: ${JSON.stringify(record.route)}, methods: ${JSON.stringify(record.methods)}, load: () => import(${JSON.stringify(specifier)}) },`;
   }).join("\n") + "\n];\n";
-  const sources = new Map(), virtual = new Map([["gateway/src/routes.mjs", routeSource]]);
+  const sources = new Map(), declarations = new Map(), virtual = new Map([["gateway/src/routes.mjs", routeSource]]);
   const roots = ["gateway/src/index.mjs"];
   function allowed(file) {
     assert.ok(["gateway/src/", "web/src/app/api/", "web/src/lib/", "shared/"].some(prefix => file.startsWith(prefix)), `Gateway cannot import owner/UI source: ${file}`);
@@ -53,6 +54,11 @@ export function gatewayGraph(root = ROOT, ts = createRequire(resolve(ROOT, "web/
     allowed(file);
     const source = virtual.get(file) ?? readFileSync(resolve(root, file), "utf8");
     sources.set(file, source);
+    const sidecar = file.replace(/\.mjs$/, ".d.mts");
+    if (sidecar !== file && existsSync(resolve(root, sidecar))) {
+      assert.equal(realpathSync(resolve(root, sidecar)), resolve(root, sidecar), `${sidecar}: declaration symlink escape`);
+      declarations.set(sidecar, readFileSync(resolve(root, sidecar), "utf8"));
+    }
     // Reject Next even in type-only imports, before the compiler could erase the evidence.
     const ast = ts.createSourceFile(file, source, ts.ScriptTarget.Latest, true);
     function inspect(node) {
@@ -66,7 +72,7 @@ export function gatewayGraph(root = ROOT, ts = createRequire(resolve(ROOT, "web/
     for (const specifier of startupImports(source, file, ts)) { const dependency = target(file, specifier); if (dependency) visit(dependency); }
   }
   roots.forEach(visit);
-  return { sources, target, manifest, counts, ts };
+  return { sources, declarations, target, manifest, counts, ts };
 }
 
 export function buildGateway(root = ROOT, { typecheck = true } = {}) {

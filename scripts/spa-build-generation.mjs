@@ -125,6 +125,8 @@ async function compile({ workspace, stage, offline, log }) {
   if (!ready) { await run([npm, ...args, "--include=dev"], join(workspace, "web"), env, log); writeFileSync(stamp, dependencyHash); }
   await run([join(workspace, "scripts/build-spa-worker.mjs"), stage], workspace, env, log);
   await run([npm, ...args, "--omit=dev"], join(stage, "gateway"), env, log);
+  // Re-check the actual locked install before sealing; the workspace package is not the artifact.
+  await run([join(workspace, "scripts/gateway-runtime-boundary.mjs"), join(stage, "gateway/node_modules/undici")], workspace, env, log);
 }
 
 /** Publish only a sealed complete pair. Old generations are retained for running processes. */

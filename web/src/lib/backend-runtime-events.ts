@@ -1,4 +1,4 @@
-import { Agent, fetch as undiciFetch } from "undici";
+import { Agent, fetch as undiciFetch } from "@/lib/gateway-http.mjs";
 import { backendBaseUrl, type BackendEnv } from "@/lib/backend-client";
 import { sseResponse } from "@/lib/sse-response";
 import { BACKEND_PROTOCOL_HEADER, BACKEND_PROTOCOL_VERSION, BACKEND_RUNTIME_EVENTS_PATH } from "@shared/backend-protocol.mjs";

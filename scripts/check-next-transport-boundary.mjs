@@ -8,6 +8,8 @@ import { startupImports } from "./check-next-startup-boundary.mjs";
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const defaultParser = () => createRequire(resolve(ROOT, "web/package.json"))("typescript");
 const EXTERNALS = new Set(["next/server", "undici", "node:crypto", "node:zlib"]);
+// Keep the legacy checker independently importable until its replacement is complete.
+const GATEWAY_HTTP_IMPORTS = ["undici/lib/dispatcher/agent.js", "undici/lib/dispatcher/client.js", "undici/lib/web/fetch/index.js"];
 const normalize = (path) => path.replaceAll("\\", "/");
 /** Migrated ingress only; full UI roots are checked separately. */
 export const NEXT_TRANSPORT_ROOTS = Object.freeze([
@@ -78,7 +80,7 @@ export function checkNextTransportBoundary(root = ROOT, ts = defaultParser(), ro
     if (kind !== "transport" && /\.(css|svg|png|jpg|webp)$/.test(canonical)) return;
     const source = readFileSync(canonical, "utf8");
     for (const specifier of startupImports(source, normalize(relative(root, canonical)), ts)) {
-      if (EXTERNALS.has(specifier)) continue;
+      if (EXTERNALS.has(specifier) || canonical === resolve(web, "lib/gateway-http.mjs") && GATEWAY_HTTP_IMPORTS.includes(specifier)) continue;
       if (kind !== "transport" && ["react", "react-dom", "lucide-react", "next-themes", "next/dynamic", "next/image", "next/link", "next/navigation", "next/headers", "next/og", "react-markdown", "remark-gfm"].includes(specifier)) continue;
       if (kind === "entry" && canonical === resolve(web, "lib/http-compression-fix.ts") && specifier === "node:http") continue;
       if (specifier === "node:os" && (canonical === resolve(shared, "webui-presentation.mjs") || kind !== "transport" && canonical === resolve(web, "app/layout.tsx"))) {

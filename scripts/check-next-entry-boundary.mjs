@@ -52,7 +52,9 @@ function typeClosure(root, files, ts) {
           const stem = target.replace(/\.[cm]?js$/, "");
           const found = [target, `${target}.ts`, `${target}.tsx`, `${target}.js`, `${target}.mjs`, `${target}.d.mts`, `${target}.d.ts`, `${stem}.ts`, `${stem}.d.mts`, `${stem}.d.ts`, resolve(target, "index.ts")].find(p => existsSync(p) && statSync(p).isFile());
           assert.ok(found, `${file}: unresolved type import ${specifier}`); visit(found);
-        } else assert.ok(specifier.startsWith("node:") || ["react", "react-dom", "next", "next/server", "next/headers", "next/image", "next/link", "next/navigation", "next/dynamic", "next/og", "lucide-react", "next-themes", "react-markdown", "remark-gfm", "undici", "mdast", "unist", "hast", "unified"].includes(specifier), `${file}: forbidden type import ${specifier}`);
+        } else assert.ok(canonical === resolve(web, "lib/gateway-http.mjs") && ["undici/lib/dispatcher/agent.js", "undici/lib/dispatcher/client.js", "undici/lib/web/fetch/index.js"].includes(specifier)
+          || canonical === resolve(web, "lib/gateway-http.d.mts") && ["undici/types/agent", "undici/types/client", "undici/types/fetch", "undici/types/dispatcher"].includes(specifier)
+          || specifier.startsWith("node:") || ["react", "react-dom", "next", "next/server", "next/headers", "next/image", "next/link", "next/navigation", "next/dynamic", "next/og", "lucide-react", "next-themes", "react-markdown", "remark-gfm", "undici", "mdast", "unist", "hast", "unified"].includes(specifier), `${file}: forbidden type import ${specifier}`);
       }
       ts.forEachChild(node, inspect);
     }

@@ -1,4 +1,4 @@
-import { Client, type Dispatcher } from "undici";
+import { Client, type Dispatcher } from "@/lib/gateway-http.mjs";
 /** Private Backend IO only. Raw dispatch avoids fetch copies AND Readable iterator
  * concatenation. One parser chunk per demand; the relay owns auth/deadlines/abort.
  */

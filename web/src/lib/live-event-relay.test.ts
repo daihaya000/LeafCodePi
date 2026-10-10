@@ -1,5 +1,5 @@
 import { afterEach,beforeEach,expect,it,vi } from "vitest";
-const mock=vi.hoisted(()=>({fetch:vi.fn(),agent:vi.fn()}));vi.mock("undici",()=>({fetch:mock.fetch,Agent:class{constructor(options:any){mock.agent(options);}}}));
+const mock=vi.hoisted(()=>({fetch:vi.fn(),agent:vi.fn()}));vi.mock("@/lib/gateway-http.mjs",()=>({fetch:mock.fetch,Agent:class{constructor(options:any){mock.agent(options);}}}));
 import { relayLiveEvents } from "./live-event-relay";
 const protocol="x-leafcode-backend-protocol";
 beforeEach(()=>{mock.fetch.mockReset();for(const [key,value]of Object.entries({LEAFCODE_PI_PROCESS_ROLE:"next",LEAFCODE_PI_WEBUI_AUTH:"",LEAFCODE_PI_BACKEND_TOKEN:"x".repeat(32),LEAFCODE_PI_BACKEND_GENERATION:"",LEAFCODE_PI_BACKEND_GENERATION_FILE:""}))vi.stubEnv(key,value);});

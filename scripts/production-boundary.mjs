@@ -4,6 +4,7 @@ import { builtinModules, createRequire } from "node:module";
 import { dirname, isAbsolute, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { collectRoutes, validateInventory } from "./check-api-ownership.mjs";
+import { checkGatewayRuntimePackage, GATEWAY_HTTP_IMPORTS } from "./gateway-runtime-boundary.mjs";
 
 const ROOT = resolve(fileURLToPath(new URL("../", import.meta.url)));
 const norm = path => path.replaceAll("\\", "/");
@@ -70,7 +71,7 @@ export function dependencyReferences(source, file = "boundary.ts", ts = parser()
   }
   visit(ast);
   for (const item of ast.typeReferenceDirectives) references.push({ specifier: item.fileName === "node" ? "node:types" : item.fileName, typeOnly: true, typeReference: true });
-  for (const item of ast.referencedFiles) references.push({ specifier: item.fileName, typeOnly: true });
+  for (const item of ast.referencedFiles) references.push({ specifier: item.fileName, typeOnly: true, pathReference: true });
   return references;
 }
 
@@ -127,12 +128,13 @@ function compilerOptions(root, kind, ts) {
 }
 
 function gatewayCapability(file, specifier, ts, source) {
-  const cap = file === "gateway/src/static.mjs" ? ["node:fs", "node:fs/promises", "node:crypto", "node:path"]
+  const cap = file === "web/src/lib/gateway-http.mjs" ? GATEWAY_HTTP_IMPORTS
+    : file === "gateway/src/static.mjs" ? ["node:fs", "node:fs/promises", "node:crypto", "node:path"]
     : file.startsWith("gateway/") ? ["node:http", "node:stream", "node:events"]
     : file === "shared/host-http-client.ts" ? ["node:fs", "node:os", "node:path"]
     : file === "shared/backend-http-client.ts" ? ["node:fs"]
     : file === "shared/webui-presentation.mjs" ? ["node:os"]
-    : file === "web/src/lib/http-compression-fix.ts" ? ["node:http"] : ["node:crypto", "node:zlib", "undici"];
+    : file === "web/src/lib/http-compression-fix.ts" ? ["node:http"] : ["node:crypto", "node:zlib"];
   assert.ok(cap.includes(specifier), `${file}: forbidden gateway OS/store capability ${specifier}`);
   if (file === "gateway/src/static.mjs" && ["node:fs", "node:fs/promises"].includes(specifier)) {
     const ast = ts.createSourceFile(file, source, ts.ScriptTarget.Latest, true);
@@ -168,7 +170,7 @@ export function checkProductionBoundary(root = ROOT, kind = "browser", { ts = pa
   root = realpathSync(root);
   const config = compilerOptions(root, kind, ts), options = config.options;
   entries ??= kind === "browser" ? config.fileNames : [resolve(root, "gateway/src/index.mjs")];
-  const sources = new Map();
+  const sources = new Map(), runtimeImports = new Set();
   function implementation(file, specifier) {
     const parsed = ts.resolveModuleName(specifier, file, options, ts.sys).resolvedModule;
     const raw = specifier.startsWith(".") ? resolve(dirname(file), specifier)
@@ -195,7 +197,7 @@ export function checkProductionBoundary(root = ROOT, kind = "browser", { ts = pa
       const external = !edge.specifier.startsWith(".") && !edge.specifier.startsWith("@/") && !edge.specifier.startsWith("@shared/") && !isAbsolute(edge.specifier);
       if (external && !edge.typeOnly) {
         if (kind === "browser") assert.ok(browserPackages.has(edge.specifier.split("/").slice(0, edge.specifier.startsWith("@") ? 2 : 1).join("/")), `${file}: unexpected Browser runtime package ${edge.specifier}`);
-        else gatewayCapability(norm(relative(root, file)), edge.specifier, ts, source);
+        else { gatewayCapability(norm(relative(root, file)), edge.specifier, ts, source); if (!edge.specifier.startsWith("node:") && !builtins.has(edge.specifier)) runtimeImports.add(edge.specifier); }
         continue;
       }
       if (!edge.typeOnly) visit(implementation(file, edge.specifier));
@@ -210,7 +212,19 @@ export function checkProductionBoundary(root = ROOT, kind = "browser", { ts = pa
   for (const file of program.getSourceFiles()) {
     const tsLib = dirname(file.fileName) === libRoot, packageFile = norm(file.fileName).includes("/node_modules/");
     if (!virtual.has(resolve(file.fileName))) checkProductionFile(file.fileName, root, kind, { packageFile, tsLib });
-    if (tsLib || packageFile && kind === "gateway") continue;
+    if (tsLib) continue;
+    if (packageFile && kind === "gateway") {
+      // skipLibCheck must not erase forbidden or unresolved imports in vendor declarations.
+      const base = norm(file.fileName).match(/^(.*\/node_modules\/(?:(?:@[^/]+\/)?[^/]+))\//)?.[1];
+      for (const edge of dependencyReferences(file.text, file.fileName, ts, { kind, declaration: true })) {
+        checkSpecifier(edge.specifier, kind, file.fileName);
+        if (edge.pathReference || edge.specifier.startsWith(".") || isAbsolute(edge.specifier)) {
+          const name = relative(base, resolve(dirname(file.fileName), edge.specifier));
+          assert.ok(name && !name.startsWith("..") && !isAbsolute(name), `${file.fileName}: gateway package type escape`);
+        } else assert.ok(edge.specifier.startsWith("node:") || builtins.has(edge.specifier) || /^(?:undici(?:-types)?(?:\/|$)|@types\/node(?:\/|$))/.test(edge.specifier), `${file.fileName}: unaudited gateway type dependency ${edge.specifier}`);
+      }
+      continue;
+    }
     for (const edge of dependencyReferences(file.text, file.fileName, ts, { kind, declaration: file.isDeclarationFile })) {
       checkSpecifier(edge.specifier, kind, file.fileName);
       if (kind === "gateway" && (edge.specifier.startsWith("node:") || builtins.has(edge.specifier))) gatewayCapability(norm(relative(root, file.fileName)), edge.specifier, ts, file.text);
@@ -220,7 +234,8 @@ export function checkProductionBoundary(root = ROOT, kind = "browser", { ts = pa
     const errors = ts.getPreEmitDiagnostics(program);
     assert.equal(errors.length, 0, ts.formatDiagnosticsWithColorAndContext(errors, { getCurrentDirectory: () => root, getCanonicalFileName: name => name, getNewLine: () => "\n" }));
   }
-  return { runtimeSources: sources.size, typeSources: program.getSourceFiles().length,
+  const runtimePackages = kind === "gateway" && runtimeImports.size ? checkGatewayRuntimePackage(root, { imports: [...runtimeImports], ts, reportFiles }) : {};
+  return { runtimeSources: sources.size, typeSources: program.getSourceFiles().length, ...runtimePackages,
     ...(reportFiles ? { runtimeFiles: [...sources.keys()].map(file => norm(relative(root, file))).sort(), typeFiles: program.getSourceFiles().map(file => norm(relative(root, file.fileName))).filter(file => !file.includes("node_modules/")).sort() } : {}) };
 }
 

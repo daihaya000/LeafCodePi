@@ -33,11 +33,25 @@
 - 旧Webless service fixtureは画像404のresponse envelope assertionで失敗。今回の共有3ファイルをHEAD版に戻した**隔離コピーでも同一失敗**を再現。無関係なBackend/stream契約は修正しない。
 - 既存checkoutのcache済runtimeによる旧SDK probeはlistenまで到達しなかった。cache/live Backendを変更せず、隔離fresh buildでprobe成功。cache側の原因は未特定で、fresh成功と区別する。
 
+## 外部runtime閉包の補完（turn 2）
+
+- 原因: first-party gateは外部Undici entryで探索を打ち切っていた。通常の`undici/index.js`は未使用のSQLite cache storeやmockも読み込むため、単なるpackage名の許可では境界が閉じない。
+- `web/src/lib/gateway-http.mjs`と`.d.mts`をtransport専用facadeとして追加。Agent/Client/fetchの3個のprivate entryと、対応する狭いpublic型だけを利用する。raw dispatch / timeout / abortの挙動は維持し、Undici全体のbarrelをgatewayから除いた。SSE/file relay 4ファイルと2つのmockだけを更新。
+- `scripts/gateway-runtime-boundary.mjs`はliteral CJS require / ESM / dynamic importを再帰探索し、symlink・非literal/間接loader・eval・store mutationを拒否。`gateway-runtime-contracts.json`はUndici 8.10.2のmanifestと41個の到達ファイル、依存辺、native capabilityをSHA256固定。変更・難読化された追加コードにも再監査を要求する。自動更新・自動承認はしない。
+- cache/mock/SQLite storeのファイル、filesystem/process launcher/VMはこの41ファイルに到達しない。`node:sqlite`のliteralは固定版のruntime-feature判定表だけに残る。到達するcallerはcrypto判定だけで、DB生成/更新はなく、`DatabaseSync`取得を許可していない。transport以外の一般的なSQLite permissionではない。
+- llhttp WASMの固定2バイナリ/HTTP parser callback、WebIDLのFunction prototype brand check、Undiciの2個のsymbol-keyed global slotだけは、正確なファイルhashとAST文脈付きで許可。first-partyのeval/Function/任意WASM/global loader拒否は緩めない。
+- 新gateはworkspaceのpackageを検査し、generation builderはclean gateway installの**実stage packageを再検査してからseal**する。旧検査は維持し、facade限定のsubpath permissionだけを追加。旧checkerの単独import・外部compiler provisionも維持。
+- gateway vendor型も`skipLibCheck`に依存せずimport/type-query/参照directiveを検査。未解決SDK・未知の外部型・相対owner escapeを拒否。隔離fixtureのコピー対象に`.d.mts` sidecarを追加し、型推論への誤ったfallbackを避けた。
+- `gateway-runtime-boundary.test.mjs`6件成功（固定閉包、CJS/dynamic/type-only、変更/間接/難読化、transitive、manifest、内外symlink、未解決vendor型、build前拒否/既存output保持）。新/旧gate 34件、relay回帰23件、SPA型検査成功。Browserは337/525、gateway first-partyは254 / type 486、外部valueは41ファイル、166 routes / 267 operations。
+- 実native production browser test成功。元Nextとの917件の正確なAPI比較も成功（有限Host/settings/tasks/command/SSE/Range/HEAD、実課金SDKなし）。Webなしのfresh Backend buildと実entry/harness/SDK/session/lease probeも成功。
+- 初回fixtureはsidecar未コピー、旧checkerは新helper未コピーで失敗した。fixtureの依存閉包と旧checker単独importを直して再実行。間接require拒否fixtureの初回失敗は例外messageの正規表現不一致で、拒否規則を緩めていない。
+- 初回2世代build中にこの作業のsource変更が入り、snapshot不一致として正しく拒否された。固定sourceで再実行し、2世代build/sealと失敗時の旧世代保持/復旧を確認。最終sourceの再実行は全group exit 0（2世代は146.7秒、501 sealed files、復旧確認）。結果は`%LOCALAPPDATA%/Temp/p4-runtime-final/`。
+- SDK probeの初回は15秒のlisten deadlineに到達。原因は未特定。一時コピーにchildログと45秒deadlineを加えた再実行は4.03秒で成功。Backendや実稼働cacheは修正していない。証拠は`p4-runtime-backend-debug/`、その他は`p4-runtime-{validation,rerun,final}/`。
+
 ## 次の単位
 
-1. gatewayの外部runtime package（現在はsealでexact locked Undiciのみ許可）のvalue閉包にも専用自動検査を追加し、fixture/type/buildの差分を独立確認する。
-2. 新gateの拒否と本番build成立を維持したまま、旧Next専用検査を置換。
-3. manifest/lock/CLI/config/生成型/テストmockを含むNext撤去。互換コードは利用箇所・value/type到達性を確認して限定削除。
-4. Nextなしのclean install/build/typecheck、SDK/Backend独立性を再検証してからP4完了判定。
+1. 新gateの拒否と本番build成立を維持したまま、旧Next専用検査を置換。
+2. manifest/lock/CLI/config/生成型/テストmockを含むNext撤去。互換コードは利用箇所・value/type到達性を確認して限定削除。
+3. Nextなしのclean install/build/typecheck、SDK/Backend独立性を再検証してからP4完了判定。
 
 ここでの検査は静的な境界と有限fixtureの検証。任意に難読化されたJavaScriptの完全sandbox証明、same-user攻撃、live deployment切替や実SDK更新は主張しない。

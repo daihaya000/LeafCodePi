@@ -1,4 +1,4 @@
-import { Agent, fetch as undiciFetch } from "undici";
+import { Agent, fetch as undiciFetch } from "@/lib/gateway-http.mjs";
 const dispatcher = new Agent({ bodyTimeout: 0, headersTimeout: 10000, connect: { timeout: 10000 }, connections: 32 });
 import { PROVIDER_AUTH_EVENTS_PATH } from "@shared/provider-auth-contract.mjs";
 import { JSON_BUSINESS_HEADERS } from "@shared/json-business-contract.mjs";

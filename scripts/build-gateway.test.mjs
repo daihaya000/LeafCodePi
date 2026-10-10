@@ -18,7 +18,7 @@ test("gateway closure is all 166 routes and 267 operations, with no Next, SDK, o
 test("gateway dependency gate refuses framework/SDK imports, indirect loaders, owner paths and unexpected OS capabilities", () => {
   const graph = gatewayGraph(), root = mkdtempSync(join(tmpdir(), "gateway-negative-"));
   try {
-    for (const file of [...graph.sources.keys(), "docs/plans/next-thin-phase0.json"]) {
+    for (const file of [...graph.sources.keys(), ...graph.declarations.keys(), "docs/plans/next-thin-phase0.json"]) {
       if (file === "gateway/src/routes.mjs") continue;
       const dest = join(root, file); mkdirSync(dirname(dest), { recursive: true }); copyFileSync(join(ROOT, file), dest);
     }

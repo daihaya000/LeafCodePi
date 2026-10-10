@@ -2,6 +2,8 @@
   "version": 1,
   "note": "Audited transport/DTO inputs, not permission to add owner/store implementations. New dependencies require explicit boundary review.",
   "files": [
+    "web/src/lib/gateway-http.mjs",
+    "web/src/lib/gateway-http.d.mts",
     "shared/account-contract.d.mts",
     "shared/account-contract.mjs",
     "shared/backend-generation.d.mts",

@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { relayProviderLoginEvents } from "./provider-auth-events-relay";
 const mock = vi.hoisted(() => ({ fetch: vi.fn(), agent: vi.fn() }));
-vi.mock("undici", () => ({ fetch: mock.fetch, Agent: class { constructor(options: unknown) { mock.agent(options); } } }));
+vi.mock("@/lib/gateway-http.mjs", () => ({ fetch: mock.fetch, Agent: class { constructor(options: unknown) { mock.agent(options); } } }));
 const fetcher = mock.fetch;
 const sseHeaders = { "content-type": "text/event-stream", "x-leafcode-backend-protocol": "1" };
 beforeEach(() => {

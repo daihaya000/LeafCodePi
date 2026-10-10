@@ -67,7 +67,7 @@ test("production Next versus isolated gateway: complete API failure/method matri
   // Candidate inputs are only baseline plus gateway/transport changes, never other uncommitted owner files.
   await run("tar", ["-xf", archive, "-C", candidate], ROOT, env);
   const graph = gatewayGraph(ROOT);
-  for (const [file] of graph.sources) {
+  for (const [file] of [...graph.sources, ...graph.declarations]) {
     if (file === "gateway/src/routes.mjs") continue;
     mkdirSync(dirname(join(candidate, file)), { recursive: true }); copyFileSync(join(ROOT, file), join(candidate, file));
   }

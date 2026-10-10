@@ -43,7 +43,7 @@ test("fresh Vite output is served by the compiled native production gateway, not
     rmSync(root, { recursive: true, force: true });
   });
   const graph = gatewayGraph();
-  for (const file of [...graph.sources.keys(), "docs/plans/next-thin-phase0.json", "gateway/package.json", "gateway/package-lock.json"]) {
+  for (const file of [...graph.sources.keys(), ...graph.declarations.keys(), "docs/plans/next-thin-phase0.json", "gateway/package.json", "gateway/package-lock.json"]) {
     if (file === "gateway/src/routes.mjs") continue;
     const target = join(candidate, file); mkdirSync(dirname(target), { recursive: true }); copyFileSync(join(ROOT, file), target);
   }

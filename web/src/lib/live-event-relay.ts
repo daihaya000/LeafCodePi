@@ -1,4 +1,4 @@
-import { Agent, fetch as undiciFetch } from "undici";
+import { Agent, fetch as undiciFetch } from "@/lib/gateway-http.mjs";
 const liveEventsDispatcher = new Agent({ bodyTimeout: 0, headersTimeout: 10000, connect: { timeout: 10000 }, connections: 32 });
 import { LIVE_EVENT_PATH, LIVE_EVENT_HEADERS, liveEventTarget } from "@shared/live-event-contract.mjs";
 import { JSON_BUSINESS_HEADERS } from "@shared/json-business-contract.mjs";

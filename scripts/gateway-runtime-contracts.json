@@ -1,0 +1,512 @@
+{
+  "version": 1,
+  "packageVersion": "8.10.2",
+  "packageSha256": "d3dc9b2f66b6ea0c406c8305aec87b51e7723c2f0c3c622ccd90d9d056b82464",
+  "entries": [
+    "lib/dispatcher/agent.js",
+    "lib/dispatcher/client.js",
+    "lib/web/fetch/index.js"
+  ],
+  "files": {
+    "lib/core/connect.js": {
+      "sha256": "4bf7ce84d6d31ffacebb0130164d50e619645b79cf6c4221ac374ab5ada677e3",
+      "references": [
+        "./errors",
+        "./util",
+        "node:assert",
+        "node:net",
+        "node:tls"
+      ],
+      "builtins": [
+        "node:assert",
+        "node:net",
+        "node:tls"
+      ]
+    },
+    "lib/core/constants.js": {
+      "sha256": "a9c9c59d69a6db90fd3fdf46ebce943cbdc5da6e2acd143a00ed3282a8c65ca0",
+      "references": [],
+      "builtins": []
+    },
+    "lib/core/diagnostics.js": {
+      "sha256": "907ce2d66cede91b860a1c1318ebdf0d9577c0f747a3b35510162c63489f28bc",
+      "references": [
+        "node:diagnostics_channel",
+        "node:util"
+      ],
+      "builtins": [
+        "node:diagnostics_channel",
+        "node:util"
+      ]
+    },
+    "lib/core/errors.js": {
+      "sha256": "47c1e438402a802f5132da4a2084e1294ad3fd1496f8f7b47117292165c17fd9",
+      "references": [],
+      "builtins": []
+    },
+    "lib/core/request.js": {
+      "sha256": "a78e25125e88b5907e4e5b3ad8f219645d422e7031d5320174b1957a002a34a5",
+      "references": [
+        "./constants",
+        "./diagnostics.js",
+        "./errors",
+        "./util",
+        "node:assert"
+      ],
+      "builtins": [
+        "node:assert"
+      ]
+    },
+    "lib/core/symbols.js": {
+      "sha256": "2fbebeafbc65374261b6cc10146a3cdc0083342a125b7e957afe2ecb4a4c41d0",
+      "references": [],
+      "builtins": []
+    },
+    "lib/core/tree.js": {
+      "sha256": "c9fc9938718f33d77a6ed1abac5e564531ac9f9436cde2867243d50cd6c0b4e8",
+      "references": [
+        "./constants"
+      ],
+      "builtins": []
+    },
+    "lib/core/util.js": {
+      "sha256": "96318b1d253fc1627e3b60ce5fb2bdb6bd0101900da139e2d2b2ca460b95b77a",
+      "references": [
+        "../util/timers",
+        "./constants",
+        "./errors",
+        "./symbols",
+        "./tree",
+        "node:assert",
+        "node:events",
+        "node:http",
+        "node:net",
+        "node:querystring",
+        "node:stream"
+      ],
+      "builtins": [
+        "node:assert",
+        "node:events",
+        "node:http",
+        "node:net",
+        "node:querystring",
+        "node:stream"
+      ]
+    },
+    "lib/dispatcher/agent.js": {
+      "sha256": "b54f75ea0978a432484110017bb2eb4768c61d4bc68b3726d6f7f2399eb14649",
+      "references": [
+        "../core/errors",
+        "../core/symbols",
+        "../core/util",
+        "./client",
+        "./dispatcher-base",
+        "./pool"
+      ],
+      "builtins": []
+    },
+    "lib/dispatcher/client-h1.js": {
+      "sha256": "6a75d46a9d8b21aa0910ceafd6a57f8b9fd7c24c33776d337bedfc30319c24b5",
+      "references": [
+        "../core/diagnostics.js",
+        "../core/errors.js",
+        "../core/symbols.js",
+        "../core/util.js",
+        "../llhttp/constants.js",
+        "../llhttp/llhttp-wasm.js",
+        "../llhttp/llhttp_simd-wasm.js",
+        "../util/timers.js",
+        "../web/fetch/body.js",
+        "node:assert"
+      ],
+      "builtins": [
+        "node:assert"
+      ]
+    },
+    "lib/dispatcher/client-h2.js": {
+      "sha256": "611003bb876a218e5bd652877766e8dbfef6e6d54274241fe31b4ccb5e3895e7",
+      "references": [
+        "../core/diagnostics.js",
+        "../core/errors.js",
+        "../core/symbols.js",
+        "../core/util.js",
+        "../web/fetch/body.js",
+        "node:assert",
+        "node:http2",
+        "node:stream"
+      ],
+      "builtins": [
+        "node:assert",
+        "node:http2",
+        "node:stream"
+      ]
+    },
+    "lib/dispatcher/client.js": {
+      "sha256": "6e186d1f9c9ce2692ed441b8eeb267fb9611ac15aee2f8f4502de6635202b2fe",
+      "references": [
+        "../core/connect.js",
+        "../core/diagnostics.js",
+        "../core/errors.js",
+        "../core/request.js",
+        "../core/symbols.js",
+        "../core/util.js",
+        "../util/stats.js",
+        "./client-h1.js",
+        "./client-h2.js",
+        "./dispatcher-base",
+        "node:assert",
+        "node:http",
+        "node:net"
+      ],
+      "builtins": [
+        "node:assert",
+        "node:http",
+        "node:net"
+      ]
+    },
+    "lib/dispatcher/dispatcher-base.js": {
+      "sha256": "2796a3361c387a89abaf621b6666c1ea2b9ac808abff664fc5eb70539d19c989",
+      "references": [
+        "../core/errors",
+        "../core/symbols",
+        "./dispatcher",
+        "node:buffer"
+      ],
+      "builtins": [
+        "node:buffer"
+      ]
+    },
+    "lib/dispatcher/dispatcher.js": {
+      "sha256": "032235d0e70df874f87ea4df892b7404b0dbffd65a08b0720b99eed71c79635c",
+      "references": [
+        "../core/symbols",
+        "node:events"
+      ],
+      "builtins": [
+        "node:events"
+      ]
+    },
+    "lib/dispatcher/dispatcher1-wrapper.js": {
+      "sha256": "9c4d64198b782a38f98fd8054eabc150694c791038a52e454da4cc1780d7d8e0",
+      "references": [
+        "../core/errors",
+        "../core/symbols",
+        "../core/util",
+        "./dispatcher"
+      ],
+      "builtins": []
+    },
+    "lib/dispatcher/fixed-queue.js": {
+      "sha256": "5d72c9de20e74d2437afc97f9f9e8e202d79983a77d2a598ac9ab1e0a8d0052d",
+      "references": [],
+      "builtins": []
+    },
+    "lib/dispatcher/pool-base.js": {
+      "sha256": "3427064389d496baa456510af0646e8f041fb76c657a9e59813509d54003ec3b",
+      "references": [
+        "../core/symbols",
+        "../util/stats.js",
+        "./dispatcher-base",
+        "./fixed-queue"
+      ],
+      "builtins": []
+    },
+    "lib/dispatcher/pool.js": {
+      "sha256": "aca3b038d05144c9cd6680ba1b60ec273615d20eff2ffc75603aa9517b91a074",
+      "references": [
+        "../core/connect",
+        "../core/errors",
+        "../core/symbols",
+        "../core/util",
+        "./client",
+        "./pool-base"
+      ],
+      "builtins": []
+    },
+    "lib/encoding/index.js": {
+      "sha256": "7ea8fe81ff3c9d054f3ef8bb67bfe260b2e930c51d5d5563ca2ef19a218a5909",
+      "references": [],
+      "builtins": []
+    },
+    "lib/global.js": {
+      "sha256": "ad78c73866021cae34d47f7896561c56294e5c1f15915d6ef1780f763a816b9d",
+      "references": [
+        "./core/errors",
+        "./dispatcher/agent",
+        "./dispatcher/dispatcher1-wrapper"
+      ],
+      "builtins": []
+    },
+    "lib/llhttp/constants.js": {
+      "sha256": "90c4858736745781548d464e51224ce9353162cd87bc8142be803bc2937184ba",
+      "references": [
+        "./utils"
+      ],
+      "builtins": []
+    },
+    "lib/llhttp/llhttp-wasm.js": {
+      "sha256": "5d8313d6fe8145d832e6af9959b2810523c9a6993d5b93cee09bd7e5f1f2c085",
+      "references": [
+        "node:buffer"
+      ],
+      "builtins": [
+        "node:buffer"
+      ]
+    },
+    "lib/llhttp/llhttp_simd-wasm.js": {
+      "sha256": "a3f30f3307ab3c191720cb636d570febb3610c420bc7077f2e225dacfcad3295",
+      "references": [
+        "node:buffer"
+      ],
+      "builtins": [
+        "node:buffer"
+      ]
+    },
+    "lib/llhttp/utils.js": {
+      "sha256": "e21afcaf44b0fec37acfff86945e4526541e990ac0efd2f1efa2ea9f2b259b6b",
+      "references": [],
+      "builtins": []
+    },
+    "lib/util/runtime-features.js": {
+      "sha256": "d2161d6b59141370f3bb92bd9d950ef8caad083f6bfea4566c44a157996957de",
+      "references": [
+        "node:crypto",
+        "node:sqlite"
+      ],
+      "builtins": [
+        "node:crypto",
+        "node:sqlite"
+      ]
+    },
+    "lib/util/stats.js": {
+      "sha256": "d62ae00eaf72f33cc990a3a835d70b9c7d2f10d47acffa0e631ea82145b7c34e",
+      "references": [
+        "../core/symbols"
+      ],
+      "builtins": []
+    },
+    "lib/util/timers.js": {
+      "sha256": "4e5ef13ce9e1ca6de8a656b95e2425602bacbd6010af1da3ce573f8d8f573119",
+      "references": [],
+      "builtins": []
+    },
+    "lib/web/fetch/body.js": {
+      "sha256": "bb360326ba3713157f219647a36cbf39e3ae13f0f7f605b2420d8bf7c4ea9ed6",
+      "references": [
+        "../../core/util",
+        "../../encoding",
+        "../infra",
+        "../webidl",
+        "./data-url",
+        "./formdata",
+        "./formdata-parser",
+        "./util",
+        "node:assert",
+        "node:stream",
+        "node:stream/web",
+        "node:util/types"
+      ],
+      "builtins": [
+        "node:assert",
+        "node:stream",
+        "node:stream/web",
+        "node:util/types"
+      ]
+    },
+    "lib/web/fetch/constants.js": {
+      "sha256": "2e0f11d1ba87ce83219dff50325be48704931af5cd03a749fe710590bfd5bfb5",
+      "references": [],
+      "builtins": []
+    },
+    "lib/web/fetch/data-url.js": {
+      "sha256": "acd2ae8c00e035a8b3c816c8a5f75eebfe12ab7db61158488cc350f92785fcd4",
+      "references": [
+        "../infra",
+        "node:assert"
+      ],
+      "builtins": [
+        "node:assert"
+      ]
+    },
+    "lib/web/fetch/formdata-parser.js": {
+      "sha256": "d5d048201a040865a4376e423fd78b102ad164cb51ad7b0ade56897c7318bd6b",
+      "references": [
+        "../../core/util",
+        "../infra",
+        "../webidl",
+        "./data-url",
+        "./formdata",
+        "node:assert"
+      ],
+      "builtins": [
+        "node:assert"
+      ]
+    },
+    "lib/web/fetch/formdata.js": {
+      "sha256": "7422b6299d290819aefe23a5df7f8b6ac4c513fc7cb84536e7a040517a798d09",
+      "references": [
+        "../../core/util",
+        "../../util/runtime-features.js",
+        "../webidl",
+        "./util",
+        "node:crypto",
+        "node:util"
+      ],
+      "builtins": [
+        "node:crypto",
+        "node:util"
+      ]
+    },
+    "lib/web/fetch/global.js": {
+      "sha256": "6b38813b82ec8d5002009640515d35f83ab96d4f8e0066d71fae89324079a289",
+      "references": [],
+      "builtins": []
+    },
+    "lib/web/fetch/headers.js": {
+      "sha256": "0ca9bcb1cb174a19311b27f55b954d53e5adc06d6aa935c42df96c9a4453d0a7",
+      "references": [
+        "../../core/symbols",
+        "../../core/util",
+        "../webidl",
+        "./util",
+        "node:assert",
+        "node:util"
+      ],
+      "builtins": [
+        "node:assert",
+        "node:util"
+      ]
+    },
+    "lib/web/fetch/index.js": {
+      "sha256": "6da74503445fb4820bcb2de27031e6495409b3d7d3978d66f92afd1d0950c7d1",
+      "references": [
+        "../../core/errors",
+        "../../core/util",
+        "../../global",
+        "../infra",
+        "../subresource-integrity/subresource-integrity",
+        "../webidl",
+        "./body",
+        "./constants",
+        "./data-url",
+        "./headers",
+        "./request",
+        "./response",
+        "./util",
+        "node:assert",
+        "node:buffer",
+        "node:events",
+        "node:http",
+        "node:stream",
+        "node:zlib"
+      ],
+      "builtins": [
+        "node:assert",
+        "node:buffer",
+        "node:events",
+        "node:http",
+        "node:stream",
+        "node:zlib"
+      ]
+    },
+    "lib/web/fetch/request.js": {
+      "sha256": "bb13b02f336f1ccc4ef3aed8209caa4c6f6b980684f97814dd13a2737032f948",
+      "references": [
+        "../../core/symbols",
+        "../../core/util",
+        "../webidl",
+        "./body",
+        "./constants",
+        "./data-url",
+        "./headers",
+        "./util",
+        "node:assert",
+        "node:events",
+        "node:util"
+      ],
+      "builtins": [
+        "node:assert",
+        "node:events",
+        "node:util"
+      ]
+    },
+    "lib/web/fetch/response.js": {
+      "sha256": "7e4d92f54955a2ca305d2500a5323d520a7d5c0f63b4cd25b845788603806ab3",
+      "references": [
+        "../../core/symbols",
+        "../../core/util",
+        "../infra",
+        "../webidl",
+        "./body",
+        "./constants",
+        "./data-url",
+        "./headers",
+        "./util",
+        "node:assert",
+        "node:util"
+      ],
+      "builtins": [
+        "node:assert",
+        "node:util"
+      ]
+    },
+    "lib/web/fetch/util.js": {
+      "sha256": "c08348cbf82b0c423d5250a0822ed3ba607a078620152557c30124604b6d9706",
+      "references": [
+        "../../core/util",
+        "../infra",
+        "../webidl",
+        "./constants",
+        "./data-url",
+        "./global",
+        "node:assert",
+        "node:perf_hooks",
+        "node:stream",
+        "node:util/types",
+        "node:zlib"
+      ],
+      "builtins": [
+        "node:assert",
+        "node:perf_hooks",
+        "node:stream",
+        "node:util/types",
+        "node:zlib"
+      ]
+    },
+    "lib/web/infra/index.js": {
+      "sha256": "06cf4d0fe3220e2309f389d40d6e403e2c765ccb7552f68fce60cc2d25ee13bc",
+      "references": [
+        "../../encoding",
+        "node:assert"
+      ],
+      "builtins": [
+        "node:assert"
+      ]
+    },
+    "lib/web/subresource-integrity/subresource-integrity.js": {
+      "sha256": "65997037f348e22746f0852037998ba64fb83e6428485c6e200d42da8a154a75",
+      "references": [
+        "../../util/runtime-features.js",
+        "node:assert",
+        "node:crypto"
+      ],
+      "builtins": [
+        "node:assert",
+        "node:crypto"
+      ]
+    },
+    "lib/web/webidl/index.js": {
+      "sha256": "c57ce88b6d89d238ca6f1632bd82224efe83554232887e1437ec9b794fe85316",
+      "references": [
+        "node:assert",
+        "node:util",
+        "node:worker_threads"
+      ],
+      "builtins": [
+        "node:assert",
+        "node:util",
+        "node:worker_threads"
+      ]
+    }
+  }
+}
