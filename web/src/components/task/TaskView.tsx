@@ -3,6 +3,7 @@
 import { memo, startTransition, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import {
   ArrowUp,
+  Bookmark,
   Check,
   ChevronDown,
   ChevronUp,
@@ -3531,15 +3532,23 @@ export const TaskView = memo(function TaskView({
   const hasEligibleSupervisorBot = supervisorBots.some((bot) => bot.enabled && bot.permissionMode !== "deny");
   const supervisorControlDisabled = supervisorBusy || (!hasSupervisor && (!working || !hasEligibleSupervisorBot));
   const mobilePanelOpen = !mdUp && (graphOpen || diffOpen);
-  const toggleFind = () => {
-    if (find.open) {
+  const toggleFind = (mode: "search" | "bookmarks") => {
+    if (find.open && find.panelMode === mode) {
       find.closePanel();
       return;
     }
     // 狭幅ではグラフ/Diffパネルがタイムラインを覆うので、検索を始めるときに閉じる。
     if (mobilePanelOpen) setPanelState({ graphOpen: false, diffOpen: false });
-    find.openPanel();
+    find.openPanel(mode);
   };
+
+  const previousFindFocusNonce = useRef(find.focusNonce);
+  useEffect(() => {
+    if (previousFindFocusNonce.current === find.focusNonce) return;
+    previousFindFocusNonce.current = find.focusNonce;
+    // Ctrl+F must also uncover the conversation on narrow panes. Opening a side panel later stays possible.
+    if (find.open && mobilePanelOpen) setPanelState({ graphOpen: false, diffOpen: false });
+  }, [find.open, find.focusNonce, mobilePanelOpen]);
 
   return (
     // min-h-0 flex-1: ペイン section が TaskTabs を持つ場合でも残り高さに収める。
@@ -3689,21 +3698,6 @@ export const TaskView = memo(function TaskView({
           aria-label="タスク操作"
           className="flex items-center justify-end col-start-2 row-start-2"
         >
-          <Button
-            variant="ghost"
-            size="icon"
-            title="セッション内を検索（Ctrl+F）"
-            aria-label="セッション内を検索"
-            aria-pressed={find.open}
-            disabled={!task}
-            className={cx(
-              "h-11 w-11 @min-[500px]/task:h-9 @min-[500px]/task:w-9",
-              find.open && "bg-surface-2 text-text",
-            )}
-            onClick={toggleFind}
-          >
-            <Search className="h-4 w-4" />
-          </Button>
           {onAddPane && (
             <Button
               variant="ghost"
@@ -3820,8 +3814,8 @@ export const TaskView = memo(function TaskView({
           </Button>
         </div>
       </header>
-      {find.open && <TaskFindPanel key={taskId} taskId={taskId} find={find} />}
       <div className="relative flex min-h-0 flex-1 flex-col lg:flex-row">
+        {find.open && !mobilePanelOpen && <TaskFindPanel key={taskId} taskId={taskId} find={find} />}
         <div
           ref={scrollRef}
           onScroll={onScroll}
@@ -4127,57 +4121,96 @@ export const TaskView = memo(function TaskView({
             )}
           </div>
         </div>
-        {/* 提案・進捗確認とメッセージ移動。移動ボタン間より広い間隔で操作を分ける。 */}
-        {(task?.sessionId || navigationMessageIds.length > 0) && (
-          <div className={cx(
-            "absolute right-4 bottom-4 z-30 flex flex-col items-center gap-6",
+        {/* 検索・ブックマークとメッセージ移動。短い画面でも操作を会話領域に収める。 */}
+        {task && (
+          <div role="group" aria-label="メッセージナビゲーター" className={cx(
+            "absolute right-4 bottom-4 z-30 flex max-h-[calc(100%-2rem)] flex-col items-center gap-6",
             mobilePanelOpen && "hidden",
           )}>
-            {navigationMessageIds.length > 0 && (
+            <div className="-m-2 flex min-h-0 flex-col gap-6 overflow-y-auto overscroll-y-contain p-2 [scrollbar-width:none]">
               <div className="flex flex-col gap-2">
-                {(
-                  [
-                    [`最初の${navigationTargetLabel}へ`, () => jumpToMessage(0), <ChevronsUp key="i" className="h-4 w-4" />],
-                    [
-                      `一つ前の${navigationTargetLabel}へ`,
-                      () => {
-                        const target = navigationTargetAt(-1);
-                        if (target !== null) jumpToMessage(target);
-                      },
-                      <ChevronUp key="i" className="h-4 w-4" />,
-                    ],
-                    [
-                      `一つ後の${navigationTargetLabel}へ`,
-                      () => {
-                        const target = navigationTargetAt(1);
-                        if (target === null) {
-                          jumpToLatest();
-                          return;
-                        }
-                        jumpToMessage(target);
-                      },
-                      <ChevronDown key="i" className="h-4 w-4" />,
-                    ],
-                    ["最新のメッセージへ", () => jumpToLatest(), <ChevronsDown key="i" className="h-4 w-4" />],
-                  ] as const
-                ).map(([label, onClick, icon]) => (
-                  <Button
-                    key={label}
-                    variant="secondary"
-                    size="icon"
-                    aria-label={label}
-                    title={label}
-                    className={cx(
-                      "h-10 w-10 rounded-full border border-border-strong bg-surface shadow-lg transition-opacity hover:opacity-100 focus-visible:opacity-100 active:opacity-100",
-                    )}
-                    style={{ opacity: scrollButtonOpacity }}
-                    onClick={onClick}
-                  >
-                    {icon}
-                  </Button>
-                ))}
+                <Button
+                  variant="secondary"
+                  size="icon"
+                  aria-label="セッション内を検索"
+                  title="セッション内を検索（Ctrl+F）"
+                  aria-pressed={find.open && find.panelMode === "search"}
+                  className={cx(
+                    "h-10 w-10 rounded-full border border-border-strong bg-surface shadow-lg transition-opacity hover:opacity-100 focus-visible:opacity-100 active:opacity-100",
+                    find.open && find.panelMode === "search" && "text-accent",
+                  )}
+                  style={{ opacity: find.open && find.panelMode === "search" ? 1 : scrollButtonOpacity }}
+                  onClick={() => toggleFind("search")}
+                >
+                  <Search aria-hidden="true" className="h-4 w-4" />
+                </Button>
+                <Button
+                  variant="secondary"
+                  size="icon"
+                  aria-label={`ブックマーク（${find.bookmarks.length}件）`}
+                  title="ブックマーク一覧"
+                  aria-pressed={find.open && find.panelMode === "bookmarks"}
+                  className={cx(
+                    "relative h-10 w-10 rounded-full border border-border-strong bg-surface shadow-lg transition-opacity hover:opacity-100 focus-visible:opacity-100 active:opacity-100",
+                    find.open && find.panelMode === "bookmarks" && "text-accent",
+                  )}
+                  style={{ opacity: find.open && find.panelMode === "bookmarks" ? 1 : scrollButtonOpacity }}
+                  onClick={() => toggleFind("bookmarks")}
+                >
+                  <Bookmark aria-hidden="true" className="h-4 w-4" fill={find.bookmarks.length > 0 ? "currentColor" : "none"} />
+                  {find.bookmarks.length > 0 && (
+                    <span aria-hidden="true" className="absolute -right-1 -top-1 min-w-4 rounded-full bg-accent px-1 text-center text-[10px] font-medium leading-4 text-primary-fg">
+                      {find.bookmarks.length > 99 ? "99+" : find.bookmarks.length}
+                    </span>
+                  )}
+                </Button>
               </div>
-            )}
+              {navigationMessageIds.length > 0 && (
+                <div className="flex flex-col gap-2">
+                  {(
+                    [
+                      [`最初の${navigationTargetLabel}へ`, () => jumpToMessage(0), <ChevronsUp key="i" className="h-4 w-4" />],
+                      [
+                        `一つ前の${navigationTargetLabel}へ`,
+                        () => {
+                          const target = navigationTargetAt(-1);
+                          if (target !== null) jumpToMessage(target);
+                        },
+                        <ChevronUp key="i" className="h-4 w-4" />,
+                      ],
+                      [
+                        `一つ後の${navigationTargetLabel}へ`,
+                        () => {
+                          const target = navigationTargetAt(1);
+                          if (target === null) {
+                            jumpToLatest();
+                            return;
+                          }
+                          jumpToMessage(target);
+                        },
+                        <ChevronDown key="i" className="h-4 w-4" />,
+                      ],
+                      ["最新のメッセージへ", () => jumpToLatest(), <ChevronsDown key="i" className="h-4 w-4" />],
+                    ] as const
+                  ).map(([label, onClick, icon]) => (
+                    <Button
+                      key={label}
+                      variant="secondary"
+                      size="icon"
+                      aria-label={label}
+                      title={label}
+                      className={cx(
+                        "h-10 w-10 rounded-full border border-border-strong bg-surface shadow-lg transition-opacity hover:opacity-100 focus-visible:opacity-100 active:opacity-100",
+                      )}
+                      style={{ opacity: scrollButtonOpacity }}
+                      onClick={onClick}
+                    >
+                      {icon}
+                    </Button>
+                  ))}
+                </div>
+              )}
+            </div>
             {task?.sessionId && !working && (
               <NextAction
                 taskId={taskId}

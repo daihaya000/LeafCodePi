@@ -430,6 +430,17 @@ describe("useTaskFind shortcut", () => {
     expect(hook.result.current.focusNonce).toBeGreaterThan(nonce);
   });
 
+  it("opens bookmarks directly and restores search mode on Ctrl+F", () => {
+    const { hook, root } = setup();
+    act(() => hook.result.current.openPanel("bookmarks"));
+    expect(hook.result.current.open).toBe(true);
+    expect(hook.result.current.panelMode).toBe("bookmarks");
+    const nonce = hook.result.current.focusNonce;
+    press(root);
+    expect(hook.result.current.panelMode).toBe("search");
+    expect(hook.result.current.focusNonce).toBeGreaterThan(nonce);
+  });
+
   it("answers for the lone pane when nothing is focused", () => {
     const { hook } = setup();
     const event = press(document.body);

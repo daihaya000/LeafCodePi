@@ -23,6 +23,7 @@ function bookmark(id: string, overrides: Partial<TaskBookmark> = {}): TaskBookma
 function fakeFind(overrides: Partial<TaskFind> = {}): TaskFind {
   return {
     open: true,
+    panelMode: "search",
     openPanel: vi.fn(),
     closePanel: vi.fn(),
     focusNonce: 0,
@@ -266,6 +267,17 @@ describe("TaskFindPanel bookmarks", () => {
     mocks.getJson.mockReset();
   });
   afterEach(cleanup);
+
+  it("opens bookmarks directly without focusing the search field and switches on Ctrl+F", () => {
+    const find = fakeFind({ panelMode: "bookmarks", bookmarks: [bookmark("a")] });
+    const { rerender } = renderPanel(find);
+    expect(screen.getByRole("list", { name: "ブックマーク" })).toBeTruthy();
+    expect(find.refreshBookmarks).toHaveBeenCalledWith({ verify: true });
+    expect(document.activeElement).toBe(screen.getByRole("search"));
+    rerender(<TaskFindPanel taskId="task 1" find={{ ...find, panelMode: "search", focusNonce: 1 }} />);
+    expect(screen.queryByRole("list", { name: "ブックマーク" })).toBeNull();
+    expect(document.activeElement).toBe(searchBox());
+  });
 
   it("shows the count on the bookmark button", () => {
     renderPanel(fakeFind({ bookmarks: [bookmark("a"), bookmark("b")] }));

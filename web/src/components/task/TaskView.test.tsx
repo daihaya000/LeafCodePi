@@ -198,8 +198,12 @@ it.each([
   const navigator = firstMessage.parentElement;
   expect(navigator?.classList.contains("gap-2")).toBe(true);
   expect(navigator?.parentElement?.classList.contains("gap-6")).toBe(true);
-  expect(navigator?.parentElement?.firstElementChild).toBe(navigator);
-  expect(navigator?.parentElement?.lastElementChild?.contains(control)).toBe(true);
+  const searchButton = screen.getByRole("button", { name: "セッション内を検索" });
+  expect(navigator?.parentElement?.firstElementChild?.contains(searchButton)).toBe(true);
+  expect(searchButton.compareDocumentPosition(firstMessage) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  expect(navigator?.parentElement?.parentElement?.lastElementChild?.contains(control)).toBe(true);
+  expect(navigator?.parentElement?.classList.contains("overflow-y-auto")).toBe(true);
+  expect(navigator?.parentElement?.parentElement?.className).toContain("max-h-[calc(100%-2rem)]");
   expect(screen.getByRole("form", { name: "フォローアップ" }).contains(control)).toBe(false);
 });
 
@@ -2202,10 +2206,11 @@ describe("TaskView draft submission", () => {
     expect(heading.parentElement?.contains(generateButton)).toBe(false);
     expect(actions.contains(generateButton)).toBe(false);
     const searchButton = screen.getByRole("button", { name: "セッション内を検索" });
-    expect(actions.firstElementChild).toBe(searchButton);
+    expect(actions.contains(searchButton)).toBe(false);
+    expect(screen.getByRole("group", { name: "メッセージナビゲーター" }).contains(searchButton)).toBe(true);
     expect(searchButton.className).not.toContain("hidden");
-    expect(searchButton.className).toContain("h-11 w-11");
-    expect(searchButton.compareDocumentPosition(botControl!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(searchButton.className).toContain("h-10 w-10");
+    expect(actions.contains(botControl!)).toBe(true);
     fireEvent.click(heading);
     expect(screen.queryByRole("textbox", { name: "セッションタイトル" })).toBeNull();
     fireEvent.doubleClick(heading);
@@ -2218,7 +2223,7 @@ describe("TaskView draft submission", () => {
     expect(mocks.sendJson).not.toHaveBeenCalled();
   });
 
-  it.each([false, true])("keeps title generation above search regardless of mdUp=%s", (mdUp) => {
+  it.each([false, true])("keeps title generation in the header and search in the navigator regardless of mdUp=%s", (mdUp) => {
     render(<TaskView taskId={task.id} mdUp={mdUp} />);
 
     const generateButton = screen.getByRole("button", { name: "タイトルを生成" });
@@ -2226,12 +2231,13 @@ describe("TaskView draft submission", () => {
     const header = screen.getByRole("heading", { name: task.title }).closest("header")!;
     const actions = screen.getByRole("group", { name: "タスク操作" });
     expect(generateButton.parentElement).toBe(header.firstElementChild);
-    expect(actions.firstElementChild).toBe(searchButton);
-    for (const button of [generateButton, searchButton]) {
-      expect(button.className).not.toContain("hidden");
-      expect(button.className).toContain("@min-[500px]/task:h-9");
-      expect(button.className).toContain("@min-[500px]/task:w-9");
-    }
+    expect(actions.contains(searchButton)).toBe(false);
+    expect(screen.getByRole("group", { name: "メッセージナビゲーター" }).contains(searchButton)).toBe(true);
+    expect(generateButton.className).not.toContain("hidden");
+    expect(generateButton.className).toContain("@min-[500px]/task:h-9");
+    expect(generateButton.className).toContain("@min-[500px]/task:w-9");
+    expect(searchButton.className).not.toContain("hidden");
+    expect(searchButton.className).toContain("h-10 w-10");
     fireEvent.click(searchButton);
     expect(searchButton.getAttribute("aria-pressed")).toBe("true");
     fireEvent.click(searchButton);

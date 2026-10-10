@@ -21,7 +21,8 @@ export type FindGoResult = "ok" | "missing" | "cancelled";
 
 export type TaskFind = {
   open: boolean;
-  openPanel: () => void;
+  panelMode: "search" | "bookmarks";
+  openPanel: (mode?: "search" | "bookmarks") => void;
   closePanel: () => void;
   /** Bumped when the panel is asked to open again, so an open panel refocuses its input. */
   focusNonce: number;
@@ -147,6 +148,7 @@ export function useTaskFind({
   onError,
 }: UseTaskFindOptions): TaskFind {
   const [open, setOpen] = useState(false);
+  const [panelMode, setPanelMode] = useState<TaskFind["panelMode"]>("search");
   const [focusNonce, setFocusNonce] = useState(0);
   const [reveal, setReveal] = useState<TaskFind["reveal"]>(null);
   const [bookmarkState, setBookmarkState] = useState<BookmarkState>({ taskId, list: EMPTY_BOOKMARKS, missing: null });
@@ -269,7 +271,8 @@ export function useTaskFind({
     };
   }, [open, contentRef, repaint]);
 
-  const openPanel = useCallback(() => {
+  const openPanel = useCallback((mode: TaskFind["panelMode"] = "search") => {
+    setPanelMode(mode);
     setOpen(true);
     setFocusNonce((nonce) => nonce + 1);
   }, []);
@@ -453,6 +456,7 @@ export function useTaskFind({
 
   return {
     open,
+    panelMode,
     openPanel,
     closePanel,
     focusNonce,

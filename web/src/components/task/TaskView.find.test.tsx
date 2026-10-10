@@ -1,5 +1,5 @@
 // @vitest-environment happy-dom
-import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { saveTaskSessionCache } from "@/lib/task-session-cache";
 import type { TaskSummary, UiMessage } from "@/lib/types";
@@ -113,8 +113,11 @@ afterEach(() => {
 const searchButtons = () => screen.getAllByRole("button", { name: "セッション内を検索" });
 
 describe("TaskView in-session search", () => {
-  it("opens from the header button, toggles shut and answers Ctrl+F and Esc", async () => {
-    render(<TaskView taskId={task.id} mdUp />);
+  it("opens from the navigator, not the header, toggles shut and answers Ctrl+F and Esc", async () => {
+    const { container } = render(<TaskView taskId={task.id} mdUp />);
+    const navigator = screen.getByRole("group", { name: "メッセージナビゲーター" });
+    expect(within(navigator).getByRole("button", { name: "セッション内を検索" })).toBe(searchButtons()[0]);
+    expect(within(container.querySelector("header")!).queryByRole("button", { name: "セッション内を検索" })).toBeNull();
     expect(screen.queryByRole("search", { name: "セッション内検索" })).toBeNull();
 
     fireEvent.click(searchButtons()[0]!);
@@ -131,13 +134,29 @@ describe("TaskView in-session search", () => {
     expect(screen.queryByRole("search", { name: "セッション内検索" })).toBeNull();
   });
 
-  it("closes the graph or diff panel that would cover the timeline on a narrow screen", () => {
+  it("uncovers the timeline on a narrow screen when Ctrl+F opens search", () => {
     render(<TaskView taskId={task.id} mdUp={false} />);
     fireEvent.click(screen.getByRole("button", { name: "コミットグラフ" }));
     expect(screen.getByRole("button", { name: "コミットグラフ" }).getAttribute("aria-pressed")).toBe("true");
-    fireEvent.click(searchButtons()[0]!);
+    fireEvent.keyDown(document.body, { key: "f", ctrlKey: true });
     expect(screen.getByRole("search", { name: "セッション内検索" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "コミットグラフ" }).getAttribute("aria-pressed")).toBe("false");
+  });
+
+  it("opens empty bookmarks directly and switches back to search without remounting", () => {
+    render(<TaskView taskId={task.id} mdUp />);
+    const saved = screen.getByRole("button", { name: "ブックマーク（0件）" });
+    fireEvent.click(saved);
+    expect(saved.getAttribute("aria-pressed")).toBe("true");
+    expect(screen.getByText(/ブックマークはまだありません/)).toBeTruthy();
+    expect(mocks.getJson).toHaveBeenCalledWith(bookmarksPath, { verify: "1" });
+    fireEvent.click(searchButtons()[0]!);
+    expect(screen.queryByText(/ブックマークはまだありません/)).toBeNull();
+    expect(document.activeElement).toBe(screen.getByRole("searchbox", { name: "セッション内を検索" }));
+    fireEvent.click(saved);
+    expect(screen.getByText(/ブックマークはまだありません/)).toBeTruthy();
+    fireEvent.click(saved);
+    expect(screen.queryByRole("search", { name: "セッション内検索" })).toBeNull();
   });
 
   it("labels each timeline row with the messages it renders", () => {
@@ -215,8 +234,8 @@ describe("TaskView in-session search", () => {
     expect(log).not.toBeNull();
     expect(log.hasAttribute("open")).toBe(false);
 
-    fireEvent.click(searchButtons()[0]!);
-    fireEvent.click(await screen.findByRole("button", { name: "ブックマーク一覧（1件）" }));
+    fireEvent.click(await screen.findByRole("button", { name: "ブックマーク（1件）" }));
+    expect(document.activeElement).toBe(screen.getByRole("search", { name: "セッション内検索" }));
     fireEvent.click(screen.getByRole("button", { name: /次を直します/ }));
 
     await waitFor(() => expect(log.hasAttribute("open")).toBe(true));

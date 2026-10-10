@@ -47,9 +47,10 @@ export function TaskFindPanel({ taskId, find }: { taskId: string; find: TaskFind
   const [result, setResult] = useState<TaskSearchResult | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [index, setIndex] = useState(-1);
-  const [list, setList] = useState<"results" | "bookmarks" | null>(null);
+  const [list, setList] = useState<"results" | "bookmarks" | null>(find.panelMode === "bookmarks" ? "bookmarks" : null);
   const [jumping, setJumping] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
+  const panelRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
   const goSeqRef = useRef(0);
@@ -62,9 +63,15 @@ export function TaskFindPanel({ taskId, find }: { taskId: string; find: TaskFind
   const hits = result?.hits ?? [];
 
   useEffect(() => {
-    inputRef.current?.focus();
-    inputRef.current?.select();
-  }, [find.focusNonce]);
+    setList(find.panelMode === "bookmarks" ? "bookmarks" : null);
+    if (find.panelMode === "bookmarks") {
+      // Keep the mobile keyboard closed when opening saved messages.
+      panelRef.current?.focus();
+    } else {
+      inputRef.current?.focus();
+      inputRef.current?.select();
+    }
+  }, [find.focusNonce, find.panelMode]);
 
   const go = useCallback(async (messageId: string, searchTerms: readonly string[], flash = false) => {
     const seq = ++goSeqRef.current;
@@ -179,10 +186,12 @@ export function TaskFindPanel({ taskId, find }: { taskId: string; find: TaskFind
 
   return (
     <div
+      ref={panelRef}
       role="search"
       aria-label="セッション内検索"
+      tabIndex={-1}
       onKeyDown={onPanelKeyDown}
-      className="relative z-40 shrink-0 border-b border-bot-outline bg-bot-chat px-3 py-1.5 @min-[500px]/task:px-4"
+      className="absolute left-3 right-16 top-2 z-40 ml-auto max-h-[calc(100%-1rem)] max-w-md overflow-y-auto overscroll-y-contain rounded-card border border-border bg-surface p-3 shadow-lg outline-none"
     >
       <div className="mx-auto flex w-full max-w-5xl flex-wrap items-center gap-x-1 gap-y-0.5">
         <label className="flex h-11 min-w-[11rem] flex-1 basis-48 items-center gap-2 rounded-lg border border-border bg-bg px-2.5 text-muted focus-within:border-border-strong @min-[500px]/task:h-9">
@@ -281,10 +290,10 @@ export function TaskFindPanel({ taskId, find }: { taskId: string; find: TaskFind
         <p role="status" className="mx-auto w-full max-w-5xl px-1 pt-1 text-xs text-warning">{notice}</p>
       )}
       {list !== null && (
-        <div className="absolute inset-x-0 top-full px-3 pt-1 @min-[500px]/task:px-4">
+        <div className="pt-2">
           <div
             ref={listRef}
-            className="mx-auto max-h-[min(24rem,55dvh)] w-full max-w-5xl overflow-y-auto overscroll-y-contain rounded-card border border-border bg-surface shadow-lg"
+            className="max-h-[min(24rem,40dvh)] w-full overflow-y-auto overscroll-y-contain rounded-card border border-border bg-surface"
           >
             {list === "results" ? (
               <>
