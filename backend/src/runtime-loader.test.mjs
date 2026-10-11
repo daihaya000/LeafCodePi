@@ -99,7 +99,7 @@ test("the built bundle loads with every required export", { skip: !existsSync(DE
   // Exercise the real bundled entry without starting a session or calling a provider.
   await assert.rejects(
     result.runtime.startGoalLoopWithSelection("not-a-task", { goal: "", auto: true }),
-    (error) => error.status === 400 && error.message === "goal または acceptance が不正です",
+    (error) => error.status === 400 && error.message === "goal は必須です",
   );
   await assert.rejects(
     result.runtime.startBotGoalLoop("not-a-bot", { goal: "test" }),

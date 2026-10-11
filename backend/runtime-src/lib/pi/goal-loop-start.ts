@@ -48,18 +48,34 @@ export type GoalLoopStartBody = {
   images?: unknown;
 };
 
-// This entry point alone accepts newline-delimited acceptance text and treats "" as omitted.
+// Pasted acceptance sections may include a heading and blank lines. Bound the raw input
+// before splitting, then apply the item limit to actual non-empty criteria.
+const MAX_GOAL_LOOP_ACCEPTANCE_INPUT_CHARS =
+  MAX_GOAL_LOOP_ACCEPTANCE_ITEMS * MAX_GOAL_LOOP_ACCEPTANCE_ITEM_CHARS + 1_024;
+const MAX_GOAL_LOOP_ACCEPTANCE_INPUT_ARRAY_ENTRIES = MAX_GOAL_LOOP_ACCEPTANCE_ITEMS * 3 + 1;
+const GOAL_LOOP_ACCEPTANCE_HEADING = /^(?:承認条件|acceptance criteria)\s*[:：]?$/i;
+
 export function normalizeGoalLoopStartAcceptance(value: unknown): string[] | null {
   if (value === undefined || value === null || value === "") return [];
-  const values = Array.isArray(value) ? value : typeof value === "string" ? value.split("\n") : null;
-  if (!values || values.length > MAX_GOAL_LOOP_ACCEPTANCE_ITEMS) return null;
+  let values: unknown[];
+  if (Array.isArray(value)) {
+    if (value.length > MAX_GOAL_LOOP_ACCEPTANCE_INPUT_ARRAY_ENTRIES) return null;
+    values = value;
+  } else if (typeof value === "string") {
+    if (value.length > MAX_GOAL_LOOP_ACCEPTANCE_INPUT_CHARS) return null;
+    values = value.split(/\r\n?|\n/);
+  } else {
+    return null;
+  }
+
   const result: string[] = [];
   for (const item of values) {
     if (typeof item !== "string") return null;
     const text = item.trim();
-    if (!text) continue;
+    if (!text || GOAL_LOOP_ACCEPTANCE_HEADING.test(text)) continue;
     if (text.length > MAX_GOAL_LOOP_ACCEPTANCE_ITEM_CHARS) return null;
     result.push(text);
+    if (result.length > MAX_GOAL_LOOP_ACCEPTANCE_ITEMS) return null;
   }
   return result;
 }
@@ -77,9 +93,14 @@ export async function startGoalLoopWithSelection(id: string, body: GoalLoopStart
   const preparation = beginTaskPreparation(id);
   try {
   const goal = typeof body.goal === "string" ? body.goal.trim() : "";
+  if (!goal) fail("goal は必須です", 400);
+  if (goal.length > 4_000) fail("goal は4000文字以内で指定してください", 400);
   const criteria = normalizeGoalLoopStartAcceptance(body.acceptance);
-  if (!goal || goal.length > 4_000 || !criteria) {
-    fail("goal または acceptance が不正です", 400);
+  if (!criteria) {
+    fail(
+      `acceptance は最大${MAX_GOAL_LOOP_ACCEPTANCE_ITEMS}項目まで、各項目${MAX_GOAL_LOOP_ACCEPTANCE_ITEM_CHARS}文字以内で指定してください`,
+      400,
+    );
   }
   if (body.images !== undefined && (!isPromptImageList(body.images) || body.images.some((image) => !isPromptImageWithinSize(image)))) {
     fail("invalid images", 400);

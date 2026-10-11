@@ -2855,6 +2855,84 @@ test("requeues a Goal loop provider-limit turn when a fallback route is availabl
   }
 });
 
+for (const kind of ["goal", "unreadable-retry", "verification"]) {
+  test(`overload requeues ${kind} with backoff, preserves turn budget, and respects stop`, async (t) => {
+    const cwd = mkdtempSync(join(tmpdir(), "leafcode-goal-loop-overload-"));
+    process.env.LEAFCODE_PI_DATA_DIR = cwd;
+    const handlers = new Map();
+    const commands = new Map();
+    const id = `overload-${kind}`;
+    const stateFile = join(cwd, "goals-loop", `${id}.json`);
+    const readState = () => JSON.parse(readFileSync(stateFile, "utf8"));
+    let busy = false;
+    let sendCount = 0;
+    const ctx = {
+      cwd, mode: "rpc", hasUI: false,
+      isIdle: () => !busy, hasPendingMessages: () => false,
+      abort: () => { busy = false; },
+      sessionManager: { getSessionId: () => id, getBranch: () => [] },
+      ui: { setStatus() {}, setWidget() {}, notify() {} },
+      // Capacity failures must not mark the route exhausted or request fallback.
+      canRetryGoalLoopProviderLimit: async () => { throw new Error("unexpected limit fallback"); },
+    };
+    const pi = {
+      on(name, handler) { handlers.set(name, handler); },
+      registerCommand(name, options) { commands.set(name, options.handler); },
+      appendEntry() {},
+      sendMessage() { sendCount += 1; busy = true; },
+    };
+    const flush = async () => { for (let i = 0; i < 20; i += 1) await Promise.resolve(); };
+    const settle = async (message) => {
+      busy = false;
+      await handlers.get("agent_end")?.({ type: "agent_end", messages: [message] }, ctx);
+      await handlers.get("agent_settled")?.({ type: "agent_settled" }, ctx);
+    };
+    const overload = { role: "assistant", stopReason: "error", content: [],
+      errorMessage: "Codex error: Our servers are currently overloaded. Please try again later." };
+    t.mock.timers.enable({ apis: ["setTimeout", "Date"], now: 1_800_000_000_000 });
+    try {
+      goalLoopExtension(pi);
+      await handlers.get("session_start")?.({}, ctx);
+      await commands.get("goal-start")?.(Buffer.from(JSON.stringify({ goal: "demo", maxTurns: 2 })).toString("base64url"), ctx);
+      t.mock.timers.tick(250);
+      await flush();
+      assert.equal(sendCount, 1);
+      if (kind !== "goal") {
+        await settle({ role: "assistant", stopReason: "stop", content: [{ type: "text", text:
+          kind === "verification" ? '{"status":"completed","summary":"done"}' : "no JSON" }] });
+        t.mock.timers.tick(250);
+        await flush();
+      }
+      const before = readState();
+      await settle(overload);
+      const queued = readState();
+      assert.equal(queued.status, kind === "verification" ? "verifying_completed" : "queued");
+      assert.equal(queued.turnCount, kind === "goal" ? before.turnCount - 1 : before.turnCount);
+      assert.equal(queued.unreadableStreak, before.unreadableStreak);
+      assert.equal(Date.parse(queued.nextTurnAt) - Date.now(), 30_000);
+      const sent = sendCount;
+      t.mock.timers.tick(29_999);
+      await flush();
+      assert.equal(sendCount, sent);
+      t.mock.timers.tick(251);
+      await flush();
+      assert.equal(sendCount, sent + 1);
+      assert.equal(readState().turnCount, before.turnCount);
+      await settle(overload);
+      assert.equal(Date.parse(readState().nextTurnAt) - Date.now(), 60_000);
+      await commands.get("goal-stop")?.("", ctx);
+      t.mock.timers.tick(300_000);
+      await flush();
+      assert.equal(sendCount, sent + 1);
+      assert.equal(readState().status, "stopped");
+    } finally {
+      await handlers.get("session_shutdown")?.({}, ctx);
+      t.mock.timers.reset();
+      rmSync(cwd, { recursive: true, force: true });
+    }
+  });
+}
+
 test("pauses a Goal loop after a final provider error instead of scheduling another turn", async () => {
   const cwd = mkdtempSync(join(tmpdir(), "leafcode-goal-loop-provider-error-"));
   process.env.LEAFCODE_PI_DATA_DIR = cwd;

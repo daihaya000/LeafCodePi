@@ -100,6 +100,7 @@ const fakePi = vi.hoisted(() => {
       };
       entry.emit = emit;
       let streaming = false;
+      const agentState = { errorMessage: undefined as string | undefined, streamingMessage: undefined };
       const runTurn = (
         historyMessage: unknown, promptText: string,
         appendHistory = () => sessionManager.appendMessage(historyMessage),
@@ -110,11 +111,12 @@ const fakePi = vi.hoisted(() => {
         appendHistory();
         const errorMessage = entry.nextError;
         entry.nextError = undefined;
+        agentState.errorMessage = errorMessage;
         streaming = false;
         emit({
           type: "agent_end",
           willRetry: false,
-          messages: errorMessage ? [{ role: "assistant", errorMessage }] : [],
+          messages: errorMessage ? [{ role: "assistant", stopReason: "error", errorMessage }] : [],
         });
         emit({ type: "agent_settled" });
       };
@@ -127,13 +129,15 @@ const fakePi = vi.hoisted(() => {
           state: {
             // SDK 1.0: a plain writable fake hid fallback-resume failures.
             get systemPrompt() { return "base"; },
-            errorMessage: undefined,
+            get errorMessage() { return agentState.errorMessage; },
             streamingMessage: undefined,
           },
         },
         model: options.model,
         thinkingLevel: options.thinkingLevel ?? ("off" as ThinkingLevel),
-        extensionRunner: { createContext: () => ({}) },
+        extensionRunner: { createContext: () => ({}), getCommand: () => undefined },
+        abort: async () => { streaming = false; },
+        clearQueue: () => undefined,
         get isStreaming() {
           return streaming;
         },
@@ -212,6 +216,7 @@ import { SdkRuntimeFactory } from "@backend-core/sdk-runtime.mjs";
 import {
   createTask,
   promptTask,
+  abortTask,
   PROVIDER_FALLBACK_FAILED_MESSAGE,
   __waitForProviderFallbackIdleForTests,
 } from "./harness";
@@ -304,6 +309,7 @@ afterEach(async () => {
   for (const dir of tempDirs.splice(0)) rmSync(dir, { recursive: true, force: true });
   fakePi.reset();
   vi.restoreAllMocks();
+  vi.useRealTimers();
 });
 
 describe.each(["openai-codex", "openai"] as const)("provider limit fallback: %s", (PROVIDER) => {
@@ -645,6 +651,88 @@ describe.each(["openai-codex", "openai"] as const)("provider limit fallback: %s"
     assert.equal(getTask(task.id)?.accountId, second.id);
     await waitFor(() => fakePi.sessions[1]?.prompts.length === 1);
   }, 20_000);
+});
+
+const OVERLOAD_ERROR = "Codex error: Our servers are currently overloaded. Please try again later.";
+
+async function createOverloadFixture() {
+  const dir = mkdtempSync(join(tmpdir(), "leafcode-pi-overload-"));
+  tempDirs.push(dir);
+  process.env.LEAFCODE_PI_DATA_DIR = dir;
+  const agentDir = join(dir, "agent");
+  process.env.PI_CODING_AGENT_DIR = agentDir;
+  __resetPiAgentDirCacheForTests();
+  const account = createAccount({ label: "codex", providers: ["openai-codex"] });
+  storeProviderAuth(account.id, agentDir, "openai-codex");
+  installHarness(new Map([[account.id, runtime(account.id, "openai-codex")]]));
+  await setAccountRoutingMode("openai-codex", "separate");
+  const project = upsertProject({ name: "overload", rootPath: dir });
+  const task = await createTask({
+    projectId: project.id, prompt: "start", model: `openai-codex::${MODEL_ID}`, accountId: account.id,
+  });
+  await waitFor(() => getTask(task.id)?.status === "idle");
+  return { task, entry: fakePi.sessions[0] };
+}
+
+describe("provider overload recovery", () => {
+  it("continues invisibly on the same route, backs off, and does not repeat user history", async () => {
+    const { task, entry } = await createOverloadFixture();
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    entry.nextError = OVERLOAD_ERROR;
+    await promptTask(task.id, "work");
+    assert.equal(getTask(task.id)?.status, "working");
+    assert.equal(getTaskHangWatch(task.id), undefined);
+    await vi.advanceTimersByTimeAsync(29_999);
+    assert.equal(entry.prompts.length, 2);
+    entry.nextError = OVERLOAD_ERROR;
+    await vi.advanceTimersByTimeAsync(1);
+    assert.equal(entry.prompts.length, 3);
+    assert.equal(getTask(task.id)?.status, "working");
+    await vi.advanceTimersByTimeAsync(59_999);
+    assert.equal(entry.prompts.length, 3);
+    await vi.advanceTimersByTimeAsync(1);
+    assert.equal(entry.prompts.length, 4);
+    assert.equal(getTask(task.id)?.status, "idle");
+    assert.equal(fakePi.sessions.length, 1);
+    const custom = entry.history.filter((message) =>
+      (message as { customType?: string }).customType === "leafcode-pi.provider-overload-recovery");
+    assert.equal(custom.length, 2);
+    assert.ok(custom.every((message) => (message as { display?: boolean }).display === false));
+    assert.equal(entry.history.filter((message) => (message as { role?: string }).role === "user").length, 2);
+  });
+
+  it.each(["stop", "new-prompt"] as const)("cancels the delayed continuation after %s", async (action) => {
+    const { task, entry } = await createOverloadFixture();
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    entry.nextError = OVERLOAD_ERROR;
+    await promptTask(task.id, "work");
+    if (action === "stop") await abortTask(task.id);
+    else await promptTask(task.id, "replacement");
+    const sent = entry.prompts.length;
+    await vi.advanceTimersByTimeAsync(300_000);
+    assert.equal(entry.prompts.length, sent);
+    assert.equal(getTask(task.id)?.status, "idle");
+  });
+
+  it("does not double-submit while native SDK retry owns the run", async () => {
+    const { task, entry } = await createOverloadFixture();
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    entry.emit?.({ type: "agent_end", willRetry: true,
+      messages: [{ role: "assistant", stopReason: "error", errorMessage: OVERLOAD_ERROR }] });
+    await vi.advanceTimersByTimeAsync(300_000);
+    assert.equal(entry.prompts.length, 1);
+    assert.equal(getTask(task.id)?.status, "idle");
+  });
+
+  it("leaves non-overload failures terminal", async () => {
+    const { task, entry } = await createOverloadFixture();
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    entry.nextError = "401 Unauthorized";
+    await promptTask(task.id, "work");
+    await vi.advanceTimersByTimeAsync(300_000);
+    assert.equal(entry.prompts.length, 2);
+    assert.equal(getTask(task.id)?.status, "error");
+  });
 });
 
 // A queued prompt marks its task working before the integrated route is

@@ -244,6 +244,7 @@ import { HANG_RETRY_PREFIX } from "@/lib/hang-retry";
 import { overrideSessionAutoRetry } from "@backend-core/session-retry-settings.mjs";
 import { sessionLocalSettingsManager } from "@backend-core/session-local-settings.mjs";
 import { isProviderTransportError } from "@shared/provider-transport.mjs";
+import { isProviderOverloadError, providerOverloadRetryDelayMs } from "@shared/provider-overload.mjs";
 import {
   createPermissionPromptService,
   taskIdForSession,
@@ -581,6 +582,9 @@ type LiveRuntime = {
   } | null;
   /** A terminal WebSocket failure is retried once through SSE. */
   pendingTransportRecovery: boolean;
+  pendingOverloadRecovery: boolean;
+  overloadRecoveryTimer: ReturnType<typeof setTimeout> | null;
+  overloadRecoveryAttempts: number;
   /** Prevent a failed SSE recovery from recursively queueing more recoveries. */
   transportRecoveryAttempted: boolean;
   /** Restore the user's retry setting after suppressing a duplicate limit retry. */
@@ -2261,6 +2265,50 @@ function noteWebSocketTransportFailure(
   }
 }
 
+function clearOverloadRecovery(live: LiveRuntime): void {
+  if (live.overloadRecoveryTimer) clearTimeout(live.overloadRecoveryTimer);
+  live.overloadRecoveryTimer = null;
+  live.pendingOverloadRecovery = false;
+}
+
+function noteProviderOverload(live: LiveRuntime, session: AgentSession, event: SessionEvent): void {
+  if (event.type !== "agent_end" || isActiveGoalLoopSession(session)) return;
+  const last = [...event.messages].reverse().find((message) => message.role === "assistant");
+  if (!last || last.stopReason !== "error" || !isProviderOverloadError(assistantFailureText(last))) {
+    if (last && last.stopReason !== "error") live.overloadRecoveryAttempts = 0;
+    return;
+  }
+  // Native retry owns the turn until it is exhausted/disabled. Never double-send.
+  if (!event.willRetry && !live.pendingProviderFallback && live.manualAbortedAssistantId === null) {
+    live.pendingOverloadRecovery = true;
+  }
+}
+
+function scheduleProviderOverloadRecovery(live: LiveRuntime): void {
+  if (live.overloadRecoveryTimer) return;
+  const epoch = live.promptEpoch;
+  const delayMs = providerOverloadRetryDelayMs(++live.overloadRecoveryAttempts);
+  disarmTaskHangWatch(live.taskId);
+  setTaskStatus(live.taskId, "working");
+  emitTaskSnapshot(live, "overload_retry", { isStreaming: false });
+  live.overloadRecoveryTimer = setTimeout(() => {
+    live.overloadRecoveryTimer = null;
+    if (!live.pendingOverloadRecovery) return;
+    live.pendingOverloadRecovery = false;
+    if (state().live.get(live.taskId) !== live || live.leaseLost ||
+        live.promptEpoch !== epoch || live.manualAbortedAssistantId !== null ||
+        !getTask(live.taskId) || !ownsTaskLease(live.taskId) ||
+        isLiveBusyForReplace(live) || isLiveGoalLoopSession(live.session)) return;
+    void queuePrompt(live,
+      "The previous response failed because the provider servers were overloaded. Continue the pending request from the existing conversation. Do not repeat completed actions.",
+      undefined, { isProviderFallback: true, isOverloadRecovery: true },
+    ).catch((error) => {
+      console.warn("[leafcode-pi] provider overload recovery failed:", error instanceof Error ? error.message : String(error));
+    });
+  }, delayMs);
+  live.overloadRecoveryTimer.unref?.();
+}
+
 function lastAssistantLimitError(event: unknown): string | null {
   if (!event || typeof event !== "object") return null;
   const record = event as Record<string, unknown>;
@@ -2574,6 +2622,10 @@ function finishSettledTurn(
     overrideSessionAutoRetry(session, true);
     live.restoreAutoRetry = false;
   }
+  if (live.pendingOverloadRecovery) {
+    scheduleProviderOverloadRecovery(live);
+    return;
+  }
   if (live.pendingTransportRecovery) {
     live.pendingTransportRecovery = false;
     live.transportRecoveryAttempted = true;
@@ -2705,6 +2757,9 @@ export function restoredThroughputState(
     pendingSnapshotExtra: undefined,
     reasoningFallbackTried: false,
     pendingTransportRecovery: false,
+    pendingOverloadRecovery: false,
+    overloadRecoveryTimer: null,
+    overloadRecoveryAttempts: existing?.overloadRecoveryAttempts ?? 0,
     transportRecoveryAttempted: false,
     restoreAutoRetry: false,
     // A newly created session has already re-read the Bot's SOUL.md.
@@ -3009,7 +3064,10 @@ async function attachSession(
     runSessionEventEffects(event, {
       trackTurnLifecycleFlags: () => trackTurnLifecycleFlags(live, session, event),
       trackProviderLimit: () => trackProviderLimit(live, session, event),
-      noteWebSocketTransportFailure: () => noteWebSocketTransportFailure(live, session, event),
+      noteWebSocketTransportFailure: () => {
+        noteProviderOverload(live, session, event);
+        noteWebSocketTransportFailure(live, session, event);
+      },
       isHarnessAutoCompactionError: () => isHarnessAutoCompactionError(event, live),
       shouldSyncTaskFromSessionEvent: (owned) => shouldSyncTaskFromSessionEvent(event, owned),
       getTask: () => getTask(taskId),
@@ -3022,7 +3080,7 @@ async function attachSession(
           setStatus: (id, status, error) => setTaskStatus(id, status, error),
           busyMessage: TASK_LEASE_BUSY_ERROR,
         }),
-      shouldApplySettledStatus: () => shouldApplySettledStatus(event, live.pendingTransportRecovery),
+      shouldApplySettledStatus: () => shouldApplySettledStatus(event, live.pendingTransportRecovery || live.pendingOverloadRecovery),
       applySettledStatus: () => applySettledTaskStatus(live, session, taskId),
       finishSettledTurn: () => finishSettledTurn(live, session, taskId),
       compactionFailureMessage: (owned) => compactionFailureMessage(event, owned),
@@ -3133,6 +3191,7 @@ function disposeLive(
   clearPendingAttentionForTask(taskId);
   const live = state().live.get(taskId);
   if (!live) return;
+  clearOverloadRecovery(live);
   // Room live を map から消す前に flush（消すと resident=false になり queued が永久放置される）。
   const roomBotId = roomBotIdFromTaskId(taskId);
   if (roomBotId && !options?.skipRoomFlush) {
@@ -10197,6 +10256,7 @@ function queuePrompt(
     isProviderFallback?: boolean;
     /** Internal WebSocket recovery prompt; persist as a hidden custom message. */
     isTransportRecovery?: boolean;
+    isOverloadRecovery?: boolean;
     streamingBehavior?: "steer" | "followUp";
     codeResult?: CodeRequest;
     codeRequestId?: string;
@@ -10207,6 +10267,8 @@ function queuePrompt(
   assertAutoUpdateAvailable();
   const hadActivePrompt = live.promptActive || live.session.isStreaming || live.session.isCompacting;
   if (!meta?.isTransportRecovery) live.transportRecoveryAttempted = false;
+  clearOverloadRecovery(live);
+  if (!meta?.isOverloadRecovery) live.overloadRecoveryAttempts = 0;
   const pendingSettingsAtQueue = copyPendingLiveSettings(live.pendingSettings);
   const isHangRetry =
     meta?.isHangRetry === true || prompt.startsWith(HANG_RETRY_PREFIX);
@@ -10262,6 +10324,7 @@ function queuePrompt(
       ...(meta?.isHangRetry ? { isHangRetry: true } : {}),
       ...(meta?.isProviderFallback ? { isProviderFallback: true } : {}),
       ...(meta?.isTransportRecovery ? { isTransportRecovery: true } : {}),
+      ...(meta?.isOverloadRecovery ? { isOverloadRecovery: true } : {}),
       skipHangRearm: true,
     });
   };
@@ -10339,7 +10402,7 @@ function queuePrompt(
       isProviderFallback: Boolean(meta?.isProviderFallback),
       isTransportRecovery: Boolean(meta?.isTransportRecovery),
     });
-    const sendCustomType = promptSendCustomType(sendKind, {
+    const sendCustomType = meta?.isOverloadRecovery ? "leafcode-pi.provider-overload-recovery" : promptSendCustomType(sendKind, {
       codeResult: BOT_CODE_RESULT,
       providerFallback: PROVIDER_FALLBACK_CUSTOM_TYPE,
       transportRecovery: PROVIDER_TRANSPORT_RECOVERY_CUSTOM_TYPE,
@@ -11074,6 +11137,7 @@ function cancelHarnessPrompt(live: LiveRuntime): void {
   live.promptEpoch = nextPromptEpoch(live.promptEpoch);
   live.promptActive = false;
   live.pendingTransportRecovery = false;
+  clearOverloadRecovery(live);
 }
 
 /** Stop this process's local Pi session without changing the now-foreign task state. */
@@ -11337,6 +11401,7 @@ export function listActiveLlamaAgentModels(): Array<{
       Boolean(live.autoCompactionPromise) ||
       Boolean(live.pendingProviderFallback) ||
       Boolean(live.pendingTransportRecovery) ||
+      Boolean(live.pendingOverloadRecovery) ||
       providerFallbackInflight.has(taskId) ||
       isLiveGoalLoopSession(live.session);
     if (!active) continue;

@@ -15,6 +15,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { isProviderTransportError, providerTransportRetryDelayMs } from "../../shared/provider-transport.mjs";
+import { isProviderOverloadError, providerOverloadRetryDelayMs } from "../../shared/provider-overload.mjs";
 
 export type GoalLoopStatus =
   | "queued"
@@ -277,6 +278,7 @@ type Runtime = {
   pausedTurnPending: boolean;
   pendingAgentMessages?: unknown[];
   pendingAgentAborted: boolean;
+  overloadRecoveryAttempts?: number;
   /**
    * After abort/stop of an in-flight agent run, trailing agent_end/settled may
    * arrive after a replacement turn already set awaitingTurn. Drop that many
@@ -1582,9 +1584,10 @@ async function settleAwaitingTurn(runtime: Runtime): Promise<void> {
   }
   if (error) {
     const turnGeneration = runtime.turnGeneration;
-    let canRetry = false;
+    const overloaded = isProviderOverloadError(error);
+    let canRetry = overloaded;
     try {
-      canRetry = await (runtime.hostRouting ?? runtime.ctx).canRetryGoalLoopProviderLimit?.() ?? false;
+      if (!overloaded) canRetry = await (runtime.hostRouting ?? runtime.ctx).canRetryGoalLoopProviderLimit?.() ?? false;
     } catch {
       canRetry = false;
     }
@@ -1615,11 +1618,15 @@ async function settleAwaitingTurn(runtime: Runtime): Promise<void> {
       fresh.status = fresh.turnKind === "verification" ? "verifying_completed" : "queued";
       fresh.pauseReason = "";
       fresh.error = "";
-      fresh.nextTurnAt = null;
+      const attempt = (runtime.overloadRecoveryAttempts ?? 0) + 1;
+      fresh.nextTurnAt = overloaded
+        ? new Date(Date.now() + providerOverloadRetryDelayMs(attempt)).toISOString()
+        : null;
       // Persist before clearing awaitingTurn so a failed write cannot leave
       // disk=running with runtime no longer awaiting settlement.
       const persisted = writeLoop(fresh);
       if (typeof persisted === "boolean" ? !persisted : !(await persisted)) return;
+      if (overloaded) runtime.overloadRecoveryAttempts = attempt;
       clearTimer(runtime);
       runtime.awaitingTurn = false;
       runtime.awaitingTurnIndex = undefined;
@@ -1635,6 +1642,7 @@ async function settleAwaitingTurn(runtime: Runtime): Promise<void> {
     return;
   }
 
+  runtime.overloadRecoveryAttempts = 0;
   runtime.transportRecoveryAttempts = 0;
   // Persist first while awaitingTurn remains true. Clearing flags before a
   // failed writeLoop left disk=running with no settlement owner.
@@ -2364,6 +2372,7 @@ async function startLoop(
   // The new state is durable. Now invalidate/abort any old in-flight turn so a
   // trailing settlement cannot apply to this loop.
   runtime.endNoticeQueued = false;
+  runtime.overloadRecoveryAttempts = 0;
   runtime.turnGeneration += 1;
   const expectTrailingSettlement = replacingLiveLoop &&
     (runtime.pausedTurnPending || !runtime.ctx.isIdle());

@@ -152,6 +152,41 @@ describe("POST /api/tasks/[id]/goal-loop", () => {
     }));
   });
 
+  it("accepts a pasted acceptance section with headings and blank lines", async () => {
+    const criteria = [
+      "以下の7 URLを維持する。",
+      "URL直打ち・reload・戻る/進む・push/replace・query/hashが成立。",
+      "TaskPanesのURL監視、tab/pane選択・復元を維持。",
+      "Loginのfragment token除去、遷移先、OAuth callbackが成立。",
+      "desktop/mobileで既存の見た目・操作を比較し、意図しない差がない。",
+      "localStorage/sessionStorage、draft、theme、通知、SSE共有状態を維持。",
+      "hydrate前の既定値が保存済設定を上書きしない。",
+      "取得遅延・失敗・401・pending保存・古いsnapshot・再mountでも検証。",
+      "VITE_*・HTML・bundleへ秘密情報を入れない。",
+      "最重要リスクは設定の起動順序。SSRだけを外して既定値writerを先に動かさない。",
+    ];
+    const acceptance = `承認条件：\r\n\r\n${criteria.join("\r\n\r\n")}`;
+
+    await startGoalLoopWithSelection("task-1", { goal: "Vite＋React SPAへ移行する", acceptance });
+
+    expect(mocks.goalLoopCommand).toHaveBeenCalledWith("task-1", expect.objectContaining({
+      acceptance: criteria,
+    }));
+  });
+
+  it("reports which Goal Loop input exceeds its limit", async () => {
+    await expect(startGoalLoopWithSelection("task-1", { goal: "x".repeat(4_001) }))
+      .rejects.toMatchObject({ status: 400, message: "goal は4000文字以内で指定してください" });
+    await expect(startGoalLoopWithSelection("task-1", {
+      goal: "修正する",
+      acceptance: Array.from({ length: 11 }, (_, index) => `条件${index + 1}`),
+    })).rejects.toMatchObject({
+      status: 400,
+      message: "acceptance は最大10項目まで、各項目2000文字以内で指定してください",
+    });
+    expect(mocks.goalLoopCommand).not.toHaveBeenCalled();
+  });
+
   it("refuses a direct non-owner start before reading or changing the task", async () => {
     mocks.assertLocalRuntimeAllowed.mockImplementation(() => {
       throw new Error("runtime not owned");
