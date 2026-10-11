@@ -35,35 +35,67 @@ export function dependencyReferences(source, file = "boundary.ts", ts = parser()
   const aliases = new Set(), reflectionAliases = new Map(), assignedValues = new Map(), globalReturns = new Set();
   const functionAliases = new Set(), prototypeAliases = new Set(), functionReturns = new Set(), prototypeReturns = new Set();
   const argumentSlots = new Map(), variadicSlots = new Map(), parameterValues = new Map(), receiverValues = new Map();
+  const returnedBindings = new Map();
+  const sameBinding = (a, b) => a.fn === b.fn && Boolean(a.wrapped) === Boolean(b.wrapped) && Boolean(a.boundThis) === Boolean(b.boundThis)
+    && a.receiver === b.receiver && a.bound.length === b.bound.length && a.bound.every((value, index) => value === b.bound[index]);
   const localMethod = node => checker.getSymbolAtLocation(node.name)?.declarations?.some(d => d.getSourceFile() === ast);
   const flattenArguments = args => args.flatMap(argument => ts.isSpreadElement(argument) && ts.isArrayLiteralExpression(unwrap(argument.expression)) ? flattenArguments([...unwrap(argument.expression).elements]) : [argument]);
-  const functionBindings = (node, seen = new Set()) => {
-    node = unwrap(node);
-    const unknown = [{ fn: null, bound: [] }];
-    if (!node) return [];
-    if (ts.isFunctionDeclaration(node) || ts.isFunctionExpression(node) || ts.isArrowFunction(node)) return [{ fn: node, bound: [] }];
-    if (ts.isPropertyAccessExpression(node) && ["call", "apply"].includes(node.name.text)) return localMethod(node) ? unknown : functionBindings(node.expression, seen);
-    if (ts.isCallExpression(node) && ts.isPropertyAccessExpression(node.expression) && node.expression.name.text === "bind") {
-      if (localMethod(node.expression)) return unknown;
-      return functionBindings(node.expression.expression, seen).map(binding => ({ ...binding, wrapped: true, boundThis: true,
-        receiver: binding.boundThis ? binding.receiver : node.arguments[0],
-        bound: [...binding.bound, ...flattenArguments([...node.arguments].slice(1))] }));
+  let bindingCache = new Map();
+  const functionBindings = (root, callStack = new Set()) => {
+    root = unwrap(root);
+    if (!root) return [];
+    if (!callStack.size && bindingCache.has(root)) return bindingCache.get(root);
+    const targets = [], pending = [{ node: root, wrapped: false, binds: [], symbols: new Set() }], visited = new Map();
+    const emit = (binding, state) => {
+      binding = { ...binding, wrapped: Boolean(binding.wrapped || state.wrapped) };
+      for (const bind of [...state.binds].reverse()) binding = binding.fn === null ? { fn: null, bound: [], wrapped: true }
+        : { ...binding, wrapped: true, boundThis: true, receiver: binding.boundThis ? binding.receiver : bind.arguments[0],
+          bound: [...binding.bound, ...flattenArguments([...bind.arguments].slice(1))] };
+      if (!targets.some(existing => sameBinding(existing, binding))) targets.push(binding);
+    };
+    while (pending.length) {
+      const state = pending.pop(), node = unwrap(state.node);
+      if (!node) continue;
+      const paths = visited.get(node) ?? [];
+      if (paths.some(path => path.wrapped === state.wrapped && path.binds.length === state.binds.length && path.binds.every((bind, index) => bind === state.binds[index]))) continue;
+      paths.push(state); visited.set(node, paths);
+      const push = (value, extra = {}) => pending.push({ ...state, node: value, ...extra });
+      const unknown = () => emit({ fn: null, bound: [] }, state);
+      if (ts.isFunctionDeclaration(node) || ts.isFunctionExpression(node) || ts.isArrowFunction(node)) { emit({ fn: node, bound: [] }, state); continue; }
+      if (ts.isConditionalExpression(node)) { push(node.whenTrue, { wrapped: true }); push(node.whenFalse, { wrapped: true }); continue; }
+      if (ts.isBinaryExpression(node) && node.operatorToken.kind === ts.SyntaxKind.CommaToken) { push(node.right, { wrapped: true }); continue; }
+      if (ts.isBinaryExpression(node) && [ts.SyntaxKind.BarBarToken, ts.SyntaxKind.AmpersandAmpersandToken, ts.SyntaxKind.QuestionQuestionToken].includes(node.operatorToken.kind)) { push(node.left, { wrapped: true }); push(node.right, { wrapped: true }); continue; }
+      if (ts.isPropertyAccessExpression(node) && ["call", "apply"].includes(node.name.text)) { if (localMethod(node)) unknown(); else push(node.expression); continue; }
+      if (ts.isCallExpression(node) && ts.isPropertyAccessExpression(node.expression) && node.expression.name.text === "bind") {
+        if (localMethod(node.expression)) unknown();
+        else { assert.ok(!state.binds.includes(node), `${file}: recursive function target analysis forbidden`); push(node.expression.expression, { wrapped: true, binds: [...state.binds, node] }); }
+        continue;
+      }
+      if (ts.isCallExpression(node)) {
+        if (callStack.has(node)) { unknown(); continue; }
+        const stack = new Set(callStack); stack.add(node);
+        for (const call of invocation(node, stack)) for (const binding of returnedBindings.get(call.fn) ?? [{ fn: null, bound: [] }]) emit({ ...binding, wrapped: true }, state);
+        continue;
+      }
+      if (!ts.isIdentifier(node)) { unknown(); continue; }
+      const symbol = checker.getSymbolAtLocation(node);
+      if (!symbol || state.symbols.has(symbol)) { unknown(); continue; }
+      const symbols = new Set(state.symbols); symbols.add(symbol);
+      for (const d of symbol.declarations ?? []) {
+        if (ts.isFunctionDeclaration(d)) push(d, { symbols });
+        else if (ts.isVariableDeclaration(d)) push(d.initializer, { symbols });
+        else if (ts.isParameter(d) && d.initializer) push(d.initializer, { symbols, wrapped: true });
+        else unknown();
+      }
+      for (const value of parameterValues.get(symbol) ?? []) push(value, { symbols, wrapped: true });
+      for (const value of assignedValues.get(symbol) ?? []) push(value, { symbols });
     }
-    if (!ts.isIdentifier(node)) return unknown;
-    const symbol = checker.getSymbolAtLocation(node);
-    if (!symbol || seen.has(symbol)) return unknown;
-    seen.add(symbol);
-    // Preserve unknown alternatives AND each bound prefix: the same function can
-    // have different effective parameter positions through different aliases.
-    const targets = [
-      ...symbol.declarations?.flatMap(d => ts.isFunctionDeclaration(d) ? [{ fn: d, bound: [] }]
-        : ts.isVariableDeclaration(d) ? functionBindings(d.initializer, new Set(seen)) : unknown) ?? [],
-      ...[...assignedValues.get(symbol) ?? []].flatMap(value => functionBindings(value, new Set(seen))),
-    ];
-    return targets.length ? targets : unknown;
+    const result = targets.length ? targets : [{ fn: null, bound: [] }];
+    if (!callStack.size) bindingCache.set(root, result);
+    return result;
   };
   const functionTargets = node => [...new Set(functionBindings(node).map(binding => binding.fn))];
-  const invocation = node => {
+  const invocation = (node, seen = new Set()) => {
     const callee = unwrap(node.expression);
     let target = callee, args = [...node.arguments], spreadArray;
     const wrapped = ts.isPropertyAccessExpression(callee) && ["call", "apply", "bind"].includes(callee.name.text);
@@ -76,7 +108,7 @@ export function dependencyReferences(source, file = "boundary.ts", ts = parser()
         if (array && !ts.isArrayLiteralExpression(array)) spreadArray = array;
       } else args = args.slice(1);
     }
-    return functionBindings(target).map(binding => {
+    return functionBindings(target, seen).map(binding => {
       const values = [...binding.bound, ...flattenArguments(args)];
       return { fn: binding.fn, args: values, receiver: binding.boundThis ? binding.receiver : wrapped ? node.arguments[0] : undefined,
         spreadArray, variadic: Boolean(spreadArray) || values.some(ts.isSpreadElement), wrapped: wrapped || binding.wrapped };
@@ -223,6 +255,7 @@ export function dependencyReferences(source, file = "boundary.ts", ts = parser()
     do {
       changed = false;
       projectionCache = new Map();
+      bindingCache = new Map();
       const bind = node => {
         const name = ts.isVariableDeclaration(node) ? node.name : ts.isBinaryExpression(node) && node.operatorToken.kind === ts.SyntaxKind.EqualsToken ? node.left : null;
         const value = ts.isVariableDeclaration(node) ? node.initializer : node.right;
@@ -273,6 +306,14 @@ export function dependencyReferences(source, file = "boundary.ts", ts = parser()
         const returned = ts.isReturnStatement(node) ? node.expression : ts.isArrowFunction(node) && !ts.isBlock(node.body) ? node.body : null;
         if (returned) {
           const fn = ts.isArrowFunction(node) ? node : enclosingFunction(node);
+          if (fn) {
+            if (!returnedBindings.has(fn)) returnedBindings.set(fn, []);
+            const bindings = returnedBindings.get(fn);
+            for (const binding of functionBindings(returned)) if (!bindings.some(existing => sameBinding(existing, binding))) {
+              assert.ok(bindings.length < 512 && binding.bound.length <= 128, `${file}: recursive/oversized function target analysis forbidden`);
+              bindings.push(binding); changed = true;
+            }
+          }
           if (fn && functionValue(returned) && !functionReturns.has(fn)) { functionReturns.add(fn); changed = true; }
           if (fn && functionValue(returned, new Set(), true) && !prototypeReturns.has(fn)) { prototypeReturns.add(fn); changed = true; }
         }

@@ -304,6 +304,60 @@ test("synthesized computed keys reject plain-object constructor extraction and r
   ]) for (const kind of ["browser", "gateway"]) for (const bundled of [false, true]) assert.doesNotThrow(() => dependencyReferences(source, "object-flow.js", undefined, { kind, bundled }), source);
 });
 
+test("returned function invocation targets retain capabilities, bindings and unknown alternatives", () => {
+  const key = 'const key=String.fromCharCode(99,111,110,115,116,114,117,99,116,111,114); ', payload = '"globalThis.canary=true"';
+  for (const probe of [
+    `function make(fn){return ()=>fn;} make(()=>{})()[key](${payload})();`,
+    `function make(){return fn=>fn[key](${payload})();} make()(()=>{});`,
+    `function make(){return fn=>fn[key](${payload})();} const run=make(); run(()=>{});`,
+    `function make(){return fn=>fn[key](${payload})();} let run; run=make(); run(()=>{});`,
+    `function outer(){return ()=>fn=>fn[key](${payload})();} outer()()(()=>{});`,
+    `function make(fn){return fn;} make(fn=>fn[key](${payload})())(()=>{});`,
+    `function make(fn=arg=>arg[key](${payload})()){return fn;} make()(()=>{});`,
+    `function make(){return function(){this[key](${payload})();};} make().call(()=>{});`,
+    `function make(){return function(){this[key](${payload})();};} make().apply(()=>{}, []);`,
+    `function make(){return function(){this[key](${payload})();};} make().bind(()=>{})();`,
+    `function make(fn){return ()=>this;} make.call(()=>{})()[key](${payload})();`,
+    `function make(){return (prefix,fn)=>fn[key](${payload})();} make().bind(null,0)(()=>{});`,
+    `function make(){return (a,b,fn)=>fn[key](${payload})();} make().bind(null,0).bind(null,1)(()=>{});`,
+    `function make(){function run(prefix,fn){fn[key](${payload})();} return run.bind(null,0);} make()(()=>{});`,
+    `function make(){return (...args)=>args[1][key](${payload})();} make()(0,()=>{});`,
+    `function make(){return function(){arguments[1][key](${payload})();};} make().apply(null,[0,()=>{}]);`,
+    `function make(){const run=fn=>fn[key](${payload})(); return true?run:unknown;} make()(()=>{});`,
+    `function make(){const run=fn=>fn[key](${payload})(); return run||unknown;} make()(()=>{});`,
+    `function make(){const run=fn=>fn[key](${payload})(); return (0,run);} make()(()=>{});`,
+    `function identity(fn){return fn;} function make(){return identity(fn=>fn[key](${payload})());} make()(()=>{});`,
+  ]) {
+    const source=key+probe, context={}; vm.runInNewContext(source,context,{timeout:1000}); assert.equal(context.canary,true,source);
+    for(const kind of ["browser","gateway"]) for(const bundled of [false,true]) assert.throws(()=>dependencyReferences(source,"returned-functions.js",undefined,{kind,bundled}),/loader|evaluation/,source);
+  }
+  for(const source of [
+    'function make(){return value=>value+1;} make()(1);',
+    'function make(fn){return fn;} make(value=>value+1)(1);',
+    'function outer(){return ()=>value=>value+1;} outer()()(1);',
+    'function make(){return function(){return this.label;};} make().call({label:1});',
+    'function make(){return (prefix,value)=>prefix+value;} make().bind(null,1)(2);',
+    'function make(){return (a,b,value)=>a+b+value;} make().bind(null,1).bind(null,2)(3);',
+    'function make(){return (...args)=>args[1];} make()(0,1);',
+    'function make(){const run=value=>value; return true?run:unknown;} make()(1);',
+    'function make(){return value=>value;} const run=make(); let alias; alias=run; alias(1);',
+  ]) for(const kind of ["browser","gateway"]) for(const bundled of [false,true]) assert.doesNotThrow(()=>dependencyReferences(source,"returned-functions.js",undefined,{kind,bundled}),source);
+  for(const source of [
+    'function make(){return root=>root.document;} make()(globalThis);',
+    'function use(run){run(globalThis);} use(root=>root.document);',
+    'function make(){return true?root=>root.document:unknown;} make()(globalThis);',
+    'function use(run=root=>root.document){run(globalThis);} use();',
+  ]) assert.throws(()=>dependencyReferences(source,"returned-functions.js",undefined,{kind:"browser",bundled:true}),/global|loader/,source);
+  assert.throws(()=>dependencyReferences('function target(){} function make(flag){return flag?target:make().bind(null,1);} make();',"recursive-return.js"),/function target analysis forbidden/);
+  const diamond = Array.from({length:28},(_,index)=>`const f${index+1}=true?f${index}:f${index};`).join('');
+  const denseUnsafe=key+`const f0=fn=>fn[key](${payload})();`+diamond+'function identity(fn){return fn;} identity(f28)(()=>{});';
+  const denseSafe='const f0=value=>value;'+diamond+'function identity(fn){return fn;} identity(f28)(1);';
+  for(const kind of ["browser","gateway"]) for(const bundled of [false,true]) {
+    assert.throws(()=>dependencyReferences(denseUnsafe,"dense-return.js",undefined,{kind,bundled}),/loader|evaluation/);
+    assert.doesNotThrow(()=>dependencyReferences(denseSafe,"dense-return.js",undefined,{kind,bundled}));
+  }
+});
+
 test("explicit this receivers retain capabilities through wrappers, binding and lexical arrows", () => {
   const key = 'const key = ["constr", "uctor"].join(""); ', payload = '"globalThis.canary=true"';
   const invoke = `function invoke() { this[key](${payload})(); } `;
@@ -437,6 +491,8 @@ test("Browser and gateway value-closure gates reject local function capabilities
     'const data = {}; const first = data[key]; first[key]("hidden")();',
     'function read(data) { return data[key]; } read({})[key]("hidden")();',
     'function make() { return {}; } make()[key][key]("hidden")();',
+    'const opaque=String.fromCharCode(99,111,110,115,116,114,117,99,116,111,114); function make() { return fn=>fn[opaque]("hidden")(); } make()(()=>{});',
+    'const opaque=String.fromCharCode(99,111,110,115,116,114,117,99,116,111,114); function make() { return function(){this[opaque]("hidden")();}; } make().call(()=>{});',
   ]) {
     const f = fixture(t, kind);
     const helper = kind === "browser" ? "shared/function-flow.mjs" : "gateway/src/function-flow.mjs";
