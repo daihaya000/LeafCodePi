@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import test from "node:test";
-import { buildSpaGeneration, readSpaGeneration, resolveSpaMirrorRoot, rollbackSpaGeneration, selectSpaGeneration, spaBuildEnvironment, spaSourceSnapshot } from "./spa-build-generation.mjs";
+import { buildSpaGeneration, readSpaBuildMetadata, readSpaGeneration, resolveSpaMirrorRoot, rollbackSpaGeneration, selectSpaGeneration, spaBuildEnvironment, spaSourceSnapshot } from "./spa-build-generation.mjs";
 import { ensureSpaGeneration, startSpaWithFallback } from "../host/src/spa-build.js";
 const ROOT = resolve(fileURLToPath(new URL("../", import.meta.url)));
 function fixture(t) {
@@ -36,6 +36,18 @@ test("external root derives from the established mirror; source and child enviro
   const snapshot = spaSourceSnapshot(f.checkout); assert.ok(![...snapshot.files.keys()].some(path => /\.env|node_modules|backend\/|\.test\./.test(path)));
   const env = spaBuildEnvironment({ PATH: "safe-path", NODE_OPTIONS: "--import private", VITE_SECRET: "dummy", OPENAI_API_KEY: "dummy", LEAFCODE_PI_BACKEND_TOKEN: "dummy", NODE_ENV: "dev" });
   assert.deepEqual(env, { PATH: "safe-path", NODE_ENV: "production" });
+  const metadata = { commit: "a".repeat(40), committedAt: "2026-10-09T00:00:00+00:00" };
+  assert.deepEqual(spaBuildEnvironment({ PATH: "safe-path", NEXT_PUBLIC_LEAFCODE_PI_BUILD_COMMIT: "untrusted" }, metadata), {
+    PATH: "safe-path", NODE_ENV: "production", NEXT_PUBLIC_LEAFCODE_PI_BUILD_COMMIT: metadata.commit,
+    NEXT_PUBLIC_LEAFCODE_PI_BUILD_COMMIT_DATE: metadata.committedAt,
+  });
+  assert.deepEqual(spaBuildEnvironment({}, { commit: "invalid", committedAt: "invalid" }), {
+    NODE_ENV: "production", NEXT_PUBLIC_LEAFCODE_PI_BUILD_COMMIT: "", NEXT_PUBLIC_LEAFCODE_PI_BUILD_COMMIT_DATE: "",
+  });
+  const calls = [];
+  assert.deepEqual(readSpaBuildMetadata({ cwd: f.checkout, exec: (...args) => { calls.push(args); return `${metadata.commit}\n${metadata.committedAt}\n`; } }), metadata);
+  assert.equal(calls[0][0], "git"); assert.deepEqual(calls[0][1], ["log", "-1", "--format=%H%n%cI"]); assert.equal(calls[0][2].cwd, f.checkout);
+  assert.deepEqual(readSpaBuildMetadata({ cwd: f.checkout, exec: () => { throw Error("git unavailable"); } }), { commit: "", committedAt: "" });
 });
 test("sealed pre-OpenDesign generations remain recoverable, but new builds must include the new route", async t => {
   const f = fixture(t), first = await build(f);

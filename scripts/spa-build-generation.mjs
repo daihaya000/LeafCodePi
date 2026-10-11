@@ -1,5 +1,5 @@
 import { createHash, randomUUID } from "node:crypto";
-import { spawn } from "node:child_process";
+import { execFileSync, spawn } from "node:child_process";
 import { copyFileSync, existsSync, lstatSync, mkdirSync, openSync, closeSync, readdirSync, readFileSync, realpathSync, renameSync, rmSync, unlinkSync, writeFileSync } from "node:fs";
 import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -108,9 +108,24 @@ export async function rollbackSpaGeneration(root, { expectedCurrent, checkout = 
     return previous;
   });
 }
-export function spaBuildEnvironment(env = process.env) {
+export function readSpaBuildMetadata({ cwd = ROOT, exec = execFileSync } = {}) {
+  try {
+    const [commit = "", committedAt = ""] = exec("git", ["log", "-1", "--format=%H%n%cI"], {
+      cwd, encoding: "utf8", stdio: ["ignore", "pipe", "ignore"], timeout: 2000, windowsHide: true,
+    }).trim().split(/\r?\n/);
+    return {
+      commit: /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/i.test(commit) ? commit : "",
+      committedAt: Number.isFinite(Date.parse(committedAt)) ? committedAt : "",
+    };
+  } catch { return { commit: "", committedAt: "" }; }
+}
+export function spaBuildEnvironment(env = process.env, buildMetadata) {
   const safe = Object.fromEntries(Object.entries(env).filter(([key]) => /^(PATH|Path|SystemRoot|SYSTEMROOT|WINDIR|TEMP|TMP|LOCALAPPDATA|APPDATA|USERPROFILE|HOME|COMSPEC|PATHEXT|NUMBER_OF_PROCESSORS)$/.test(key)));
-  return { ...safe, NODE_ENV: "production" };
+  const metadata = buildMetadata ? {
+    NEXT_PUBLIC_LEAFCODE_PI_BUILD_COMMIT: /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/i.test(buildMetadata.commit ?? "") ? buildMetadata.commit : "",
+    NEXT_PUBLIC_LEAFCODE_PI_BUILD_COMMIT_DATE: Number.isFinite(Date.parse(buildMetadata.committedAt ?? "")) ? buildMetadata.committedAt : "",
+  } : {};
+  return { ...safe, NODE_ENV: "production", ...metadata };
 }
 async function run(args, cwd, env, log = () => {}) {
   await new Promise((resolve, reject) => {
@@ -121,14 +136,15 @@ async function run(args, cwd, env, log = () => {}) {
   });
 }
 async function compile({ checkout, workspace, stage, offline, log }) {
-  const env = spaBuildEnvironment(), npm = join(dirname(process.execPath), "node_modules/npm/bin/npm-cli.js"), args = ["ci", "--ignore-scripts", "--no-audit", "--no-fund", ...(offline ? ["--offline"] : [])];
+  const env = spaBuildEnvironment(), workerEnv = spaBuildEnvironment(process.env, readSpaBuildMetadata({ cwd: checkout }));
+  const npm = join(dirname(process.execPath), "node_modules/npm/bin/npm-cli.js"), args = ["ci", "--ignore-scripts", "--no-audit", "--no-fund", ...(offline ? ["--offline"] : [])];
   const stamp = join(workspace, "web/node_modules/.spa-build-deps"), dependencyHash = hash(readFileSync(join(workspace, "web/package.json"))) + hash(readFileSync(join(workspace, "web/package-lock.json")));
   const ready = existsSync(stamp) && readFileSync(stamp, "utf8") === dependencyHash && ["vite", "typescript", "react", "@tailwindcss/postcss"].every(name => existsSync(join(workspace, "web/node_modules", name, "package.json")));
   if (!ready) { await run([npm, ...args, "--include=dev"], join(workspace, "web"), env, log); writeFileSync(stamp, dependencyHash); }
   // Tests and owner manifests are deliberately absent from the transport snapshot.
   // Audit the original checkout too, using only the installed workspace compiler.
   checkFrameworkFree(checkout, createRequire(join(workspace, "web/package.json"))("typescript"));
-  await run([join(workspace, "scripts/build-spa-worker.mjs"), stage], workspace, env, log);
+  await run([join(workspace, "scripts/build-spa-worker.mjs"), stage], workspace, workerEnv, log);
   await run([npm, ...args, "--omit=dev"], join(stage, "gateway"), env, log);
   // Re-check the actual locked install before sealing; the workspace package is not the artifact.
   await run([join(workspace, "scripts/gateway-runtime-boundary.mjs"), join(stage, "gateway/node_modules/undici")], workspace, env, log);

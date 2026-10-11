@@ -65,7 +65,10 @@ export function spaBoundary(): Plugin {
 export default defineConfig({
   root, appType: "spa", envPrefix: [], plugins: [spaBoundary()],
   // Build workers supply display-only Git metadata; unbuilt development has no build label.
-  define: { "process.env.NEXT_PUBLIC_LEAFCODE_PI_BUILD_COMMIT": '""', "process.env.NEXT_PUBLIC_LEAFCODE_PI_BUILD_COMMIT_DATE": '""' },
+  define: {
+    "process.env.NEXT_PUBLIC_LEAFCODE_PI_BUILD_COMMIT": JSON.stringify(process.env.NEXT_PUBLIC_LEAFCODE_PI_BUILD_COMMIT ?? ""),
+    "process.env.NEXT_PUBLIC_LEAFCODE_PI_BUILD_COMMIT_DATE": JSON.stringify(process.env.NEXT_PUBLIC_LEAFCODE_PI_BUILD_COMMIT_DATE ?? ""),
+  },
   resolve: {
     // Exact neutral bindings precede the generic @ alias. Legacy bridges must
     // never be visited by SPA builds; bare next/* imports now fail closed.
