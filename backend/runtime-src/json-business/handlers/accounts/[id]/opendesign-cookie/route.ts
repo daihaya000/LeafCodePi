@@ -2,7 +2,7 @@ import { ConfigurationRequest as NextRequest, ConfigurationResponse as NextRespo
 import { accountAuthPath, getAccount, resolvePiAgentDir } from "@/lib/accounts";
 import { invalidateCachedUsage } from "@/lib/codexbar/cache";
 import { clearProviderCache } from "@/lib/codexbar/provider-cache";
-import { deleteOpenDesignCookie, saveOpenDesignCookie, validateOpenDesignCookie } from "@/lib/codexbar/providers/opendesign";
+import { deleteOpenDesignCookie, readOpenDesignWorkspaceId, saveOpenDesignCookie, validateOpenDesignCookie } from "@/lib/codexbar/providers/opendesign";
 import { isPeerAccount } from "@/lib/peer-auth/account-runtime-options";
 import { jsonError } from "@/lib/pi/harness";
 
@@ -29,7 +29,11 @@ export async function POST(req: NextRequest, context: Context) {
     const authPath = await requireAccount(id);
     const body = await req.json().catch(() => null) as Record<string, unknown> | null;
     if (!body || typeof body.cookies !== "string") return NextResponse.json({ error: "cookies は文字列で指定してください" }, { status: 400 });
-    const workspaceId = await validateOpenDesignCookie(body.cookies, req.signal);
+    if (body.workspaceId !== undefined && (typeof body.workspaceId !== "string" || body.workspaceId.length > 128)) {
+      return NextResponse.json({ error: "workspaceId は128文字以内の文字列で指定してください" }, { status: 400 });
+    }
+    const selectedWorkspaceId = (body.workspaceId as string | undefined) ?? readOpenDesignWorkspaceId(authPath) ?? undefined;
+    const workspaceId = await validateOpenDesignCookie(body.cookies, req.signal, selectedWorkspaceId);
     saveOpenDesignCookie(authPath, body.cookies, workspaceId);
     invalidate(id);
     return NextResponse.json({ ok: true, configured: true });

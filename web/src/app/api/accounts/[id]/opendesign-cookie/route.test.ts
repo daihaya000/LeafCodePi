@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 const state = vi.hoisted(() => ({ authPath: "", providers: ["opendesign"], peer: false }));
@@ -14,8 +14,8 @@ import { configurationRequest } from "@backend-runtime/configuration/http";
 import { hasOpenDesignCookie, saveOpenDesignCookie } from "@backend-runtime/lib/codexbar/providers/opendesign";
 const dirs: string[] = [];
 function setup() { const dir = mkdtempSync(join(tmpdir(), "leafcode-opendesign-cookie-route-")); dirs.push(dir); state.authPath = join(dir, "auth.json"); }
-function request(cookies: unknown) { return configurationRequest(new Request("http://localhost/api/accounts/acc-od/opendesign-cookie", {
-  method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ cookies }),
+function request(cookies: unknown, workspaceId?: string) { return configurationRequest(new Request("http://localhost/api/accounts/acc-od/opendesign-cookie", {
+  method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ cookies, ...(workspaceId ? { workspaceId } : {}) }),
 }), true); }
 const context = { params: Promise.resolve({ id: "acc-od" }) };
 afterEach(() => { undiciFetch.mockReset(); state.providers = ["opendesign"]; state.peer = false; for (const dir of dirs.splice(0)) rmSync(dir, { recursive: true, force: true }); });
@@ -28,6 +28,24 @@ describe("OpenDesign cookie owner route", () => {
     expect(hasOpenDesignCookie(state.authPath)).toBe(true);
     expect(await (await DELETE(request(null), context)).json()).toEqual({ ok: true, configured: false });
     expect(hasOpenDesignCookie(state.authPath)).toBe(false);
+  });
+  it("uses an explicit Cloud URL workspaceId for validation and persists that selected workspace", async () => {
+    setup();
+    undiciFetch.mockImplementation(async (url: string) => new Response(JSON.stringify(url.endsWith("/current") ? {} : url.endsWith("/wallet/balance") ? { balanceUsd: "12" } : { eligible: false, windows: [] })));
+    const workspaceId = "euqvness4ezcm5dzq6xxcj2s";
+    const saved = await POST(request("session=fixture-secret", workspaceId), context);
+    expect(saved.status).toBe(200);
+    expect(undiciFetch.mock.calls[0][1].headers["x-vela-workspace-id"]).toBe(workspaceId);
+    expect(JSON.parse(readFileSync(join(state.authPath, "..", "opendesign-cookie.json"), "utf8")).workspaceId).toBe(workspaceId);
+  });
+  it("keeps the pinned workspace when rotating a cookie without an explicit workspaceId", async () => {
+    setup();
+    const workspaceId = "euqvness4ezcm5dzq6xxcj2s";
+    saveOpenDesignCookie(state.authPath, "session=old", workspaceId);
+    undiciFetch.mockImplementation(async (url: string) => new Response(JSON.stringify(url.endsWith("/current") ? {} : url.endsWith("/wallet/balance") ? { balanceUsd: "12" } : { eligible: false, windows: [] })));
+    const saved = await POST(request("session=new"), context);
+    expect(saved.status).toBe(200);
+    expect(undiciFetch.mock.calls[0][1].headers["x-vela-workspace-id"]).toBe(workspaceId);
   });
   it("does not overwrite the previous valid cookie on failed validation", async () => {
     setup(); saveOpenDesignCookie(state.authPath, "session=previous", "workspace-a");

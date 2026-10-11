@@ -1795,11 +1795,12 @@ describe("ProviderAuthPanel OpenDesign usage", () => {
     expect(within(card).getByText(/API キーだけでは残量を取得できません/)).toBeTruthy();
     fireEvent.click(within(card).getByRole("button", { name: "登録", exact: true }));
     fireEvent.change(within(card).getByLabelText("Cookie ヘッダー / Netscape 形式の cookie"), { target: { value: "session=fixture-secret" } });
+    fireEvent.change(within(card).getByLabelText("workspaceId（任意）"), { target: { value: "euqvness4ezcm5dzq6xxcj2s" } });
     fireEvent.click(within(card).getByRole("button", { name: "保存", exact: true }));
     await waitFor(() => expect(within(card).getByText("このアカウントの cookie を登録済み")).toBeTruthy());
     expect(within(card).queryByDisplayValue("session=fixture-secret")).toBeNull();
     const saved = fetchMock.mock.calls.find(([url, init]) => String(url).endsWith("/opendesign-cookie") && init?.method === "POST");
-    expect(JSON.parse(String(saved?.[1]?.body))).toEqual({ cookies: "session=fixture-secret" });
+    expect(JSON.parse(String(saved?.[1]?.body))).toEqual({ cookies: "session=fixture-secret", workspaceId: "euqvness4ezcm5dzq6xxcj2s" });
   });
 });
 

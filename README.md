@@ -93,7 +93,8 @@ Claude も**アカウントごとに既定ON**で、設定 → モデル → Cla
 - モデル一覧は認証済みの `/v1/models` から自動取得。取得失敗時は最後のキャッシュを保持
 - キーはアカウントごとに分離。共有環境変数のキーはアカウントへ流用しない
 - 残量表示: CodexBar の OpenDesign を有効化し、アカウントの「OpenDesign cookie」に Cloud セッションの Cookie ヘッダーまたは Netscape cookie を登録。USD 残高と Design Plan の使用枠・リセット時刻を取得
-- 残量 API はモデル用 API キーでは認証不可。Cookie を保存前に検証し、選択中の workspace を固定してアカウント別に保存。期限切れ時は再登録。秘密の本文は画面/APIへ返さない
+- Cloud URL が `https://open-design.ai/cloud/api-keys?workspaceId=...` の場合は、フォームの任意欄 `workspaceId` に `?workspaceId=` の値も貼り付ける。公式Console同様 `x-vela-workspace-id` で対象を検証・固定する
+- 残量 API はモデル用 API キーでは認証不可。Cookie を保存前に検証し、選択中の workspace をアカウント別に保存。期限切れ時は再登録。秘密の本文は画面/APIへ返さない
 
 ## サブスクリプション認証
 

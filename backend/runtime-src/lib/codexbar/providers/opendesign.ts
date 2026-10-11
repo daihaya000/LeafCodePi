@@ -39,6 +39,7 @@ function loadCredentials(authPath: string | null): Credentials | null {
   } catch { return null; }
 }
 export function hasOpenDesignCookie(authPath: string): boolean { return loadCredentials(authPath) !== null; }
+export function readOpenDesignWorkspaceId(authPath: string): string | null { return loadCredentials(authPath)?.workspaceId ?? null; }
 export function saveOpenDesignCookie(authPath: string, text: string, workspaceId: string): void {
   if (!parseOpenDesignCookieInput(text) || !validWorkspace(workspaceId)) throw invalidCookie();
   const path = accountOpenDesignCookiePath(authPath);
@@ -117,13 +118,18 @@ async function fetchUsage(credentials: Credentials, signal?: AbortSignal): Promi
 }
 
 /** Validate before saving and pin the selected workspace; later browser switches cannot change scope. */
-export async function validateOpenDesignCookie(text: string, signal?: AbortSignal): Promise<string> {
+export async function validateOpenDesignCookie(text: string, signal?: AbortSignal, selectedWorkspaceId?: string): Promise<string> {
   const cookies = parseOpenDesignCookieInput(text);
   if (!cookies) throw invalidCookie();
-  const current = await request("/v1/workspaces/current", cookies, signal);
-  if (!validWorkspace(current.workspaceId)) throw new ProviderError("OpenDesign の workspace を確認できませんでした。");
-  await fetchUsage({ cookies, workspaceId: current.workspaceId }, signal);
-  return current.workspaceId;
+  if (selectedWorkspaceId !== undefined && !validWorkspace(selectedWorkspaceId)) {
+    throw Object.assign(new ProviderError("OpenDesign の workspaceId が不正です。"), { status: 400 });
+  }
+  // The official Cloud console passes its workspace selection as x-vela-workspace-id.
+  const current = await request("/v1/workspaces/current", cookies, signal, selectedWorkspaceId);
+  const workspaceId = selectedWorkspaceId ?? current.workspaceId;
+  if (!validWorkspace(workspaceId)) throw new ProviderError("OpenDesign の workspace を確認できませんでした。");
+  await fetchUsage({ cookies, workspaceId }, signal);
+  return workspaceId;
 }
 export function createOpenDesignUsageProvider(scope: UsageScope): IUsageProvider {
   return { id: "opendesign", name: "OpenDesign", isConfigured: () => loadCredentials(scope.authPath) !== null,

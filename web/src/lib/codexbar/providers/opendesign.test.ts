@@ -77,6 +77,19 @@ describe("OpenDesign Console usage", () => {
     writeFileSync(accountOpenDesignCookiePath(a.authPath!), JSON.stringify({ workspaceId: "workspace-a", cookies: ".open-design.ai\tTRUE\t/\tTRUE\t1\tsession\texpired" }));
     expect(hasOpenDesignCookie(a.authPath!)).toBe(false);
   });
+  it("uses the workspaceId from the Cloud URL as the official workspace header", async () => {
+    mockConsole();
+    const selectedWorkspaceId = "euqvness4ezcm5dzq6xxcj2s";
+    await expect(validateOpenDesignCookie("session=account-a", undefined, selectedWorkspaceId)).resolves.toBe(selectedWorkspaceId);
+    expect(undiciFetch).toHaveBeenCalledTimes(3);
+    expect(undiciFetch.mock.calls[0][0]).toBe("https://amr-api.open-design.ai/api/v1/workspaces/current");
+    expect(undiciFetch.mock.calls[0][1].headers).toEqual({ Cookie: "session=account-a", Accept: "application/json", "x-vela-workspace-id": selectedWorkspaceId });
+    expect(undiciFetch.mock.calls.slice(1).every(([, init]) => init.headers["x-vela-workspace-id"] === selectedWorkspaceId)).toBe(true);
+  });
+  it("rejects an invalid explicitly selected workspace before any request", async () => {
+    await expect(validateOpenDesignCookie("session=account-a", undefined, "../other")).rejects.toThrow("workspaceId");
+    expect(undiciFetch).not.toHaveBeenCalled();
+  });
   it("validates before saving and then fetches only the pinned workspace", async () => {
     mockConsole(); const a = scope();
     const id = await validateOpenDesignCookie("session=account-a");

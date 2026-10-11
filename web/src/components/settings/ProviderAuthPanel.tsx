@@ -470,6 +470,7 @@ export const ProviderAuthPanel = memo(function ProviderAuthPanel({
   );
   const [cookieEditingKey, setCookieEditingKey] = useState<string | null>(null);
   const [cookieInput, setCookieInput] = useState("");
+  const [workspaceInput, setWorkspaceInput] = useState("");
   const [cookieBusy, setCookieBusy] = useState<string | null>(null);
   const [cookieErrors, setCookieErrors] = useState<Record<string, string>>({});
   const [codexBarUsage, setCodexBarUsage] = useState<CodexBarUsage | null>(null);
@@ -1223,6 +1224,7 @@ export const ProviderAuthPanel = memo(function ProviderAuthPanel({
   function openCookieEditor(providerId: string, accountId: string) {
     setCookieEditingKey(cookieKey(providerId, accountId));
     setCookieInput("");
+    setWorkspaceInput("");
     setCookieErrors((current) => {
       const next = { ...current };
       delete next[cookieKey(providerId, accountId)];
@@ -1249,9 +1251,10 @@ export const ProviderAuthPanel = memo(function ProviderAuthPanel({
         `/api/accounts/${encodeURIComponent(accountId)}/${route}`,
         providerId === "openrouter"
           ? { managementKey: cookieInput }
-          : { cookies: cookieInput },
+          : { cookies: cookieInput, ...(providerId === "opendesign" && workspaceInput.trim() ? { workspaceId: workspaceInput.trim() } : {}) },
       );
       setCookieInput("");
+      setWorkspaceInput("");
       setCookieEditingKey(null);
       await refreshAccounts();
       onChanged();
@@ -1990,11 +1993,28 @@ export const ProviderAuthPanel = memo(function ProviderAuthPanel({
                                   autoFocus
                                 />
                               )}
+                              {providerId === "opendesign" && (
+                                <>
+                                  <label htmlFor={`${providerId}-workspace-${account.id}`} className="text-xs text-muted">workspaceId（任意）</label>
+                                  <input
+                                    id={`${providerId}-workspace-${account.id}`}
+                                    value={workspaceInput}
+                                    onChange={(event) => setWorkspaceInput(event.target.value)}
+                                    placeholder="Cloud URL の ?workspaceId=..."
+                                    autoComplete="off"
+                                    spellCheck={false}
+                                    disabled={cookieAccountBusy}
+                                    className="w-full rounded-xl border border-border bg-surface px-3 py-2 font-mono text-xs outline-none focus:border-accent"
+                                  />
+                                </>
+                              )}
                               <p
                                 id={`${providerId}-cookie-help-${account.id}`}
                                 className="text-xs text-muted"
                               >
-                                {cookieUi.domain} の{providerId === "openrouter" ? "管理キー" : " cookie"}を貼り付けてください。保存後、本文は画面に表示しません。
+                                {providerId === "opendesign"
+                                  ? `Cookie は ${cookieUi.domain} でコピーしてください。workspaceId に ${cookieUi.domain.replace("amr-api.", "")}/cloud/api-keys の URL にある値を入れると、その workspace を検証します。`
+                                  : `${cookieUi.domain} の${providerId === "openrouter" ? "管理キー" : " cookie"}を貼り付けてください。保存後、本文は画面に表示しません。`}
                               </p>
                               {cookieErrors[currentCookieKey] && (
                                 <p className="text-xs text-danger" role="alert">
