@@ -5,6 +5,10 @@
     "plugins": [],
     "types": ["react", "react-dom"],
     "paths": {
+      "react": ["./node_modules/@types/react/index.d.ts"],
+      "react/*": ["./node_modules/@types/react/*"],
+      "react-dom": ["./node_modules/@types/react-dom/index.d.ts"],
+      "react-dom/*": ["./node_modules/@types/react-dom/*"],
       "@/*": ["./src/*"],
       "@shared/*": ["../shared/*"],
       "@/lib/pi/messages": ["../shared/ui/pi/messages.ts"],
