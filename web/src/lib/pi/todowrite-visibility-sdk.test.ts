@@ -143,6 +143,30 @@ it("finishes a review containing shell verification with exactly one final repor
   expect(lastTodo?.role === "toolResult" && lastTodo.details).toMatchObject({ reviewRequired: false });
 }, 20_000);
 
+it("completes a stale active review after checking the existing diff without rerunning opaque tests", async () => {
+  const { session, faux, gitRuns } = await fixture({ shell: true });
+  faux.setResponses([
+    call("todowrite", { todos: work }),
+    call("codemode", { code: "return await tools.future_mutation({});" }),
+    call("todowrite", { todos: review }),
+    call("powershell", { command: "node --test scripts/example.test.mjs > test-results.log" }),
+    call("powershell", { command: "git diff --check; git diff --stat" }),
+    call("todowrite", { todos: done }),
+    (context) => {
+      const result = context.messages.filter((message) => message.role === "toolResult" && message.toolName === "todowrite").at(-1);
+      expect(JSON.stringify(result)).not.toContain("最終報告はまだ行わない");
+      expect(declarations(context).has("git_finalize")).toBe(true);
+      return fauxAssistantMessage("Final report");
+    },
+  ]);
+  await session.prompt("Review and confirm the final diff after opaque verification");
+  expect(gitRuns()).toBe(2); // One opaque test run and one diff check, no repeated test run.
+  expect(session.messages.filter((message) => message.role === "assistant" && message.stopReason !== "toolUse")).toHaveLength(1);
+  expect(session.messages.some((message) => message.role === "custom" && message.customType === "leafcode-todowrite-stop")).toBe(false);
+  const lastTodo = session.messages.filter((message) => message.role === "toolResult" && message.toolName === "todowrite").at(-1);
+  expect(lastTodo?.role === "toolResult" && lastTodo.details).toMatchObject({ reviewRequired: false });
+}, 20_000);
+
 it("exposes stale review completion in the tool result and request before the final report", async () => {
   const { session, faux } = await fixture();
   faux.setResponses([

@@ -143,6 +143,62 @@ describe("todowrite review regressions", () => {
     // Verification is not a closing-phase permission exception.
     expect(run.callTool(shell, { command })?.block).toBe(true);
   });
+  it.each([
+    ["read", { path: "test-results.log" }],
+    ["grep", { pattern: "fail", path: "test-results.log" }],
+    ["powershell", { command: "git diff --check; git diff --stat" }],
+    ["bash", { command: "npx vitest run" }],
+  ])("revalidates an active review after a successful post-mutation check: %s", async (toolName, input) => {
+    const run = fixture();
+    const review = { id: "review", content: "Review", status: "in_progress", priority: "high" };
+    await run.writeTodos([review]);
+    // An opaque verification script may modify files, so it still invalidates the review.
+    run.callTool("powershell", { command: "node verify.mjs > test-results.log" });
+    run.emit("tool_result", { toolCallId: "call-powershell", toolName: "powershell", isError: false });
+    expect(run.callTool(toolName, input)).toBeUndefined();
+    run.emit("tool_result", { toolCallId: `call-${toolName}`, toolName, input, isError: false });
+    const result = await run.writeTodos([{ ...review, status: "completed" }]);
+    expect(result.details).toMatchObject({ reviewRequired: false });
+    expect(run.emit("context", { messages: [] })).toBeUndefined();
+    expect(run.emit("agent_before_settle", { outcome: "completed" })).toBeUndefined();
+  });
+  it.each(["session_start", "session_tree"])("preserves a revalidated active review across %s", async (event) => {
+    const initial = fixture();
+    const review = { id: "review", content: "Review", status: "in_progress", priority: "high" };
+    const active = await initial.writeTodos([review]);
+    initial.callTool("edit");
+    initial.emit("tool_result", { toolCallId: "call-edit", toolName: "edit", isError: false });
+    initial.callTool("read", { path: "test-results.log" });
+    initial.emit("tool_result", { toolCallId: "call-read", toolName: "read", isError: false });
+    const resumed = fixture({ branch: [
+      { type: "message", message: { role: "toolResult", toolName: "todowrite", details: active.details } },
+      ...initial.checkpoint.mock.calls.map(([customType, data]) => ({ type: "custom", customType, data })),
+    ] });
+    resumed.emit(event);
+    const result = await resumed.writeTodos([{ ...review, status: "completed" }]);
+    expect(result.details).toMatchObject({ reviewRequired: false });
+    expect(resumed.emit("agent_before_settle", { outcome: "completed" })).toBeUndefined();
+  });
+  it.each(["failed", "unfinished", "later mutation", "pending mutation", "policy read", "different task", "aborted", "different review"])("does not revalidate a stale review from a %s check", async (scenario) => {
+    const controller = new AbortController();
+    const run = fixture({ signal: controller.signal });
+    const review = { id: "review", content: "Review", status: "in_progress", priority: "high" };
+    await run.writeTodos([review]);
+    run.callTool("edit");
+    if (scenario !== "pending mutation") run.emit("tool_result", { toolCallId: "call-edit", toolName: "edit", isError: false });
+    run.callTool("read", { path: scenario === "policy read" ? "SKILL.md" : "test-results.log" });
+    if (scenario === "later mutation") run.callTool("edit");
+    if (scenario === "different task") run.emit("input", { source: "text", text: "New task" });
+    if (scenario === "aborted") controller.abort();
+    if (scenario === "different review") await run.writeTodos([{ ...review, status: "pending" }]);
+    if (scenario !== "unfinished") run.emit("tool_result", { toolCallId: "call-read", toolName: "read", isError: scenario === "failed" });
+    if (scenario === "different task") {
+      await run.writeTodos([review]);
+      run.callTool("edit");
+    }
+    const result = await run.writeTodos([{ ...review, status: "completed" }]);
+    expect(result.details).toMatchObject({ reviewRequired: true });
+  });
   it.each(["npx vitest run; git merge origin/main", "git merge origin/main; npx vitest run"])("keeps a mixed verification/merge command review-affecting: %s", (command) => {
     expect(classifyReviewShellCommand(command, "powershell")).toBe("merge");
     expect(isNonReviewShellCommand(command, "powershell")).toBe(false);

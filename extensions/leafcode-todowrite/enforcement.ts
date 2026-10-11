@@ -267,7 +267,7 @@ export function auditTask(input: AuditInput): string[] {
     );
   } else if (input.reviewRequired) {
     reasons.push(
-      "変更系ツール実行後のレビューが未完了です。レビュー項目を in_progress にして差分・要件・テストを確認し、確認後に completed へ更新してから報告してください。新しい変更を行った場合はレビュー項目も改めて着手してください。",
+      "変更系ツール実行後のレビューが未完了です。レビュー項目を in_progress にして差分・要件・テスト結果を確認し、確認後に completed へ更新してから報告してください。変更・未知shellの後も、進行中のレビューで read/grep または既知のGit確認・検証を正常終了すれば再確認できます。検証済みテストの再実行は不要です。",
     );
   }
   return reasons;
@@ -288,7 +288,7 @@ export function blockedWhenClosedReason(todos: readonly TodoItem[]): string {
 export function buildStateNote(todos: readonly TodoItem[], reviewRequired = false): string | undefined {
   const open = listOpen(todos);
   if (!open) return reviewRequired
-    ? "[ToDo状態] レビュー未完了。全項目completedでも終了不可。レビュー項目を再着手し、差分・要件・テスト結果を確認してcompletedへ更新する。最終報告はまだ行わない。"
+    ? "[ToDo状態] レビュー未完了。全項目completedでも終了不可。レビュー項目を再着手し、差分・要件・テスト結果をread/grepまたは既知のGit確認で確認してcompletedへ更新する。検証済みテストの再実行は不要。最終報告はまだ行わない。"
     : undefined;
   return `[ToDo状態] ${open}。完了した項目はその場で completed、次の項目を in_progress にする。`;
 }

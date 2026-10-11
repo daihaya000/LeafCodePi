@@ -84,7 +84,7 @@ const SUBSTANTIVE_READ_TOOLS = new Set([
 type TodoGateState = {
   /** A list with an in_progress item was registered during this task. */
   openedThisTask: boolean;
-  /** Mutation generation; a review must start after the latest admitted mutation. */
+  /** Mutation generation; a review must start or successfully check work after the latest mutation. */
   mutationVersion: number;
   reviewStartedVersion: number;
   reviewStartedTodoId: string | undefined;
@@ -265,8 +265,14 @@ export default function (pi: ExtensionAPI): void {
     pi.appendEntry(REVIEW_CHECKPOINT_TYPE, checkpoint);
     lastReviewKey = key;
   };
+  // Results can arrive after another mutation or a task switch. Only a successful
+  // check of the current generation can renew an active review's marker.
+  const reviewChecks = new Map<string, { task: TodoGateState; version: number; reviewId: string }>();
+  const pendingMutations = new Map<string, TodoGateState>();
   const resetGate = () => {
     gate = createTodoGateState();
+    reviewChecks.clear();
+    pendingMutations.clear();
   };
   const gateEnabled = () => pi.getActiveTools().includes("todowrite");
   const hasInProgress = () => todos.some((todo) => todo.status === "in_progress");
@@ -373,6 +379,19 @@ export default function (pi: ExtensionAPI): void {
     const shellPhase = isShellTool(event.toolName)
       ? classifyReviewShellCommand(asRecord(event.input)?.command, event.toolName) : undefined;
     const requiresReview = action === "block" && shellPhase !== "confirmation" && shellPhase !== "verification";
+    const admitCall = () => {
+      admit(task, requiresReview);
+      if (requiresReview) {
+        pendingMutations.set(event.toolCallId, task);
+        return;
+      }
+      const review = todos.find((todo) => todo.status === "in_progress" && isReviewTodo(todo));
+      const checksWork = event.toolName === "read" || event.toolName === "grep"
+        || shellPhase === "confirmation" || shellPhase === "verification";
+      if (review && checksWork && ![...pendingMutations.values()].includes(task)) {
+        reviewChecks.set(event.toolCallId, { task, version: task.mutationVersion, reviewId: review.id });
+      }
+    };
 
     // Use one admission path both before and after awaiting the shared judgment.
     // The list may have completed, or other waiting calls may have spent the waiver budget.
@@ -381,7 +400,7 @@ export default function (pi: ExtensionAPI): void {
       if (ctx.signal?.aborted) return { block: true, reason: "作業が中断されたため実行を停止しました。" };
       if (task.openedThisTask) {
         if (hasInProgress() || action === "count") {
-          admit(task, requiresReview);
+          admitCall();
           return undefined;
         }
         stats.closedBlocks += 1;
@@ -394,7 +413,7 @@ export default function (pi: ExtensionAPI): void {
         }
         if (task.waivedMutations < WAIVER_MUTATION_LIMIT) {
           task.waivedMutations += 1;
-          admit(task, requiresReview);
+          admitCall();
           return undefined;
         }
         task.waived = false;
@@ -417,6 +436,18 @@ export default function (pi: ExtensionAPI): void {
     // synchronous stop. Otherwise Jev is asked once whether the task needs a ToDo list at all.
     if (!task.requestText || task.waiverExpired || !hasJevNoulJudge()) return stop();
     return consultJev(task, ctx.signal).then(stop);
+  });
+  pi.on("tool_result", (event, ctx) => {
+    pendingMutations.delete(event.toolCallId);
+    const check = reviewChecks.get(event.toolCallId);
+    reviewChecks.delete(event.toolCallId);
+    if (!check || event.isError || ctx.signal?.aborted || check.task !== gate
+      || check.version !== gate.mutationVersion || [...pendingMutations.values()].includes(gate)) return;
+    const review = todos.find((todo) => todo.id === check.reviewId && todo.status === "in_progress" && isReviewTodo(todo));
+    if (!review) return;
+    gate.reviewStartedVersion = check.version;
+    gate.reviewStartedTodoId = review.id;
+    checkpointReview();
   });
   // Last line of defence: the run may not settle while the list is missing or unfinished.
   // Bounded per task, so a model that cannot comply is still released.
@@ -545,7 +576,7 @@ export default function (pi: ExtensionAPI): void {
       "Call todowrite directly, not inside codemode. Direct tool results preserve the list for reload and UI.",
       "After all ToDos and review are completed, normal bash/powershell are hidden and blocked. Use git_finalize for restricted Git commit/confirmation, or register a new in_progress ToDo before further work.",
       "Update the list at every step: mark the finished item completed and set the next item in_progress when you start it. Never batch status changes to the end of the task.",
-      "Before the final report, resolve any reviewRequired warning returned by todowrite. Completed item statuses alone do not prove review completion. Recognized direct verification commands preserve a review; edits, opaque scripts and unsupported shell commands require re-review.",
+      "Before the final report, resolve any reviewRequired warning returned by todowrite. Completed item statuses alone do not prove review completion. Recognized direct verification commands preserve a review; edits, opaque scripts and unsupported shell commands require re-review. Keep the review in_progress and successfully read the final diff/test results or run a recognized confirmation/verification before completing it; already verified tests need not be rerun.",
       "Skip the list for a question, explanation, single lookup, discussion, standalone judgment call, control-tool use, or one small self-contained action. If the ToDo gate stops a tool call anyway, register the list and retry the call.",
     ],
     // The gate opens from execute(); serialize this tool so a same-batch edit
