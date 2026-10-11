@@ -243,6 +243,55 @@ test("rest and lexical arguments retain indexed capabilities through aliases and
   ]) assert.throws(() => dependencyReferences(source, "argument-slots.js", undefined, { kind: "browser", bundled: true }), /loader|evaluation/, source);
 });
 
+test("nonliteral variadic forwarding retains capability alternatives without granting global escape", () => {
+  const key = 'const key = ["constr", "uctor"].join(""); ', payload = '"globalThis.canary=true"';
+  const sink = `function sink(fn) { fn[key](${payload})(); } `;
+  const probes = [
+    `${sink}function forward(...args) { sink(...args); } forward(()=>{});`,
+    `${sink}function forward() { sink(...arguments); } forward(()=>{});`,
+    `${sink}function forward() { sink.apply(null, arguments); } forward(()=>{});`,
+    `${sink}const list = [()=>{}]; sink(...list);`,
+    `${sink}const list = [()=>{}]; sink.apply(null, list);`,
+    `${sink}function forward(...args) { const alias = args; sink(...alias); } forward(Object.getPrototypeOf(()=>{}));`,
+    `${sink}function forward(...args) { let alias; alias = args; sink(...alias); } forward(()=>{});`,
+    `${sink}function forward() { const run = ()=>sink(...arguments); run(); } forward(()=>{});`,
+    `${sink}function forward(...args) { sink(...[...args]); } forward(()=>{});`,
+    `${sink}function forward(...args) { const list = [...args]; sink(...list); } forward(()=>{});`,
+    `function sink(first, fn) { fn[key](${payload})(); } function forward(...args) { sink(0, ...args); } forward(()=>{});`,
+    `function sink(first, fn) { fn[key](${payload})(); } function forward(...args) { sink(...args, ()=>{}); } forward(0);`,
+    `function sink(first, fn) { fn[key](${payload})(); } function forward(...args) { const bound = sink.bind(null, 0); bound(...args); } forward(()=>{});`,
+    `function sink(first, fn) { fn[key](${payload})(); } function forward(...args) { const bound = sink.bind(null, ...args); bound(()=>{}); } forward(0);`,
+    `function sink(first, ...rest) { rest[1][key](${payload})(); } function forward(...args) { sink(...args); } forward(0, 1, ()=>{});`,
+    `function sink() { arguments[2][key](${payload})(); } function forward(...args) { sink(...args); } forward(0, 1, ()=>{});`,
+    `function identity(fn) { return fn; } function forward(...args) { return identity(...args); } forward(()=>{})[key](${payload})();`,
+    `function sink(fn) { fn[key](${payload})(); } function middle(...args) { sink(...args); } function forward(...args) { middle.apply(null, args); } forward(()=>{});`,
+    `${sink}function forward(...args) { const list = true ? args : []; sink(...list); } forward(()=>{});`,
+    `${sink}function forward(...args) { const list = args || []; sink(...list); } forward(()=>{});`,
+  ];
+  for (const probe of probes) {
+    const source = key + probe, context = {};
+    vm.runInNewContext(source, context, { timeout: 1000 }); assert.equal(context.canary, true, source);
+    for (const kind of ["browser", "gateway"]) for (const bundled of [false, true]) assert.throws(() => dependencyReferences(source, "variadic-flow.js", undefined, { kind, bundled }), /loader|evaluation/, source);
+  }
+  for (const source of [
+    'function sink(fn) { fn(); } function forward(...args) { sink(...args); } forward(()=>{});',
+    'function sink(data) { return data["label"]; } function forward(...args) { sink(...args); } forward({label:1});',
+    'function sink(first, data) { return data["label"]; } function forward(fn, ...args) { sink(0, ...args); } forward(()=>{}, {label:1});',
+    'function sink(fn, ...data) { return data[0]["label"]; } function forward(...args) { sink(...args); } forward(()=>{}, {label:1});',
+    'function sink(data) { return data["label"]; } const values = [{label:1}]; sink.apply(null, values);',
+    'function sink(data) { return data["label"]; } function forward() { return sink(...arguments); } forward({label:1});',
+    'function sink(data) { return data["label"]; } function forward(fn) { function inner() { return sink(...arguments); } return inner({label:1}); } forward(()=>{});',
+    'function sink(data) { return data["label"]; } function forward(arguments) { return sink(...arguments); } forward([{label:1}]);',
+    'function sink(fn, data) { fn(); return data.label; } const a = [()=>{}]; sink(...a, {label:1});',
+  ]) for (const kind of ["browser", "gateway"]) for (const bundled of [false, true]) assert.doesNotThrow(() => dependencyReferences(source, "variadic-flow.js", undefined, { kind, bundled }), source);
+  for (const source of [
+    'function sink(g) { return typeof g; } const values = []; sink(window, ...values);',
+    'function sink(first, g) { return typeof g; } const values = []; sink(...values, window);',
+    'function forward(g) { sink(...arguments); } function sink(root) { root[key]("hidden"); } forward(window);',
+    'function forward(g) { sink.apply(null, arguments); } function sink(root) { root[key]("hidden"); } forward(window);',
+  ]) assert.throws(() => dependencyReferences(key + source, "variadic-global.js", undefined, { kind: "browser", bundled: true }), /loader|evaluation/, source);
+});
+
 test("argument-container traversal retains dense alias alternatives without exponential path enumeration", () => {
   for (const value of ['()=>{}', '{label:1}']) {
     let source = `const root = [${value}];`, previous = "root";
@@ -271,6 +320,9 @@ test("Browser and gateway value-closure gates reject local function capabilities
     'function invoke(...args) { args[0][key]("hidden")(); } invoke(()=>{});',
     'function invoke() { arguments[0][key]("hidden")(); } invoke(()=>{});',
     'function read(list) { return list[0]; } function invoke(...args) { read(args)[key]("hidden")(); } invoke(()=>{});',
+    'function invoke(...args) { sink(...args); } function sink(fn) { fn[key]("hidden")(); } invoke(()=>{});',
+    'function invoke() { sink.apply(null, arguments); } function sink(fn) { fn[key]("hidden")(); } invoke(()=>{});',
+    'const list = [()=>{}]; function sink(fn) { fn[key]("hidden")(); } sink(...list);',
   ]) {
     const f = fixture(t, kind);
     const helper = kind === "browser" ? "shared/function-flow.mjs" : "gateway/src/function-flow.mjs";

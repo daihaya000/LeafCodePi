@@ -34,7 +34,7 @@ export function dependencyReferences(source, file = "boundary.ts", ts = parser()
   };
   const aliases = new Set(), reflectionAliases = new Map(), assignedValues = new Map(), globalReturns = new Set();
   const functionAliases = new Set(), prototypeAliases = new Set(), functionReturns = new Set(), prototypeReturns = new Set();
-  const argumentSlots = new Map(), parameterValues = new Map();
+  const argumentSlots = new Map(), variadicSlots = new Map(), parameterValues = new Map();
   const localMethod = node => checker.getSymbolAtLocation(node.name)?.declarations?.some(d => d.getSourceFile() === ast);
   const flattenArguments = args => args.flatMap(argument => ts.isSpreadElement(argument) && ts.isArrayLiteralExpression(unwrap(argument.expression)) ? flattenArguments([...unwrap(argument.expression).elements]) : [argument]);
   const functionBindings = (node, seen = new Set()) => {
@@ -63,17 +63,20 @@ export function dependencyReferences(source, file = "boundary.ts", ts = parser()
   const functionTargets = node => [...new Set(functionBindings(node).map(binding => binding.fn))];
   const invocation = node => {
     const callee = unwrap(node.expression);
-    let target = callee, args = [...node.arguments];
+    let target = callee, args = [...node.arguments], spreadArray;
     const wrapped = ts.isPropertyAccessExpression(callee) && ["call", "apply", "bind"].includes(callee.name.text);
     if (wrapped) {
       if (localMethod(callee)) return [{ fn: null, args }];
       target = callee.expression;
       const array = unwrap(node.arguments[1]);
-      args = callee.name.text === "apply" ? array && ts.isArrayLiteralExpression(array) ? [...array.elements] : [] : args.slice(1);
+      if (callee.name.text === "apply") {
+        args = array && ts.isArrayLiteralExpression(array) ? [...array.elements] : [];
+        if (array && !ts.isArrayLiteralExpression(array)) spreadArray = array;
+      } else args = args.slice(1);
     }
     return functionBindings(target).map(binding => {
       const values = [...binding.bound, ...flattenArguments(args)];
-      return { fn: values.some(ts.isSpreadElement) ? null : binding.fn, args: values, wrapped: wrapped || binding.wrapped };
+      return { fn: binding.fn, args: values, spreadArray, variadic: Boolean(spreadArray) || values.some(ts.isSpreadElement), wrapped: wrapped || binding.wrapped };
     });
   };
   const enclosingFunction = node => {
@@ -87,7 +90,12 @@ export function dependencyReferences(source, file = "boundary.ts", ts = parser()
       if (ts.isFunctionLike(parent)) return parent;
     }
   };
-  const slotValues = (fn, index, start = 0) => index === undefined ? [...argumentSlots.get(fn)?.entries() ?? []].filter(([position]) => position >= start).flatMap(([, values]) => [...values]) : [...argumentSlots.get(fn)?.get(index) ?? []];
+  const slotValues = (fn, index, start = 0) => [
+    ...index === undefined ? [...argumentSlots.get(fn)?.entries() ?? []].filter(([position]) => position >= start).flatMap(([, values]) => [...values]) : [...argumentSlots.get(fn)?.get(index) ?? []],
+    // An unknown-length iterable can place each candidate at any later slot.
+    // Keep a lower bound, rather than truncating at the declared arity/rest slot.
+    ...[...variadicSlots.get(fn)?.entries() ?? []].filter(([position]) => index === undefined || index >= position).flatMap(([, values]) => [...values]),
+  ];
   const containerValues = (root, index) => {
     const queue = [root], seen = new Set(), values = new Set();
     // Visit each alias/symbol once, rather than enumerate exponentially many
@@ -97,7 +105,10 @@ export function dependencyReferences(source, file = "boundary.ts", ts = parser()
       if (!node || seen.has(node)) continue;
       seen.add(node);
       if (ts.isArrayLiteralExpression(node)) {
-        for (const value of index === undefined ? node.elements : node.elements[index] ? [node.elements[index]] : []) values.add(value);
+        for (const value of index === undefined ? node.elements : node.elements[index] ? [node.elements[index]] : []) {
+          if (index === undefined && ts.isSpreadElement(value)) queue.push(value.expression);
+          else values.add(value);
+        }
       } else if (ts.isConditionalExpression(node)) queue.push(node.whenTrue, node.whenFalse);
       else if (ts.isBinaryExpression(node) && node.operatorToken.kind === ts.SyntaxKind.CommaToken) queue.push(node.right);
       else if (ts.isBinaryExpression(node) && [ts.SyntaxKind.BarBarToken, ts.SyntaxKind.AmpersandAmpersandToken, ts.SyntaxKind.QuestionQuestionToken].includes(node.operatorToken.kind)) queue.push(node.left, node.right);
@@ -119,6 +130,24 @@ export function dependencyReferences(source, file = "boundary.ts", ts = parser()
     }
     return [...values];
   };
+  const argumentEntries = ({ args, spreadArray }) => {
+    const entries = [];
+    let index = 0, variadic = false;
+    for (const value of args) {
+      if (ts.isSpreadElement(value)) {
+        variadic = true;
+        for (const argument of containerValues(value.expression, undefined)) entries.push({ argument, index, variadic });
+      } else {
+        entries.push({ argument: value, index, variadic });
+        index++;
+      }
+    }
+    if (spreadArray) for (const argument of containerValues(spreadArray, undefined)) entries.push({ argument, index, variadic: true });
+    return entries;
+  };
+  const parameterEntries = call => argumentEntries(call).flatMap(entry => entry.variadic
+    ? call.fn.parameters.slice(entry.index).map((parameter, offset) => ({ ...entry, parameter, index: entry.index + offset }))
+    : [{ ...entry, parameter: call.fn.parameters[entry.index] }]);
   let projectionCache = new Map();
   const projectedValues = node => {
     if (!ts.isElementAccessExpression(node)) return [];
@@ -208,13 +237,16 @@ export function dependencyReferences(source, file = "boundary.ts", ts = parser()
           const symbol = checker.getSymbolAtLocation(node.name);
           if (symbol && !reflectionAliases.has(symbol)) { reflectionAliases.set(symbol, "descriptor"); changed = true; }
         }
-        if (ts.isCallExpression(node)) for (const { fn, args } of invocation(node).filter(call => call.fn)) {
-          args.forEach((argument, index) => {
-            if (!argumentSlots.has(fn)) argumentSlots.set(fn, new Map());
-            const slots = argumentSlots.get(fn);
+        if (ts.isCallExpression(node)) for (const call of invocation(node).filter(call => call.fn)) {
+          const fn = call.fn;
+          for (const { argument, index, variadic } of argumentEntries(call)) {
+            const registry = variadic ? variadicSlots : argumentSlots;
+            if (!registry.has(fn)) registry.set(fn, new Map());
+            const slots = registry.get(fn);
             if (!slots.has(index)) slots.set(index, new Set());
             if (!slots.get(index).has(argument)) { slots.get(index).add(argument); changed = true; }
-            const parameter = fn.parameters[index];
+          }
+          parameterEntries(call).forEach(({ argument, parameter }) => {
             if (parameter && ts.isIdentifier(parameter.name) && !parameter.dotDotDotToken) {
               const symbol = checker.getSymbolAtLocation(parameter.name);
               if (symbol) {
@@ -238,9 +270,8 @@ export function dependencyReferences(source, file = "boundary.ts", ts = parser()
           if (symbol && functionValue(node.initializer, new Set(), true) && !prototypeAliases.has(symbol)) { prototypeAliases.add(symbol); changed = true; }
         }
         if (bundled) {
-          if (ts.isCallExpression(node)) for (const { fn, args } of invocation(node).filter(call => call.fn)) {
-            args.forEach((argument, index) => {
-              const parameter = fn.parameters[index];
+          if (ts.isCallExpression(node)) for (const call of invocation(node).filter(call => call.fn)) {
+            parameterEntries(call).forEach(({ argument, parameter }) => {
               if (globalValue(argument) && parameter && ts.isIdentifier(parameter.name) && !parameter.dotDotDotToken) {
                 const symbol = checker.getSymbolAtLocation(parameter.name);
                 if (symbol && !aliases.has(symbol)) { aliases.add(symbol); changed = true; }
@@ -406,9 +437,9 @@ export function dependencyReferences(source, file = "boundary.ts", ts = parser()
         const calls = ts.isCallExpression(parent) ? invocation(parent) : [];
         // Normalize wrappers for capability propagation, never as a new global
         // escape permission: prototype mutation can replace call/apply/bind.
-        const localCall = bundled && calls.length > 0 && calls.every(({ fn, args, wrapped }) => {
+        const localCall = bundled && calls.length > 0 && calls.every(({ fn, args, wrapped, variadic }) => {
           const argumentIndex = args.indexOf(receiver), parameter = fn?.parameters[argumentIndex];
-          return !wrapped && argumentIndex >= 0 && fn?.body && parameter && ts.isIdentifier(parameter.name) && !parameter.dotDotDotToken;
+          return !wrapped && !variadic && argumentIndex >= 0 && fn?.body && parameter && ts.isIdentifier(parameter.name) && !parameter.dotDotDotToken;
         });
         // Fixed React source legitimately passes DOM/window values to callbacks
         // and SyntheticEvents. This is origin/hash-bound, not a call-shape exemption;
