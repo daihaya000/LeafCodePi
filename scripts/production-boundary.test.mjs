@@ -243,6 +243,53 @@ test("rest and lexical arguments retain indexed capabilities through aliases and
   ]) assert.throws(() => dependencyReferences(source, "argument-slots.js", undefined, { kind: "browser", bundled: true }), /loader|evaluation/, source);
 });
 
+test("explicit this receivers retain capabilities through wrappers, binding and lexical arrows", () => {
+  const key = 'const key = ["constr", "uctor"].join(""); ', payload = '"globalThis.canary=true"';
+  const invoke = `function invoke() { this[key](${payload})(); } `;
+  const probes = [
+    invoke + 'invoke.call(()=>{});',
+    invoke + 'invoke.apply(()=>{}, []);',
+    invoke + 'const bound = invoke.bind(()=>{}); bound();',
+    invoke + 'invoke.call(Object.getPrototypeOf(()=>{}));',
+    invoke + 'let alias; alias = invoke; alias.call(()=>{});',
+    invoke + 'const alias = invoke; alias.apply(()=>{}, []);',
+    invoke + 'const bound = invoke.bind(()=>{}).bind({label:1}); bound();',
+    invoke + 'const bound = invoke.bind(()=>{}); bound.call({label:1});',
+    invoke + 'const bound = invoke.bind(()=>{}); bound.apply({label:1}, []);',
+    `function identity() { return this; } identity.call(()=>{})[key](${payload})();`,
+    `function identity() { return this; } const bound = identity.bind(()=>{}); bound()[key](${payload})();`,
+    `function invoke() { const alias = this; alias[key](${payload})(); } invoke.call(()=>{});`,
+    `function invoke() { let alias; alias = this; alias[key](${payload})(); } invoke.call(()=>{});`,
+    `function invoke() { const run = ()=>this[key](${payload})(); run.call({label:1}); } invoke.call(()=>{});`,
+    `function invoke() { const identity = ()=>this; identity()[key](${payload})(); } invoke.apply(()=>{}, []);`,
+    `function invoke() { function inner() { this[key](${payload})(); } inner.call(this); } invoke.call(()=>{});`,
+    `function invoke(fn) { const forward = ()=>invoke.call(this); if (fn) forward(); else this[key](${payload})(); } invoke.call(()=>{}, false);`,
+    `function invoke() { this[key](${payload})(); } function entry() { invoke.call(()=>{}); } entry();`,
+  ];
+  for (const probe of probes) {
+    const source = key + probe, context = {};
+    vm.runInNewContext(source, context, { timeout: 1000 }); assert.equal(context.canary, true, source);
+    for (const kind of ["browser", "gateway"]) for (const bundled of [false, true]) assert.throws(() => dependencyReferences(source, "this-flow.js", undefined, { kind, bundled }), /loader|evaluation/, source);
+  }
+  for (const source of [
+    'function read() { const key = "label"; return this[key]; } read.call({label:1});',
+    'function read() { return this.label; } read.apply({label:1}, []);',
+    'function read() { const key = "label"; return this[key]; } const bound = read.bind({label:1}); bound.call(()=>{});',
+    'function read() { const key = "label"; return this[key]; } const bound = read.bind({label:1}).bind(()=>{}); bound();',
+    'function outer() { const read = ()=>this["label"]; return read.call(()=>{}); } outer.call({label:1});',
+    'function outer() { const key = "label"; const read = ()=>this[key]; return read.bind(()=>{})(); } outer.call({label:1});',
+    'function outer() { function inner() { const key = "label"; return this[key]; } return inner.call({label:1}); } outer.call(()=>{});',
+    'function read(fn) { return this.label + fn(); } read.call({label:1}, ()=>2);',
+    'function read() { const key = "label"; return this[key]; } const bound = read.bind(); bound.call(()=>{});',
+  ]) for (const kind of ["browser", "gateway"]) for (const bundled of [false, true]) assert.doesNotThrow(() => dependencyReferences(source, "this-flow.js", undefined, { kind, bundled }), source);
+  for (const source of [
+    'function invoke() { this[key]("hidden"); } invoke.call(window);',
+    'function forward(g) { invoke.call(g); } function invoke() { this[key]("hidden"); } forward(window);',
+    'function forward(g) { invoke.apply(g, []); } function invoke() { const alias = this; alias[key]("hidden"); } forward(window);',
+    'function forward(g) { const bound = identity.bind(g); return bound(); } function identity() { return this; } forward(window)[key]("hidden");',
+  ]) assert.throws(() => dependencyReferences(key + source, "this-global.js", undefined, { kind: "browser", bundled: true }), /loader|evaluation/, source);
+});
+
 test("nonliteral variadic forwarding retains capability alternatives without granting global escape", () => {
   const key = 'const key = ["constr", "uctor"].join(""); ', payload = '"globalThis.canary=true"';
   const sink = `function sink(fn) { fn[key](${payload})(); } `;
@@ -323,6 +370,9 @@ test("Browser and gateway value-closure gates reject local function capabilities
     'function invoke(...args) { sink(...args); } function sink(fn) { fn[key]("hidden")(); } invoke(()=>{});',
     'function invoke() { sink.apply(null, arguments); } function sink(fn) { fn[key]("hidden")(); } invoke(()=>{});',
     'const list = [()=>{}]; function sink(fn) { fn[key]("hidden")(); } sink(...list);',
+    'function invoke() { this[key]("hidden")(); } invoke.call(()=>{});',
+    'function invoke() { this[key]("hidden")(); } invoke.apply(()=>{}, []);',
+    'function invoke() { this[key]("hidden")(); } const bound = invoke.bind(()=>{}); bound();',
   ]) {
     const f = fixture(t, kind);
     const helper = kind === "browser" ? "shared/function-flow.mjs" : "gateway/src/function-flow.mjs";
