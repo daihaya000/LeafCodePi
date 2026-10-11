@@ -307,6 +307,79 @@ export function dependencyReferences(source, file = "boundary.ts", ts = parser()
       bind(ast);
     } while (changed);
   }
+  const keyCache = new Map();
+  const unknownKey = () => ({ values: new Set(), unknown: true });
+  const combineKeys = (left, right, separator = "") => {
+    const values = new Set(); let unknown = left.unknown || right.unknown;
+    for (const a of left.values) for (const b of right.values) {
+      if (a.length + b.length + separator.length > 4096) { unknown = true; continue; }
+      const value = a + separator + b;
+      if (values.size >= 256 && !loaders.has(value) && value !== "constructor") { unknown = true; continue; }
+      values.add(value);
+    }
+    return { values, unknown };
+  };
+  const keyCandidates = (root, active = new Set()) => {
+    root = unwrap(root);
+    if (!root || active.has(root)) return unknownKey();
+    if (keyCache.has(root)) return keyCache.get(root);
+    const next = new Set(active); next.add(root);
+    const evaluate = node => keyCandidates(node, next);
+    const union = nodes => {
+      const values = new Set(), pending = [...nodes], seen = new Set(); let unknown = false;
+      while (pending.length) {
+        const node = unwrap(pending.pop());
+        if (!node) { unknown = true; continue; }
+        if (seen.has(node)) continue;
+        seen.add(node);
+        if (next.has(node)) { unknown = true; continue; }
+        if (ts.isIdentifier(node)) {
+          const symbol = checker.getSymbolAtLocation(node);
+          const sources = [...symbol?.declarations?.filter(d => ts.isVariableDeclaration(d) || ts.isParameter(d)).flatMap(d => d.initializer ? [d.initializer] : []) ?? [], ...assignedValues.get(symbol) ?? [], ...parameterValues.get(symbol) ?? []];
+          if (!sources.length || symbol?.declarations?.some(ts.isParameter)) unknown = true;
+          pending.push(...sources); continue;
+        }
+        if (ts.isConditionalExpression(node)) { pending.push(node.whenTrue, node.whenFalse); continue; }
+        if (ts.isBinaryExpression(node) && node.operatorToken.kind === ts.SyntaxKind.CommaToken) { pending.push(node.right); continue; }
+        if (ts.isBinaryExpression(node) && [ts.SyntaxKind.BarBarToken, ts.SyntaxKind.AmpersandAmpersandToken, ts.SyntaxKind.QuestionQuestionToken].includes(node.operatorToken.kind)) { unknown = true; pending.push(node.left, node.right); continue; }
+        const result = evaluate(node); unknown ||= result.unknown;
+        for (const value of result.values) { if (values.size < 256 || loaders.has(value) || value === "constructor") values.add(value); else unknown = true; }
+      }
+      return nodes.length ? { values, unknown } : unknownKey();
+    };
+    let result = unknownKey();
+    if (ts.isStringLiteralLike(root)) result = { values: new Set([root.text]), unknown: false };
+    else if (ts.isConditionalExpression(root)) result = union([root.whenTrue, root.whenFalse]);
+    else if (ts.isBinaryExpression(root)) {
+      if (root.operatorToken.kind === ts.SyntaxKind.PlusToken) result = combineKeys(evaluate(root.left), evaluate(root.right));
+      else if (root.operatorToken.kind === ts.SyntaxKind.CommaToken) result = evaluate(root.right);
+      else if ([ts.SyntaxKind.BarBarToken, ts.SyntaxKind.AmpersandAmpersandToken, ts.SyntaxKind.QuestionQuestionToken].includes(root.operatorToken.kind)) result = { ...union([root.left, root.right]), unknown: true };
+    } else if (ts.isIdentifier(root)) {
+      const symbol = checker.getSymbolAtLocation(root);
+      const values = [...symbol?.declarations?.filter(d => ts.isVariableDeclaration(d) || ts.isParameter(d)).flatMap(d => d.initializer ? [d.initializer] : []) ?? [], ...assignedValues.get(symbol) ?? [], ...parameterValues.get(symbol) ?? []];
+      result = union(values);
+      // Parameters can also be reached by unmodelled callers; never grant an exact-key permission.
+      if (symbol?.declarations?.some(ts.isParameter)) result.unknown = true;
+    } else if (ts.isPropertyAccessExpression(root) && localMethod(root)) {
+      const symbol = checker.getSymbolAtLocation(root.name);
+      result = union(symbol?.declarations?.filter(ts.isPropertyAssignment).map(d => d.initializer) ?? []);
+    } else if (ts.isCallExpression(root) && ts.isPropertyAccessExpression(root.expression) && root.expression.name.text === "join" && !localMethod(root.expression)) {
+      const array = unwrap(root.expression.expression);
+      if (ts.isArrayLiteralExpression(array) && array.elements.every(node => !ts.isSpreadElement(node) && !ts.isOmittedExpression(node))) {
+        const separator = root.arguments.length ? evaluate(root.arguments[0]) : { values: new Set([","]), unknown: false };
+        result = { values: new Set(), unknown: separator.unknown || root.arguments.length > 1 };
+        for (const sep of separator.values) {
+          let joined = { values: new Set([""]), unknown: false };
+          array.elements.forEach((node, index) => { joined = combineKeys(joined, evaluate(node), index ? sep : ""); });
+          result.unknown ||= joined.unknown; for (const value of joined.values) result.values.add(value);
+        }
+      }
+    }
+    // Cache only complete root queries. Cyclic/context-dependent subqueries must not hide alternatives.
+    if (active.size === 0 || !result.unknown) keyCache.set(root, result);
+    return result;
+  };
+  // Candidate decoding adds refusals only; do not widen any exact-key permission.
   const staticString = node => {
     node = unwrap(node);
     if (node && ts.isStringLiteralLike(node)) return node.text;
@@ -315,6 +388,7 @@ export function dependencyReferences(source, file = "boundary.ts", ts = parser()
       if (left !== undefined && right !== undefined) return left + right;
     }
   };
+  const forbiddenKey = node => [...keyCandidates(node).values].some(key => loaders.has(key) || key === "constructor");
   function constructorMetadata(node) {
     if (!bundled) return false;
     const parent = node.parent;
@@ -399,7 +473,7 @@ export function dependencyReferences(source, file = "boundary.ts", ts = parser()
       }
       if (ts.isIdentifier(node) && loaders.has(node.text)) fail(file, `indirect loader/code evaluation forbidden: ${node.text}`);
       if (ts.isPropertyAccessExpression(node) && (loaders.has(node.name.text) || node.name.text === "constructor" && !constructorMetadata(node) || node.getText(ast).startsWith("import.meta.glob"))) fail(file, `indirect loader/code evaluation forbidden: ${node.getText(ast).slice(0,100)}`);
-      if (ts.isElementAccessExpression(node) && (loaders.has(staticString(node.argumentExpression)) || staticString(node.argumentExpression) === "constructor" || functionValue(node.expression) && staticString(node.argumentExpression) === undefined && !ts.isNumericLiteral(unwrap(node.argumentExpression)) && !(bundled && (allowMetadata("global-read", node) || allowMetadata("function-read", node))) || globalValue(node.expression) && !computedMetadata(node))) fail(file, `computed loader/global access forbidden: ${node.getText(ast).slice(0,100)}`);
+      if (ts.isElementAccessExpression(node) && (forbiddenKey(node.argumentExpression) || functionValue(node.expression) && staticString(node.argumentExpression) === undefined && !ts.isNumericLiteral(unwrap(node.argumentExpression)) && !(bundled && (allowMetadata("global-read", node) || allowMetadata("function-read", node))) || globalValue(node.expression) && !computedMetadata(node))) fail(file, `computed loader/global access forbidden: ${node.getText(ast).slice(0,100)}`);
       if (reflectionKind(node)) {
         const parent = node.parent;
         assert.ok(ts.isCallExpression(parent) && parent.expression === node || ts.isVariableDeclaration(parent)

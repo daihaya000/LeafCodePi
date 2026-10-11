@@ -243,6 +243,67 @@ test("rest and lexical arguments retain indexed capabilities through aliases and
   ]) assert.throws(() => dependencyReferences(source, "argument-slots.js", undefined, { kind: "browser", bundled: true }), /loader|evaluation/, source);
 });
 
+test("synthesized computed keys reject plain-object constructor extraction and retain unsafe alternatives", () => {
+  const key = 'const key = ["constr", "uctor"].join(""); ', payload = '"globalThis.canary=true"';
+  for (const probe of [
+    `const data = {}; const first = data[key]; first[key](${payload})();`,
+    `let data; data = {}; const first = data[key]; first[key](${payload})();`,
+    `const data = {}; const alias = data; const first = alias[key]; first[key](${payload})();`,
+    `function read(data) { return data[key]; } read({})[key](${payload})();`,
+    `function identity(data) { return data; } identity({})[key][key](${payload})();`,
+    `function make() { return {}; } make()[key][key](${payload})();`,
+    `function read(data = {}) { return data[key]; } read()[key](${payload})();`,
+    `const data = true ? {} : {label:1}; data[key][key](${payload})();`,
+    `const data = {} || {label:1}; data[key][key](${payload})();`,
+    `const data = (0, {}); data[key][key](${payload})();`,
+    `function read(...args) { return args[0][key]; } read({})[key](${payload})();`,
+    `function read() { return arguments[0][key]; } read({})[key](${payload})();`,
+    `function read() { return this[key]; } read.call({})[key](${payload})();`,
+    `const first = {}[key]; let alias; alias = first; alias[key](${payload})();`,
+    `function read(data) { return data[key]; } const bound = read.bind(null, {}); bound()[key](${payload})();`,
+    `const first = {}[key]; const run = first[key]; run(${payload})();`,
+    `const first = {}[key]; const run = first[key]; run.call(null, ${payload})();`,
+    `const first = {}[key]; const run = first[key].bind(null); run(${payload})();`,
+    `function read() { return {}[key][key]; } read()(${payload})();`,
+    `function invoke(run) { run(${payload})(); } invoke({}[key][key]);`,
+    `function invoke() { const run = {}[key][key]; new run(${payload})(); } invoke();`,
+    `const keyAlias = key; const data = {}; data[keyAlias][keyAlias](${payload})();`,
+    `const data = {}; for (var index = 0; index < 1; index++) { index = key; data[index][index](${payload})(); break; }`,
+    `const data = {}; function poison() { index = key; } for (var index = 0; index < 1; index++) { poison(); data[index][index](${payload})(); break; }`,
+    `const Symbol = {iterator:key}; const token = Symbol.iterator; const data = {}; data[token][token](${payload})();`,
+    `const data = {}; const asserted = key as unknown as number; data[asserted][asserted](${payload})();`,
+    `const data = {}; const fragment = "constr"; const joined = [fragment,"uctor"].join(""); data[joined][joined](${payload})();`,
+    `const data = {}; const joined = ["constr","uctor"].join(); const finalKey = "constr" + "uctor"; data[finalKey][finalKey](${payload})();`,
+    `const data = {}; let selected = (()=>"label")(); selected = key; data[selected][selected](${payload})();`,
+    `const data = {}; const selected = true ? key : (()=>"label")(); data[selected][selected](${payload})();`,
+    `const data = {}; const selected = "" || key; data[selected][selected](${payload})();`,
+    `const data = {}; const selected = (0,key); data[selected][selected](${payload})();`,
+  ]) {
+    const source = key + probe, context = {};
+    vm.runInNewContext(source.replace(' as unknown as number', ''), context, { timeout: 1000 }); assert.equal(context.canary, true, source);
+    for (const kind of ["browser", "gateway"]) for (const bundled of [false, true]) assert.throws(() => dependencyReferences(source, "object-flow.js", undefined, { kind, bundled }), /loader|evaluation/, source);
+  }
+  for (const source of ['const key=["la","bel"].join(""); Reflect.get({},key);', 'let key="co"; key+="nstructor"; Reflect.get(()=>{},key);']) {
+    for (const kind of ["browser", "gateway"]) for (const bundled of [false, true]) assert.throws(() => dependencyReferences(source, "object-flow.js", undefined, { kind, bundled }), /loader|reflection|reflected/, source);
+  }
+  for (const source of [
+    'const data = {label:1}; const key = "label"; data[key];',
+    'const data = {label:1}; const first = data["label"]; first["name"];',
+    'const data = {nested:{label:1}}; const first = data["nested"]; const key = "label"; first[key];',
+    'function read(data) { const key = "label"; return data[key]; } read({label:1});',
+    'function read(data) { return data["nested"]; } const key = "label"; read({nested:{label:1}})[key];',
+    'const data = {label:1}; const key = "label"; data[key] = 2;',
+    'const data = {label:1}; const key = "label"; const copy = {[key]:data};',
+    'const values = [{label:1}]; values[0]["label"];',
+    'const data = {nested:{label:1}}; const firstKey = "nested", secondKey = "label"; const value = data[firstKey][secondKey];',
+    'const data = {nested:{label:1}}; const firstKey = "nested", secondKey = "label"; const value = data[firstKey][secondKey]; const read = ()=>value; read();',
+    'const data = {nested:[1,2]}; const key = "nested"; data[key][0];',
+    'const data = {0:{run:()=>1}}; for (var index=0; index<1; index++) { const first=data[index]; first["run"](); }',
+    'const token = Symbol.iterator; const data = {[token]:()=>1}; const first = data[token]; first();',
+    'const token = typeof Symbol === "function" && Symbol.iterator; const data = {[token]:()=>1}; const first=data[token]; first();',
+  ]) for (const kind of ["browser", "gateway"]) for (const bundled of [false, true]) assert.doesNotThrow(() => dependencyReferences(source, "object-flow.js", undefined, { kind, bundled }), source);
+});
+
 test("explicit this receivers retain capabilities through wrappers, binding and lexical arrows", () => {
   const key = 'const key = ["constr", "uctor"].join(""); ', payload = '"globalThis.canary=true"';
   const invoke = `function invoke() { this[key](${payload})(); } `;
@@ -373,6 +434,9 @@ test("Browser and gateway value-closure gates reject local function capabilities
     'function invoke() { this[key]("hidden")(); } invoke.call(()=>{});',
     'function invoke() { this[key]("hidden")(); } invoke.apply(()=>{}, []);',
     'function invoke() { this[key]("hidden")(); } const bound = invoke.bind(()=>{}); bound();',
+    'const data = {}; const first = data[key]; first[key]("hidden")();',
+    'function read(data) { return data[key]; } read({})[key]("hidden")();',
+    'function make() { return {}; } make()[key][key]("hidden")();',
   ]) {
     const f = fixture(t, kind);
     const helper = kind === "browser" ? "shared/function-flow.mjs" : "gateway/src/function-flow.mjs";
