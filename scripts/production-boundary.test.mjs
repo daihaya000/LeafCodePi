@@ -190,6 +190,77 @@ test("function and prototype capabilities survive local parameters, defaults, re
   }
 });
 
+test("rest and lexical arguments retain indexed capabilities through aliases and local array helpers", () => {
+  const key = 'const key = ["constr", "uctor"].join(""); ', payload = '"globalThis.canary=true"';
+  const probes = [
+    `function invoke(...args) { args[0][key](${payload})(); } invoke(()=>{});`,
+    `function invoke() { arguments[0][key](${payload})(); } invoke(()=>{});`,
+    `function invoke(value, ...args) { args[0][key](${payload})(); } invoke(0, ()=>{});`,
+    `function invoke(value) { arguments[1][key](${payload})(); } invoke(0, ()=>{});`,
+    `function invoke(...args) { const alias = args; alias[0][key](${payload})(); } invoke(()=>{});`,
+    `function invoke(...args) { let alias; alias = args; alias[0][key](${payload})(); } invoke(()=>{});`,
+    `function invoke() { const alias = arguments; alias[0][key](${payload})(); } invoke(()=>{});`,
+    `function invoke() { const run = ()=>arguments[0][key](${payload})(); run(); } invoke(()=>{});`,
+    `function invoke(fn) { function inner() { arguments[0][key](${payload})(); } inner(fn); } invoke(()=>{});`,
+    `const invoke = (...args) => args[0][key](${payload})(); invoke(()=>{});`,
+    `function identity(...args) { return args[0]; } identity(()=>{})[key](${payload})();`,
+    `function identity() { return arguments[0]; } identity(()=>{})[key](${payload})();`,
+    `function invoke(...args) { args["0"][key](${payload})(); } invoke(Object.getPrototypeOf(()=>{}));`,
+    `function read(list) { return list[0]; } function invoke(...args) { read(args)[key](${payload})(); } invoke(()=>{});`,
+    `function read(list) { return list[0]; } read([()=>{}])[key](${payload})();`,
+    `const fn = [()=>{}][0]; fn[key](${payload})();`,
+    `function read(list = [()=>{}]) { return list[0]; } read()[key](${payload})();`,
+    `function invoke(list = [Object.getPrototypeOf(()=>{})]) { list[0][key](${payload})(); } invoke();`,
+    `function invoke(...args) { const index = [0].join(""); args[index][key](${payload})(); } invoke(()=>{});`,
+    `function invoke(...args) { args[0][key](${payload})(); } invoke.call(null, ()=>{});`,
+    `function invoke(...args) { args[0][key](${payload})(); } invoke.apply(null, [()=>{}]);`,
+    `function invoke(value, ...args) { args[0][key](${payload})(); } const bound = invoke.bind(null, 0); bound(()=>{});`,
+  ];
+  for (const probe of probes) {
+    const source = key + probe, context = {};
+    vm.runInNewContext(source, context, { timeout: 1000 }); assert.equal(context.canary, true, source);
+    for (const kind of ["browser", "gateway"]) for (const bundled of [false, true]) assert.throws(() => dependencyReferences(source, "argument-slots.js", undefined, { kind, bundled }), /loader|evaluation/, source);
+  }
+  for (const source of [
+    'function read(...args) { return args[0].label; } read({label:1});',
+    'function read() { return arguments[0].label; } read({label:1});',
+    'function read(fn, ...args) { const key = "label"; return args[0][key]; } read(()=>{}, {label:1});',
+    'function read(fn, ...args) { return args[0].name; } read(()=>{}, {name:"data"});',
+    'function read(arguments) { return arguments[0].label; } read([{label:1}]);',
+    'function outer(fn) { function inner() { return arguments[0]["label"]; } return inner({label:1}); } outer(()=>{});',
+    'function read(list) { return list[0]; } read([{label:1}]).label;',
+    'function recurse(...args) { if (false) recurse(args[0]); return args[0]["name"]; } recurse(()=>{});',
+    'function empty(...args) { return args[0]; } empty();',
+    'function read(list = [{label:1}]) { return list[0].label; } read();',
+    'function read(fn, ...args) { const key = "label"; return args[key]; } read(()=>{}, {label:1});',
+  ]) for (const kind of ["browser", "gateway"]) for (const bundled of [false, true]) assert.doesNotThrow(() => dependencyReferences(source, "argument-slots.js", undefined, { kind, bundled }), source);
+  // A positional global can escape through the arguments object even when its
+  // declared parameter is never returned. Erasure must not discard that edge.
+  for (const source of [
+    'function identity(g) { return arguments[0]; } identity(window)[key]("hidden");',
+    'function identity(g) { const args = arguments; return args[0]; } identity(window)[key]("hidden");',
+    'function identity(g) { const get = ()=>arguments[0]; return get(); } identity(window)[key]("hidden");',
+  ]) assert.throws(() => dependencyReferences(source, "argument-slots.js", undefined, { kind: "browser", bundled: true }), /loader|evaluation/, source);
+});
+
+test("argument-container traversal retains dense alias alternatives without exponential path enumeration", () => {
+  for (const value of ['()=>{}', '{label:1}']) {
+    let source = `const root = [${value}];`, previous = "root";
+    for (let index = 0; index < 28; index++) {
+      source += `const left${index} = ${previous}; const right${index} = ${previous}; const joined${index} = true ? left${index} : right${index};`;
+      previous = `joined${index}`;
+    }
+    source += `const receiver = ${previous}[0];`;
+    source += value === '()=>{}' ? 'const key = ["constr", "uctor"].join(""); receiver[key]("hidden")();' : 'receiver.label;';
+    const started = performance.now();
+    for (const kind of ["browser", "gateway"]) for (const bundled of [false, true]) {
+      const check = () => dependencyReferences(source, "dense-argument-aliases.js", undefined, { kind, bundled });
+      if (value === '()=>{}') assert.throws(check, /loader|evaluation/); else assert.doesNotThrow(check);
+    }
+    assert.ok(performance.now() - started < 5000, "dense argument aliases exceeded bounded traversal time");
+  }
+});
+
 test("Browser and gateway value-closure gates reject local function capabilities before compilation", t => {
   for (const kind of ["browser", "gateway"]) for (const body of [
     'function invoke(fn) { fn[key]("hidden")(); } invoke(()=>{});',
@@ -197,6 +268,9 @@ test("Browser and gateway value-closure gates reject local function capabilities
     'function invoke(proto) { proto[key]("hidden")(); } invoke(Object.getPrototypeOf(()=>{}));',
     'Object.getPrototypeOf({})[key][key]("hidden")();',
     'function entry() { invoke(()=>{}); } let invoke; invoke = fn => fn[key]("hidden")(); entry();',
+    'function invoke(...args) { args[0][key]("hidden")(); } invoke(()=>{});',
+    'function invoke() { arguments[0][key]("hidden")(); } invoke(()=>{});',
+    'function read(list) { return list[0]; } function invoke(...args) { read(args)[key]("hidden")(); } invoke(()=>{});',
   ]) {
     const f = fixture(t, kind);
     const helper = kind === "browser" ? "shared/function-flow.mjs" : "gateway/src/function-flow.mjs";

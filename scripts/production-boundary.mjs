@@ -34,6 +34,7 @@ export function dependencyReferences(source, file = "boundary.ts", ts = parser()
   };
   const aliases = new Set(), reflectionAliases = new Map(), assignedValues = new Map(), globalReturns = new Set();
   const functionAliases = new Set(), prototypeAliases = new Set(), functionReturns = new Set(), prototypeReturns = new Set();
+  const argumentSlots = new Map(), parameterValues = new Map();
   const localMethod = node => checker.getSymbolAtLocation(node.name)?.declarations?.some(d => d.getSourceFile() === ast);
   const flattenArguments = args => args.flatMap(argument => ts.isSpreadElement(argument) && ts.isArrayLiteralExpression(unwrap(argument.expression)) ? flattenArguments([...unwrap(argument.expression).elements]) : [argument]);
   const functionBindings = (node, seen = new Set()) => {
@@ -80,6 +81,54 @@ export function dependencyReferences(source, file = "boundary.ts", ts = parser()
       if (ts.isFunctionLike(parent)) return ts.isFunctionDeclaration(parent) || ts.isFunctionExpression(parent) || ts.isArrowFunction(parent) ? parent : undefined;
     }
   };
+  const lexicalArgumentsOwner = node => {
+    for (let parent = node.parent; parent; parent = parent.parent) {
+      if (ts.isArrowFunction(parent)) continue;
+      if (ts.isFunctionLike(parent)) return parent;
+    }
+  };
+  const slotValues = (fn, index, start = 0) => index === undefined ? [...argumentSlots.get(fn)?.entries() ?? []].filter(([position]) => position >= start).flatMap(([, values]) => [...values]) : [...argumentSlots.get(fn)?.get(index) ?? []];
+  const containerValues = (root, index) => {
+    const queue = [root], seen = new Set(), values = new Set();
+    // Visit each alias/symbol once, rather than enumerate exponentially many
+    // paths through a dense helper DAG. All reachable alternatives are retained.
+    while (queue.length) {
+      const node = unwrap(queue.pop());
+      if (!node || seen.has(node)) continue;
+      seen.add(node);
+      if (ts.isArrayLiteralExpression(node)) {
+        for (const value of index === undefined ? node.elements : node.elements[index] ? [node.elements[index]] : []) values.add(value);
+      } else if (ts.isConditionalExpression(node)) queue.push(node.whenTrue, node.whenFalse);
+      else if (ts.isBinaryExpression(node) && node.operatorToken.kind === ts.SyntaxKind.CommaToken) queue.push(node.right);
+      else if (ts.isBinaryExpression(node) && [ts.SyntaxKind.BarBarToken, ts.SyntaxKind.AmpersandAmpersandToken, ts.SyntaxKind.QuestionQuestionToken].includes(node.operatorToken.kind)) queue.push(node.left, node.right);
+      else if (ts.isIdentifier(node)) {
+        const symbol = checker.getSymbolAtLocation(node);
+        if (node.text === "arguments" && !symbol?.declarations?.some(d => d.getSourceFile() === ast)) {
+          for (const value of slotValues(lexicalArgumentsOwner(node), index)) values.add(value);
+        } else if (symbol && !seen.has(symbol)) {
+          seen.add(symbol);
+          for (const d of symbol.declarations ?? []) {
+            if (ts.isParameter(d) && d.dotDotDotToken) {
+              const start = d.parent.parameters.indexOf(d);
+              for (const value of slotValues(d.parent, index === undefined ? undefined : start + index, start)) values.add(value);
+            } else if (ts.isVariableDeclaration(d) || ts.isParameter(d)) queue.push(d.initializer);
+          }
+          queue.push(...assignedValues.get(symbol) ?? [], ...parameterValues.get(symbol) ?? []);
+        }
+      }
+    }
+    return [...values];
+  };
+  let projectionCache = new Map();
+  const projectedValues = node => {
+    if (!ts.isElementAccessExpression(node)) return [];
+    if (!projectionCache.has(node)) {
+      const key = unwrap(node.argumentExpression);
+      const index = key && (ts.isNumericLiteral(key) || ts.isStringLiteralLike(key)) && /^(?:0|[1-9][0-9]*)$/.test(key.text) ? Number(key.text) : undefined;
+      projectionCache.set(node, containerValues(node.expression, index));
+    }
+    return projectionCache.get(node);
+  };
   const reflectionKind = node => {
     node = unwrap(node);
     if (!node) return;
@@ -89,17 +138,22 @@ export function dependencyReferences(source, file = "boundary.ts", ts = parser()
       if (node.getText(ast) === "Reflect.get") return "get";
     }
   };
-  const globalValue = node => {
+  const globalValue = (node, seen = new Set()) => {
     node = unwrap(node);
-    return node && (isGlobal(node) || ts.isIdentifier(node) && aliases.has(checker.getSymbolAtLocation(node))
+    if (!node || seen.has(node)) return false;
+    seen.add(node);
+    return isGlobal(node) || ts.isIdentifier(node) && aliases.has(checker.getSymbolAtLocation(node))
+      || projectedValues(node).some(value => globalValue(value, new Set(seen)))
       || ts.isCallExpression(node) && functionTargets(node.expression).some(fn => globalReturns.has(fn))
-      || ts.isBinaryExpression(node) && node.operatorToken.kind === ts.SyntaxKind.CommaToken && globalValue(node.right)
-      || ts.isConditionalExpression(node) && (globalValue(node.whenTrue) || globalValue(node.whenFalse))
-      || ts.isBinaryExpression(node) && [ts.SyntaxKind.BarBarToken, ts.SyntaxKind.AmpersandAmpersandToken, ts.SyntaxKind.QuestionQuestionToken].includes(node.operatorToken.kind) && (globalValue(node.left) || globalValue(node.right)));
+      || ts.isBinaryExpression(node) && node.operatorToken.kind === ts.SyntaxKind.CommaToken && globalValue(node.right, new Set(seen))
+      || ts.isConditionalExpression(node) && (globalValue(node.whenTrue, new Set(seen)) || globalValue(node.whenFalse, new Set(seen)))
+      || ts.isBinaryExpression(node) && [ts.SyntaxKind.BarBarToken, ts.SyntaxKind.AmpersandAmpersandToken, ts.SyntaxKind.QuestionQuestionToken].includes(node.operatorToken.kind) && (globalValue(node.left, new Set(seen)) || globalValue(node.right, new Set(seen)));
   };
   const functionValue = (node, seen = new Set(), prototypeOnly = false) => {
     node = unwrap(node);
-    if (!node) return false;
+    if (!node || seen.has(node)) return false;
+    seen.add(node);
+    if (projectedValues(node).some(value => functionValue(value, new Set(seen), prototypeOnly))) return true;
     if (ts.isArrowFunction(node) || ts.isFunctionExpression(node) || ts.isClassExpression(node)) return !prototypeOnly;
     if (ts.isConditionalExpression(node)) return functionValue(node.whenTrue, new Set(seen), prototypeOnly) || functionValue(node.whenFalse, new Set(seen), prototypeOnly);
     if (ts.isBinaryExpression(node)) {
@@ -120,11 +174,8 @@ export function dependencyReferences(source, file = "boundary.ts", ts = parser()
       const symbol = checker.getSymbolAtLocation(node);
       if (!prototypeOnly && !symbol && ["Object", "Array", "String", "Number", "Boolean", "Symbol", "BigInt", "Date", "RegExp", "Promise", "Error", "Map", "Set", "WeakMap", "WeakSet"].includes(node.text)) return true;
       if (symbol && (prototypeAliases.has(symbol) || !prototypeOnly && functionAliases.has(symbol))) return true;
-      if (symbol && !seen.has(symbol)) {
-        seen.add(symbol);
-        if (symbol.declarations?.some(d => ts.isVariableDeclaration(d) && functionValue(d.initializer, new Set(seen), prototypeOnly))
-          || [...assignedValues.get(symbol) ?? []].some(value => functionValue(value, new Set(seen), prototypeOnly))) return true;
-      }
+      // Declaration/assignment edges are propagated by the fixed-point binder.
+      // Recursively re-expanding them here multiplies dense alias DAG paths.
     }
     if (prototypeOnly) return false;
     const type = checker.getTypeAtLocation(node);
@@ -136,6 +187,7 @@ export function dependencyReferences(source, file = "boundary.ts", ts = parser()
     let changed;
     do {
       changed = false;
+      projectionCache = new Map();
       const bind = node => {
         const name = ts.isVariableDeclaration(node) ? node.name : ts.isBinaryExpression(node) && node.operatorToken.kind === ts.SyntaxKind.EqualsToken ? node.left : null;
         const value = ts.isVariableDeclaration(node) ? node.initializer : node.right;
@@ -158,9 +210,17 @@ export function dependencyReferences(source, file = "boundary.ts", ts = parser()
         }
         if (ts.isCallExpression(node)) for (const { fn, args } of invocation(node).filter(call => call.fn)) {
           args.forEach((argument, index) => {
+            if (!argumentSlots.has(fn)) argumentSlots.set(fn, new Map());
+            const slots = argumentSlots.get(fn);
+            if (!slots.has(index)) slots.set(index, new Set());
+            if (!slots.get(index).has(argument)) { slots.get(index).add(argument); changed = true; }
             const parameter = fn.parameters[index];
             if (parameter && ts.isIdentifier(parameter.name) && !parameter.dotDotDotToken) {
               const symbol = checker.getSymbolAtLocation(parameter.name);
+              if (symbol) {
+                if (!parameterValues.has(symbol)) parameterValues.set(symbol, new Set());
+                if (!parameterValues.get(symbol).has(argument)) { parameterValues.get(symbol).add(argument); changed = true; }
+              }
               if (symbol && functionValue(argument) && !functionAliases.has(symbol)) { functionAliases.add(symbol); changed = true; }
               if (symbol && functionValue(argument, new Set(), true) && !prototypeAliases.has(symbol)) { prototypeAliases.add(symbol); changed = true; }
             }
