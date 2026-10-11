@@ -363,6 +363,70 @@ test("opaque object constructor chains retain refusal states without tainting or
   ]) for(const kind of ["browser","gateway"])for(const bundled of [false,true])assert.doesNotThrow(()=>dependencyReferences(source,"object-constructor.js",undefined,{kind,bundled}),source);
 });
 
+test("synthesized constructor keys from string, array and record decoding stay refused", () => {
+  const payload = '"globalThis.canary=true"', tail = 'const data={}; const first=data[key]; first[key](' + payload + ')();';
+  const negatives = [
+    'const key=String.fromCharCode.apply(null,[99,111,110,115,116,114,117,99,116,111,114]); ',
+    'const key="constr".concat("uctor"); ',
+    'const key=`constr${"uctor"}`; ',
+    'const key="constructoX".replace("X","r"); ',
+    'const key="Xconstructor".replaceAll("X",""); ',
+    'const key="constr,uctor".split(",").join(""); ',
+    'const key=Array.from("constructor").join(""); ',
+    'const key=[..."constructor"].join(""); ',
+    'const key="constructor".padEnd(11); ',
+    'const key="CONSTRUCTOR".toLowerCase(); ',
+    'const key=" constructor".trimStart(); ',
+    'const key=String.raw`constructor`; ',
+    'const key=String.fromCharCode(99,111,110,115,116,114,117,99,116,111,114+0); ',
+    'const key="constructor".slice(0,11); ',
+    'const key=decodeURIComponent("construc%74or"); ',
+    'const key=unescape("constructor"); ',
+    'const key=JSON.parse("\\"constructor\\""); ',
+    'const key=new String("constructor").valueOf(); ',
+    'const key=Object.keys({constructor:1})[0]; ',
+    'const key=Reflect.ownKeys({constructor:1})[0]; ',
+    'function f(){return "constructor";} const key=f(); ',
+    'function f(a,b){return a+b;} const key=f("constr","uctor"); ',
+    'const f=()=>"constructor"; const key=f(); ',
+    'const key=(function(){return ["constr","uctor"].join("");})(); ',
+    'const [key]=["constructor"]; ',
+    'const {k:key}={k:"constructor"}; ',
+    'const key=Object.fromEntries([["k","constructor"]]).k; ',
+    'const key=["constructor"][0]; ',
+    'const key="constructor".charAt(0)+"constructor".substring(1); ',
+  ];
+  for (const builder of negatives) {
+    const source = builder + tail, context = {};
+    vm.runInNewContext(source, context, { timeout: 1000 }); assert.equal(context.canary, true, source);
+    for (const kind of ["browser", "gateway"]) for (const bundled of [false, true]) assert.throws(() => dependencyReferences(source, "key-decode.js", undefined, { kind, bundled }), /loader|evaluation/, source);
+  }
+  const positives = [
+    'const key=String.fromCharCode(97,98,99); const data={}; data[key];',
+    'const key="abc".concat("def"); const data={}; data[key];',
+    'const key=`ab${"c"}`; const data={}; data[key];',
+    'const key="aXb".replace("X",""); const data={}; data[key];',
+    'const key="a,b".split(",").join(""); const data={}; data[key];',
+    'const key=Array.from("abc").join(""); const data={}; data[key];',
+    'const key=[..."abc"].join(""); const data={}; data[key];',
+    'const key="AB".toLowerCase(); const data={}; data[key];',
+    'const key=" ab ".trimStart(); const data={}; data[key];',
+    'function f(a,b){return a+b;} const key=f("a","b"); const data={}; data[key];',
+    'const [key]=["a","b"]; const data={}; data[key];',
+    'const {k:key}={k:"a"}; const data={}; data[key];',
+    'const key=Object.fromEntries([["k","a"]]).k; const data={}; data[key];',
+    'const key=Object.keys({ab:1})[0]; const data={}; data[key];',
+    'const key=JSON.parse("\\"ab\\""); const data={}; data[key];',
+    'const key=new String("ab").valueOf(); const data={}; data[key];',
+    'const key="abcdef".substring(0,2); const data={}; data[key];',
+    'const key=String.fromCharCode(99,111); const data={constructor:1}; data[key];',
+    'const String={fromCharCode:()=>"constructor"}; const key=String.fromCharCode(99); const data={}; data[key];',
+    'const key=String.fromCharCode(97,98,99); const data=[[()=>1]]; data[key][0];',
+    'const key=String.fromCharCode(97,98,99); const fn={constructor:null}; fn[key];',
+  ];
+  for (const source of positives) for (const kind of ["browser", "gateway"]) for (const bundled of [false, true]) assert.doesNotThrow(() => dependencyReferences(source, "key-decode.js", undefined, { kind, bundled }), source);
+});
+
 test("returned function invocation targets retain capabilities, bindings and unknown alternatives", () => {
   const key = 'const key=String.fromCharCode(99,111,110,115,116,114,117,99,116,111,114); ', payload = '"globalThis.canary=true"';
   for (const probe of [

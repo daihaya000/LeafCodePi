@@ -8,7 +8,7 @@ import test from "node:test";
 import { spaBuildEnvironment, spaSourceSnapshot } from "./spa-build-generation.mjs";
 const ROOT = resolve(fileURLToPath(new URL("../", import.meta.url)));
 
-test("real production Browser build refuses plain-object opaque constructor chains", { timeout: 420000 }, async t => {
+test("real production Browser build refuses plain-object opaque constructor chains", { timeout: 900000 }, async t => {
   const root = mkdtempSync(join(tmpdir(), "browser-object-constructor-"));
   t.after(() => rmSync(root, { recursive: true, force: true }));
   for (const [path, bytes] of spaSourceSnapshot(ROOT).files) {
@@ -29,20 +29,24 @@ test("real production Browser build refuses plain-object opaque constructor chai
   result = await run(args); assert.equal(result.code, 0, result.output);
   const output = join(web, "dist-spa"); assert.equal(existsSync(join(output, "index.html")), true);
   const vendor = join(web, "node_modules/next-themes/dist/index.mjs"), original = readFileSync(vendor, "utf8");
-  const key = 'const key=String.fromCharCode(99,111,110,115,116,114,117,99,116,111,114); ';
   const probes = [
-    'const data={};const first=data[key];first[key]("globalThis.__P4_OBJECT_DIRECT__=true")();',
-    'function read(data){const first=data[key];return ()=>first;}read({})()[key]("globalThis.__P4_OBJECT_CLOSURE__=true")();',
-    'function make(){return{};}make()[key][key]("globalThis.__P4_OBJECT_RETURN__=true")();',
-    'const data=[];const first=data[key];first[key]("globalThis.__P4_OBJECT_ARRAY__=true")();',
+    { label: "direct", key: 'const key=String.fromCharCode(99,111,110,115,116,114,117,99,116,111,114); ', body: 'const data={};const first=data[key];first[key]("globalThis.__P4_OBJECT_DIRECT__=true")();' },
+    { label: "template", key: 'const key=`constr${"uctor"}`; ', body: 'const data={};const first=data[key];first[key]("globalThis.__P4_OBJECT_TEMPLATE__=true")();' },
+    { label: "concat", key: 'const key="constr".concat("uctor"); ', body: 'const data={};const first=data[key];first[key]("globalThis.__P4_OBJECT_CONCAT__=true")();' },
+    { label: "split-join", key: 'const key="constr,uctor".split(",").join(""); ', body: 'const data={};const first=data[key];first[key]("globalThis.__P4_OBJECT_SPLITJOIN__=true")();' },
+    { label: "returned-call", key: 'function f(a,b){return a+b;}const key=f("constr","uctor"); ', body: 'const data={};const first=data[key];first[key]("globalThis.__P4_OBJECT_RETURNEDCALL__=true")();' },
+    { label: "fromEntries", key: 'const key=Object.fromEntries([["k","constructor"]]).k; ', body: 'const data={};const first=data[key];first[key]("globalThis.__P4_OBJECT_FROMENTRIES__=true")();' },
   ];
-  for (const probe of probes) {
+  for (const { label, key, body } of probes) {
     rmSync(output, { recursive: true, force: true });
-    writeFileSync(vendor, original + "\n" + key + probe + "\n");
-    result = await run(args); assert.notEqual(result.code, 0, "Opaque object constructor chain passed production build");
-    assert.match(result.output, /loader.*forbidden|evaluation forbidden/, result.output);
-    assert.equal(existsSync(join(output, "index.html")), false);
-    assert.equal(existsSync(join(output, "assets")) && readdirSync(join(output, "assets")).some(name => name.endsWith(".js")), false);
+    writeFileSync(vendor, original + "\n" + key + body + "\n");
+    result = await run(args); assert.notEqual(result.code, 0, "Opaque object constructor chain passed production build: " + label);
+    assert.match(result.output, /loader.*forbidden|evaluation forbidden/, label + ": " + result.output);
+    assert.equal(existsSync(join(output, "index.html")), false, label);
+    assert.equal(existsSync(join(output, "assets")) && readdirSync(join(output, "assets")).some(name => name.endsWith(".js")), false, label);
+    t.diagnostic(JSON.stringify({ probe: label, buildCode: result.code, refusal: (result.output.match(/loader[^\n]*forbidden[^\n]*|evaluation forbidden[^\n]*/) ?? [])[0] }));
   }
+  writeFileSync(vendor, original);
+  assert.equal(readFileSync(vendor, "utf8"), original);
   t.diagnostic(JSON.stringify({ cleanInstall: true, healthyBuild: true, vendorRefusals: probes.length, emittedUnsafeJavaScript: false }));
 });

@@ -349,6 +349,12 @@ export function dependencyReferences(source, file = "boundary.ts", ts = parser()
     } while (changed);
   }
   const keyCache = new Map();
+  // Inline frames make decoding caller-dependent, so caching stays off while a frame is active.
+  const substitutions = [];
+  const frameValue = symbol => {
+    for (let index = substitutions.length - 1; index >= 0; index--) if (substitutions[index].has(symbol)) return substitutions[index].get(symbol);
+    return undefined;
+  };
   const unknownKey = () => ({ values: new Set(), unknown: true });
   const combineKeys = (left, right, separator = "") => {
     const values = new Set(); let unknown = left.unknown || right.unknown;
@@ -363,7 +369,7 @@ export function dependencyReferences(source, file = "boundary.ts", ts = parser()
   const keyCandidates = (root, active = new Set()) => {
     root = unwrap(root);
     if (!root || active.has(root)) return unknownKey();
-    if (keyCache.has(root)) return keyCache.get(root);
+    if (!substitutions.length && keyCache.has(root)) return keyCache.get(root);
     const next = new Set(active); next.add(root);
     const evaluate = node => keyCandidates(node, next);
     const union = nodes => {
@@ -397,57 +403,43 @@ export function dependencyReferences(source, file = "boundary.ts", ts = parser()
       else if ([ts.SyntaxKind.BarBarToken, ts.SyntaxKind.AmpersandAmpersandToken, ts.SyntaxKind.QuestionQuestionToken].includes(root.operatorToken.kind)) result = { ...union([root.left, root.right]), unknown: true };
     } else if (ts.isIdentifier(root)) {
       const symbol = checker.getSymbolAtLocation(root);
-      const values = [...symbol?.declarations?.filter(d => ts.isVariableDeclaration(d) || ts.isParameter(d)).flatMap(d => d.initializer ? [d.initializer] : []) ?? [], ...assignedValues.get(symbol) ?? [], ...parameterValues.get(symbol) ?? []];
-      result = union(values);
-      // Parameters can also be reached by unmodelled callers; never grant an exact-key permission.
-      if (symbol?.declarations?.some(ts.isParameter)) result.unknown = true;
+      const frame = symbol ? frameValue(symbol) : undefined;
+      if (frame) result = frame;
+      else {
+        const values = [...symbol?.declarations?.filter(d => ts.isVariableDeclaration(d) || ts.isParameter(d)).flatMap(d => d.initializer ? [d.initializer] : []) ?? [], ...assignedValues.get(symbol) ?? [], ...parameterValues.get(symbol) ?? []];
+        result = union(values);
+        for (const declaration of symbol?.declarations ?? []) if (ts.isBindingElement(declaration)) {
+          const bound = bindingKeys(declaration);
+          result.unknown ||= bound.unknown;
+          for (const value of bound.values) result.values.add(value);
+        }
+        // Parameters can also be reached by unmodelled callers; never grant an exact-key permission.
+        if (symbol?.declarations?.some(ts.isParameter)) result.unknown = true;
+      }
     } else if (ts.isPropertyAccessExpression(root) && localMethod(root)) {
       const symbol = checker.getSymbolAtLocation(root.name);
       result = union(symbol?.declarations?.filter(ts.isPropertyAssignment).map(d => d.initializer) ?? []);
+    } else if (ts.isPropertyAccessExpression(root)) {
+      const value = recordKeys(root.expression, next)?.get(root.name.text);
+      if (value) result = value;
+    } else if (ts.isElementAccessExpression(root)) {
+      result = elementKey(root, next);
+    } else if (ts.isTemplateExpression(root)) {
+      result = templateKeys(root, next);
+    } else if (ts.isTaggedTemplateExpression(root)) {
+      const tag = unwrap(root.tag), template = root.template;
+      if (ts.isPropertyAccessExpression(tag) && tag.name.text === "raw" && ts.isIdentifier(tag.expression)
+        && tag.expression.text === "String" && !localValue(tag.expression) && ts.isNoSubstitutionTemplateLiteral(template))
+        result = { values: new Set([template.rawText ?? template.text]), unknown: false };
+    } else if (ts.isNewExpression(root)) {
+      const constructor = unwrap(root.expression);
+      if (ts.isIdentifier(constructor) && constructor.text === "String" && !localValue(constructor) && root.arguments?.length === 1) result = evaluate(root.arguments[0]);
     } else if (ts.isCallExpression(root)) {
       // Synthesized keys are decoded only to add refusals; anything undecodable stays unknown.
-      const callee = root.expression, named = ts.isPropertyAccessExpression(callee);
-      const called = named ? callee.name.text : ts.isIdentifier(callee) ? callee.text : undefined;
-      const receiver = named ? callee.expression : undefined;
-      const builtin = named ? !localMethod(callee) : ts.isIdentifier(callee) && !localValue(callee);
-      const numbers = node => {
-        const value = unwrap(node), array = ts.isSpreadElement(value) ? unwrap(value.expression) : value;
-        if (ts.isArrayLiteralExpression(array)) return array.elements.flatMap(element => ts.isSpreadElement(element) ? numbers(element.expression) : [constantNumber(element)]);
-        if (ts.isIdentifier(array)) return [...containerValues(array, undefined), ...assignedValues.get(checker.getSymbolAtLocation(array)) ?? []].flatMap(value => [constantNumber(value)]);
-        return [constantNumber(value)];
-      };
-      const codes = root.arguments.flatMap(numbers);
-      const offsets = root.arguments.map(constantNumber);
-      const source = receiver ? evaluate(receiver) : { values: new Set(), unknown: true };
-      const text = source.unknown || source.values.size !== 1 ? undefined : [...source.values][0];
-      if (builtin && receiver?.getText(ast) === "String" && ["fromCharCode", "fromCodePoint"].includes(called)
-        && codes.length && codes.length <= 64 && codes.every(point => Number.isInteger(point) && point >= 0 && point <= 0x10ffff)) {
-        result = { values: new Set([(called === "fromCodePoint" ? String.fromCodePoint : String.fromCharCode)(...codes)]), unknown: false };
-      } else if (builtin && ["decodeURIComponent", "decodeURI"].includes(called)
-        && root.arguments.length === 1 && staticString(root.arguments[0]) !== undefined) {
-        try { result = { values: new Set([(called === "decodeURIComponent" ? decodeURIComponent : decodeURI)(staticString(root.arguments[0]))]), unknown: false }; } catch { /* malformed escapes stay unknown */ }
-      } else if (builtin && text !== undefined && ["slice", "substring", "substr", "at", "charAt"].includes(called)
-        && offsets.length <= 2 && offsets.every(offset => offset !== undefined)) {
-        const value = called === "slice" ? text.slice(offsets[0], offsets[1])
-          : called === "substring" ? text.substring(offsets[0], offsets[1])
-            : called === "substr" ? text.substr(offsets[0], offsets[1])
-              : called === "charAt" ? text.charAt(offsets[0]) : text.at(offsets[0]);
-        if (typeof value === "string" && value.length <= 4096) result = { values: new Set([value]), unknown: false };
-      } else if (builtin && called === "join") {
-        const array = unwrap(receiver);
-        if (ts.isArrayLiteralExpression(array) && array.elements.every(node => !ts.isSpreadElement(node) && !ts.isOmittedExpression(node))) {
-          const separator = root.arguments.length ? evaluate(root.arguments[0]) : { values: new Set([","]), unknown: false };
-          result = { values: new Set(), unknown: separator.unknown || root.arguments.length > 1 };
-          for (const sep of separator.values) {
-            let joined = { values: new Set([""]), unknown: false };
-            array.elements.forEach((node, index) => { joined = combineKeys(joined, evaluate(node), index ? sep : ""); });
-            result.unknown ||= joined.unknown; for (const value of joined.values) result.values.add(value);
-          }
-        }
-      }
+      result = inlineKeys(root, next) ?? builtinKeys(root, next, evaluate) ?? unknownKey();
     }
     // Cache only complete root queries. Cyclic/context-dependent subqueries must not hide alternatives.
-    if (active.size === 0 || !result.unknown) keyCache.set(root, result);
+    if (!substitutions.length && (active.size === 0 || !result.unknown)) keyCache.set(root, result);
     return result;
   };
   // Candidate decoding adds refusals only; do not widen any exact-key permission.
@@ -464,9 +456,9 @@ export function dependencyReferences(source, file = "boundary.ts", ts = parser()
     node = unwrap(node);
     if (!node) return undefined;
     if (ts.isNumericLiteral(node)) { const value = Number(node.text); return Number.isFinite(value) ? value : undefined; }
-    if (ts.isPrefixUnaryExpression(node) && [ts.SyntaxKind.MinusToken, ts.SyntaxKind.PlusToken].includes(node.operator)) {
+    if (ts.isPrefixUnaryExpression(node) && [ts.SyntaxKind.MinusToken, ts.SyntaxKind.PlusToken, ts.SyntaxKind.TildeToken].includes(node.operator)) {
       const value = constantNumber(node.operand);
-      return value === undefined ? undefined : node.operator === ts.SyntaxKind.MinusToken ? -value : value;
+      return value === undefined ? undefined : node.operator === ts.SyntaxKind.MinusToken ? -value : node.operator === ts.SyntaxKind.TildeToken ? ~value : value;
     }
     if (ts.isBinaryExpression(node)) {
       const left = constantNumber(node.left), right = constantNumber(node.right);
@@ -481,6 +473,280 @@ export function dependencyReferences(source, file = "boundary.ts", ts = parser()
     }
   };
   const localValue = node => ts.isIdentifier(node) && checker.getSymbolAtLocation(node)?.declarations?.some(d => d.getSourceFile() === ast);
+  const propertyName = name => ts.isIdentifier(name) || ts.isNumericLiteral(name) ? name.text : ts.isStringLiteralLike(name) ? name.text : undefined;
+  // Structural decoding for statically known strings, arrays and records; anything else stays unknown.
+  const stringValue = (node, active) => {
+    const decoded = keyCandidates(node, active);
+    return !decoded.unknown && decoded.values.size === 1 ? [...decoded.values][0] : undefined;
+  };
+  const charValues = text => text.split("").map(value => ({ values: new Set([value]), unknown: false }));
+  const arrayValues = (node, active) => {
+    const root = unwrap(node);
+    if (!root || active.has(root)) return undefined;
+    const next = new Set(active); next.add(root);
+    if (ts.isArrayLiteralExpression(root)) {
+      const values = [];
+      for (const element of root.elements) {
+        if (ts.isOmittedExpression(element)) return undefined;
+        if (ts.isSpreadElement(element)) {
+          const text = stringValue(element.expression, next);
+          if (text !== undefined) { if (values.length + text.length > 256) return undefined; values.push(...charValues(text)); continue; }
+          const spread = arrayValues(element.expression, next);
+          if (!spread || values.length + spread.length > 256) return undefined;
+          values.push(...spread); continue;
+        }
+        values.push(keyCandidates(element, next));
+        if (values.length > 256) return undefined;
+      }
+      return values;
+    }
+    if (!ts.isCallExpression(root) || root.arguments.length > 2) return undefined;
+    const callee = root.expression, named = ts.isPropertyAccessExpression(callee);
+    const called = named ? callee.name.text : ts.isIdentifier(callee) ? callee.text : undefined;
+    const receiver = named ? callee.expression : undefined;
+    if (!(named ? !localMethod(callee) : ts.isIdentifier(callee) && !localValue(callee))) return undefined;
+    if (named && called === "split" && root.arguments.length === 1) {
+      const text = stringValue(receiver, next), separator = stringValue(root.arguments[0], next);
+      if (text === undefined || separator === undefined || text.length > 256) return undefined;
+      const parts = separator === "" ? text.split("") : text.split(separator);
+      return parts.length > 256 ? undefined : parts.map(value => ({ values: new Set([value]), unknown: false }));
+    }
+    if (named && called === "from" && ts.isIdentifier(receiver) && receiver.text === "Array" && !localValue(receiver) && root.arguments.length === 1) {
+      const text = stringValue(root.arguments[0], next);
+      if (text !== undefined) return text.length > 256 ? undefined : charValues(text);
+      return arrayValues(root.arguments[0], next);
+    }
+    if (named && called === "slice" && root.arguments.length <= 2) {
+      const values = arrayValues(receiver, next);
+      if (!values) return undefined;
+      if (!root.arguments.length) return values;
+      const start = constantNumber(root.arguments[0]);
+      const end = root.arguments.length > 1 ? constantNumber(root.arguments[1]) : undefined;
+      if (start === undefined || !Number.isInteger(start) || root.arguments.length > 1 && (end === undefined || !Number.isInteger(end))) return undefined;
+      return values.slice(start, end);
+    }
+    if (named && called === "reverse" && root.arguments.length === 0) {
+      const values = arrayValues(receiver, next);
+      return values ? [...values].reverse() : undefined;
+    }
+    if (named && called === "concat") {
+      const values = arrayValues(receiver, next);
+      if (!values) return undefined;
+      const merged = [...values];
+      for (const argument of root.arguments) {
+        const text = stringValue(argument, next);
+        if (text !== undefined) { if (merged.length + text.length > 256) return undefined; merged.push(...charValues(text)); continue; }
+        const extra = arrayValues(argument, next);
+        if (!extra || merged.length + extra.length > 256) return undefined;
+        merged.push(...extra);
+      }
+      return merged;
+    }
+    if (named && ts.isIdentifier(receiver) && !localValue(receiver) && root.arguments.length === 1
+      && (receiver.text === "Object" && ["keys", "getOwnPropertyNames"].includes(called) || receiver.text === "Reflect" && called === "ownKeys")) {
+      const target = unwrap(root.arguments[0]);
+      if (!ts.isObjectLiteralExpression(target) || !target.properties.length || target.properties.length > 256) return undefined;
+      const names = target.properties.map(property => propertyName(property.name));
+      return names.some(name => name === undefined) ? undefined : names.map(value => ({ values: new Set([value]), unknown: false }));
+    }
+  };
+  const recordKeys = (node, active) => {
+    const root = unwrap(node);
+    if (!root || active.has(root)) return undefined;
+    const next = new Set(active); next.add(root);
+    if (ts.isObjectLiteralExpression(root)) {
+      if (!root.properties.length || root.properties.length > 256) return undefined;
+      const map = new Map();
+      for (const property of root.properties) {
+        if (ts.isPropertyAssignment(property)) {
+          const key = propertyName(property.name);
+          if (key === undefined) return undefined;
+          map.set(key, keyCandidates(property.initializer, next));
+        } else if (ts.isShorthandPropertyAssignment(property)) map.set(property.name.text, keyCandidates(property.name, next));
+        else if (ts.isMethodDeclaration(property) || ts.isGetAccessorDeclaration(property) || ts.isSetAccessorDeclaration(property)) {
+          const key = propertyName(property.name);
+          if (key === undefined) return undefined;
+          map.set(key, unknownKey());
+        } else return undefined;
+      }
+      return map;
+    }
+    if (!ts.isCallExpression(root) || root.arguments.length !== 1) return undefined;
+    const callee = root.expression;
+    if (!ts.isPropertyAccessExpression(callee) || callee.name.text !== "fromEntries" || !ts.isIdentifier(callee.expression)
+      || callee.expression.text !== "Object" || localValue(callee.expression)) return undefined;
+    const entries = unwrap(root.arguments[0]);
+    if (!ts.isArrayLiteralExpression(entries) || !entries.elements.length || entries.elements.length > 256) return undefined;
+    const map = new Map();
+    for (const element of entries.elements) {
+      const pair = unwrap(element);
+      if (!ts.isArrayLiteralExpression(pair) || pair.elements.length !== 2 || pair.elements.some(part => ts.isSpreadElement(part))) return undefined;
+      const key = stringValue(pair.elements[0], next);
+      if (key === undefined) return undefined;
+      map.set(key, keyCandidates(pair.elements[1], next));
+    }
+    return map;
+  };
+  const templateKeys = (node, active, raw = false) => {
+    const literal = part => raw ? part.rawText ?? part.text : part.text;
+    let values = { values: new Set([literal(node.head)]), unknown: false };
+    for (const span of node.templateSpans) {
+      values = combineKeys(values, keyCandidates(span.expression, active));
+      values = combineKeys(values, { values: new Set([literal(span.literal)]), unknown: false });
+    }
+    return values;
+  };
+  const elementKey = (node, active) => {
+    const index = constantNumber(node.argumentExpression);
+    if (index === undefined || !Number.isInteger(index) || index < 0 || index > 4096) return unknownKey();
+    const text = stringValue(node.expression, active);
+    if (text !== undefined) return { values: new Set(index < text.length ? [text[index]] : []), unknown: false };
+    const array = arrayValues(node.expression, active);
+    return array && index < array.length ? array[index] : unknownKey();
+  };
+  const bindingKeys = element => {
+    const pattern = element.parent, declaration = pattern?.parent;
+    if (!pattern || !(ts.isArrayBindingPattern(pattern) || ts.isObjectBindingPattern(pattern))) return unknownKey();
+    if (!(ts.isVariableDeclaration(declaration) || ts.isParameter(declaration)) || !declaration.initializer || element.dotDotDotToken) return unknownKey();
+    const source = unwrap(declaration.initializer);
+    if (ts.isArrayBindingPattern(pattern)) {
+      const index = pattern.elements.indexOf(element);
+      const values = index < 0 ? undefined : arrayValues(source, new Set());
+      return values && index < values.length ? values[index] : unknownKey();
+    }
+    const name = element.propertyName ?? element.name;
+    const key = propertyName(name);
+    if (key === undefined) return unknownKey();
+    return recordKeys(source, new Set())?.get(key) ?? unknownKey();
+  };
+  const inlineTarget = node => {
+    const callee = unwrap(node.expression);
+    if (!callee) return undefined;
+    if (ts.isArrowFunction(callee) || ts.isFunctionExpression(callee)) return callee;
+    if (!ts.isIdentifier(callee)) return undefined;
+    for (const declaration of checker.getSymbolAtLocation(callee)?.declarations ?? []) {
+      if (ts.isFunctionDeclaration(declaration)) return declaration;
+      if (ts.isVariableDeclaration(declaration) && declaration.initializer) {
+        const value = unwrap(declaration.initializer);
+        if (ts.isArrowFunction(value) || ts.isFunctionExpression(value)) return value;
+      }
+    }
+  };
+  // A function decodes only when its body is exactly one returned expression and no parameter is rebound.
+  const inlineKeys = (call, active) => {
+    if (active.size > 8) return undefined;
+    const fn = inlineTarget(call);
+    if (!fn || fn.parameters.length > 4 || call.arguments.length > 4) return undefined;
+    if (fn.parameters.some(parameter => parameter.dotDotDotToken || !ts.isIdentifier(parameter.name))) return undefined;
+    let returned;
+    if (ts.isBlock(fn.body)) {
+      if (fn.body.statements.length !== 1 || !ts.isReturnStatement(fn.body.statements[0])) return undefined;
+      returned = fn.body.statements[0].expression;
+    } else returned = fn.body;
+    if (!returned || active.has(fn)) return undefined;
+    const symbols = fn.parameters.map(parameter => checker.getSymbolAtLocation(parameter.name));
+    if (symbols.some(symbol => !symbol)) return undefined;
+    const next = new Set(active); next.add(fn);
+    const frame = new Map();
+    fn.parameters.forEach((parameter, index) => {
+      if (index < call.arguments.length) frame.set(symbols[index], keyCandidates(call.arguments[index], next));
+      else if (parameter.initializer) frame.set(symbols[index], keyCandidates(parameter.initializer, next));
+      else frame.set(symbols[index], unknownKey());
+    });
+    substitutions.push(frame);
+    try { return keyCandidates(returned, next); } finally { substitutions.pop(); }
+  };
+  // Builtin string synthesis decoding; every branch only adds refusals.
+  const builtinKeys = (call, active, evaluate) => {
+    const callee = call.expression, named = ts.isPropertyAccessExpression(callee);
+    const called = named ? callee.name.text : ts.isIdentifier(callee) ? callee.text : undefined;
+    const receiver = named ? callee.expression : undefined;
+    if (!called || !(named ? !localMethod(callee) : ts.isIdentifier(callee) && !localValue(callee))) return undefined;
+    const target = receiver ? unwrap(receiver) : undefined;
+    const numbers = node => {
+      const value = unwrap(node), array = ts.isSpreadElement(value) ? unwrap(value.expression) : value;
+      if (ts.isArrayLiteralExpression(array)) return array.elements.flatMap(element => ts.isSpreadElement(element) ? numbers(element.expression) : [constantNumber(element)]);
+      if (ts.isIdentifier(array)) return [...containerValues(array, undefined), ...assignedValues.get(checker.getSymbolAtLocation(array)) ?? []].flatMap(value => [constantNumber(value)]);
+      return [constantNumber(value)];
+    };
+    const points = values => values.length && values.length <= 64 && values.every(point => Number.isInteger(point) && point >= 0 && point <= 0x10ffff) ? values : undefined;
+    const offsets = call.arguments.map(constantNumber);
+    const source = evaluate(receiver);
+    const text = !source.unknown && source.values.size === 1 ? [...source.values][0] : undefined;
+    if (target?.getText(ast) === "String" && ["fromCharCode", "fromCodePoint"].includes(called)) {
+      const codes = points(call.arguments.flatMap(numbers));
+      if (codes) return { values: new Set([(called === "fromCodePoint" ? String.fromCodePoint : String.fromCharCode)(...codes)]), unknown: false };
+    }
+    if (!named && ["decodeURIComponent", "decodeURI", "unescape", "escape"].includes(called)
+      && call.arguments.length === 1 && staticString(call.arguments[0]) !== undefined) {
+      const decoder = { decodeURIComponent, decodeURI, unescape, escape }[called];
+      try { return { values: new Set([decoder(staticString(call.arguments[0]))]), unknown: false }; } catch { return undefined; }
+    }
+    if (target && ts.isPropertyAccessExpression(target) && ["call", "apply"].includes(called) && ts.isIdentifier(target.expression)
+      && target.expression.text === "String" && !localValue(target.expression) && ["fromCharCode", "fromCodePoint"].includes(target.name.text)
+      && (called === "call" || call.arguments.length === 2)) {
+      const codes = points((called === "call" ? call.arguments.slice(1) : [call.arguments[1]]).flatMap(numbers));
+      if (codes) return { values: new Set([(target.name.text === "fromCodePoint" ? String.fromCodePoint : String.fromCharCode)(...codes)]), unknown: false };
+    }
+    if (text !== undefined && ["padEnd", "padStart"].includes(called) && call.arguments.length && call.arguments.length <= 2) {
+      const length = constantNumber(call.arguments[0]);
+      const pad = call.arguments.length === 2 ? staticString(call.arguments[1]) : " ";
+      if (length !== undefined && Number.isInteger(length) && length >= 0 && length <= 4096 && pad !== undefined) {
+        const value = called === "padEnd" ? text.padEnd(length, pad) : text.padStart(length, pad);
+        if (value.length <= 4096) return { values: new Set([value]), unknown: false };
+      }
+    }
+    if (text !== undefined && ["slice", "substring", "substr", "at", "charAt"].includes(called)
+      && offsets.length <= 2 && offsets.every(offset => offset !== undefined)) {
+      const value = called === "slice" ? text.slice(offsets[0], offsets[1])
+        : called === "substring" ? text.substring(offsets[0], offsets[1])
+          : called === "substr" ? text.substr(offsets[0], offsets[1])
+            : called === "charAt" ? text.charAt(offsets[0]) : text.at(offsets[0]);
+      if (typeof value === "string" && value.length <= 4096) return { values: new Set([value]), unknown: false };
+    }
+    if (text !== undefined && ["replace", "replaceAll"].includes(called) && call.arguments.length && call.arguments.length <= 2) {
+      const search = staticString(call.arguments[0]);
+      const replacement = call.arguments.length === 2 ? staticString(call.arguments[1]) : "";
+      if (search !== undefined && replacement !== undefined) {
+        const value = text[called](search, replacement);
+        if (value.length <= 4096) return { values: new Set([value]), unknown: false };
+      }
+    }
+    if (called === "join") {
+      const elements = arrayValues(receiver, active);
+      if (!elements) return undefined;
+      const separator = call.arguments.length ? evaluate(call.arguments[0]) : { values: new Set([","]), unknown: false };
+      const joined = { values: new Set(), unknown: separator.unknown || call.arguments.length > 1 };
+      for (const sep of separator.values) {
+        let value = { values: new Set([""]), unknown: false };
+        elements.forEach((element, index) => { value = combineKeys(value, element, index ? sep : ""); });
+        joined.unknown ||= value.unknown; for (const part of value.values) joined.values.add(part);
+      }
+      return joined;
+    }
+    if (text !== undefined && called === "concat") {
+      let values = { values: new Set([text]), unknown: false };
+      for (const argument of call.arguments) values = combineKeys(values, evaluate(argument));
+      return values;
+    }
+    if (text !== undefined && !call.arguments.length
+      && ["toUpperCase", "toLowerCase", "trim", "trimStart", "trimEnd", "valueOf", "toString"].includes(called)) {
+      const value = called === "toUpperCase" ? text.toUpperCase() : called === "toLowerCase" ? text.toLowerCase()
+        : called === "trim" ? text.trim() : called === "trimStart" ? text.trimStart() : called === "trimEnd" ? text.trimEnd() : text;
+      if (value.length <= 4096) return { values: new Set([value]), unknown: false };
+    }
+    if (named && called === "parse" && ts.isIdentifier(receiver) && receiver.text === "JSON" && !localValue(receiver)
+      && call.arguments.length === 1 && staticString(call.arguments[0]) !== undefined) {
+      try {
+        const parsed = JSON.parse(staticString(call.arguments[0]));
+        if (typeof parsed === "string" && parsed.length <= 4096) return { values: new Set([parsed]), unknown: false };
+      } catch { return undefined; }
+    }
+    if (!named && called === "String") {
+      if (!call.arguments.length) return { values: new Set([""]), unknown: false };
+      if (call.arguments.length === 1) return evaluate(call.arguments[0]);
+    }
+  };
   const forbiddenKey = node => [...keyCandidates(node).values].some(key => loaders.has(key) || key === "constructor");
   function constructorMetadata(node) {
     if (!bundled) return false;
