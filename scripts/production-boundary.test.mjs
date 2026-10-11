@@ -304,6 +304,65 @@ test("synthesized computed keys reject plain-object constructor extraction and r
   ]) for (const kind of ["browser", "gateway"]) for (const bundled of [false, true]) assert.doesNotThrow(() => dependencyReferences(source, "object-flow.js", undefined, { kind, bundled }), source);
 });
 
+test("opaque object constructor chains retain refusal states without tainting ordinary callbacks", () => {
+  const key='const key=String.fromCharCode(99,111,110,115,116,114,117,99,116,111,114); ', payload='"globalThis.canary=true"';
+  for(const body of [
+    `const data={}; const first=data[key]; first[key](${payload})();`,
+    `const data=[]; const first=data[key]; first[key](${payload})();`,
+    `const data="text"; const first=data[key]; first[key](${payload})();`,
+    `const data=1; const first=data[key]; first[key](${payload})();`,
+    `let data; data={}; let first; first=data[key]; first[key](${payload})();`,
+    `const data={}; const first=data[key]; const run=first[key]; run(${payload})();`,
+    `function read(data){return data[key];} read({})[key](${payload})();`,
+    `function read(data){const first=data[key];return ()=>first;} read({})()[key](${payload})();`,
+    `function make(){return{};} make()[key][key](${payload})();`,
+    `function read(data={}){return data[key];} read()[key](${payload})();`,
+    `function read(data){return true?data[key]:unknown;} read({})[key](${payload})();`,
+    `function read(data){return data[key]||unknown;} read({})[key](${payload})();`,
+    `function read(data){return (0,data[key]);} read({})[key](${payload})();`,
+    `function read(...args){return args[1][key];} read(0,{})[key](${payload})();`,
+    `function read(){return arguments[1][key];} read(0,{})[key](${payload})();`,
+    `function read(){return this[key];} read.call({})[key](${payload})();`,
+    `function read(){return this[key];} read.apply({},[])[key](${payload})();`,
+    `function read(){return this[key];} read.bind({})()[key](${payload})();`,
+    `function read(data){return data[key];} const readBound=read.bind(null,{}); readBound()[key](${payload})();`,
+    `const first={}[key]; first[key].call(null,${payload})();`,
+    `const first={}[key]; first[key].apply(null,[${payload}])();`,
+    `const first={}[key]; const run=first[key].bind(null,${payload}); run()();`,
+    `const key2=String.fromCodePoint(99,111,110,115,116,114,117,99,116,111,114); const first2={}[key2]; first2[key2](${payload})();`,
+    `const key3=["constr","uctor"].join(""); const first3={}[key3]; first3[key3](${payload})();`,
+    `const key4="constructor".slice(0); const first4={}[key4]; first4[key4](${payload})();`,
+    `const key5=decodeURIComponent("constructor"); const first5={}[key5]; first5[key5](${payload})();`,
+    `const codes6=[99,111,110,115,116,114,117,99,116,111,114]; const key6=String.fromCharCode(...codes6); const first6={}[key6]; first6[key6](${payload})();`,
+    `const key7=String.fromCharCode(99,111,110,115,116,114,117,99,116,111,114+0); const first7={}[key7]; first7[key7](${payload})();`,
+    `function read8(){return{}}; const first8=read8()[String.fromCharCode(99,111,110,115,116,114,117,99,116,111,114)]; first8[String.fromCharCode(99,111,110,115,116,114,117,99,116,111,114)](${payload})();`,
+    `const key9="constructor".substring(0,11); const first9={}[key9]; first9[key9](${payload})();`,
+  ]) {
+    const source=key+body,context={};vm.runInNewContext(source,context,{timeout:1000});assert.equal(context.canary,true,source);
+    for(const kind of ["browser","gateway"])for(const bundled of [false,true])assert.throws(()=>dependencyReferences(source,"object-constructor.js",undefined,{kind,bundled}),/loader|evaluation/,source);
+  }
+  for(const source of [
+    'const key=unknown; const data={}; const value=data[key];',
+    'const key=unknown; const registry={}; registry[key]();',
+    'const key=unknown; const registry={}; registry[key].call(null,1);',
+    'const key=unknown; const registry={}; const fn=registry[key]; fn.name;',
+    'const group="label",field="item"; const data={label:{item:()=>1}}; data[group][field]();',
+    'const data=[[()=>1]]; data[0][0]();',
+    'function read(data,key){return data[key];} read({label:1},"label");',
+    'function read(data,key){return data[key];} const data={label:{run:()=>1}}; read(data,"label")["run"]();',
+    'function make(){return{};} make()[unknown];',
+    'const key=unknown; const first={}[key]; first["name"];',
+    'const key=unknown; const first={}[key]; first.bind(null)(1);',
+    'const key=unknown; const first={}[key]; first.call(null,1);',
+    'const codes=[1,2,3]; const key=String.fromCharCode(...codes); const data={}; data[key];',
+    'const key=String.fromCharCode(97,98,99); const data={}; data[key];',
+    'const key="abc".slice(0); const data={}; data[key];',
+    'const key=decodeURIComponent(atob("YWJj")); const data={}; data[key];',
+    'const key=["a","b"].join(""); const data={}; data[key];',
+    'const fn={constructor:null}; const key=fn.name; fn[key];',
+  ]) for(const kind of ["browser","gateway"])for(const bundled of [false,true])assert.doesNotThrow(()=>dependencyReferences(source,"object-constructor.js",undefined,{kind,bundled}),source);
+});
+
 test("returned function invocation targets retain capabilities, bindings and unknown alternatives", () => {
   const key = 'const key=String.fromCharCode(99,111,110,115,116,114,117,99,116,111,114); ', payload = '"globalThis.canary=true"';
   for (const probe of [
@@ -491,6 +550,8 @@ test("Browser and gateway value-closure gates reject local function capabilities
     'const data = {}; const first = data[key]; first[key]("hidden")();',
     'function read(data) { return data[key]; } read({})[key]("hidden")();',
     'function make() { return {}; } make()[key][key]("hidden")();',
+    'const opaque=String.fromCharCode(99,111,110,115,116,114,117,99,116,111,114); const data={}; const first=data[opaque]; first[opaque]("hidden")();',
+    'const opaque=String.fromCharCode(99,111,110,115,116,114,117,99,116,111,114); function read(data){const first=data[opaque];return ()=>first;} read({})()[opaque]("hidden")();',
     'const opaque=String.fromCharCode(99,111,110,115,116,114,117,99,116,111,114); function make() { return fn=>fn[opaque]("hidden")(); } make()(()=>{});',
     'const opaque=String.fromCharCode(99,111,110,115,116,114,117,99,116,111,114); function make() { return function(){this[opaque]("hidden")();}; } make().call(()=>{});',
   ]) {

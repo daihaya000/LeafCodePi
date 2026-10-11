@@ -404,15 +404,45 @@ export function dependencyReferences(source, file = "boundary.ts", ts = parser()
     } else if (ts.isPropertyAccessExpression(root) && localMethod(root)) {
       const symbol = checker.getSymbolAtLocation(root.name);
       result = union(symbol?.declarations?.filter(ts.isPropertyAssignment).map(d => d.initializer) ?? []);
-    } else if (ts.isCallExpression(root) && ts.isPropertyAccessExpression(root.expression) && root.expression.name.text === "join" && !localMethod(root.expression)) {
-      const array = unwrap(root.expression.expression);
-      if (ts.isArrayLiteralExpression(array) && array.elements.every(node => !ts.isSpreadElement(node) && !ts.isOmittedExpression(node))) {
-        const separator = root.arguments.length ? evaluate(root.arguments[0]) : { values: new Set([","]), unknown: false };
-        result = { values: new Set(), unknown: separator.unknown || root.arguments.length > 1 };
-        for (const sep of separator.values) {
-          let joined = { values: new Set([""]), unknown: false };
-          array.elements.forEach((node, index) => { joined = combineKeys(joined, evaluate(node), index ? sep : ""); });
-          result.unknown ||= joined.unknown; for (const value of joined.values) result.values.add(value);
+    } else if (ts.isCallExpression(root)) {
+      // Synthesized keys are decoded only to add refusals; anything undecodable stays unknown.
+      const callee = root.expression, named = ts.isPropertyAccessExpression(callee);
+      const called = named ? callee.name.text : ts.isIdentifier(callee) ? callee.text : undefined;
+      const receiver = named ? callee.expression : undefined;
+      const builtin = named ? !localMethod(callee) : ts.isIdentifier(callee) && !localValue(callee);
+      const numbers = node => {
+        const value = unwrap(node), array = ts.isSpreadElement(value) ? unwrap(value.expression) : value;
+        if (ts.isArrayLiteralExpression(array)) return array.elements.flatMap(element => ts.isSpreadElement(element) ? numbers(element.expression) : [constantNumber(element)]);
+        if (ts.isIdentifier(array)) return [...containerValues(array, undefined), ...assignedValues.get(checker.getSymbolAtLocation(array)) ?? []].flatMap(value => [constantNumber(value)]);
+        return [constantNumber(value)];
+      };
+      const codes = root.arguments.flatMap(numbers);
+      const offsets = root.arguments.map(constantNumber);
+      const source = receiver ? evaluate(receiver) : { values: new Set(), unknown: true };
+      const text = source.unknown || source.values.size !== 1 ? undefined : [...source.values][0];
+      if (builtin && receiver?.getText(ast) === "String" && ["fromCharCode", "fromCodePoint"].includes(called)
+        && codes.length && codes.length <= 64 && codes.every(point => Number.isInteger(point) && point >= 0 && point <= 0x10ffff)) {
+        result = { values: new Set([(called === "fromCodePoint" ? String.fromCodePoint : String.fromCharCode)(...codes)]), unknown: false };
+      } else if (builtin && ["decodeURIComponent", "decodeURI"].includes(called)
+        && root.arguments.length === 1 && staticString(root.arguments[0]) !== undefined) {
+        try { result = { values: new Set([(called === "decodeURIComponent" ? decodeURIComponent : decodeURI)(staticString(root.arguments[0]))]), unknown: false }; } catch { /* malformed escapes stay unknown */ }
+      } else if (builtin && text !== undefined && ["slice", "substring", "substr", "at", "charAt"].includes(called)
+        && offsets.length <= 2 && offsets.every(offset => offset !== undefined)) {
+        const value = called === "slice" ? text.slice(offsets[0], offsets[1])
+          : called === "substring" ? text.substring(offsets[0], offsets[1])
+            : called === "substr" ? text.substr(offsets[0], offsets[1])
+              : called === "charAt" ? text.charAt(offsets[0]) : text.at(offsets[0]);
+        if (typeof value === "string" && value.length <= 4096) result = { values: new Set([value]), unknown: false };
+      } else if (builtin && called === "join") {
+        const array = unwrap(receiver);
+        if (ts.isArrayLiteralExpression(array) && array.elements.every(node => !ts.isSpreadElement(node) && !ts.isOmittedExpression(node))) {
+          const separator = root.arguments.length ? evaluate(root.arguments[0]) : { values: new Set([","]), unknown: false };
+          result = { values: new Set(), unknown: separator.unknown || root.arguments.length > 1 };
+          for (const sep of separator.values) {
+            let joined = { values: new Set([""]), unknown: false };
+            array.elements.forEach((node, index) => { joined = combineKeys(joined, evaluate(node), index ? sep : ""); });
+            result.unknown ||= joined.unknown; for (const value of joined.values) result.values.add(value);
+          }
         }
       }
     }
@@ -429,6 +459,28 @@ export function dependencyReferences(source, file = "boundary.ts", ts = parser()
       if (left !== undefined && right !== undefined) return left + right;
     }
   };
+  // Constant-fold only arithmetic the decoder can trust; anything else stays unknown.
+  const constantNumber = node => {
+    node = unwrap(node);
+    if (!node) return undefined;
+    if (ts.isNumericLiteral(node)) { const value = Number(node.text); return Number.isFinite(value) ? value : undefined; }
+    if (ts.isPrefixUnaryExpression(node) && [ts.SyntaxKind.MinusToken, ts.SyntaxKind.PlusToken].includes(node.operator)) {
+      const value = constantNumber(node.operand);
+      return value === undefined ? undefined : node.operator === ts.SyntaxKind.MinusToken ? -value : value;
+    }
+    if (ts.isBinaryExpression(node)) {
+      const left = constantNumber(node.left), right = constantNumber(node.right);
+      if (left === undefined || right === undefined) return undefined;
+      const value = node.operatorToken.kind === ts.SyntaxKind.PlusToken ? left + right
+        : node.operatorToken.kind === ts.SyntaxKind.MinusToken ? left - right
+          : node.operatorToken.kind === ts.SyntaxKind.AsteriskToken ? left * right
+            : node.operatorToken.kind === ts.SyntaxKind.SlashToken ? left / right
+              : node.operatorToken.kind === ts.SyntaxKind.PercentToken ? left % right
+                : node.operatorToken.kind === ts.SyntaxKind.AsteriskAsteriskToken ? left ** right : undefined;
+      return Number.isFinite(value) && Math.abs(value) <= 0xffffffff ? value : undefined;
+    }
+  };
+  const localValue = node => ts.isIdentifier(node) && checker.getSymbolAtLocation(node)?.declarations?.some(d => d.getSourceFile() === ast);
   const forbiddenKey = node => [...keyCandidates(node).values].some(key => loaders.has(key) || key === "constructor");
   function constructorMetadata(node) {
     if (!bundled) return false;
